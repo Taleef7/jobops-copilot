@@ -112,7 +112,7 @@ If you want optional Gmail draft creation, set `GMAIL_DRAFTS_ENABLED=true` and p
 
 ## Project Status
 
-Current phase: Phase 3 complete. Phase 4 n8n workflow integration is next.
+Current phase: Phase 4 in progress. n8n workflow integration is underway.
 
 What is real now:
 
@@ -131,6 +131,7 @@ What is real now:
 - database schema and idempotent Azure bootstrap support
 - prompt templates
 - workflow documentation
+- n8n webhook endpoints for job intake, follow-up reminders, and weekly report drafts
 - GitHub Actions CI on push and pull request
 - protected `main` branch with required checks
 

@@ -1,0 +1,63 @@
+{
+  "name": "Follow-Up Reminder Queue",
+  "notes": "Sample n8n export that asks the API for overdue follow-up reminders and hands the list to a messaging step.",
+  "nodes": [
+    {
+      "id": "schedule-trigger",
+      "name": "Daily Schedule",
+      "type": "n8n-nodes-base.cron",
+      "typeVersion": 1,
+      "position": [320, 300],
+      "parameters": {
+        "mode": "everyDay",
+        "hour": 9,
+        "minute": 0
+      }
+    },
+    {
+      "id": "post-reminders",
+      "name": "POST Reminder Request",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [620, 300],
+      "parameters": {
+        "method": "POST",
+        "url": "={{$env.JOBOPS_API_BASE_URL}}/api/n8n/follow-up-reminders",
+        "authentication": "none",
+        "sendHeaders": true,
+        "headerParametersUi": {
+          "parameter": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            },
+            {
+              "name": "X-N8N-Webhook-Secret",
+              "value": "={{$env.N8N_WEBHOOK_SECRET}}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ as_of: new Date().toISOString() }) }}"
+      }
+    }
+  ],
+  "connections": {
+    "Daily Schedule": {
+      "main": [
+        [
+          {
+            "node": "POST Reminder Request",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "active": false
+}

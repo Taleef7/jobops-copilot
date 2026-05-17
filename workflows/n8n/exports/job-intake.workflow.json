@@ -1,0 +1,63 @@
+{
+  "name": "Job Intake Processing",
+  "notes": "Sample n8n export that posts discovered jobs into the JobOps Copilot API for parsing, scoring, and human review.",
+  "nodes": [
+    {
+      "id": "webhook-trigger",
+      "name": "Webhook Trigger",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [320, 300],
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "job-intake",
+        "responseMode": "responseNode"
+      }
+    },
+    {
+      "id": "post-job-intake",
+      "name": "POST to JobOps API",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [620, 300],
+      "parameters": {
+        "method": "POST",
+        "url": "={{$env.JOBOPS_API_BASE_URL}}/api/n8n/job-intake",
+        "authentication": "none",
+        "sendHeaders": true,
+        "headerParametersUi": {
+          "parameter": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            },
+            {
+              "name": "X-N8N-Webhook-Secret",
+              "value": "={{$env.N8N_WEBHOOK_SECRET}}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json) }}"
+      }
+    }
+  ],
+  "connections": {
+    "Webhook Trigger": {
+      "main": [
+        [
+          {
+            "node": "POST to JobOps API",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "active": false
+}

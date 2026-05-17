@@ -31,7 +31,7 @@
 
 ## Assumptions
 
-- The next real backend phase will focus on n8n workflow integration.
+- The next real backend phase will focus on finishing the live n8n workflow runtime wiring and screenshots.
 - Azure Blob Storage will eventually hold uploaded resumes and generated reports.
 - AI outputs should stay structured and auditable.
 - Outreach and application actions should remain human-approved.
@@ -39,8 +39,9 @@
 
 ## Next Recommended Task
 
-Implement Phase 4:
+Finish Phase 4:
 
 - wire the existing CRM to n8n webhooks and scheduled jobs;
 - keep the outreach inbox human-approved and manual-only;
-- document the workflow JSON exports and review artifacts.
+- import the sample workflow exports into a live n8n instance;
+- capture screenshots and finalize the workflow review artifacts.
