@@ -98,6 +98,7 @@ What is real now:
 - prompt templates
 - workflow documentation
 - Azure PostgreSQL bootstrap support via `npm run db:init --workspace @jobops/api`
+- GitHub Actions CI that runs lint, typecheck, and build on push and pull request
 
 What is still mocked or placeholder-based:
 
