@@ -22,6 +22,9 @@ n8n is the primary orchestrator in the long-term design.
 
 The API expects `X-N8N-Webhook-Secret` when `N8N_WEBHOOK_SECRET` is configured.
 
+For the cheapest beginner-friendly setup, see
+[workflows/n8n/self-hosting.md](../workflows/n8n/self-hosting.md).
+
 Planned workflows:
 
 - manual job intake processing

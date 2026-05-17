@@ -2,7 +2,20 @@
 
 This folder documents the primary automation orchestrator.
 
+If you want the cheapest route, start with the self-hosted guide in
+[self-hosting.md](./self-hosting.md). It walks through running n8n locally in
+Docker Desktop and wiring it to the JobOps API on your machine. It also points
+to the ready-to-run `compose.yaml` and `.env.example` files in this folder.
+
 The API now exposes n8n-specific webhook endpoints and expects `X-N8N-Webhook-Secret` when `N8N_WEBHOOK_SECRET` is configured.
+
+Recommended local baseline:
+
+- Docker Desktop
+- the JobOps API running on port `4000`
+- `N8N_WEBHOOK_SECRET` set in both the API environment and the n8n container
+- `JOBOPS_API_BASE_URL=http://host.docker.internal:4000` inside the n8n container
+- `WEBHOOK_URL=http://localhost:5678/` while you are testing locally
 
 ## API Targets
 
