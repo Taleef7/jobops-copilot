@@ -4,16 +4,29 @@ JobOps Copilot is a cloud-ready job search operations CRM that helps you track o
 
 ## Overview
 
-The project is intentionally designed as a responsible AI operations system rather than an auto-apply bot. Phase 0 established the foundation, Phase 1 added functional job tracking, and Phase 2 now adds job parsing and fit scoring:
+The project is intentionally designed as a responsible AI operations system rather than an auto-apply bot. Phases 0 through 2 are implemented and verified:
 
 - a polished Next.js dashboard;
-- an Express API scaffold with persistent job CRUD and AI analysis endpoints;
-- PostgreSQL schema drafts;
+- an Express API with persistent job CRUD, AI parsing, fit scoring, and outreach draft endpoints;
+- an Azure PostgreSQL-backed CRM path with a repeatable bootstrap script;
+- PostgreSQL schema and seed data that can be applied idempotently;
 - prompt templates for AI workflows;
 - documentation for Azure, n8n, Zapier, and Make.com;
-- sample data for jobs, resumes, and reports.
+- sample data for jobs, resumes, and weekly reports;
+- GitHub Actions CI and branch protection on `main`.
 
-The current implementation uses live API-backed job storage with a local persistent data file by default, and it can switch to PostgreSQL when `DATABASE_URL` is configured. Create, update, parse, and fit-score flows survive API restarts in file mode, while the schema and repository are ready for a real database connection.
+The API supports both local file mode and PostgreSQL mode. In this workspace, the Azure PostgreSQL path is verified through `apps/api/.env`, while the file store remains the fallback when `DATABASE_URL` is absent.
+
+## Current Status
+
+See [docs/IMPLEMENTATION_STATUS.md](docs/IMPLEMENTATION_STATUS.md) for the full progress snapshot.
+
+- Phase 0 foundation complete
+- Phase 1 CRM MVP complete
+- Phase 2 AI parsing and fit scoring complete
+- Azure PostgreSQL bootstrap and live database verification complete
+- CI runs on push and pull request
+- `main` is protected and requires the CI checks to pass
 
 ## Planned Features
 
@@ -41,8 +54,8 @@ The current implementation uses live API-backed job storage with a local persist
 ## Architecture
 
 - `apps/web`: dashboard and product UI
-- `apps/api`: API scaffold with health, jobs, and AI placeholder endpoints
-- `db/migrations`: PostgreSQL schema drafts
+- `apps/api`: API scaffold with health, jobs, and AI endpoints
+- `db/migrations`: PostgreSQL schema
 - `db/seed`: sample seed data
 - `prompts`: structured prompt templates for LLM-backed workflows
 - `workflows`: documentation for n8n, Zapier, and Make.com
@@ -56,20 +69,26 @@ The current implementation uses live API-backed job storage with a local persist
 npm install
 ```
 
-2. Run the frontend and backend together.
+2. If you want the Azure PostgreSQL-backed path locally, create `apps/api/.env` with `DATABASE_URL` and run the bootstrap script.
+
+```bash
+npm run db:init --workspace @jobops/api
+```
+
+3. Run the frontend and backend together.
 
 ```bash
 npm run dev
 ```
 
-3. Or run each workspace separately.
+4. Or run each workspace separately.
 
 ```bash
 npm run dev:web
 npm run dev:api
 ```
 
-4. Verify the repository.
+5. Verify the repository.
 
 ```bash
 npm run typecheck
@@ -79,34 +98,43 @@ npm run build
 
 The frontend runs on the default Next.js port and the API runs on `http://localhost:4000`.
 The web app reads `NEXT_PUBLIC_API_BASE_URL` from `.env.local` and defaults to `http://127.0.0.1:4000`, so only change it if you move the API elsewhere. If you want the Postgres-backed store active, add a real `DATABASE_URL` before starting the API.
-For Azure PostgreSQL specifically, put the connection string in `apps/api/.env` and run `npm run db:init --workspace @jobops/api` before `npm run dev:api`.
+
+## Working This Repo
+
+1. Create a feature branch from `main`.
+2. Make the smallest coherent set of changes you can.
+3. Run `npm run check` before you commit.
+4. Run `git diff --cached --check` before the commit lands.
+5. Use a descriptive commit message that explains the scope.
+6. Push the branch and open a PR to `main`. `main` is protected and requires CI to pass.
 
 ## Project Status
 
-Current phase: Phase 2 AI parsing and fit scoring.
+Current phase: Phase 2 complete. Phase 3 outreach drafting is next.
 
 What is real now:
 
 - dashboard pages and navigation
 - live jobs list, create, detail, and update flows
 - live parse-job and score-fit actions from the job detail page
-- persistent job storage for the API
+- draft-outreach and weekly report draft endpoints
+- live Azure PostgreSQL storage behind `DATABASE_URL`
 - seed-backed dashboard fallback when the API is unavailable
 - API route scaffolds and validation
 - job analysis persistence and fit score updates
-- database schema drafts
+- database schema and idempotent Azure bootstrap support
 - prompt templates
 - workflow documentation
-- Azure PostgreSQL bootstrap support via `npm run db:init --workspace @jobops/api`
-- GitHub Actions CI that runs lint, typecheck, and build on push and pull request
+- GitHub Actions CI on push and pull request
+- protected `main` branch with required checks
 
 What is still mocked or placeholder-based:
 
 - LLM provider integration is still mock-mode when no provider key is configured
-- outreach generation logic
-- weekly report generation logic
-- Azure deployment wiring
-- real PostgreSQL connectivity is available behind `DATABASE_URL`, but this checkout currently falls back to the local file store
+- outreach sending logic
+- weekly report persistence and dashboards
+- full Azure hosting for the web and API apps
+- Blob Storage integration
 
 ## Roadmap
 

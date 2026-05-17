@@ -1,6 +1,20 @@
 # Roadmap
 
+## Status Summary
+
+- Phase 0: complete
+- Phase 1: complete
+- Phase 2: complete
+- Phase 3: next
+- Phase 4: planned
+- Phase 5: planned
+- Phase 6: partial, because Azure PostgreSQL is complete but app hosting is still pending
+- Phase 7: planned
+- Phase 8: planned
+
 ## Phase 0: Project Foundation
+
+Done:
 
 - repo structure
 - frontend scaffold
@@ -11,6 +25,8 @@
 
 ## Phase 1: CRM MVP
 
+Done:
+
 - persistent job CRUD
 - jobs list
 - job detail
@@ -19,26 +35,36 @@
 
 ## Phase 2: AI Parsing And Fit Scoring
 
+Done:
+
 - parse-job endpoint
 - score-fit endpoint
 - structured LLM outputs
 - job analysis persistence
 - analysis actions on the job detail page
+- Azure PostgreSQL bootstrap support
 
 ## Phase 3: Outreach Drafting
 
-- draft outreach endpoint
-- outreach page
-- approval workflow
+Next:
+
+- draft-outreach endpoint integration into the UI
+- outreach review and approval workflow
+- persisted outreach drafts
 - optional Gmail draft integration
 
 ## Phase 4: n8n Integration
 
+Planned:
+
 - webhook-driven processing
+- daily job discovery workflow
 - weekly report automation
 - follow-up reminders
 
 ## Phase 5: Weekly Reporting
+
+Planned:
 
 - report storage
 - report dashboards
@@ -46,19 +72,24 @@
 
 ## Phase 6: Azure Deployment
 
-- Static Web Apps
-- Azure Functions
-- Blob Storage
-- PostgreSQL
-- monitoring and secrets
+Partial:
+
+- Azure PostgreSQL is in place and verified
+- full static web app or app hosting still needs to be deployed
+- API hosting still needs to be deployed
+- Blob Storage, monitoring, and secrets management still need to be wired in
 
 ## Phase 7: Zapier And Make
+
+Planned:
 
 - one Zapier flow
 - one Make scenario
 - screenshots and comparison notes
 
 ## Phase 8: Advanced Agents
+
+Planned:
 
 - interview prep
 - hiring manager research

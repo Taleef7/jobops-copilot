@@ -1,6 +1,6 @@
 # API Spec
 
-The API exposes jobs and AI endpoints backed by either the local file store or PostgreSQL, depending on whether `DATABASE_URL` is configured. In the default local setup the file store keeps the CRM state persistent between API restarts.
+The API exposes jobs and AI endpoints backed by either the local file store or PostgreSQL, depending on whether `DATABASE_URL` is configured. In the default local setup the file store keeps the CRM state persistent between API restarts. When `DATABASE_URL` is present, the API switches to the Postgres-backed store and reports that in `/api/health`.
 
 ## Health
 
@@ -14,8 +14,8 @@ Example response:
 {
   "ok": true,
   "service": "jobops-copilot-api",
-  "mode": "file",
-  "timestamp": "2026-05-16T23:00:00.000Z"
+  "mode": "postgres",
+  "timestamp": "2026-05-17T16:58:10.636Z"
 }
 ```
 
@@ -33,15 +33,18 @@ Example response:
 {
   "jobs": [
     {
-      "id": "uuid",
-      "company": "Example Company",
+      "id": "11111111-1111-4111-8111-111111111111",
+      "company": "Northwind Labs",
       "title": "AI Automation Engineer",
       "status": "shortlisted",
-      "priority": "high"
+      "priority": "high",
+      "fitScore": 91
     }
   ]
 }
 ```
+
+Each job object includes the CRM fields, the latest analysis, and any outreach drafts.
 
 ### `POST /api/jobs`
 
@@ -71,9 +74,48 @@ Validation rules:
 - `priority`, when provided, must be `high`, `medium`, or `low`.
 - `workplaceType`, when provided, must be `remote`, `hybrid`, `onsite`, or `flexible`.
 
+Example response:
+
+```json
+{
+  "job": {
+    "id": "uuid",
+    "company": "Example Company",
+    "title": "AI Automation Engineer",
+    "status": "discovered",
+    "priority": "high"
+  }
+}
+```
+
 ### `GET /api/jobs/:id`
 
 Returns a single job with its analysis and outreach data.
+
+Example response:
+
+```json
+{
+  "job": {
+    "id": "uuid",
+    "company": "Example Company",
+    "title": "AI Automation Engineer",
+    "analysis": {
+      "requiredSkills": ["TypeScript"],
+      "preferredSkills": ["n8n"],
+      "matchedSkills": [],
+      "missingSkills": ["TypeScript"],
+      "atsKeywords": ["TypeScript"],
+      "fitSummary": "Initial placeholder analysis waiting for AI processing.",
+      "recommendedResumeAngle": "Emphasize truthful, relevant experience from the current resume.",
+      "applyRecommendation": "Review manually before deciding whether to apply.",
+      "confidenceScore": 48,
+      "modelUsed": "mock-analysis-v1"
+    },
+    "outreach": []
+  }
+}
+```
 
 ### `PATCH /api/jobs/:id`
 
@@ -120,17 +162,32 @@ Example response:
 ```json
 {
   "job_id": "uuid",
-  "company": "Example Company",
+  "company": "Northwind Labs",
   "title": "AI Automation Engineer",
-  "required_skills": ["TypeScript"],
-  "preferred_skills": ["n8n"],
-  "responsibilities": ["Contribute to TypeScript initiatives."],
+  "required_skills": ["TypeScript", "Azure Functions", "n8n"],
+  "preferred_skills": ["LLM"],
+  "responsibilities": [
+    "Contribute to typescript initiatives.",
+    "Contribute to azure functions initiatives."
+  ],
   "seniority": "mid",
   "cloud_tools": ["Azure Functions"],
   "automation_tools": ["n8n"],
-  "summary": "Parsed 3 keywords from the job description and grouped them into structured fields."
+  "summary": "Parsed 4 keywords from the job description and grouped them into structured fields."
 }
 ```
+
+Current response fields:
+
+- `company`
+- `title`
+- `required_skills`
+- `preferred_skills`
+- `responsibilities`
+- `seniority`
+- `cloud_tools`
+- `automation_tools`
+- `summary`
 
 ### `POST /api/ai/score-fit`
 
@@ -165,6 +222,18 @@ Example response:
 }
 ```
 
+Current response fields:
+
+- `fit_score`
+- `matched_skills`
+- `missing_skills`
+- `ats_keywords`
+- `fit_summary`
+- `recommended_resume_angle`
+- `apply_recommendation`
+- `confidence_score`
+- `model_used`
+
 ### `POST /api/ai/draft-outreach`
 
 Creates a human-reviewed outreach draft.
@@ -180,9 +249,23 @@ Example request:
 }
 ```
 
+Current response shape:
+
+```json
+{
+  "subject": "Interest in the role and a quick introduction",
+  "draft_text": "Hi Optional Name, ...",
+  "safety_notes": "Draft only. Human review is required before sending.",
+  "outreach_id": "uuid",
+  "job_id": "uuid"
+}
+```
+
+If `job_id` is supplied and matches an existing job, the draft is also stored in the `outreach` table with `status: "drafted"`. If the job ID does not resolve, the endpoint still returns the generated draft but does not persist it.
+
 ### `POST /api/ai/generate-weekly-report`
 
-Builds a weekly report from CRM data.
+Builds a weekly report draft from CRM data.
 
 Example request:
 
@@ -193,6 +276,28 @@ Example request:
 }
 ```
 
+Current response shape:
+
+```json
+{
+  "summary": "Weekly report draft for 2026-05-11 through 2026-05-17.",
+  "metrics": {
+    "jobs_discovered": 3,
+    "jobs_shortlisted": 1,
+    "jobs_applied": 0,
+    "outreach_drafted": 1,
+    "outreach_sent": 0,
+    "responses_received": 0,
+    "interviews": 0
+  },
+  "common_missing_skills": ["n8n"],
+  "recommended_next_actions": ["Review the highest-priority shortlisted jobs."],
+  "report_markdown": "# Weekly report..."
+}
+```
+
+This endpoint is still draft-oriented. Persisted weekly report storage and dashboards are future work.
+
 ## Response Rules
 
 - Return valid JSON.
@@ -200,3 +305,4 @@ Example request:
 - Keep placeholder behavior obvious until the live backend is ready.
 - The jobs routes should remain usable even if the UI falls back to seed data.
 - Parse and fit-score responses should be structurally validated before being saved.
+- Draft and report endpoints should remain human-review-first, not auto-send or auto-publish flows.
