@@ -19,6 +19,7 @@ Thumbs.db
 out/
 apps/api/data/jobs.json
 apps/api/data/*.tmp
+workflows/n8n/owner.env
 .playwright-mcp/
 .serena/
 tmp/

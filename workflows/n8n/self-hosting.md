@@ -59,12 +59,23 @@ The repo includes a ready-to-run Compose file and an example env file:
 
 - [compose.yaml](./compose.yaml)
 - [.env.example](./.env.example)
+- [owner.env.example](./owner.env.example)
 
 Copy `.env.example` to `.env`, replace the secret, and keep both files in the
 same folder as `compose.yaml`.
 
+If you want the instance owner pre-provisioned, also copy `owner.env.example`
+to `owner.env` and keep the owner values there.
+
 The important value is `N8N_WEBHOOK_SECRET`. Keep it identical to the value in
 the JobOps API environment.
+
+If you want to skip the first-time signup screen, you can also pre-provision
+the instance owner through environment variables. The Compose file reads those
+values from `owner.env` too.
+
+When you store the bcrypt hash in `owner.env`, double each `$` as `$$` so
+Docker Compose does not try to treat it as another variable.
 
 ## Step 4. Start n8n
 
@@ -77,8 +88,6 @@ docker compose up -d
 Then open:
 
 - `http://localhost:5678`
-
-Create the initial n8n owner account when prompted.
 
 ## Step 5. Import The First Workflow
 
