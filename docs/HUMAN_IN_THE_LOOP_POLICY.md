@@ -24,7 +24,7 @@ JobOps Copilot is designed to assist, not impersonate or automate the user witho
 
 - `parse-job` saves structured analysis back to the CRM when a `job_id` is supplied, but it does not send anything outward.
 - `score-fit` updates the stored analysis and `fit_score`, but the user still decides whether a job is worth pursuing.
-- `draft-outreach` returns a draft plus safety notes and stores the draft as `drafted` when a job ID is supplied.
+- `draft-outreach` returns a draft plus safety notes and stores the draft as `drafted` when a valid job ID is supplied.
 - `generate-weekly-report` returns a draft report and does not publish it anywhere.
 - The UI exposes these actions as explicit buttons so the user stays in control.
 

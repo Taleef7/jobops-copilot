@@ -261,7 +261,7 @@ Current response shape:
 }
 ```
 
-If `job_id` is supplied, the draft is also stored in the `outreach` table with `status: "drafted"`.
+If `job_id` is supplied and matches an existing job, the draft is also stored in the `outreach` table with `status: "drafted"`. If the job ID does not resolve, the endpoint still returns the generated draft but does not persist it.
 
 ### `POST /api/ai/generate-weekly-report`
 

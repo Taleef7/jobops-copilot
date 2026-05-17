@@ -51,7 +51,7 @@ Jobs are the CRM source of truth. The list and detail pages read job records, an
 
 ### Outreach
 
-`draft-outreach` creates a draft with safety notes and stores it as a draft record when a `job_id` is supplied. The workflow is intentionally human-reviewed and does not auto-send anything.
+`draft-outreach` creates a draft with safety notes and stores it as a draft record when a valid `job_id` is supplied. The workflow is intentionally human-reviewed and does not auto-send anything.
 
 ### Weekly Reports
 
