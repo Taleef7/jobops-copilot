@@ -1,0 +1,23 @@
+{
+  "name": "jobops-copilot",
+  "private": true,
+  "version": "0.1.0",
+  "workspaces": [
+    "apps/*"
+  ],
+  "scripts": {
+    "dev": "node scripts/dev.mjs",
+    "dev:web": "npm run dev --workspace @jobops/web",
+    "dev:api": "npm run dev --workspace @jobops/api",
+    "build:web": "npm run build --workspace @jobops/web",
+    "build:api": "npm run build --workspace @jobops/api",
+    "build": "npm run build:web && npm run build:api",
+    "lint:web": "npm run lint --workspace @jobops/web",
+    "lint:api": "npm run lint --workspace @jobops/api",
+    "lint": "npm run lint:web && npm run lint:api",
+    "typecheck:web": "npm run typecheck --workspace @jobops/web",
+    "typecheck:api": "npm run typecheck --workspace @jobops/api",
+    "typecheck": "npm run typecheck:web && npm run typecheck:api",
+    "check": "npm run lint && npm run typecheck && npm run build"
+  }
+}
