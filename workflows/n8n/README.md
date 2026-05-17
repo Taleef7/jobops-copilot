@@ -13,7 +13,7 @@ Recommended local baseline:
 
 - Docker Desktop
 - the JobOps API running on port `4000`
-- `N8N_WEBHOOK_SECRET` set in both the API environment and the n8n container
+- `N8N_WEBHOOK_SECRET` set in `apps/api/.env` and in the n8n container
 - `JOBOPS_API_BASE_URL=http://host.docker.internal:4000` inside the n8n container
 - `WEBHOOK_URL=http://localhost:5678/` while you are testing locally
 

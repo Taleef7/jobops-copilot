@@ -46,8 +46,12 @@ Use any long random string. A simple PowerShell way to create one is:
 
 Copy the result somewhere safe. You will use it in two places:
 
-- `N8N_WEBHOOK_SECRET` in the JobOps API environment
+- `N8N_WEBHOOK_SECRET` in `apps/api/.env`
 - `N8N_WEBHOOK_SECRET` in the n8n container environment
+
+The API workspace loads its local `.env` file through `dotenv/config`, so
+`apps/api/.env` is the file to edit when you start the API with
+`npm run dev:api`.
 
 ## Step 3. Create A Local n8n Compose File
 

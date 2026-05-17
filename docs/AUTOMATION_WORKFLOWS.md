@@ -79,7 +79,7 @@ Make is useful as a visual proof point for the portfolio, especially if a workfl
 - Never auto-send outreach without approval.
 - Keep every action auditable in the CRM.
 - Treat automations as workflow infrastructure, not spam tooling.
-- Keep webhook requests authenticated. The repo already includes `N8N_WEBHOOK_SECRET` in `.env.example` so future workflow endpoints can verify callers.
+- Keep webhook requests authenticated. The repo already includes `N8N_WEBHOOK_SECRET` in `.env.example`, and the API workspace should carry the same value in `apps/api/.env` so the webhook endpoints can verify callers.
 - Prefer drafts, reminders, and summaries over direct side effects.
 
 ## Progress Notes
