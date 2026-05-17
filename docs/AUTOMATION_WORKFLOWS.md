@@ -10,6 +10,7 @@ The workflows should build on the endpoints that already exist:
 - `POST /api/ai/parse-job` for structured parsing
 - `POST /api/ai/score-fit` for fit scoring
 - `POST /api/ai/draft-outreach` for outreach drafts
+- `PATCH /api/outreach/:id` for manual outreach review states
 - `POST /api/ai/generate-weekly-report` for weekly summaries
 
 ## n8n
@@ -30,7 +31,7 @@ Recommended n8n pattern:
 2. The workflow upserts the job in the CRM through the API.
 3. The workflow calls `parse-job` and then `score-fit` when a resume or profile context is available.
 4. The workflow drafts outreach but stops before sending.
-5. The workflow writes the result back to the CRM for auditability.
+5. The workflow writes the result back to the CRM for auditability and lets the inbox controls mark the draft approved, sent, or skipped later.
 
 ## Zapier
 
@@ -69,6 +70,7 @@ Make is useful as a visual proof point for the portfolio, especially if a workfl
 ## Progress Notes
 
 - The API already supports the key automation primitives.
-- Outreach drafts are stored as drafts, not sent automatically.
+- Outreach drafts are stored as drafts, not sent automatically, and the inbox can move them through manual review states.
+- Gmail draft creation is optional and only runs when the feature flag plus OAuth credentials are present.
 - Weekly report generation currently returns a draft report from seeded analytics data.
 - Workflow execution will become more useful once n8n and the companion tools are connected to the live API.

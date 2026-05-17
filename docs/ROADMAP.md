@@ -5,7 +5,7 @@
 - Phase 0: complete
 - Phase 1: complete
 - Phase 2: complete
-- Phase 3: next
+- Phase 3: complete
 - Phase 4: planned
 - Phase 5: planned
 - Phase 6: partial, because Azure PostgreSQL is complete but app hosting is still pending
@@ -46,12 +46,13 @@ Done:
 
 ## Phase 3: Outreach Drafting
 
-Next:
+Done:
 
 - draft-outreach endpoint integration into the UI
 - outreach review and approval workflow
 - persisted outreach drafts
-- optional Gmail draft integration
+- manual approved, sent, and skipped status controls
+- optional Gmail draft support behind a feature flag, browser-verified locally
 
 ## Phase 4: n8n Integration
 

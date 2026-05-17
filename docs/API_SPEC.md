@@ -245,7 +245,10 @@ Example request:
   "job_id": "uuid",
   "message_type": "recruiter_email",
   "contact_name": "Optional Name",
-  "contact_role": "Optional Role"
+  "contact_role": "Optional Role",
+  "contact_email": "optional@example.com",
+  "job_context": "Optional context from the current job description",
+  "resume_summary": "Optional context from the user's resume snapshot"
 }
 ```
 
@@ -257,11 +260,39 @@ Current response shape:
   "draft_text": "Hi Optional Name, ...",
   "safety_notes": "Draft only. Human review is required before sending.",
   "outreach_id": "uuid",
-  "job_id": "uuid"
+  "job_id": "uuid",
+  "gmail_draft_status": "created",
+  "gmail_draft_id": "gmail-draft-id",
+  "gmail_draft_message": "Gmail draft created in the connected mailbox."
 }
 ```
 
 If `job_id` is supplied and matches an existing job, the draft is also stored in the `outreach` table with `status: "drafted"`. If the job ID does not resolve, the endpoint still returns the generated draft but does not persist it.
+
+When the job exists, the saved job row also moves into the `outreach_drafted` stage so the CRM reflects that the draft is waiting for review.
+
+If `GMAIL_DRAFTS_ENABLED=true` and a recipient email is supplied, the API also attempts to create a Gmail draft using the Gmail API. The response includes `gmail_draft_status`, `gmail_draft_id`, and `gmail_draft_message` so the UI can show whether that optional side effect was created, skipped, or failed.
+
+### `PATCH /api/outreach/:id`
+
+Updates a single outreach draft in the inbox.
+
+Example request:
+
+```json
+{
+  "status": "approved"
+}
+```
+
+Allowed `status` values:
+
+- `drafted`
+- `approved`
+- `sent`
+- `skipped`
+
+This endpoint updates the draft state manually. Setting `status` to `sent` records the send timestamp but does not send mail automatically.
 
 ### `POST /api/ai/generate-weekly-report`
 

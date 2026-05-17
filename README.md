@@ -24,6 +24,7 @@ See [docs/IMPLEMENTATION_STATUS.md](docs/IMPLEMENTATION_STATUS.md) for the full 
 - Phase 0 foundation complete
 - Phase 1 CRM MVP complete
 - Phase 2 AI parsing and fit scoring complete
+- Phase 3 outreach drafting, inbox review, and optional Gmail draft creation are browser-verified locally
 - Azure PostgreSQL bootstrap and live database verification complete
 - CI runs on push and pull request
 - `main` is protected and requires the CI checks to pass
@@ -98,6 +99,7 @@ npm run build
 
 The frontend runs on the default Next.js port and the API runs on `http://localhost:4000`.
 The web app reads `NEXT_PUBLIC_API_BASE_URL` from `.env.local` and defaults to `http://127.0.0.1:4000`, so only change it if you move the API elsewhere. If you want the Postgres-backed store active, add a real `DATABASE_URL` before starting the API.
+If you want optional Gmail draft creation, set `GMAIL_DRAFTS_ENABLED=true` and provide `GMAIL_CLIENT_ID`, `GMAIL_CLIENT_SECRET`, and `GMAIL_REFRESH_TOKEN` from a Google Cloud OAuth flow with the Gmail compose scope.
 
 ## Working This Repo
 
@@ -110,14 +112,18 @@ The web app reads `NEXT_PUBLIC_API_BASE_URL` from `.env.local` and defaults to `
 
 ## Project Status
 
-Current phase: Phase 2 complete. Phase 3 outreach drafting is next.
+Current phase: Phase 3 complete. Phase 4 n8n workflow integration is next.
 
 What is real now:
 
 - dashboard pages and navigation
 - live jobs list, create, detail, and update flows
 - live parse-job and score-fit actions from the job detail page
-- draft-outreach and weekly report draft endpoints
+- draft-outreach and outreach review/status endpoints
+- live outreach inbox with drafted, approved, sent, and skipped states
+- optional Gmail draft creation behind a feature flag
+- browser-verified end-to-end outreach draft flow with optional Gmail draft creation
+- weekly report draft endpoint
 - live Azure PostgreSQL storage behind `DATABASE_URL`
 - seed-backed dashboard fallback when the API is unavailable
 - API route scaffolds and validation
@@ -131,8 +137,8 @@ What is real now:
 What is still mocked or placeholder-based:
 
 - LLM provider integration is still mock-mode when no provider key is configured
-- outreach sending logic
 - weekly report persistence and dashboards
+- outreach sending remains manual-only
 - full Azure hosting for the web and API apps
 - Blob Storage integration
 

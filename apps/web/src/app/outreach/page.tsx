@@ -1,24 +1,29 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
 import { EmptyState } from '@/components/empty-state';
+import { OutreachReviewActions } from '@/components/outreach-review-actions';
 import { SectionCard } from '@/components/section-card';
 import { StatusPill } from '@/components/status-pill';
-import { mockOutreachDrafts } from '@/lib/mock-data';
-import { formatDate } from '@/lib/format';
+import { loadOutreach } from '@/lib/outreach-data';
+import { formatCompactDateTime, formatDate } from '@/lib/format';
+
+export const dynamic = 'force-dynamic';
 
 export const metadata: Metadata = {
   title: 'Outreach',
 };
 
-export default function OutreachPage() {
+export default async function OutreachPage() {
+  const { items, source } = await loadOutreach();
+
   return (
     <div className="stack">
       <section className="hero">
         <p className="eyebrow">Human review</p>
-        <h2 className="hero__title">Draft outreach is always reviewed before anything is sent.</h2>
+        <h2 className="hero__title">Review every outreach draft before it leaves the CRM.</h2>
         <p className="hero__lead">
-          This page previews the recruiter, referral, and follow-up messages that will be stored in
-          the outreach table and kept in draft mode until the user approves them.
+          The inbox below is live, sorted by newest draft first, and shows the job context alongside
+          each message so approval stays intentional.
         </p>
         <div className="hero__actions">
           <Link className="button button--ghost" href="/jobs">
@@ -27,35 +32,73 @@ export default function OutreachPage() {
         </div>
       </section>
 
+      {source === 'seed' ? (
+        <div className="callout callout--accent">
+          <p className="callout__title">Seed data shown</p>
+          <p className="callout__text">
+            The API is not reachable right now, so the outreach inbox is rendering the local seed
+            dataset and review actions are disabled until the live backend is available.
+          </p>
+        </div>
+      ) : null}
+
       <SectionCard
         title="Draft inbox"
-        description="The mock data shows the exact state the future outreach table will surface."
+        description="Drafted, approved, sent, and skipped states stay visible for auditability."
       >
-        {mockOutreachDrafts.length === 0 ? (
+        {items.length === 0 ? (
           <EmptyState
             title="No outreach drafts yet"
-            description="Drafts will appear here after the AI outreach endpoint is connected."
+            description="Generate a draft from a job detail page and it will appear here for review."
             actionLabel="Open jobs"
             actionHref="/jobs"
           />
         ) : (
           <div className="stack">
-            {mockOutreachDrafts.map((draft) => (
-              <div key={draft.id} className="detail-card">
+            {items.map((item) => (
+              <div key={item.draft.id} className="detail-card">
                 <div className="split">
-                  <div>
-                    <p className="detail-card__title">
-                      {draft.contactName} · {draft.contactRole}
+                  <div className="stack">
+                    <div>
+                      <p className="detail-card__title">
+                        {item.company} · {item.title}
+                      </p>
+                      <p className="table-copy">
+                        Drafted {formatCompactDateTime(item.draft.createdAt)} · Job status{' '}
+                        {item.jobStatus.replaceAll('_', ' ')}
+                      </p>
+                    </div>
+                    <p className="detail-card__value" style={{ whiteSpace: 'pre-wrap' }}>
+                      {item.draft.draftText}
                     </p>
-                    <p className="detail-card__value">{draft.draftText}</p>
-                    <div className="chip-row" style={{ marginTop: '0.75rem' }}>
-                      <span className="chip">{draft.messageType.replaceAll('_', ' ')}</span>
-                      {draft.followUpDue ? <span className="chip">Follow-up {formatDate(draft.followUpDue)}</span> : null}
+                    <div className="chip-row">
+                      <span className="chip">{item.draft.messageType.replaceAll('_', ' ')}</span>
+                      <span className="chip">{item.priority} priority</span>
+                      {item.draft.contactName ? <span className="chip">{item.draft.contactName}</span> : null}
+                      {item.draft.contactRole ? <span className="chip">{item.draft.contactRole}</span> : null}
+                      {item.draft.email ? <span className="chip">{item.draft.email}</span> : null}
+                      {item.draft.contactSource ? <span className="chip">{item.draft.contactSource}</span> : null}
+                      {item.draft.followUpDue ? <span className="chip">Follow-up {formatDate(item.draft.followUpDue)}</span> : null}
                     </div>
                   </div>
-                  <div style={{ justifySelf: 'end' }}>
-                    <StatusPill status={draft.status} />
+                  <div className="stack" style={{ justifySelf: 'end' }}>
+                    <StatusPill status={item.draft.status} />
+                    <StatusPill status={item.jobStatus} />
+                    <Link className="button button--ghost" href={`/jobs/${item.jobId}`}>
+                      Open job
+                    </Link>
                   </div>
+                </div>
+
+                <div className="stack" style={{ marginTop: '1rem' }}>
+                  <OutreachReviewActions
+                    outreachId={item.draft.id}
+                    currentStatus={item.draft.status}
+                    disabled={source === 'seed'}
+                  />
+                  {item.draft.gmailDraftId ? (
+                    <p className="table-copy">Gmail draft id: {item.draft.gmailDraftId}</p>
+                  ) : null}
                 </div>
               </div>
             ))}
@@ -65,13 +108,13 @@ export default function OutreachPage() {
 
       <SectionCard
         title="Approval policy"
-        description="The product always drafts first and sends only when a human confirms the action."
+        description="The workflow remains human-first and never auto-sends messages."
       >
         <ul className="list">
-          <li>No automatic emails or LinkedIn messages.</li>
-          <li>All outreach carries a draft, approved, sent, or skipped status.</li>
-          <li>Follow-up reminders are generated only after the user reviews the draft.</li>
-          <li>The wording stays truthful and never invents experience.</li>
+          <li>Drafts can be approved, skipped, or marked sent only after a manual send.</li>
+          <li>Job detail pages can create new outreach drafts, but the inbox is where review happens.</li>
+          <li>Gmail draft support is optional and only runs when the feature flag and credentials are set.</li>
+          <li>All outreach remains auditable in the CRM.</li>
         </ul>
       </SectionCard>
     </div>

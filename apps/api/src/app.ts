@@ -3,6 +3,7 @@ import express from 'express';
 import { aiRouter } from '@/routes/ai';
 import { healthRouter } from '@/routes/health';
 import { jobsRouter } from '@/routes/jobs';
+import { outreachRouter } from '@/routes/outreach';
 
 export function createApp() {
   const app = express();
@@ -14,6 +15,7 @@ export function createApp() {
   app.use('/api', healthRouter);
   app.use('/api/jobs', jobsRouter);
   app.use('/api/ai', aiRouter);
+  app.use('/api/outreach', outreachRouter);
 
   app.use((_request, response) => {
     response.status(404).json({ error: 'Not found' });

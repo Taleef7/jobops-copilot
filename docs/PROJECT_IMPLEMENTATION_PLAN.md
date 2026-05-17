@@ -928,13 +928,17 @@ Goal:
 
 Generate human-approved outreach drafts.
 
+Status:
+
+Implemented in the current codebase. The job detail page can generate outreach drafts, the inbox lists them for human review, reviewers can approve, skip, or mark a draft sent manually, and optional Gmail draft creation is available behind a feature flag. The flow was browser-verified locally after Gmail OAuth setup.
+
 Deliverables:
 
 * outreach table
 * draft-outreach endpoint
 * outreach UI
-* Gmail draft integration placeholder or implementation
-* approval status workflow
+* manual approval status workflow
+* Gmail draft integration behind a feature flag
 
 ## Phase 4: n8n Automation
 

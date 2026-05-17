@@ -6,6 +6,7 @@ import type {
   JobAnalysis,
   JobRecord,
   OutreachDraft,
+  UpdateOutreachBody,
   UpdateJobBody,
 } from '@/types';
 import { validateJobAnalysis } from '@/lib/analysis-core';
@@ -243,11 +244,68 @@ export async function appendOutreachDraft(jobId: string, draft: OutreachDraft): 
       return undefined;
     }
 
-    const clonedDraft = clone(draft);
+    const clonedDraft = clone({
+      ...draft,
+      jobId,
+    });
     job.outreach.push(clonedDraft);
+    job.status = 'outreach_drafted';
+    job.nextAction = 'Review the outreach draft and approve or skip it manually.';
     job.updatedAt = new Date().toISOString();
     await persistJobs();
     return clone(clonedDraft);
+  });
+}
+
+export async function updateOutreachDraft(
+  outreachId: string,
+  body: UpdateOutreachBody,
+): Promise<OutreachDraft | undefined> {
+  if (hasPostgresConnection()) {
+    return postgresStore.updateOutreachDraft(outreachId, body);
+  }
+
+  return runExclusive(async () => {
+    const jobs = await ensureLoaded();
+
+    for (const job of jobs) {
+      const draft = job.outreach.find((entry) => entry.id === outreachId);
+
+      if (!draft) {
+        continue;
+      }
+
+      if (typeof body.status !== 'undefined') {
+        draft.status = body.status;
+      }
+      if (typeof body.gmailDraftId !== 'undefined') {
+        draft.gmailDraftId = body.gmailDraftId.trim() || undefined;
+      }
+      if (typeof body.sentAt !== 'undefined') {
+        draft.sentAt = body.sentAt.trim() || undefined;
+      }
+      if (typeof body.followUpDue !== 'undefined') {
+        draft.followUpDue = body.followUpDue.trim() || undefined;
+      }
+
+      if (draft.status === 'sent' && !draft.sentAt) {
+        draft.sentAt = new Date().toISOString();
+      }
+
+      if (draft.status === 'sent') {
+        job.status = 'outreach_sent';
+        job.nextAction = 'Track the reply window and prepare a follow-up if needed.';
+      } else {
+        job.status = 'outreach_drafted';
+        job.nextAction = 'Review the outreach draft and approve or skip it manually.';
+      }
+
+      job.updatedAt = new Date().toISOString();
+      await persistJobs();
+      return clone(draft);
+    }
+
+    return undefined;
   });
 }
 

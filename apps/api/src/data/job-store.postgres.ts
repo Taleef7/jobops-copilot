@@ -1,6 +1,13 @@
 import { randomUUID } from 'node:crypto';
 import type { PoolClient } from 'pg';
-import type { CreateJobBody, JobAnalysis, JobRecord, OutreachDraft, UpdateJobBody } from '@/types';
+import type {
+  CreateJobBody,
+  JobAnalysis,
+  JobRecord,
+  OutreachDraft,
+  UpdateJobBody,
+  UpdateOutreachBody,
+} from '@/types';
 import { getDefaultAnalysis, validateJobAnalysis } from '@/lib/analysis-core';
 import { getPool } from '@/lib/postgres';
 import { seedJobs } from '@/data/mock-store';
@@ -111,11 +118,13 @@ function mapAnalysis(row: JobAnalysisRow | undefined, descriptionText: string): 
 function mapOutreach(row: OutreachRow): OutreachDraft {
   return {
     id: row.id,
+    jobId: row.job_id,
     contactName: row.contact_name ?? undefined,
     contactRole: row.contact_role ?? undefined,
     contactSource: row.contact_source ?? undefined,
     linkedinUrl: row.linkedin_url ?? undefined,
     email: row.email ?? undefined,
+    gmailDraftId: row.gmail_draft_id ?? undefined,
     messageType: row.message_type as OutreachDraft['messageType'],
     draftText: row.draft_text,
     status: row.status as OutreachDraft['status'],
@@ -589,48 +598,140 @@ export async function updateJob(jobId: string, body: UpdateJobBody): Promise<Job
 export async function appendOutreachDraft(jobId: string, draft: OutreachDraft): Promise<OutreachDraft | undefined> {
   await ensureReady();
   const pool = poolOrThrow();
+  const client = await pool.connect();
 
-  const { rows } = await pool.query<OutreachRow>(
-    `
-      insert into outreach (
-        id,
-        job_id,
-        contact_name,
-        contact_role,
-        contact_source,
-        linkedin_url,
-        email,
-        message_type,
-        draft_text,
-        status,
-        created_at,
-        sent_at,
-        follow_up_due
-      ) values (
-        $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13
-      )
-      returning *
-    `,
-    [
-      draft.id,
-      jobId,
-      draft.contactName ?? null,
-      draft.contactRole ?? null,
-      draft.contactSource ?? null,
-      draft.linkedinUrl ?? null,
-      draft.email ?? null,
-      draft.messageType,
-      draft.draftText,
-      draft.status,
-      draft.createdAt,
-      draft.sentAt ?? null,
-      draft.followUpDue ?? null,
-    ],
-  );
+  try {
+    await client.query('begin');
 
-  await pool.query('update jobs set updated_at = now() where id::text = $1', [jobId]);
+    const { rows } = await client.query<OutreachRow>(
+      `
+        insert into outreach (
+          id,
+          job_id,
+          contact_name,
+          contact_role,
+          contact_source,
+          linkedin_url,
+          email,
+          message_type,
+          draft_text,
+          status,
+          created_at,
+          sent_at,
+          follow_up_due
+        ) values (
+          $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13
+        )
+        returning *
+      `,
+      [
+        draft.id,
+        jobId,
+        draft.contactName ?? null,
+        draft.contactRole ?? null,
+        draft.contactSource ?? null,
+        draft.linkedinUrl ?? null,
+        draft.email ?? null,
+        draft.messageType,
+        draft.draftText,
+        draft.status,
+        draft.createdAt,
+        draft.sentAt ?? null,
+        draft.followUpDue ?? null,
+      ],
+    );
 
-  return rows[0] ? mapOutreach(rows[0]) : undefined;
+    await client.query(
+      `update jobs
+       set status = 'outreach_drafted',
+           next_action = 'Review the outreach draft and approve or skip it manually.',
+           updated_at = now()
+       where id::text = $1`,
+      [jobId],
+    );
+
+    await client.query('commit');
+    return rows[0] ? mapOutreach(rows[0]) : undefined;
+  } catch (error) {
+    await client.query('rollback');
+    throw error;
+  } finally {
+    client.release();
+  }
+}
+
+export async function updateOutreachDraft(
+  outreachId: string,
+  body: UpdateOutreachBody,
+): Promise<OutreachDraft | undefined> {
+  await ensureReady();
+  const pool = poolOrThrow();
+  const client = await pool.connect();
+
+  try {
+    await client.query('begin');
+
+    const { rows } = await client.query<OutreachRow>(
+      `
+        update outreach
+        set
+          status = coalesce($2, status),
+          gmail_draft_id = case when $3::text is null then gmail_draft_id else nullif($3::text, '') end,
+          sent_at = case
+            when coalesce($2, status) = 'sent' then coalesce($4::timestamptz, sent_at, now())
+            when $4::timestamptz is null then sent_at
+            else $4::timestamptz
+          end,
+          follow_up_due = case when $5::timestamptz is null then follow_up_due else $5::timestamptz end
+        where id::text = $1
+        returning *
+      `,
+      [
+        outreachId,
+        body.status ?? null,
+        body.gmailDraftId ?? null,
+        body.sentAt ?? null,
+        body.followUpDue ?? null,
+      ],
+    );
+
+    const outreach = rows[0] as OutreachRow | undefined;
+    if (!outreach) {
+      await client.query('rollback');
+      return undefined;
+    }
+
+    const jobUpdate =
+      outreach.status === 'sent'
+        ? {
+            status: 'outreach_sent' as const,
+            nextAction: 'Track the reply window and prepare a follow-up if needed.',
+          }
+        : {
+            status: 'outreach_drafted' as const,
+            nextAction: 'Review the outreach draft and approve or skip it manually.',
+          };
+
+    await client.query(
+      `
+        update jobs
+        set
+          status = $2,
+          next_action = $3,
+          updated_at = now()
+        where id::text = $1
+      `,
+      [outreach.job_id, jobUpdate.status, jobUpdate.nextAction],
+    );
+
+    await client.query('commit');
+    return mapOutreach(outreach);
+  } catch (error) {
+    await client.query('rollback');
+    throw error;
+  } finally {
+    client.release();
+  }
 }
 
 export async function saveJobAnalysis(

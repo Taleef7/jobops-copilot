@@ -1,4 +1,4 @@
-import type { Job } from '@/types/job';
+import type { Job, OutreachMessageType, OutreachStatus } from '@/types/job';
 
 const apiBaseUrl = (process.env.NEXT_PUBLIC_API_BASE_URL ?? 'http://127.0.0.1:4000').replace(/\/$/, '');
 
@@ -87,6 +87,38 @@ export interface ScoreFitResponse {
   model_used: string;
 }
 
+export interface DraftOutreachPayload {
+  jobId?: string;
+  messageType: OutreachMessageType;
+  contactName?: string;
+  contactRole?: string;
+  contactEmail?: string;
+  jobContext?: string;
+  resumeSummary?: string;
+}
+
+export interface DraftOutreachResponse {
+  subject: string;
+  draft_text: string;
+  safety_notes: string;
+  outreach_id: string;
+  job_id: string | null;
+  gmail_draft_status: 'created' | 'skipped' | 'failed';
+  gmail_draft_id: string | null;
+  gmail_draft_message: string;
+}
+
+export interface UpdateOutreachPayload {
+  status?: OutreachStatus;
+  gmailDraftId?: string;
+  sentAt?: string;
+  followUpDue?: string;
+}
+
+export interface UpdateOutreachResponse {
+  outreach: Job['outreach'][number];
+}
+
 export async function fetchJobs(): Promise<Job[]> {
   const response = await requestJson<JobsResponse>('/api/jobs', { cache: 'no-store' });
   return response.jobs;
@@ -131,6 +163,31 @@ export async function scoreFit(payload: ScoreFitPayload): Promise<ScoreFitRespon
       resume_text: payload.resumeText,
       profile_text: payload.profileText,
     }),
+  });
+}
+
+export async function draftOutreach(payload: DraftOutreachPayload): Promise<DraftOutreachResponse> {
+  return requestJson<DraftOutreachResponse>('/api/ai/draft-outreach', {
+    method: 'POST',
+    body: JSON.stringify({
+      job_id: payload.jobId,
+      message_type: payload.messageType,
+      contact_name: payload.contactName,
+      contact_role: payload.contactRole,
+      contact_email: payload.contactEmail,
+      job_context: payload.jobContext,
+      resume_summary: payload.resumeSummary,
+    }),
+  });
+}
+
+export async function updateOutreach(
+  outreachId: string,
+  payload: UpdateOutreachPayload,
+): Promise<UpdateOutreachResponse> {
+  return requestJson<UpdateOutreachResponse>(`/api/outreach/${outreachId}`, {
+    method: 'PATCH',
+    body: JSON.stringify(payload),
   });
 }
 

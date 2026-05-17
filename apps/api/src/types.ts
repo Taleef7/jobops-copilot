@@ -39,11 +39,13 @@ export interface JobAnalysis {
 
 export interface OutreachDraft {
   id: string;
+  jobId?: string;
   contactName?: string;
   contactRole?: string;
   contactSource?: string;
   linkedinUrl?: string;
   email?: string;
+  gmailDraftId?: string;
   messageType: MessageType;
   draftText: string;
   status: OutreachStatus;
@@ -131,6 +133,16 @@ export interface DraftOutreachBody {
   message_type: MessageType;
   contact_name?: string;
   contact_role?: string;
+  contact_email?: string;
+  job_context?: string;
+  resume_summary?: string;
+}
+
+export interface UpdateOutreachBody {
+  status?: OutreachStatus;
+  gmailDraftId?: string;
+  sentAt?: string;
+  followUpDue?: string;
 }
 
 export interface WeeklyReportBody {

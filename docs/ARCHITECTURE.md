@@ -51,7 +51,7 @@ Jobs are the CRM source of truth. The list and detail pages read job records, an
 
 ### Outreach
 
-`draft-outreach` creates a draft with safety notes and stores it as a draft record when a valid `job_id` is supplied. The workflow is intentionally human-reviewed and does not auto-send anything.
+`draft-outreach` creates a draft with safety notes and stores it as a draft record when a valid `job_id` is supplied. The job detail page can generate the draft and the outreach inbox can move it through approved, sent, or skipped manually. When the Gmail feature flag is enabled with OAuth credentials, the API can also create a Gmail draft for later manual sending. The workflow is intentionally human-reviewed and does not auto-send anything.
 
 ### Weekly Reports
 
