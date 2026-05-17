@@ -6,9 +6,11 @@ import type {
   JobAnalysis,
   JobRecord,
   OutreachDraft,
+  UpdateOutreachBody,
   UpdateJobBody,
 } from '@/types';
 import { validateJobAnalysis } from '@/lib/analysis-core';
+import { deriveOutreachJobUpdate } from '@/lib/outreach-workflow';
 import { hasPostgresConnection } from '@/lib/postgres';
 import * as postgresStore from '@/data/job-store.postgres';
 import { seedJobs } from '@/data/mock-store';
@@ -243,11 +245,100 @@ export async function appendOutreachDraft(jobId: string, draft: OutreachDraft): 
       return undefined;
     }
 
-    const clonedDraft = clone(draft);
+    const clonedDraft = clone({
+      ...draft,
+      jobId,
+    });
     job.outreach.push(clonedDraft);
+    const jobUpdate = deriveOutreachJobUpdate(job.status, job.outreach);
+
+    if (jobUpdate) {
+      job.status = jobUpdate.status;
+      job.nextAction = jobUpdate.nextAction;
+    }
+
     job.updatedAt = new Date().toISOString();
     await persistJobs();
     return clone(clonedDraft);
+  });
+}
+
+export async function updateOutreachDraft(
+  outreachId: string,
+  body: UpdateOutreachBody,
+): Promise<OutreachDraft | undefined> {
+  if (hasPostgresConnection()) {
+    return postgresStore.updateOutreachDraft(outreachId, body);
+  }
+
+  return runExclusive(async () => {
+    const jobs = await ensureLoaded();
+
+    for (const job of jobs) {
+      const draft = job.outreach.find((entry) => entry.id === outreachId);
+
+      if (!draft) {
+        continue;
+      }
+
+      if (typeof body.status !== 'undefined') {
+        draft.status = body.status;
+      }
+      if (typeof body.gmailDraftId !== 'undefined') {
+        draft.gmailDraftId = body.gmailDraftId.trim() || undefined;
+      }
+      if (typeof body.sentAt !== 'undefined') {
+        draft.sentAt = body.sentAt.trim() || undefined;
+      }
+      if (typeof body.followUpDue !== 'undefined') {
+        draft.followUpDue = body.followUpDue.trim() || undefined;
+      }
+
+      if (draft.status === 'sent' && !draft.sentAt) {
+        draft.sentAt = new Date().toISOString();
+      }
+
+      const jobUpdate = deriveOutreachJobUpdate(job.status, job.outreach);
+
+      if (jobUpdate) {
+        job.status = jobUpdate.status;
+        job.nextAction = jobUpdate.nextAction;
+      }
+
+      job.updatedAt = new Date().toISOString();
+      await persistJobs();
+      return clone(draft);
+    }
+
+    return undefined;
+  });
+}
+
+export async function updateOutreachGmailDraftId(
+  outreachId: string,
+  gmailDraftId: string,
+): Promise<OutreachDraft | undefined> {
+  if (hasPostgresConnection()) {
+    return postgresStore.updateOutreachGmailDraftId(outreachId, gmailDraftId);
+  }
+
+  return runExclusive(async () => {
+    const jobs = await ensureLoaded();
+
+    for (const job of jobs) {
+      const draft = job.outreach.find((entry) => entry.id === outreachId);
+
+      if (!draft) {
+        continue;
+      }
+
+      draft.gmailDraftId = gmailDraftId.trim() || undefined;
+      job.updatedAt = new Date().toISOString();
+      await persistJobs();
+      return clone(draft);
+    }
+
+    return undefined;
   });
 }
 

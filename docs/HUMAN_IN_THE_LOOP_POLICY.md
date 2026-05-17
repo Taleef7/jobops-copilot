@@ -25,6 +25,8 @@ JobOps Copilot is designed to assist, not impersonate or automate the user witho
 - `parse-job` saves structured analysis back to the CRM when a `job_id` is supplied, but it does not send anything outward.
 - `score-fit` updates the stored analysis and `fit_score`, but the user still decides whether a job is worth pursuing.
 - `draft-outreach` returns a draft plus safety notes and stores the draft as `drafted` when a valid job ID is supplied.
+- The outreach inbox lets a human move drafts through `approved`, `sent`, and `skipped` manually, but it never sends messages on its own.
+- When Gmail draft support is enabled, the API can create a Gmail draft, but it still does not send mail automatically.
 - `generate-weekly-report` returns a draft report and does not publish it anywhere.
 - The UI exposes these actions as explicit buttons so the user stays in control.
 

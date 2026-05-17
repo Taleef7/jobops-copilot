@@ -3,6 +3,7 @@ import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { JobAnalysisActions } from '@/components/job-analysis-actions';
 import { JobEditPanel } from '@/components/job-edit-panel';
+import { JobOutreachActions } from '@/components/job-outreach-actions';
 import { SectionCard } from '@/components/section-card';
 import { StatusPill } from '@/components/status-pill';
 import { demoProfileText, demoResumeText } from '@/lib/demo-analysis';
@@ -170,35 +171,55 @@ export default async function JobDetailPage({ params }: JobDetailParams) {
             </div>
           </SectionCard>
 
-          <SectionCard title="Outreach drafts" description="Messages stay draft-only until approved.">
-            {job.outreach.length === 0 ? (
-              <div className="empty-state">
-                <h3>No outreach drafted yet</h3>
-                <p>Generate a recruiter, referral, or follow-up draft in the next phase.</p>
-              </div>
-            ) : (
-              <div className="stack">
-                {job.outreach.map((draft) => (
-                  <div key={draft.id} className="detail-card">
-                    <div className="split">
-                      <div>
-                        <p className="detail-card__title">
-                          {draft.contactName} · {draft.contactRole}
-                        </p>
-                        <p className="detail-card__value">{draft.draftText}</p>
+          <SectionCard
+            title="Outreach drafts"
+            description="Messages stay draft-only until approved."
+            action={
+              <Link className="button button--ghost" href="/outreach">
+                Review inbox
+              </Link>
+            }
+          >
+            <div className="stack">
+              <JobOutreachActions
+                jobId={job.id}
+                jobContext={job.descriptionText}
+                resumeSummary={demoResumeText}
+                disabled={source === 'seed'}
+              />
+
+              {job.outreach.length === 0 ? (
+                <div className="empty-state">
+                  <h3>No outreach drafted yet</h3>
+                  <p>Generate a recruiter, referral, or follow-up draft from this job.</p>
+                </div>
+              ) : (
+                <div className="stack">
+                  {job.outreach.map((draft) => (
+                    <div key={draft.id} className="detail-card">
+                      <div className="split">
+                        <div>
+                          <p className="detail-card__title">
+                            {draft.contactName} · {draft.contactRole}
+                          </p>
+                          <p className="detail-card__value" style={{ whiteSpace: 'pre-wrap' }}>
+                            {draft.draftText}
+                          </p>
+                        </div>
+                        <div style={{ justifySelf: 'end' }}>
+                          <StatusPill status={draft.status} />
+                        </div>
                       </div>
-                      <div style={{ justifySelf: 'end' }}>
-                        <StatusPill status={draft.status} />
+                      <div className="chip-row">
+                        <span className="chip">{draft.messageType.replaceAll('_', ' ')}</span>
+                        {draft.email ? <span className="chip">{draft.email}</span> : null}
+                        {draft.followUpDue ? <span className="chip">Follow-up {formatDate(draft.followUpDue)}</span> : null}
                       </div>
                     </div>
-                    <div className="chip-row">
-                      <span className="chip">{draft.messageType.replaceAll('_', ' ')}</span>
-                      {draft.followUpDue ? <span className="chip">Follow-up {formatDate(draft.followUpDue)}</span> : null}
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
+                  ))}
+                </div>
+              )}
+            </div>
           </SectionCard>
 
           <SectionCard title="Workflow timeline" description="A simple event trail for the job record.">

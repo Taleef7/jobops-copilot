@@ -1,10 +1,4 @@
-import type {
-  Job,
-  JobPriority,
-  JobStatus,
-  OutreachDraft,
-  WeeklyReport,
-} from '@/types/job';
+import type { Job, JobPriority, JobStatus, WeeklyReport } from '@/types/job';
 
 export const jobStatusOrder: JobStatus[] = [
   'discovered',
@@ -248,8 +242,6 @@ export const mockWeeklyReports: WeeklyReport[] = [
       'This week focused on operational roles that reward workflow thinking. The strongest opportunities were the automation engineer and recruiting operations roles.',
   },
 ];
-
-export const mockOutreachDrafts: OutreachDraft[] = mockJobs.flatMap((job) => job.outreach);
 
 export function getJobById(jobId: string): Job | undefined {
   return mockJobs.find((job) => job.id === jobId);

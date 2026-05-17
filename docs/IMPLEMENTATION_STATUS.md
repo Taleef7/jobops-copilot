@@ -16,6 +16,8 @@ JobOps Copilot now has a working end-to-end foundation:
 - Phase 0: project foundation complete
 - Phase 1: CRM MVP complete
 - Phase 2: AI parsing and fit scoring complete
+- Phase 3: outreach drafting and human review complete
+- Phase 3: outreach draft flow and optional Gmail draft creation browser-verified locally
 - Azure PostgreSQL bootstrap complete
 - repo CI complete
 - `main` branch protected
@@ -24,14 +26,16 @@ JobOps Copilot now has a working end-to-end foundation:
 
 - Jobs can be created, listed, viewed, and updated through the API and dashboard
 - `parse-job` and `score-fit` persist structured analysis back onto the job record
-- `draft-outreach` creates human-reviewed outreach drafts
+- `draft-outreach` creates human-reviewed outreach drafts from the job detail page
+- outreach drafts are visible in the inbox and can be approved, marked sent, or skipped manually
+- `draft-outreach` can optionally create a Gmail draft when the feature flag and OAuth credentials are configured
+- the outreach draft path and Gmail draft side effect were verified in the local browser against the live app
 - `generate-weekly-report` returns a report draft from the seeded analytics data
 - The API switches between local file mode and Postgres mode depending on `DATABASE_URL`
 - `GET /api/health` reports which store is active
 
 ## What Is Still Pending
 
-- Outreach approval UI and sending workflow
 - n8n runtime workflows
 - Weekly report persistence and dashboards
 - Blob Storage integration

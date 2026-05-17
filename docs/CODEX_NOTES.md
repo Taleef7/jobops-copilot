@@ -7,6 +7,9 @@
 - The frontend now prefers live API data and only falls back to seeded jobs when the API is unavailable.
 - The API supports both a local file store and a PostgreSQL-backed store selected by `DATABASE_URL`.
 - The analysis flow is centralized in `apps/api/src/lib/analysis-core.ts` so parsing, fit scoring, validation, and persistence all agree on the same structured shapes.
+- Outreach drafts now originate from the job detail page and flow into a review inbox with manual drafted, approved, sent, and skipped statuses.
+- Optional Gmail draft creation is available behind `GMAIL_DRAFTS_ENABLED` and uses Gmail OAuth refresh-token credentials when configured.
+- The outreach draft path was browser-verified locally end to end after the Gmail OAuth setup.
 - The Azure PostgreSQL bootstrap script in `apps/api/scripts/db-init.ts` keeps the cloud database setup repeatable.
 - The schema avoids `pgcrypto`, so Azure compatibility does not depend on allow-listed database extensions.
 
@@ -28,7 +31,7 @@
 
 ## Assumptions
 
-- The next real backend phase will focus on outreach drafting.
+- The next real backend phase will focus on n8n workflow integration.
 - Azure Blob Storage will eventually hold uploaded resumes and generated reports.
 - AI outputs should stay structured and auditable.
 - Outreach and application actions should remain human-approved.
@@ -36,9 +39,8 @@
 
 ## Next Recommended Task
 
-Implement Phase 3:
+Implement Phase 4:
 
-- wire outreach drafting into the UI;
-- persist outreach drafts in the `outreach` table;
-- keep the human-in-the-loop approval workflow intact;
-- optionally add Gmail draft generation after the review flow is stable.
+- wire the existing CRM to n8n webhooks and scheduled jobs;
+- keep the outreach inbox human-approved and manual-only;
+- document the workflow JSON exports and review artifacts.

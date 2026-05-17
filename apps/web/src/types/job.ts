@@ -38,11 +38,13 @@ export interface JobAnalysis {
 
 export interface OutreachDraft {
   id: string;
+  jobId?: string;
   contactName: string;
   contactRole: string;
   contactSource: string;
   linkedinUrl?: string;
   email?: string;
+  gmailDraftId?: string;
   messageType: OutreachMessageType;
   draftText: string;
   status: OutreachStatus;

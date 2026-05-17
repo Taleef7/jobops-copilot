@@ -525,15 +525,25 @@ function buildResponsibilities(keywords: string[]) {
 
 function buildDraftText(payload: DraftOutreachBody, subject: string) {
   const salutation = payload.contact_name ? `Hi ${payload.contact_name},` : 'Hi there,';
-  const opening = payload.contact_role
-    ? `I noticed the ${payload.message_type.replaceAll('_', ' ')} opportunity and wanted to share a quick note.`
-    : 'I wanted to share a quick note about the role.';
+  const contactRole = payload.contact_role?.trim();
+  const roleLine = contactRole
+    ? `I saw that you're the ${contactRole.toLowerCase()} for this opportunity and wanted to share a quick note.`
+    : 'I wanted to share a quick note about the opportunity.';
+  const jobContext = payload.job_context?.replace(/\s+/g, ' ').trim();
+  const resumeSummary = payload.resume_summary?.replace(/\s+/g, ' ').trim();
+  const jobContextLine = jobContext
+    ? `The role context points to ${jobContext.length > 160 ? `${jobContext.slice(0, 157)}...` : jobContext}.`
+    : 'I wanted to keep the message grounded in the actual role details and shared context.';
+  const resumeSummaryLine = resumeSummary
+    ? `My background includes ${resumeSummary.length > 160 ? `${resumeSummary.slice(0, 157)}...` : resumeSummary}.`
+    : 'I have relevant experience in workflow automation, structured operations, and thoughtful communication.';
 
   return [
     salutation,
     '',
-    opening,
-    'I have relevant experience in workflow automation, structured operations, and thoughtful communication.',
+    roleLine,
+    jobContextLine,
+    resumeSummaryLine,
     '',
     `Subject: ${subject}`,
     '',
