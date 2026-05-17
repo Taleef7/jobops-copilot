@@ -1,6 +1,7 @@
 import type { Job, OutreachMessageType, OutreachStatus } from '@/types/job';
 
 const apiBaseUrl = (process.env.NEXT_PUBLIC_API_BASE_URL ?? 'http://127.0.0.1:4000').replace(/\/$/, '');
+const sharedApiKey = process.env.NEXT_PUBLIC_API_SHARED_SECRET?.trim();
 
 export interface ApiErrorFields {
   [field: string]: string;
@@ -196,6 +197,7 @@ async function requestJson<T>(path: string, init: RequestInit = {}): Promise<T> 
     ...init,
     headers: {
       'Content-Type': 'application/json',
+      ...(sharedApiKey ? { 'X-API-Key': sharedApiKey } : {}),
       ...(init.headers ?? {}),
     },
   });

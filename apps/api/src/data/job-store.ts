@@ -10,6 +10,7 @@ import type {
   UpdateJobBody,
 } from '@/types';
 import { validateJobAnalysis } from '@/lib/analysis-core';
+import { deriveOutreachJobUpdate } from '@/lib/outreach-workflow';
 import { hasPostgresConnection } from '@/lib/postgres';
 import * as postgresStore from '@/data/job-store.postgres';
 import { seedJobs } from '@/data/mock-store';
@@ -249,8 +250,13 @@ export async function appendOutreachDraft(jobId: string, draft: OutreachDraft): 
       jobId,
     });
     job.outreach.push(clonedDraft);
-    job.status = 'outreach_drafted';
-    job.nextAction = 'Review the outreach draft and approve or skip it manually.';
+    const jobUpdate = deriveOutreachJobUpdate(job.status, job.outreach);
+
+    if (jobUpdate) {
+      job.status = jobUpdate.status;
+      job.nextAction = jobUpdate.nextAction;
+    }
+
     job.updatedAt = new Date().toISOString();
     await persistJobs();
     return clone(clonedDraft);
@@ -292,14 +298,41 @@ export async function updateOutreachDraft(
         draft.sentAt = new Date().toISOString();
       }
 
-      if (draft.status === 'sent') {
-        job.status = 'outreach_sent';
-        job.nextAction = 'Track the reply window and prepare a follow-up if needed.';
-      } else {
-        job.status = 'outreach_drafted';
-        job.nextAction = 'Review the outreach draft and approve or skip it manually.';
+      const jobUpdate = deriveOutreachJobUpdate(job.status, job.outreach);
+
+      if (jobUpdate) {
+        job.status = jobUpdate.status;
+        job.nextAction = jobUpdate.nextAction;
       }
 
+      job.updatedAt = new Date().toISOString();
+      await persistJobs();
+      return clone(draft);
+    }
+
+    return undefined;
+  });
+}
+
+export async function updateOutreachGmailDraftId(
+  outreachId: string,
+  gmailDraftId: string,
+): Promise<OutreachDraft | undefined> {
+  if (hasPostgresConnection()) {
+    return postgresStore.updateOutreachGmailDraftId(outreachId, gmailDraftId);
+  }
+
+  return runExclusive(async () => {
+    const jobs = await ensureLoaded();
+
+    for (const job of jobs) {
+      const draft = job.outreach.find((entry) => entry.id === outreachId);
+
+      if (!draft) {
+        continue;
+      }
+
+      draft.gmailDraftId = gmailDraftId.trim() || undefined;
       job.updatedAt = new Date().toISOString();
       await persistJobs();
       return clone(draft);

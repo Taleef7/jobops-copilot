@@ -8,19 +8,21 @@ import {
   validateFitScoreOutput,
   validateParsedJobOutput,
 } from '@/lib/analysis-core';
+import { isSingleRecipientEmailAddress } from '@/lib/email';
 import { createGmailDraftIfEnabled } from '@/lib/gmail';
 import {
   draftOutreachBody,
   generateWeeklyReportBody,
 } from '@/data/mock-store';
-import { appendOutreachDraft, getJobById, saveJobAnalysis, updateOutreachDraft } from '@/data/job-store';
+import {
+  appendOutreachDraft,
+  getJobById,
+  saveJobAnalysis,
+  updateOutreachGmailDraftId,
+} from '@/data/job-store';
 import type { DraftOutreachBody, OutreachDraft, ParseJobBody, ScoreFitBody, WeeklyReportBody } from '@/types';
 
 export const aiRouter = Router();
-
-function isValidEmail(value: string) {
-  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value.trim());
-}
 
 aiRouter.post('/parse-job', async (request, response, next) => {
   const body = request.body as ParseJobBody;
@@ -111,7 +113,7 @@ aiRouter.post('/draft-outreach', async (request, response, next) => {
   if (!body.message_type) {
     return response.status(400).json({ error: 'message_type is required' });
   }
-  if (contactEmail && !isValidEmail(contactEmail)) {
+  if (contactEmail && !isSingleRecipientEmailAddress(contactEmail)) {
     return response.status(400).json({ error: 'contact_email must be a valid email address' });
   }
 
@@ -129,7 +131,7 @@ aiRouter.post('/draft-outreach', async (request, response, next) => {
     ...body,
     contact_email: contactEmail,
     job_context: body.job_context ?? job?.descriptionText,
-    resume_summary: body.resume_summary ?? job?.analysis.fitSummary,
+    resume_summary: body.resume_summary,
   });
   const draft: OutreachDraft = {
     id: randomUUID(),
@@ -154,29 +156,37 @@ aiRouter.post('/draft-outreach', async (request, response, next) => {
       next(error);
       return;
     }
+  }
 
-    try {
-      const gmailDraft = await createGmailDraftIfEnabled({
-        recipientEmail: contactEmail ?? '',
-        subject: payload.subject,
-        bodyText: payload.draft_text,
-      });
-      gmailDraftStatus = gmailDraft.status;
-      gmailDraftMessage = gmailDraft.message;
+  try {
+    const gmailDraft = await createGmailDraftIfEnabled({
+      recipientEmail: contactEmail ?? '',
+      subject: payload.subject,
+      bodyText: payload.draft_text,
+    });
+    gmailDraftStatus = gmailDraft.status;
+    gmailDraftMessage = gmailDraft.message;
 
-      if (gmailDraft.gmailDraftId) {
-        draft.gmailDraftId = gmailDraft.gmailDraftId;
+    if (gmailDraft.gmailDraftId) {
+      draft.gmailDraftId = gmailDraft.gmailDraftId;
+
+      if (job) {
         try {
-          await updateOutreachDraft(draft.id, { gmailDraftId: gmailDraft.gmailDraftId });
+          await updateOutreachGmailDraftId(draft.id, gmailDraft.gmailDraftId);
         } catch (error) {
           gmailDraftMessage = `${gmailDraft.message} The local outreach record could not be updated.`;
           console.error('Gmail draft created but local outreach update failed', error);
         }
       }
-    } catch (error) {
-      gmailDraftStatus = 'failed';
-      gmailDraftMessage = error instanceof Error ? error.message : 'Failed to create the Gmail draft.';
     }
+  } catch (error) {
+    gmailDraftStatus = 'failed';
+    gmailDraftMessage = error instanceof Error ? error.message : 'Failed to create the Gmail draft.';
+    console.error('Gmail draft creation failed', {
+      error,
+      jobId: body.job_id ?? null,
+      outreachId: draft.id,
+    });
   }
 
   return response.json({

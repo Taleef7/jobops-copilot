@@ -56,6 +56,27 @@ export function OutreachReviewActions({
     );
   }
 
+  if (disabled) {
+    return (
+      <div className="stack">
+        {error ? (
+          <div className="callout callout--accent">
+            <p className="callout__title">Could not update draft</p>
+            <p className="callout__text">{error}</p>
+          </div>
+        ) : null}
+        <div className="callout callout--accent">
+          <p className="callout__title">Actions disabled</p>
+          <p className="callout__text">
+            The inbox is showing seed data right now, so review actions are read-only until the live
+            backend is available.
+          </p>
+        </div>
+        <p className="table-copy">Seed drafts stay visible for review, but they cannot be updated here.</p>
+      </div>
+    );
+  }
+
   const showApprove = currentStatus === 'drafted';
   const showSend = currentStatus === 'approved';
 
@@ -65,16 +86,6 @@ export function OutreachReviewActions({
         <div className="callout callout--accent">
           <p className="callout__title">Could not update draft</p>
           <p className="callout__text">{error}</p>
-        </div>
-      ) : null}
-
-      {disabled ? (
-        <div className="callout callout--accent">
-          <p className="callout__title">Actions disabled</p>
-          <p className="callout__text">
-            The inbox is showing seed data right now, so review actions are disabled until the live
-            backend is available.
-          </p>
         </div>
       ) : null}
 

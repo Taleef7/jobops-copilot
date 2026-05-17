@@ -1,3 +1,5 @@
+import { isSingleRecipientEmailAddress } from '@/lib/email';
+
 type GmailDraftStatus = 'created' | 'skipped' | 'failed';
 
 export interface GmailDraftRequest {
@@ -18,8 +20,16 @@ interface GmailTokenResponse {
   error_description?: string;
 }
 
+interface GmailApiError {
+  message?: string;
+  code?: number;
+  status?: string;
+}
+
 interface GmailCreateDraftResponse {
   id?: string;
+  error?: GmailApiError | string;
+  error_description?: string;
 }
 
 function isTruthy(value: string | undefined) {
@@ -54,6 +64,22 @@ function buildMimeMessage({ recipientEmail, subject, bodyText }: GmailDraftReque
   ].join('\r\n');
 }
 
+function extractGoogleErrorMessage(payload: GmailCreateDraftResponse | GmailTokenResponse, fallback: string) {
+  if (typeof payload.error === 'string' && payload.error.trim()) {
+    return payload.error.trim();
+  }
+
+  if (payload.error && typeof payload.error === 'object' && payload.error.message?.trim()) {
+    return payload.error.message.trim();
+  }
+
+  if (payload.error_description?.trim()) {
+    return payload.error_description.trim();
+  }
+
+  return fallback;
+}
+
 async function fetchAccessToken() {
   const clientId = process.env.GMAIL_CLIENT_ID?.trim();
   const clientSecret = process.env.GMAIL_CLIENT_SECRET?.trim();
@@ -84,7 +110,7 @@ async function fetchAccessToken() {
   }
 
   if (!response.ok || !payload.access_token) {
-    const message = payload.error_description ?? payload.error ?? `Google token request failed (${response.status})`;
+    const message = extractGoogleErrorMessage(payload, `Google token request failed (${response.status})`);
     throw new Error(message);
   }
 
@@ -105,6 +131,13 @@ export async function createGmailDraftIfEnabled(
     return {
       status: 'skipped',
       message: 'Recipient email is required to create a Gmail draft.',
+    };
+  }
+
+  if (!isSingleRecipientEmailAddress(request.recipientEmail)) {
+    return {
+      status: 'skipped',
+      message: 'Recipient email must be a single valid email address.',
     };
   }
 
@@ -137,9 +170,17 @@ export async function createGmailDraftIfEnabled(
   }
 
   if (!response.ok || !payload.id) {
+    const message = extractGoogleErrorMessage(
+      payload,
+      `Gmail draft creation failed (${response.status})`,
+    );
+    console.error('Gmail draft creation failed', {
+      status: response.status,
+      error: payload,
+    });
     return {
       status: 'failed',
-      message: `Gmail draft creation failed (${response.status}).`,
+      message: `Gmail draft creation failed: ${message}`,
     };
   }
 

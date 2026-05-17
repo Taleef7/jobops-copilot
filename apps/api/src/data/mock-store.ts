@@ -525,9 +525,10 @@ function buildResponsibilities(keywords: string[]) {
 
 function buildDraftText(payload: DraftOutreachBody, subject: string) {
   const salutation = payload.contact_name ? `Hi ${payload.contact_name},` : 'Hi there,';
-  const roleLine = payload.contact_role
-    ? `I noticed the ${payload.message_type.replaceAll('_', ' ')} opportunity with ${payload.contact_role} and wanted to share a quick note.`
-    : `I noticed the ${payload.message_type.replaceAll('_', ' ')} opportunity and wanted to share a quick note.`;
+  const contactRole = payload.contact_role?.trim();
+  const roleLine = contactRole
+    ? `I saw that you're the ${contactRole.toLowerCase()} for this opportunity and wanted to share a quick note.`
+    : 'I wanted to share a quick note about the opportunity.';
   const jobContext = payload.job_context?.replace(/\s+/g, ' ').trim();
   const resumeSummary = payload.resume_summary?.replace(/\s+/g, ' ').trim();
   const jobContextLine = jobContext
