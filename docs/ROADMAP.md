@@ -6,7 +6,7 @@
 - Phase 1: complete
 - Phase 2: complete
 - Phase 3: complete
-- Phase 4: planned
+- Phase 4: in progress
 - Phase 5: planned
 - Phase 6: partial, because Azure PostgreSQL is complete but app hosting is still pending
 - Phase 7: planned
@@ -56,12 +56,13 @@ Done:
 
 ## Phase 4: n8n Integration
 
-Planned:
+In progress:
 
 - webhook-driven processing
 - daily job discovery workflow
 - weekly report automation
 - follow-up reminders
+- sample export JSON files and workflow docs
 
 ## Phase 5: Weekly Reporting
 

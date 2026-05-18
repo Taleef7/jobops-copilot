@@ -329,6 +329,104 @@ Current response shape:
 
 This endpoint is still draft-oriented. Persisted weekly report storage and dashboards are future work.
 
+### `POST /api/n8n/job-intake`
+
+Creates a CRM job from a webhook payload, parses the description, and optionally scores fit when resume and profile context are included.
+
+Required header when configured:
+
+- `X-N8N-Webhook-Secret: <secret>`
+
+Example request:
+
+```json
+{
+  "company": "Northwind Labs",
+  "title": "AI Automation Engineer",
+  "description_text": "Build internal automations using TypeScript, Azure Functions, and n8n.",
+  "job_url": "https://example.com/jobs/ai-automation-engineer",
+  "source": "job board",
+  "resume_text": "TypeScript, Azure Functions, and n8n experience",
+  "profile_text": "workflow automation and serverless delivery"
+}
+```
+
+Current response shape:
+
+```json
+{
+  "workflow": "job-intake",
+  "job": {},
+  "parsed": {},
+  "fit_status": "scored",
+  "fit_message": "Fit scoring completed with a score of 91.",
+  "notification": "Job created, parsed, scored, and queued for human review."
+}
+```
+
+If a job already exists with the same `job_url`, the endpoint returns `409` and does not create a duplicate.
+
+### `POST /api/n8n/follow-up-reminders`
+
+Returns the jobs whose follow-up dates are due now or overdue.
+
+Example request:
+
+```json
+{
+  "as_of": "2026-05-17T09:00:00.000Z"
+}
+```
+
+Current response shape:
+
+```json
+{
+  "workflow": "follow-up-reminders",
+  "generated_at": "2026-05-17T09:00:00.000Z",
+  "reminder_count": 1,
+  "reminders": [],
+  "notification": "1 follow-up reminder is due right now."
+}
+```
+
+### `POST /api/n8n/weekly-report`
+
+Builds a weekly report draft for the n8n digest workflow.
+
+Example request:
+
+```json
+{
+  "week_start": "2026-05-11",
+  "week_end": "2026-05-17"
+}
+```
+
+Current response shape:
+
+```json
+{
+  "workflow": "weekly-report",
+  "summary": "Weekly report draft for 2026-05-11 through 2026-05-17.",
+  "metrics": {
+    "jobs_discovered": 3,
+    "jobs_shortlisted": 1,
+    "jobs_applied": 0,
+    "outreach_drafted": 1,
+    "outreach_sent": 0,
+    "responses_received": 0,
+    "interviews": 0
+  },
+  "common_missing_skills": ["n8n"],
+  "recommended_next_actions": ["Review the highest-priority shortlisted jobs."],
+  "report_markdown": "# Weekly report...",
+  "email_subject": "Weekly report summary for 2026-05-11 to 2026-05-17",
+  "email_body": "# Weekly report...",
+  "notification": "Weekly report draft ready for n8n email delivery."
+}
+```
+
 ## Response Rules
 
 - Return valid JSON.

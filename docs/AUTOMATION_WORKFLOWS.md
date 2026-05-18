@@ -12,10 +12,18 @@ The workflows should build on the endpoints that already exist:
 - `POST /api/ai/draft-outreach` for outreach drafts
 - `PATCH /api/outreach/:id` for manual outreach review states
 - `POST /api/ai/generate-weekly-report` for weekly summaries
+- `POST /api/n8n/job-intake` for webhook-driven job creation, parsing, and optional fit scoring
+- `POST /api/n8n/follow-up-reminders` for scheduled reminder queues
+- `POST /api/n8n/weekly-report` for weekly digest drafts
 
 ## n8n
 
 n8n is the primary orchestrator in the long-term design.
+
+The API expects `X-N8N-Webhook-Secret` when `N8N_WEBHOOK_SECRET` is configured.
+
+For the cheapest beginner-friendly setup, see
+[workflows/n8n/self-hosting.md](../workflows/n8n/self-hosting.md).
 
 Planned workflows:
 
@@ -24,6 +32,13 @@ Planned workflows:
 - AI processing and enrichment
 - follow-up reminder creation
 - weekly reporting
+
+Current implementation notes:
+
+- webhook calls can create a job, parse the description, and optionally score fit in one request
+- follow-up reminders are returned as a sorted reminder list that n8n can turn into calendar or email actions
+- weekly report calls return an email-ready subject, body, and markdown summary
+- sample workflow exports live in `workflows/n8n/exports`
 
 Recommended n8n pattern:
 
@@ -64,7 +79,7 @@ Make is useful as a visual proof point for the portfolio, especially if a workfl
 - Never auto-send outreach without approval.
 - Keep every action auditable in the CRM.
 - Treat automations as workflow infrastructure, not spam tooling.
-- Keep webhook requests authenticated. The repo already includes `N8N_WEBHOOK_SECRET` in `.env.example` so future workflow endpoints can verify callers.
+- Keep webhook requests authenticated. The repo already includes `N8N_WEBHOOK_SECRET` in `.env.example`, and the API workspace should carry the same value in `apps/api/.env` so the webhook endpoints can verify callers.
 - Prefer drafts, reminders, and summaries over direct side effects.
 
 ## Progress Notes

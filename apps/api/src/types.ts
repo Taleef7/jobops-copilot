@@ -149,3 +149,28 @@ export interface WeeklyReportBody {
   week_start: string;
   week_end: string;
 }
+
+export interface N8nJobIntakeBody {
+  company: string;
+  title: string;
+  description_text: string;
+  job_url?: string;
+  source?: string;
+  location?: string;
+  employment_type?: string;
+  workplace_type?: JobWorkplaceType;
+  date_posted?: string;
+  priority?: JobPriority;
+  notes?: string;
+  resume_text?: string;
+  profile_text?: string;
+}
+
+export interface N8nWeeklyReportBody {
+  week_start: string;
+  week_end: string;
+}
+
+export interface N8nFollowUpRemindersBody {
+  as_of?: string;
+}

@@ -1,0 +1,85 @@
+{
+  "name": "Weekly Report Digest",
+  "notes": "Sample n8n export that requests a weekly report draft and sends the email-ready summary.",
+  "nodes": [
+    {
+      "id": "schedule-trigger",
+      "name": "Weekly Schedule",
+      "type": "n8n-nodes-base.cron",
+      "typeVersion": 1,
+      "position": [320, 300],
+      "parameters": {
+        "mode": "everyWeek",
+        "weekday": "monday",
+        "hour": 8,
+        "minute": 0
+      }
+    },
+    {
+      "id": "prepare-week-range",
+      "name": "Prepare Week Range",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [510, 300],
+      "parameters": {
+        "jsCode": "const now = new Date();\nconst weekEnd = now.toISOString().slice(0, 10);\nconst weekStartDate = new Date(now);\nweekStartDate.setDate(now.getDate() - 6);\nconst weekStart = weekStartDate.toISOString().slice(0, 10);\nreturn [{ json: { week_start: weekStart, week_end: weekEnd } }];"
+      }
+    },
+    {
+      "id": "post-weekly-report",
+      "name": "POST Weekly Report Request",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [780, 300],
+      "parameters": {
+        "method": "POST",
+        "url": "={{$env.JOBOPS_API_BASE_URL}}/api/n8n/weekly-report",
+        "authentication": "none",
+        "sendHeaders": true,
+        "headerParametersUi": {
+          "parameter": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            },
+            {
+              "name": "X-N8N-Webhook-Secret",
+              "value": "={{$env.N8N_WEBHOOK_SECRET}}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ week_start: $json.week_start, week_end: $json.week_end }) }}"
+      }
+    }
+  ],
+  "connections": {
+    "Weekly Schedule": {
+      "main": [
+        [
+          {
+            "node": "Prepare Week Range",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Week Range": {
+      "main": [
+        [
+          {
+            "node": "POST Weekly Report Request",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "active": false
+}
