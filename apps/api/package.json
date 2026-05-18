@@ -6,7 +6,7 @@
     "dev": "tsx watch src/server.ts",
     "db:init": "tsx scripts/db-init.ts",
     "test": "node scripts/run-tests.mjs",
-    "build": "tsc -p tsconfig.json",
+    "build": "tsc -p tsconfig.json && tsc-alias -p tsconfig.json",
     "start": "node dist/server.js",
     "lint": "eslint .",
     "typecheck": "tsc --noEmit"
@@ -27,6 +27,7 @@
     "eslint": "^9.0.0",
     "tsx": "^4.19.2",
     "typescript": "^5.8.0",
+    "tsc-alias": "^1.8.17",
     "typescript-eslint": "^8.0.0"
   }
 }

@@ -78,6 +78,7 @@ Complete:
 Partial:
 
 - Azure PostgreSQL is in place and verified
+- App Service deployment workflow scaffold is now in the repo
 - full static web app or app hosting still needs to be deployed
 - API hosting still needs to be deployed
 - Blob Storage, monitoring, and secrets management still need to be wired in

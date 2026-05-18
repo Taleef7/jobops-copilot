@@ -40,6 +40,7 @@ JobOps Copilot now has a working end-to-end foundation through weekly reporting:
 
 ## What Is Still Pending
 
+- Azure App Service deployment scaffold exists, but the live web and API App Service resources still need to be provisioned and wired up
 - n8n runtime workflows and screenshots in a live n8n instance
 - full Azure hosting for the web and API apps
 - AI provider integration beyond the mock analysis layer

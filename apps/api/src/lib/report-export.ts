@@ -38,7 +38,9 @@ export async function exportWeeklyReportMarkdown(
 ) {
   const markdown = buildMarkdown(report);
   const connectionString = process.env.AZURE_STORAGE_CONNECTION_STRING?.trim();
-  const containerName = process.env.AZURE_BLOB_REPORTS_CONTAINER?.trim();
+  const containerName =
+    process.env.AZURE_STORAGE_CONTAINER_NAME?.trim() ??
+    process.env.AZURE_BLOB_REPORTS_CONTAINER?.trim();
   const publicBaseUrl =
     options.publicBaseUrl?.trim() ?? process.env.API_PUBLIC_BASE_URL?.trim() ?? 'http://127.0.0.1:4000';
 
