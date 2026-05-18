@@ -4,7 +4,7 @@ JobOps Copilot is a cloud-ready job search operations CRM that helps you track o
 
 ## Overview
 
-The project is intentionally designed as a responsible AI operations system rather than an auto-apply bot. Phases 0 through 2 are implemented and verified:
+The project is intentionally designed as a responsible AI operations system rather than an auto-apply bot. Phases 0 through 5 are implemented and verified:
 
 - a polished Next.js dashboard;
 - an Express API with persistent job CRUD, AI parsing, fit scoring, and outreach draft endpoints;
@@ -25,6 +25,7 @@ See [docs/IMPLEMENTATION_STATUS.md](docs/IMPLEMENTATION_STATUS.md) for the full 
 - Phase 1 CRM MVP complete
 - Phase 2 AI parsing and fit scoring complete
 - Phase 3 outreach drafting, inbox review, and optional Gmail draft creation are browser-verified locally
+- Phase 5 weekly reporting persistence, dashboard history, and report export flow are complete
 - Azure PostgreSQL bootstrap and live database verification complete
 - CI runs on push and pull request
 - `main` is protected and requires the CI checks to pass
@@ -112,7 +113,7 @@ If you want optional Gmail draft creation, set `GMAIL_DRAFTS_ENABLED=true` and p
 
 ## Project Status
 
-Current phase: Phase 5 in progress. Weekly reporting persistence and dashboards are now the active slice.
+Current phase: Phase 6 partial. Azure deployment is now the active slice.
 
 What is real now:
 

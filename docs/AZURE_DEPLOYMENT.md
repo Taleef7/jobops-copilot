@@ -12,6 +12,8 @@ The remaining Azure hosting work is still future scope:
 - Azure Application Insights for monitoring and tracing
 - Azure Key Vault for secrets
 
+Phase 6 now focuses on turning those hosted pieces into a repeatable deployment path.
+
 ## Azure PostgreSQL Setup
 
 When creating the Flexible Server, keep the configuration small and inexpensive:
@@ -62,6 +64,71 @@ npm run dev:api
 - Use `.env.example` locally and Azure application settings in hosted environments.
 - Prefer structured JSON logs for API and workflow observability.
 - Use the same database schema and seed files for local verification and cloud setup.
+
+## App Service First Pass
+
+For the first Azure hosting pass, use two Linux App Service web apps:
+
+- one app for `apps/web`
+- one app for `apps/api`
+
+Why this route:
+
+- each app already has a production `start` script
+- each workspace tsconfig is self-contained, so App Service can build the app folder directly without relying on repo-root files
+- the monorepo stays intact, so we do not need to rewrite the runtime for Functions yet
+- GitHub Actions can build the workspace packages and deploy them with `azure/webapps-deploy@v3`
+- the API build rewrites TypeScript path aliases after compilation, so `node dist/server.js` starts cleanly in App Service
+
+Required app settings:
+
+- `SCM_DO_BUILD_DURING_DEPLOYMENT=true` on both apps so App Service installs dependencies and runs the workspace build during deployment
+- `NEXT_PUBLIC_API_BASE_URL=https://<api-app>.azurewebsites.net` on the web app
+- `DATABASE_URL=...` on the API app
+- `API_PUBLIC_BASE_URL=https://<api-app>.azurewebsites.net` on the API app
+- `AZURE_STORAGE_CONNECTION_STRING=...` on the API app
+- `AZURE_STORAGE_CONTAINER_NAME=...` on the API app
+- `N8N_WEBHOOK_SECRET=...` on the API app
+
+Startup command:
+
+- `npm start` on both apps so App Service launches the production script from each workspace package
+
+Optional settings:
+
+- `API_SHARED_SECRET=...` if you want to require a shared key for non-n8n mutating API calls
+- `NEXT_PUBLIC_API_SHARED_SECRET=...` only if the browser client is intentionally configured to send that shared key
+
+GitHub Actions inputs and secrets:
+
+- `vars.AZURE_WEBAPP_NAME_WEB`
+- `vars.AZURE_WEBAPP_NAME_API`
+- `secrets.AZURE_WEBAPP_PUBLISH_PROFILE_WEB`
+- `secrets.AZURE_WEBAPP_PUBLISH_PROFILE_API`
+
+Recommended workflow:
+
+- run the manual Azure deployment workflow from the Actions tab
+- deploy the web app and API together after `npm run build:web` and `npm run build:api` pass
+- switch to push-based deployment later only after the App Service settings are stable
+
+## Recommended Phase 6 Order
+
+1. Deploy the Next.js dashboard to Azure Static Web Apps or another Azure web host.
+2. Deploy the Express API to Azure Functions or another Azure API host.
+3. Connect Azure Blob Storage for report exports and any future uploaded artifacts.
+4. Copy the required environment variables into Azure application settings or Key Vault.
+5. Add Azure Application Insights so the hosted stack has basic tracing and error visibility.
+6. Capture deployment screenshots once the public or semi-public stack is live.
+
+## Recommendation
+
+For the first pass, keep the deployment small and auditable:
+
+- deploy the dashboard first so the UI has a stable public URL
+- keep the API and database as the next cut so the live data path stays consistent
+- wire Blob Storage only after the app and API URLs are stable
+- avoid adding extra Azure services until the core hosting path is verified
 
 ## Progress Notes
 
