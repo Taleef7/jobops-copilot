@@ -12,6 +12,7 @@ The workflows should build on the endpoints that already exist:
 - `POST /api/ai/draft-outreach` for outreach drafts
 - `PATCH /api/outreach/:id` for manual outreach review states
 - `POST /api/ai/generate-weekly-report` for weekly summaries
+- `GET /api/reports` and `GET /api/reports/latest` for saved weekly report history
 - `POST /api/n8n/job-intake` for webhook-driven job creation, parsing, and optional fit scoring
 - `POST /api/n8n/follow-up-reminders` for scheduled reminder queues
 - `POST /api/n8n/weekly-report` for weekly digest drafts
@@ -37,7 +38,7 @@ Current implementation notes:
 
 - webhook calls can create a job, parse the description, and optionally score fit in one request
 - follow-up reminders are returned as a sorted reminder list that n8n can turn into calendar or email actions
-- weekly report calls return an email-ready subject, body, and markdown summary
+- weekly report calls now persist the saved report, export a markdown artifact, and return an email-ready subject, body, and markdown summary
 - sample workflow exports live in `workflows/n8n/exports`
 
 Recommended n8n pattern:

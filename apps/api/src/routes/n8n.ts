@@ -5,7 +5,7 @@ import {
   saveJobAnalysis,
   updateJob,
 } from '@/data/job-store';
-import { generateWeeklyReportBody } from '@/data/mock-store';
+import { saveWeeklyReport } from '@/data/report-store';
 import {
   buildAnalysisFromParse,
   buildAnalysisFromScore,
@@ -14,11 +14,13 @@ import {
   validateFitScoreOutput,
   validateParsedJobOutput,
 } from '@/lib/analysis-core';
+import { exportWeeklyReportMarkdown } from '@/lib/report-export';
 import {
   buildFollowUpSummary,
   requireN8nWebhookSecret,
   selectDueFollowUps,
 } from '@/lib/n8n';
+import { buildWeeklyReportRecord, formatWeeklyReportResponse } from '@/lib/weekly-report';
 import type {
   JobPriority,
   JobWorkplaceType,
@@ -304,7 +306,7 @@ export function createN8nRouter(dependencies: N8nDependencies = defaultDependenc
     }
   });
 
-  router.post('/weekly-report', (request, response) => {
+  router.post('/weekly-report', async (request, response, next) => {
     const body = request.body as Partial<N8nWeeklyReportBody>;
     const validation = validateWeeklyReportBody(body);
 
@@ -316,18 +318,28 @@ export function createN8nRouter(dependencies: N8nDependencies = defaultDependenc
       return;
     }
 
-    const report = generateWeeklyReportBody({
-      week_start: validation.normalized.week_start!,
-      week_end: validation.normalized.week_end!,
-    });
+    try {
+      const jobs = await dependencies.listJobs();
+      const report = buildWeeklyReportRecord(jobs, {
+        week_start: validation.normalized.week_start!,
+        week_end: validation.normalized.week_end!,
+      });
+      const reportUrl = await exportWeeklyReportMarkdown(report);
+      const savedReport = await saveWeeklyReport({
+        ...report,
+        reportUrl,
+      });
 
-    response.json({
-      workflow: 'weekly-report',
-      ...report,
-      email_subject: `Weekly report summary for ${validation.normalized.week_start} to ${validation.normalized.week_end}`,
-      email_body: report.report_markdown,
-      notification: 'Weekly report draft ready for n8n email delivery.',
-    });
+      response.json({
+        workflow: 'weekly-report',
+        ...formatWeeklyReportResponse(savedReport),
+        email_subject: `Weekly report summary for ${validation.normalized.week_start} to ${validation.normalized.week_end}`,
+        email_body: savedReport.reportMarkdown,
+        notification: 'Weekly report draft ready for n8n email delivery.',
+      });
+    } catch (error) {
+      next(error);
+    }
   });
 
   return router;

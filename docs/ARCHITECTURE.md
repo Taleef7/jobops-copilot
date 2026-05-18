@@ -29,14 +29,17 @@ The current backend flow is:
 4. AI parsing converts raw job text into structured fields.
 5. Fit scoring compares the job against the resume and profile text.
 6. Outreach drafting creates a draft only and stores it for human review.
-7. Weekly reporting returns a draft report from the seeded analytics data.
+7. Weekly reporting persists a generated report, exports a markdown artifact, and feeds the saved history into the reports dashboard.
 
 ## Core Implementation Pieces
 
 - `apps/api/src/data/job-store.ts` selects file mode or PostgreSQL mode.
 - `apps/api/src/data/job-store.postgres.ts` implements the database-backed store.
+- `apps/api/src/data/report-store.ts` and `apps/api/src/data/report-store.postgres.ts` manage weekly report persistence in file or Postgres mode.
 - `apps/api/src/lib/postgres.ts` creates and manages the `pg` pool.
 - `apps/api/src/lib/analysis-core.ts` centralizes parsing, fit scoring, validation, and structured analysis generation.
+- `apps/api/src/lib/weekly-report.ts` builds report snapshots and API payloads.
+- `apps/api/src/lib/report-export.ts` writes local report artifacts and uploads them to Blob Storage when configured.
 - `apps/api/scripts/db-init.ts` bootstraps the Azure PostgreSQL schema and seed data.
 
 ## Data Flow
@@ -55,7 +58,7 @@ Jobs are the CRM source of truth. The list and detail pages read job records, an
 
 ### Weekly Reports
 
-`generate-weekly-report` currently returns a report draft based on seeded analytics data. Persisted report storage and dashboards are still future work.
+`generate-weekly-report` now persists a saved report snapshot. The dashboard reads report history through `/api/reports`, and the n8n workflow reuses the same storage path so weekly summaries, exports, and history stay aligned.
 
 ## Infrastructure
 

@@ -112,7 +112,7 @@ If you want optional Gmail draft creation, set `GMAIL_DRAFTS_ENABLED=true` and p
 
 ## Project Status
 
-Current phase: Phase 4 in progress. n8n workflow integration is underway.
+Current phase: Phase 5 in progress. Weekly reporting persistence and dashboards are now the active slice.
 
 What is real now:
 
@@ -123,7 +123,7 @@ What is real now:
 - live outreach inbox with drafted, approved, sent, and skipped states
 - optional Gmail draft creation behind a feature flag
 - browser-verified end-to-end outreach draft flow with optional Gmail draft creation
-- weekly report draft endpoint
+- weekly report draft endpoint, report storage, and dashboard
 - live Azure PostgreSQL storage behind `DATABASE_URL`
 - seed-backed dashboard fallback when the API is unavailable
 - API route scaffolds and validation
@@ -138,7 +138,7 @@ What is real now:
 What is still mocked or placeholder-based:
 
 - LLM provider integration is still mock-mode when no provider key is configured
-- weekly report persistence and dashboards
+- optional Blob Storage report exports with a local file fallback
 - outreach sending remains manual-only
 - full Azure hosting for the web and API apps
 - Blob Storage integration

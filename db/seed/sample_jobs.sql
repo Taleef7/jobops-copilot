@@ -89,4 +89,53 @@ on conflict (id) do update set
   next_action = excluded.next_action,
   next_action_due = excluded.next_action_due;
 
+insert into weekly_reports (
+  id,
+  week_start,
+  week_end,
+  jobs_discovered,
+  jobs_shortlisted,
+  jobs_applied,
+  outreach_drafted,
+  outreach_sent,
+  responses_received,
+  interviews,
+  common_missing_skills,
+  recommendations,
+  report_markdown,
+  report_url,
+  created_at
+) values (
+  '44444444-4444-4444-8444-444444444444',
+  '2026-05-11',
+  '2026-05-17',
+  14,
+  5,
+  2,
+  4,
+  1,
+  1,
+  1,
+  '["Azure Functions", "n8n", "HR tech", "Program management"]'::jsonb,
+  '["Tailor the headline toward operations automation and workflow systems.", "Prioritize jobs that combine process ownership with hands-on technical delivery.", "Schedule follow-ups for all drafted outreach within seven days."]'::jsonb,
+  'This week focused on operational roles that reward workflow thinking. The strongest opportunities were the automation engineer and recruiting operations roles.',
+  null,
+  '2026-05-17T18:00:00Z'
+)
+on conflict (id) do update set
+  week_start = excluded.week_start,
+  week_end = excluded.week_end,
+  jobs_discovered = excluded.jobs_discovered,
+  jobs_shortlisted = excluded.jobs_shortlisted,
+  jobs_applied = excluded.jobs_applied,
+  outreach_drafted = excluded.outreach_drafted,
+  outreach_sent = excluded.outreach_sent,
+  responses_received = excluded.responses_received,
+  interviews = excluded.interviews,
+  common_missing_skills = excluded.common_missing_skills,
+  recommendations = excluded.recommendations,
+  report_markdown = excluded.report_markdown,
+  report_url = excluded.report_url,
+  created_at = excluded.created_at;
+
 commit;

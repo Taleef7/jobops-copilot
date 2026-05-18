@@ -30,16 +30,15 @@ JobOps Copilot now has a working end-to-end foundation:
 - outreach drafts are visible in the inbox and can be approved, marked sent, or skipped manually
 - `draft-outreach` can optionally create a Gmail draft when the feature flag and OAuth credentials are configured
 - the outreach draft path and Gmail draft side effect were verified in the local browser against the live app
-- `generate-weekly-report` returns a report draft from the seeded analytics data
+- `generate-weekly-report` persists weekly reports, returns the saved draft, and feeds the reports dashboard
 - `POST /api/n8n/job-intake`, `POST /api/n8n/follow-up-reminders`, and `POST /api/n8n/weekly-report` expose the Phase 4 webhook surface
+- `GET /api/reports` and `GET /api/reports/latest` provide the saved weekly report history
 - The API switches between local file mode and Postgres mode depending on `DATABASE_URL`
 - `GET /api/health` reports which store is active
 
 ## What Is Still Pending
 
 - n8n runtime workflows and screenshots in a live n8n instance
-- Weekly report persistence and dashboards
-- Blob Storage integration
 - full Azure hosting for the web and API apps
 - AI provider integration beyond the mock analysis layer
 

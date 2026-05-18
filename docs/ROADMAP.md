@@ -6,8 +6,8 @@
 - Phase 1: complete
 - Phase 2: complete
 - Phase 3: complete
-- Phase 4: in progress
-- Phase 5: planned
+- Phase 4: complete
+- Phase 5: in progress
 - Phase 6: partial, because Azure PostgreSQL is complete but app hosting is still pending
 - Phase 7: planned
 - Phase 8: planned
@@ -66,11 +66,12 @@ In progress:
 
 ## Phase 5: Weekly Reporting
 
-Planned:
+In progress:
 
 - report storage
 - report dashboards
 - Blob Storage report exports
+- weekly report API and n8n workflow persistence
 
 ## Phase 6: Azure Deployment
 

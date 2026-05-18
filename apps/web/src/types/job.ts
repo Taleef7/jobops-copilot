@@ -91,4 +91,6 @@ export interface WeeklyReport {
   commonMissingSkills: string[];
   recommendations: string[];
   reportMarkdown: string;
+  reportUrl?: string;
+  createdAt: string;
 }

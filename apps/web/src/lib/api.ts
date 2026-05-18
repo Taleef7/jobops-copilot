@@ -1,4 +1,4 @@
-import type { Job, OutreachMessageType, OutreachStatus } from '@/types/job';
+import type { Job, OutreachMessageType, OutreachStatus, WeeklyReport } from '@/types/job';
 
 const apiBaseUrl = (process.env.NEXT_PUBLIC_API_BASE_URL ?? 'http://127.0.0.1:4000').replace(/\/$/, '');
 const sharedApiKey = process.env.NEXT_PUBLIC_API_SHARED_SECRET?.trim();
@@ -120,6 +120,14 @@ export interface UpdateOutreachResponse {
   outreach: Job['outreach'][number];
 }
 
+export interface WeeklyReportsResponse {
+  reports: WeeklyReport[];
+}
+
+export interface WeeklyReportResponse {
+  report: WeeklyReport;
+}
+
 export async function fetchJobs(): Promise<Job[]> {
   const response = await requestJson<JobsResponse>('/api/jobs', { cache: 'no-store' });
   return response.jobs;
@@ -190,6 +198,20 @@ export async function updateOutreach(
     method: 'PATCH',
     body: JSON.stringify(payload),
   });
+}
+
+export async function fetchWeeklyReports(): Promise<WeeklyReport[]> {
+  const response = await requestJson<WeeklyReportsResponse>('/api/reports', { cache: 'no-store' });
+  return response.reports;
+}
+
+export async function fetchLatestWeeklyReport(): Promise<WeeklyReport | undefined> {
+  try {
+    const response = await requestJson<WeeklyReportResponse>('/api/reports/latest', { cache: 'no-store' });
+    return response.report;
+  } catch {
+    return undefined;
+  }
 }
 
 async function requestJson<T>(path: string, init: RequestInit = {}): Promise<T> {
