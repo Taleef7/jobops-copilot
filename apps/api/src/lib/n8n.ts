@@ -30,7 +30,7 @@ export function requireN8nWebhookSecret(
   const expectedSecret = process.env.N8N_WEBHOOK_SECRET?.trim();
 
   if (!expectedSecret) {
-    next();
+    response.status(503).json({ error: 'n8n webhook secret is not configured' });
     return;
   }
 
@@ -82,7 +82,8 @@ export function buildFollowUpSummary(reminders: FollowUpReminder[]) {
   }
 
   const overdueCount = reminders.filter((reminder) => reminder.daysOverdue > 0).length;
+  const reminderWord = reminders.length === 1 ? 'reminder is' : 'reminders are';
   return overdueCount > 0
-    ? `${reminders.length} follow-up reminder${reminders.length === 1 ? '' : 's'} are due, including ${overdueCount} overdue.`
-    : `${reminders.length} follow-up reminder${reminders.length === 1 ? '' : 's'} are due right now.`;
+    ? `${reminders.length} follow-up ${reminderWord} due, including ${overdueCount} overdue.`
+    : `${reminders.length} follow-up ${reminderWord} due right now.`;
 }

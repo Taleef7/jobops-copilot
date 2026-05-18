@@ -14,11 +14,12 @@ function requireSharedApiKey(
   next: express.NextFunction,
 ) {
   const sharedSecret = process.env.API_SHARED_SECRET?.trim();
+  const n8nWebhookSecret = process.env.N8N_WEBHOOK_SECRET?.trim();
 
   if (
     !sharedSecret ||
     !mutatingMethods.has(request.method) ||
-    request.path.startsWith('/api/n8n')
+    (request.path.startsWith('/api/n8n') && Boolean(n8nWebhookSecret))
   ) {
     next();
     return;

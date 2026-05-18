@@ -11,7 +11,7 @@
       "parameters": {
         "httpMethod": "POST",
         "path": "job-intake",
-        "responseMode": "responseNode"
+        "responseMode": "lastNode"
       }
     },
     {

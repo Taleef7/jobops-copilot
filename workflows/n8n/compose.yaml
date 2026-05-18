@@ -3,8 +3,9 @@ services:
     image: docker.n8n.io/n8nio/n8n
     restart: unless-stopped
     env_file:
-      - .env
-      - owner.env
+      - path: .env
+      - path: owner.env
+        required: false
     ports:
       - "5678:5678"
     environment:

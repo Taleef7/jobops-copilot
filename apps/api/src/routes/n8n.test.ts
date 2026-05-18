@@ -155,6 +155,41 @@ test('rejects n8n webhooks without the shared secret', async () => {
   }
 });
 
+test('rejects n8n webhooks when the secret is not configured', async () => {
+  const restore = snapshotEnv(['N8N_WEBHOOK_SECRET']);
+  delete process.env.N8N_WEBHOOK_SECRET;
+
+  try {
+    await withServer(
+      createN8nRouter({
+        createJob: async () => makeJob(),
+        listJobs: async () => [],
+        saveJobAnalysis: async () => makeJob(),
+        updateJob: async () => makeJob(),
+      }),
+      async (baseUrl) => {
+        const response = await fetch(`${baseUrl}/api/n8n/weekly-report`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            week_start: '2026-05-11',
+            week_end: '2026-05-17',
+          }),
+        });
+
+        assert.equal(response.status, 503);
+        assert.deepEqual(await response.json(), {
+          error: 'n8n webhook secret is not configured',
+        });
+      },
+    );
+  } finally {
+    restore();
+  }
+});
+
 test('creates and enriches a job-intake webhook payload', async () => {
   const restore = snapshotEnv(['N8N_WEBHOOK_SECRET']);
   process.env.N8N_WEBHOOK_SECRET = 'n8n-secret';
