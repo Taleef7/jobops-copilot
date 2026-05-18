@@ -326,7 +326,7 @@ Current response shape:
   "report_markdown": "# Weekly report...",
   "report_id": "44444444-4444-4444-8444-444444444444",
   "created_at": "2026-05-17T18:00:00.000Z",
-  "report_url": "file:///C:/Users/talee/OneDrive%20-%20Higher%20Education%20Commission/projects/JobOps%20Copilot/apps/api/data/report-exports/weekly-report_2026-05-11_to_2026-05-17_44444444-4444-4444-8444-444444444444.md"
+  "report_url": "http://127.0.0.1:4000/api/reports/44444444-4444-4444-8444-444444444444/export"
 }
 ```
 
@@ -355,7 +355,7 @@ Example response:
       "commonMissingSkills": ["Azure Functions", "n8n"],
       "recommendations": ["Tailor the headline toward operations automation and workflow systems."],
       "reportMarkdown": "# Weekly report...",
-      "reportUrl": "file:///tmp/weekly-report.md",
+      "reportUrl": "http://127.0.0.1:4000/api/reports/44444444-4444-4444-8444-444444444444/export",
       "createdAt": "2026-05-17T18:00:00.000Z"
     }
   ]
@@ -365,6 +365,10 @@ Example response:
 ### `GET /api/reports/latest`
 
 Returns the most recently generated weekly report. The response is `{ "report": { ... } }`, or `404` if no report has been saved yet.
+
+### `GET /api/reports/:reportId/export`
+
+Streams the saved weekly report markdown for the requested report ID. The same route is used for the local export link in development.
 
 ### `POST /api/n8n/job-intake`
 
@@ -460,7 +464,7 @@ Current response shape:
   "report_markdown": "# Weekly report...",
   "report_id": "44444444-4444-4444-8444-444444444444",
   "created_at": "2026-05-17T18:00:00.000Z",
-  "report_url": "file:///C:/Users/talee/OneDrive%20-%20Higher%20Education%20Commission/projects/JobOps%20Copilot/apps/api/data/report-exports/weekly-report_2026-05-11_to_2026-05-17_44444444-4444-4444-8444-444444444444.md",
+  "report_url": "http://127.0.0.1:4000/api/reports/44444444-4444-4444-8444-444444444444/export",
   "email_subject": "Weekly report summary for 2026-05-11 to 2026-05-17",
   "email_body": "# Weekly report...",
   "notification": "Weekly report draft ready for n8n email delivery."

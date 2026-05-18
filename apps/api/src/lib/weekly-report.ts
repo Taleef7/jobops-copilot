@@ -58,6 +58,22 @@ function countSkills(jobs: JobRecord[]) {
 }
 
 function buildRecommendations(metrics: WeeklyReportMetrics, commonMissingSkills: string[]) {
+  if (
+    metrics.jobs_discovered === 0 &&
+    metrics.jobs_shortlisted === 0 &&
+    metrics.jobs_applied === 0 &&
+    metrics.outreach_drafted === 0 &&
+    metrics.outreach_sent === 0 &&
+    metrics.responses_received === 0 &&
+    metrics.interviews === 0
+  ) {
+    return [
+      'No jobs were discovered in this window, so focus on intake sources or widen the search pipeline.',
+      'Keep one outreach draft ready for the next promising role.',
+      'Capture a concrete proof point before the next report so the dashboard has fresh evidence to show.',
+    ];
+  }
+
   const recommendations = [
     metrics.jobs_applied < metrics.jobs_shortlisted
       ? 'Push more shortlisted roles into applications while the context is still fresh.'
@@ -116,9 +132,8 @@ export function buildWeeklyReportRecord(
   const windowStart = startOfDayUtc(body.week_start);
   const windowEnd = endOfDayUtc(body.week_end);
   const jobsInWindow = jobs.filter((job) => withinWindow(job.discoveredAt, windowStart, windowEnd));
-  const reportJobs = jobsInWindow.length > 0 ? jobsInWindow : jobs;
+  const reportJobs = jobsInWindow;
   const jobOutreach = reportJobs.flatMap((job) => job.outreach);
-  const discoveredJobs = jobsInWindow.length > 0 ? jobsInWindow : jobs;
   const shortlistedJobs = reportJobs.filter((job) => job.status === 'shortlisted');
   const appliedJobs = reportJobs.filter((job) => job.status === 'applied');
   const outreachDrafts = jobOutreach.filter(
@@ -132,7 +147,7 @@ export function buildWeeklyReportRecord(
   const commonMissingSkills = countSkills(reportJobs).slice(0, 4);
 
   const metrics: WeeklyReportMetrics = {
-    jobs_discovered: discoveredJobs.length,
+    jobs_discovered: reportJobs.length,
     jobs_shortlisted: shortlistedJobs.length,
     jobs_applied: appliedJobs.length,
     outreach_drafted: outreachDrafts.length,

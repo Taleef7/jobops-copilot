@@ -60,6 +60,7 @@ test('persists generated weekly reports and exposes them through the reports API
       assert.ok(generatedPayload.report_id);
       assert.ok(generatedPayload.created_at);
       assert.ok(generatedPayload.report_url);
+      assert.ok(generatedPayload.report_url.startsWith(baseUrl));
       assert.match(generatedPayload.summary, /2026-05-18 through 2026-05-24/);
 
       const latestResponse = await fetch(`${baseUrl}/api/reports/latest`);
@@ -79,6 +80,11 @@ test('persists generated weekly reports and exposes them through the reports API
       };
       assert.equal(listPayload.reports[0]?.id, generatedPayload.report_id);
       assert.equal(listPayload.reports.length, 2);
+
+      const exportResponse = await fetch(generatedPayload.report_url);
+      assert.equal(exportResponse.status, 200);
+      assert.match(exportResponse.headers.get('content-type') ?? '', /text\/markdown/);
+      assert.match(await exportResponse.text(), /Weekly report/);
     });
   } finally {
     process.chdir(originalCwd);

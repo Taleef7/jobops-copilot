@@ -20,6 +20,7 @@ import {
 } from '@/data/job-store';
 import { saveWeeklyReport } from '@/data/report-store';
 import { exportWeeklyReportMarkdown } from '@/lib/report-export';
+import { getRequestBaseUrl } from '@/lib/request-url';
 import { buildWeeklyReportRecord, formatWeeklyReportResponse } from '@/lib/weekly-report';
 import type { DraftOutreachBody, OutreachDraft, ParseJobBody, ScoreFitBody, WeeklyReportBody } from '@/types';
 
@@ -210,7 +211,9 @@ aiRouter.post('/generate-weekly-report', async (request, response, next) => {
   try {
     const jobs = await listJobs();
     const report = buildWeeklyReportRecord(jobs, body);
-    const reportUrl = await exportWeeklyReportMarkdown(report);
+    const reportUrl = await exportWeeklyReportMarkdown(report, {
+      publicBaseUrl: getRequestBaseUrl(request),
+    });
     const savedReport = await saveWeeklyReport({
       ...report,
       reportUrl,

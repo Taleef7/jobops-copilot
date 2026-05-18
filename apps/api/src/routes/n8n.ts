@@ -15,6 +15,7 @@ import {
   validateParsedJobOutput,
 } from '@/lib/analysis-core';
 import { exportWeeklyReportMarkdown } from '@/lib/report-export';
+import { getRequestBaseUrl } from '@/lib/request-url';
 import {
   buildFollowUpSummary,
   requireN8nWebhookSecret,
@@ -324,7 +325,9 @@ export function createN8nRouter(dependencies: N8nDependencies = defaultDependenc
         week_start: validation.normalized.week_start!,
         week_end: validation.normalized.week_end!,
       });
-      const reportUrl = await exportWeeklyReportMarkdown(report);
+      const reportUrl = await exportWeeklyReportMarkdown(report, {
+        publicBaseUrl: getRequestBaseUrl(request),
+      });
       const savedReport = await saveWeeklyReport({
         ...report,
         reportUrl,

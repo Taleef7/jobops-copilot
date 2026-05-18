@@ -138,7 +138,7 @@ Behavior and indexes:
 - `report_markdown` stores the human-readable markdown export body.
 - `week_start` and `week_end` are kept unique together so a given weekly window upserts cleanly.
 - `created_at` is indexed newest-first so the dashboard can load history quickly.
-- `report_url` points to a Blob Storage URL when Azure credentials are configured, or to a local export file during development.
+- `report_url` points to a Blob Storage URL when Azure credentials are configured, or to the API export route during development.
 
 ## Seed Data
 
