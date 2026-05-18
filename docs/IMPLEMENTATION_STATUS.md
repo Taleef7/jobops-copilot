@@ -2,7 +2,7 @@
 
 ## Snapshot
 
-JobOps Copilot now has a working end-to-end foundation:
+JobOps Copilot now has a working end-to-end foundation through weekly reporting:
 
 - Next.js dashboard for jobs, outreach, reports, and settings
 - Express API with persistent job CRUD and AI analysis endpoints
@@ -18,6 +18,7 @@ JobOps Copilot now has a working end-to-end foundation:
 - Phase 2: AI parsing and fit scoring complete
 - Phase 3: outreach drafting and human review complete
 - Phase 3: outreach draft flow and optional Gmail draft creation browser-verified locally
+- Phase 5: weekly reporting complete, including persisted reports, dashboard history, and markdown export
 - Azure PostgreSQL bootstrap complete
 - repo CI complete
 - `main` branch protected
@@ -31,6 +32,7 @@ JobOps Copilot now has a working end-to-end foundation:
 - `draft-outreach` can optionally create a Gmail draft when the feature flag and OAuth credentials are configured
 - the outreach draft path and Gmail draft side effect were verified in the local browser against the live app
 - `generate-weekly-report` persists weekly reports, returns the saved draft, and feeds the reports dashboard
+- weekly reporting is persisted and surfaced through the dashboard and reports API
 - `POST /api/n8n/job-intake`, `POST /api/n8n/follow-up-reminders`, and `POST /api/n8n/weekly-report` expose the Phase 4 webhook surface
 - `GET /api/reports` and `GET /api/reports/latest` provide the saved weekly report history
 - The API switches between local file mode and Postgres mode depending on `DATABASE_URL`

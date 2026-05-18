@@ -12,6 +12,8 @@ The remaining Azure hosting work is still future scope:
 - Azure Application Insights for monitoring and tracing
 - Azure Key Vault for secrets
 
+Phase 6 now focuses on turning those hosted pieces into a repeatable deployment path.
+
 ## Azure PostgreSQL Setup
 
 When creating the Flexible Server, keep the configuration small and inexpensive:
@@ -62,6 +64,24 @@ npm run dev:api
 - Use `.env.example` locally and Azure application settings in hosted environments.
 - Prefer structured JSON logs for API and workflow observability.
 - Use the same database schema and seed files for local verification and cloud setup.
+
+## Recommended Phase 6 Order
+
+1. Deploy the Next.js dashboard to Azure Static Web Apps or another Azure web host.
+2. Deploy the Express API to Azure Functions or another Azure API host.
+3. Connect Azure Blob Storage for report exports and any future uploaded artifacts.
+4. Copy the required environment variables into Azure application settings or Key Vault.
+5. Add Azure Application Insights so the hosted stack has basic tracing and error visibility.
+6. Capture deployment screenshots once the public or semi-public stack is live.
+
+## Recommendation
+
+For the first pass, keep the deployment small and auditable:
+
+- deploy the dashboard first so the UI has a stable public URL
+- keep the API and database as the next cut so the live data path stays consistent
+- wire Blob Storage only after the app and API URLs are stable
+- avoid adding extra Azure services until the core hosting path is verified
 
 ## Progress Notes
 
