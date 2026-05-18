@@ -1,6 +1,7 @@
 import 'dotenv/config';
 import { readFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
+import { readdir } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import { Pool } from 'pg';
 
@@ -12,7 +13,7 @@ if (!databaseUrl) {
 
 const scriptDir = dirname(fileURLToPath(import.meta.url));
 const repoRoot = join(scriptDir, '..', '..', '..');
-const migrationPath = join(repoRoot, 'db', 'migrations', '001_core_tables.sql');
+const migrationDir = join(repoRoot, 'db', 'migrations');
 const seedPath = join(repoRoot, 'db', 'seed', 'sample_jobs.sql');
 
 function describeTarget(url: string) {
@@ -33,6 +34,14 @@ async function runSql(pool: Pool, label: string, filePath: string) {
   }
 }
 
+async function listMigrationFiles() {
+  const entries = await readdir(migrationDir, { withFileTypes: true });
+  return entries
+    .filter((entry) => entry.isFile() && entry.name.endsWith('.sql'))
+    .map((entry) => join(migrationDir, entry.name))
+    .sort((left, right) => left.localeCompare(right));
+}
+
 async function main() {
   const pool = new Pool({
     connectionString: databaseUrl,
@@ -45,7 +54,9 @@ async function main() {
   try {
     console.log(`Connecting to ${describeTarget(databaseUrl)}`);
     await pool.query('select 1');
-    await runSql(pool, 'schema migration', migrationPath);
+    for (const migrationPath of await listMigrationFiles()) {
+      await runSql(pool, `schema migration ${migrationPath.split('\\').pop() ?? migrationPath}`, migrationPath);
+    }
     await runSql(pool, 'seed data', seedPath);
     console.log('Azure PostgreSQL bootstrap completed successfully.');
   } finally {

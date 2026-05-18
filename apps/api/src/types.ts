@@ -92,6 +92,8 @@ export interface WeeklyReportRecord {
   commonMissingSkills: string[];
   recommendations: string[];
   reportMarkdown: string;
+  reportUrl?: string;
+  createdAt: string;
 }
 
 export interface CreateJobBody {

@@ -240,6 +240,7 @@ export const mockWeeklyReports: WeeklyReport[] = [
     ],
     reportMarkdown:
       'This week focused on operational roles that reward workflow thinking. The strongest opportunities were the automation engineer and recruiting operations roles.',
+    createdAt: '2026-05-17T18:00:00.000Z',
   },
 ];
 

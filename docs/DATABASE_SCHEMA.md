@@ -112,7 +112,7 @@ Important fields:
 
 ## `weekly_reports`
 
-Stores weekly analytics and strategy outputs for future reporting dashboards.
+Stores weekly analytics and strategy outputs for the saved report dashboard.
 
 Important fields:
 
@@ -128,12 +128,23 @@ Important fields:
 - `interviews`
 - `common_missing_skills`
 - `recommendations`
+- `report_markdown`
 - `report_url`
 - `created_at`
+
+Behavior and indexes:
+
+- `common_missing_skills` and `recommendations` are stored as `jsonb` arrays.
+- `report_markdown` stores the human-readable markdown export body.
+- `week_start` and `week_end` are kept unique together so a given weekly window upserts cleanly.
+- `created_at` is indexed newest-first so the dashboard can load history quickly.
+- `report_url` points to a Blob Storage URL when Azure credentials are configured, or to the API export route during development.
 
 ## Seed Data
 
 `db/seed/sample_jobs.sql` inserts three representative jobs with fixed UUIDs and upserts them by `id`. That makes the seed file safe to rerun when the database is reset.
+
+The same seed file also inserts one representative weekly report row so the report dashboard has a stable starter record.
 
 The seed set is intentionally varied:
 

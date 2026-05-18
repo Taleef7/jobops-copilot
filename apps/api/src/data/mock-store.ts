@@ -316,7 +316,7 @@ jobs.push(
 
 const weeklyReports: WeeklyReportRecord[] = [
   {
-    id: randomUUID(),
+    id: '44444444-4444-4444-8444-444444444444',
     weekStart: '2026-05-11',
     weekEnd: '2026-05-17',
     jobsDiscovered: 14,
@@ -334,6 +334,7 @@ const weeklyReports: WeeklyReportRecord[] = [
     ],
     reportMarkdown:
       'This week focused on operational roles that reward workflow thinking. The strongest opportunities were the automation engineer and recruiting operations roles.',
+    createdAt: '2026-05-17T18:00:00.000Z',
   },
 ];
 
@@ -485,6 +486,9 @@ export function generateWeeklyReportBody(payload: WeeklyReportBody) {
     common_missing_skills: report.commonMissingSkills,
     recommended_next_actions: report.recommendations,
     report_markdown: report.reportMarkdown,
+    report_id: report.id,
+    created_at: report.createdAt,
+    report_url: report.reportUrl ?? null,
   };
 }
 

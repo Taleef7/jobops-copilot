@@ -10,16 +10,18 @@ import {
 } from '@/lib/analysis-core';
 import { isSingleRecipientEmailAddress } from '@/lib/email';
 import { createGmailDraftIfEnabled } from '@/lib/gmail';
-import {
-  draftOutreachBody,
-  generateWeeklyReportBody,
-} from '@/data/mock-store';
+import { draftOutreachBody } from '@/data/mock-store';
 import {
   appendOutreachDraft,
   getJobById,
+  listJobs,
   saveJobAnalysis,
   updateOutreachGmailDraftId,
 } from '@/data/job-store';
+import { saveWeeklyReport } from '@/data/report-store';
+import { exportWeeklyReportMarkdown } from '@/lib/report-export';
+import { getRequestBaseUrl } from '@/lib/request-url';
+import { buildWeeklyReportRecord, formatWeeklyReportResponse } from '@/lib/weekly-report';
 import type { DraftOutreachBody, OutreachDraft, ParseJobBody, ScoreFitBody, WeeklyReportBody } from '@/types';
 
 export const aiRouter = Router();
@@ -199,12 +201,26 @@ aiRouter.post('/draft-outreach', async (request, response, next) => {
   });
 });
 
-aiRouter.post('/generate-weekly-report', (request, response) => {
+aiRouter.post('/generate-weekly-report', async (request, response, next) => {
   const body = request.body as WeeklyReportBody;
 
   if (!body.week_start || !body.week_end) {
     return response.status(400).json({ error: 'week_start and week_end are required' });
   }
 
-  return response.json(generateWeeklyReportBody(body));
+  try {
+    const jobs = await listJobs();
+    const report = buildWeeklyReportRecord(jobs, body);
+    const reportUrl = await exportWeeklyReportMarkdown(report, {
+      publicBaseUrl: getRequestBaseUrl(request),
+    });
+    const savedReport = await saveWeeklyReport({
+      ...report,
+      reportUrl,
+    });
+
+    return response.json(formatWeeklyReportResponse(savedReport));
+  } catch (error) {
+    next(error);
+  }
 });

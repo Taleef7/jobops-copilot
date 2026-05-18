@@ -323,11 +323,52 @@ Current response shape:
   },
   "common_missing_skills": ["n8n"],
   "recommended_next_actions": ["Review the highest-priority shortlisted jobs."],
-  "report_markdown": "# Weekly report..."
+  "report_markdown": "# Weekly report...",
+  "report_id": "44444444-4444-4444-8444-444444444444",
+  "created_at": "2026-05-17T18:00:00.000Z",
+  "report_url": "http://127.0.0.1:4000/api/reports/44444444-4444-4444-8444-444444444444/export"
 }
 ```
 
-This endpoint is still draft-oriented. Persisted weekly report storage and dashboards are future work.
+This endpoint now saves the weekly report through the active store, exports the markdown artifact, and returns the persisted record metadata for the dashboard or downstream automations.
+
+### `GET /api/reports`
+
+Returns the saved weekly report history in newest-first order.
+
+Example response:
+
+```json
+{
+  "reports": [
+    {
+      "id": "44444444-4444-4444-8444-444444444444",
+      "weekStart": "2026-05-11",
+      "weekEnd": "2026-05-17",
+      "jobsDiscovered": 14,
+      "jobsShortlisted": 5,
+      "jobsApplied": 2,
+      "outreachDrafted": 4,
+      "outreachSent": 1,
+      "responsesReceived": 1,
+      "interviews": 1,
+      "commonMissingSkills": ["Azure Functions", "n8n"],
+      "recommendations": ["Tailor the headline toward operations automation and workflow systems."],
+      "reportMarkdown": "# Weekly report...",
+      "reportUrl": "http://127.0.0.1:4000/api/reports/44444444-4444-4444-8444-444444444444/export",
+      "createdAt": "2026-05-17T18:00:00.000Z"
+    }
+  ]
+}
+```
+
+### `GET /api/reports/latest`
+
+Returns the most recently generated weekly report. The response is `{ "report": { ... } }`, or `404` if no report has been saved yet.
+
+### `GET /api/reports/:reportId/export`
+
+Streams the saved weekly report markdown for the requested report ID. The same route is used for the local export link in development.
 
 ### `POST /api/n8n/job-intake`
 
@@ -421,6 +462,9 @@ Current response shape:
   "common_missing_skills": ["n8n"],
   "recommended_next_actions": ["Review the highest-priority shortlisted jobs."],
   "report_markdown": "# Weekly report...",
+  "report_id": "44444444-4444-4444-8444-444444444444",
+  "created_at": "2026-05-17T18:00:00.000Z",
+  "report_url": "http://127.0.0.1:4000/api/reports/44444444-4444-4444-8444-444444444444/export",
   "email_subject": "Weekly report summary for 2026-05-11 to 2026-05-17",
   "email_body": "# Weekly report...",
   "notification": "Weekly report draft ready for n8n email delivery."

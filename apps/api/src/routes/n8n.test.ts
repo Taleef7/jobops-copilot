@@ -1,8 +1,12 @@
 import assert from 'node:assert/strict';
 import http from 'node:http';
+import { mkdtemp, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import test from 'node:test';
 import express from 'express';
 import { createN8nRouter } from './n8n';
+import { listWeeklyReports, resetWeeklyReportStoreForTests } from '@/data/report-store';
 import type { JobRecord } from '@/types';
 
 function snapshotEnv(keys: string[]) {
@@ -409,6 +413,64 @@ test('returns due follow-up reminders and weekly report drafts', async () => {
       },
     );
   } finally {
+    restore();
+  }
+});
+
+test('persists weekly report drafts generated through the n8n webhook', async () => {
+  const restore = snapshotEnv(['N8N_WEBHOOK_SECRET']);
+  process.env.N8N_WEBHOOK_SECRET = 'n8n-secret';
+  const originalCwd = process.cwd();
+  const tempDir = await mkdtemp(join(tmpdir(), 'jobops-n8n-weekly-report-'));
+
+  try {
+    process.chdir(tempDir);
+    resetWeeklyReportStoreForTests();
+
+    await withServer(
+      createN8nRouter({
+        createJob: async () => makeJob(),
+        listJobs: async () => [
+          makeJob({
+            id: 'report-job',
+            status: 'shortlisted',
+            discoveredAt: '2026-05-18T10:00:00.000Z',
+            outreach: [],
+          }),
+        ],
+        saveJobAnalysis: async () => makeJob(),
+        updateJob: async () => makeJob(),
+      }),
+      async (baseUrl) => {
+        const reportResponse = await fetch(`${baseUrl}/api/n8n/weekly-report`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'X-N8N-Webhook-Secret': 'n8n-secret',
+          },
+          body: JSON.stringify({
+            week_start: '2026-05-18',
+            week_end: '2026-05-24',
+          }),
+        });
+
+        assert.equal(reportResponse.status, 200);
+        const reportPayload = (await reportResponse.json()) as N8nWeeklyReportResponse & {
+          report_id: string;
+          report_url: string | null;
+        };
+        assert.equal(reportPayload.workflow, 'weekly-report');
+        assert.ok(reportPayload.report_id);
+        assert.ok(reportPayload.report_url);
+
+        const reports = await listWeeklyReports();
+        assert.equal(reports[0]?.id, reportPayload.report_id);
+        assert.equal(reports[0]?.reportUrl, reportPayload.report_url ?? undefined);
+      },
+    );
+  } finally {
+    process.chdir(originalCwd);
+    await rm(tempDir, { recursive: true, force: true });
     restore();
   }
 });
