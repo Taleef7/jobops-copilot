@@ -75,13 +75,14 @@ For the first Azure hosting pass, use two Linux App Service web apps:
 Why this route:
 
 - each app already has a production `start` script
+- each workspace tsconfig is self-contained, so App Service can build the app folder directly without relying on repo-root files
 - the monorepo stays intact, so we do not need to rewrite the runtime for Functions yet
 - GitHub Actions can build the workspace packages and deploy them with `azure/webapps-deploy@v3`
 - the API build rewrites TypeScript path aliases after compilation, so `node dist/server.js` starts cleanly in App Service
 
 Required app settings:
 
-- `SCM_DO_BUILD_DURING_DEPLOYMENT=true` on both apps so App Service installs dependencies during deployment
+- `SCM_DO_BUILD_DURING_DEPLOYMENT=true` on both apps so App Service installs dependencies and runs the workspace build during deployment
 - `NEXT_PUBLIC_API_BASE_URL=https://<api-app>.azurewebsites.net` on the web app
 - `DATABASE_URL=...` on the API app
 - `API_PUBLIC_BASE_URL=https://<api-app>.azurewebsites.net` on the API app
