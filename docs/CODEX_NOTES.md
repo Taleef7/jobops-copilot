@@ -12,6 +12,8 @@
 - The outreach draft path was browser-verified locally end to end after the Gmail OAuth setup.
 - The Azure PostgreSQL bootstrap script in `apps/api/scripts/db-init.ts` keeps the cloud database setup repeatable.
 - The schema avoids `pgcrypto`, so Azure compatibility does not depend on allow-listed database extensions.
+- The local n8n runtime pass is verified with live imports for `jobIntakePhase4`, `followUpPhase4`, and `weeklyReportP4`.
+- n8n v2 runtime in this setup needs `N8N_BLOCK_ENV_ACCESS_IN_NODE=false` so workflow expressions can read `$env.*` values.
 
 ## Verified Infrastructure
 
@@ -31,7 +33,6 @@
 
 ## Assumptions
 
-- The next real backend phase will focus on finishing the live n8n workflow runtime wiring and screenshots.
 - Azure Blob Storage will eventually hold uploaded resumes and generated reports.
 - AI outputs should stay structured and auditable.
 - Outreach and application actions should remain human-approved.
@@ -39,9 +40,8 @@
 
 ## Next Recommended Task
 
-Finish Phase 4:
+Continue Phase 6:
 
-- wire the existing CRM to n8n webhooks and scheduled jobs;
-- keep the outreach inbox human-approved and manual-only;
-- import the sample workflow exports into a live n8n instance;
-- capture screenshots and finalize the workflow review artifacts.
+- deploy the web app and API hosts on Azure App Service;
+- wire Blob Storage, monitoring, and secrets management;
+- capture deployment screenshots and add a repeatable verification runbook.

@@ -18,6 +18,7 @@ JobOps Copilot now has a working end-to-end foundation through weekly reporting:
 - Phase 2: AI parsing and fit scoring complete
 - Phase 3: outreach drafting and human review complete
 - Phase 3: outreach draft flow and optional Gmail draft creation browser-verified locally
+- Phase 4: n8n local runtime validation complete, including live workflow imports, secret wiring checks, webhook round-trips, and screenshots
 - Phase 5: weekly reporting complete, including persisted reports, dashboard history, and markdown export
 - Azure PostgreSQL bootstrap complete
 - repo CI complete
@@ -41,7 +42,6 @@ JobOps Copilot now has a working end-to-end foundation through weekly reporting:
 ## What Is Still Pending
 
 - Azure App Service deployment scaffold exists, but the live web and API App Service resources still need to be provisioned and wired up
-- n8n runtime workflows and screenshots in a live n8n instance
 - full Azure hosting for the web and API apps
 - AI provider integration beyond the mock analysis layer
 
