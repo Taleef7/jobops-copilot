@@ -10,16 +10,9 @@ import { ApiRequestError, parseJob, scoreFit } from '@/lib/api';
 type JobAnalysisActionsProps = {
   jobId: string;
   descriptionText: string;
-  resumeText: string;
-  profileText: string;
 };
 
-export function JobAnalysisActions({
-  jobId,
-  descriptionText,
-  resumeText,
-  profileText,
-}: JobAnalysisActionsProps) {
+export function JobAnalysisActions({ jobId, descriptionText }: JobAnalysisActionsProps) {
   const router = useRouter();
   const [isParsing, setIsParsing] = useState(false);
   const [isScoring, setIsScoring] = useState(false);
@@ -40,7 +33,7 @@ export function JobAnalysisActions({
   async function handleScore() {
     setIsScoring(true);
     try {
-      const scored = await scoreFit({ jobId, resumeText, profileText });
+      const scored = await scoreFit({ jobId });
       toast.success(`Fit score saved: ${scored.fit_score}/100`);
       router.refresh();
     } catch (error) {

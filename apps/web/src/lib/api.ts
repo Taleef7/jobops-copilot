@@ -1,7 +1,6 @@
 import type { Job, OutreachMessageType, OutreachStatus, WeeklyReport } from '@/types/job';
 
 const apiBaseUrl = (process.env.NEXT_PUBLIC_API_BASE_URL ?? 'http://127.0.0.1:4000').replace(/\/$/, '');
-const sharedApiKey = process.env.NEXT_PUBLIC_API_SHARED_SECRET?.trim();
 
 export interface ApiErrorFields {
   [field: string]: string;
@@ -71,8 +70,9 @@ export interface ParseJobResponse {
 
 export interface ScoreFitPayload {
   jobId: string;
-  resumeText: string;
-  profileText: string;
+  // Optional: when omitted the API grounds scoring in the user's saved profile.
+  resumeText?: string;
+  profileText?: string;
 }
 
 export interface ScoreFitResponse {
@@ -169,8 +169,8 @@ export async function scoreFit(payload: ScoreFitPayload): Promise<ScoreFitRespon
     method: 'POST',
     body: JSON.stringify({
       job_id: payload.jobId,
-      resume_text: payload.resumeText,
-      profile_text: payload.profileText,
+      ...(payload.resumeText ? { resume_text: payload.resumeText } : {}),
+      ...(payload.profileText ? { profile_text: payload.profileText } : {}),
     }),
   });
 }
@@ -277,6 +277,78 @@ export async function fetchEvTelemetryDemo(): Promise<TelemetryInsightsResponse>
   return requestJson<TelemetryInsightsResponse>('/api/telemetry/ev-demo', { cache: 'no-store' });
 }
 
+export interface SystemStatus {
+  storeMode: string;
+  agent: {
+    enabled: boolean;
+    reachable: boolean;
+    llm_configured?: boolean;
+    provider?: string | null;
+    model?: string | null;
+    rag_enabled?: boolean;
+    tavily_configured?: boolean;
+  };
+  integrations: { gmailDrafts: boolean; n8nWebhook: boolean; tavily: boolean };
+}
+
+export async function fetchStatus(): Promise<SystemStatus> {
+  return requestJson<SystemStatus>('/api/status', { cache: 'no-store' });
+}
+
+export interface UserProfile {
+  displayName: string | null;
+  resumeFileName: string | null;
+  hasResume: boolean;
+  profileText: string | null;
+  updatedAt: string | null;
+}
+
+export async function fetchProfile(): Promise<UserProfile | null> {
+  const response = await requestJson<{ profile: UserProfile | null }>('/api/profile', {
+    cache: 'no-store',
+  });
+  return response.profile;
+}
+
+export async function updateProfile(payload: {
+  displayName?: string;
+  profileText?: string;
+}): Promise<UserProfile | null> {
+  const response = await requestJson<{ profile: UserProfile | null }>('/api/profile', {
+    method: 'PUT',
+    body: JSON.stringify(payload),
+  });
+  return response.profile;
+}
+
+/** Uploads a resume PDF (client-only; routed through the proxy for auth). */
+export async function uploadResumeFile(file: File): Promise<UserProfile | null> {
+  const form = new FormData();
+  form.append('file', file);
+  const response = await fetch('/api/proxy/api/profile/resume', { method: 'POST', body: form });
+  if (!response.ok) {
+    throw new ApiRequestError('Failed to upload resume', response.status);
+  }
+  const data = (await response.json()) as { profile: UserProfile | null };
+  return data.profile;
+}
+
+export async function saveResumeText(resumeText: string): Promise<UserProfile | null> {
+  const response = await requestJson<{ profile: UserProfile | null }>('/api/profile/resume', {
+    method: 'POST',
+    body: JSON.stringify({ resume_text: resumeText }),
+  });
+  return response.profile;
+}
+
+export async function seedDemoData(): Promise<void> {
+  await requestJson('/api/demo/seed', { method: 'POST', body: '{}' });
+}
+
+export async function clearMyData(): Promise<void> {
+  await requestJson('/api/demo/clear', { method: 'POST', body: '{}' });
+}
+
 export async function fetchWeeklyReports(): Promise<WeeklyReport[]> {
   const response = await requestJson<WeeklyReportsResponse>('/api/reports', { cache: 'no-store' });
   return response.reports;
@@ -291,15 +363,38 @@ export async function fetchLatestWeeklyReport(): Promise<WeeklyReport | undefine
   }
 }
 
+/**
+ * Issues an authenticated API request. On the server we call the Express API
+ * directly, attaching the Clerk session token + shared secret. In the browser
+ * we route through the same-origin Next proxy (`/api/proxy/*`) which attaches
+ * auth server-side, so the token is never exposed to client code.
+ */
+async function apiFetch(path: string, init: RequestInit): Promise<Response> {
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json',
+    ...((init.headers as Record<string, string>) ?? {}),
+  };
+
+  if (typeof window === 'undefined') {
+    const { auth } = await import('@clerk/nextjs/server');
+    const { getToken } = await auth();
+    const token = await getToken();
+    const sharedSecret = process.env.API_SHARED_SECRET?.trim();
+    return fetch(new URL(path, apiBaseUrl), {
+      ...init,
+      headers: {
+        ...headers,
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        ...(sharedSecret ? { 'X-API-Key': sharedSecret } : {}),
+      },
+    });
+  }
+
+  return fetch(`/api/proxy${path}`, { ...init, headers });
+}
+
 async function requestJson<T>(path: string, init: RequestInit = {}): Promise<T> {
-  const response = await fetch(new URL(path, apiBaseUrl), {
-    ...init,
-    headers: {
-      'Content-Type': 'application/json',
-      ...(sharedApiKey ? { 'X-API-Key': sharedApiKey } : {}),
-      ...(init.headers ?? {}),
-    },
-  });
+  const response = await apiFetch(path, init);
 
   if (!response.ok) {
     let fields: ApiErrorFields | undefined;

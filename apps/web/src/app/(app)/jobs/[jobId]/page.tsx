@@ -13,7 +13,6 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { demoProfileText, demoResumeText } from '@/lib/demo-analysis';
 import { formatDate } from '@/lib/format';
 import { loadJob } from '@/lib/job-data';
 
@@ -58,12 +57,7 @@ export default async function JobDetailPage({ params }: JobDetailParams) {
           </div>
         </div>
         <div className="border-t pt-4">
-          <JobAnalysisActions
-            jobId={job.id}
-            descriptionText={job.descriptionText}
-            resumeText={demoResumeText}
-            profileText={demoProfileText}
-          />
+          <JobAnalysisActions jobId={job.id} descriptionText={job.descriptionText} />
         </div>
       </Card>
 
@@ -133,7 +127,7 @@ export default async function JobDetailPage({ params }: JobDetailParams) {
 
             <TabsContent value="agents">
               <Card className="p-5">
-                <JobAgentsPanel jobId={job.id} resumeText={demoResumeText} />
+                <JobAgentsPanel jobId={job.id} />
               </Card>
             </TabsContent>
 
@@ -142,7 +136,6 @@ export default async function JobDetailPage({ params }: JobDetailParams) {
                 <JobOutreachActions
                   jobId={job.id}
                   jobContext={job.descriptionText}
-                  resumeSummary={demoResumeText}
                   disabled={source === 'seed'}
                 />
               </Card>

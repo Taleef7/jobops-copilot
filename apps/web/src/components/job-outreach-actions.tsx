@@ -3,6 +3,7 @@
 import { useRouter } from 'next/navigation';
 import type { FormEvent } from 'react';
 import { useState } from 'react';
+import { Copy } from 'lucide-react';
 import { toast } from 'sonner';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -40,12 +41,10 @@ type Result = {
 export function JobOutreachActions({
   jobId,
   jobContext,
-  resumeSummary,
   disabled = false,
 }: {
   jobId: string;
   jobContext: string;
-  resumeSummary: string;
   disabled?: boolean;
 }) {
   const router = useRouter();
@@ -75,7 +74,6 @@ export function JobOutreachActions({
         contactRole: form.contactRole.trim() || undefined,
         contactEmail: form.contactEmail.trim() || undefined,
         jobContext,
-        resumeSummary,
       });
       setResult({
         subject: draft.subject,
@@ -93,6 +91,15 @@ export function JobOutreachActions({
   }
 
   const busy = disabled || isSubmitting;
+
+  async function copy(text: string, label: string) {
+    try {
+      await navigator.clipboard.writeText(text);
+      toast.success(`${label} copied to clipboard.`);
+    } catch {
+      toast.error('Could not copy to clipboard.');
+    }
+  }
 
   return (
     <form className="space-y-4" onSubmit={handleSubmit}>
@@ -168,9 +175,29 @@ export function JobOutreachActions({
 
       {result ? (
         <Card className="gap-2 p-4">
-          <div className="flex items-center justify-between gap-2">
+          <div className="flex flex-wrap items-center justify-between gap-2">
             <p className="text-sm font-semibold">{result.subject}</p>
-            <Badge variant="secondary">Gmail: {result.gmailDraftStatus}</Badge>
+            <div className="flex items-center gap-2">
+              <Badge variant="secondary">Gmail: {result.gmailDraftStatus}</Badge>
+              {form.contactEmail.trim() ? (
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => copy(form.contactEmail.trim(), 'Email address')}
+                >
+                  <Copy className="size-3.5" /> Email
+                </Button>
+              ) : null}
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => copy(`Subject: ${result.subject}\n\n${result.draftText}`, 'Draft')}
+              >
+                <Copy className="size-3.5" /> Copy draft
+              </Button>
+            </div>
           </div>
           <p className="text-sm whitespace-pre-wrap">{result.draftText}</p>
           <p className="text-muted-foreground border-t pt-2 text-xs">{result.safetyNotes}</p>

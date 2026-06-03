@@ -21,9 +21,17 @@ const formatDate = (value: string) => dateFormatter.format(new Date(value));
 const formatWeekRange = (report: WeeklyReport) =>
   `${formatDate(report.weekStart)} – ${formatDate(report.weekEnd)}`;
 
+// Percentage change vs the previous week (null when there's no prior report).
+function weekOverWeek(current: number, previous: number | undefined): number | undefined {
+  if (previous === undefined) return undefined;
+  if (previous === 0) return current > 0 ? 100 : 0;
+  return Math.round(((current - previous) / previous) * 100);
+}
+
 export default async function ReportsPage() {
   const { reports } = await loadWeeklyReports();
   const report = reports[0];
+  const prior = reports[1];
 
   if (!report) {
     return (
@@ -48,10 +56,30 @@ export default async function ReportsPage() {
       </div>
 
       <div className="grid gap-4 grid-cols-2 lg:grid-cols-4">
-        <StatTile label="Discovered" value={report.jobsDiscovered} trend={12} trendLabel="WoW" />
-        <StatTile label="Applied" value={report.jobsApplied} trend={5} trendLabel="WoW" />
-        <StatTile label="Outreach sent" value={report.outreachSent} trend={-2} trendLabel="WoW" />
-        <StatTile label="Interviews" value={report.interviews} trend={8} trendLabel="WoW" />
+        <StatTile
+          label="Discovered"
+          value={report.jobsDiscovered}
+          trend={weekOverWeek(report.jobsDiscovered, prior?.jobsDiscovered)}
+          trendLabel="week over week"
+        />
+        <StatTile
+          label="Applied"
+          value={report.jobsApplied}
+          trend={weekOverWeek(report.jobsApplied, prior?.jobsApplied)}
+          trendLabel="week over week"
+        />
+        <StatTile
+          label="Outreach sent"
+          value={report.outreachSent}
+          trend={weekOverWeek(report.outreachSent, prior?.outreachSent)}
+          trendLabel="week over week"
+        />
+        <StatTile
+          label="Interviews"
+          value={report.interviews}
+          trend={weekOverWeek(report.interviews, prior?.interviews)}
+          trendLabel="week over week"
+        />
       </div>
 
       <div className="grid gap-6 lg:grid-cols-2">
@@ -93,18 +121,14 @@ export default async function ReportsPage() {
                 <p className="text-sm font-medium">{formatWeekRange(item)}</p>
                 <p className="text-muted-foreground text-xs">Generated {formatDate(item.createdAt)}</p>
               </div>
-              {item.reportUrl ? (
-                <a
-                  href={item.reportUrl}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="text-muted-foreground hover:text-primary flex items-center gap-1 text-sm"
-                >
-                  <Download className="size-4" /> Export
-                </a>
-              ) : (
-                <span className="text-muted-foreground text-xs">No export</span>
-              )}
+              <a
+                href={`/api/proxy/api/reports/${item.id}/export`}
+                target="_blank"
+                rel="noreferrer"
+                className="text-muted-foreground hover:text-primary flex items-center gap-1 text-sm"
+              >
+                <Download className="size-4" /> Export
+              </a>
             </li>
           ))}
         </ul>

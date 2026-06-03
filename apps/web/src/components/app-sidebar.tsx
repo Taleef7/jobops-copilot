@@ -3,7 +3,6 @@
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import {
-  Activity,
   Briefcase,
   FileBarChart,
   LayoutDashboard,
@@ -14,7 +13,6 @@ import {
 import {
   Sidebar,
   SidebarContent,
-  SidebarFooter,
   SidebarGroup,
   SidebarGroupContent,
   SidebarHeader,
@@ -29,7 +27,6 @@ const items = [
   { href: '/jobs', label: 'Jobs', icon: Briefcase },
   { href: '/outreach', label: 'Outreach', icon: Send },
   { href: '/reports', label: 'Reports', icon: FileBarChart },
-  { href: '/telemetry', label: 'Telemetry', icon: Activity },
   { href: '/settings', label: 'Settings', icon: Settings },
 ];
 
@@ -75,11 +72,6 @@ export function AppSidebar() {
         </SidebarGroup>
       </SidebarContent>
 
-      <SidebarFooter>
-        <p className="rounded-lg bg-sidebar-accent/60 p-2.5 text-xs leading-snug text-muted-foreground group-data-[collapsible=icon]:hidden">
-          Human-approved. Drafts and scores are generated for review — never auto-sent.
-        </p>
-      </SidebarFooter>
       <SidebarRail />
     </Sidebar>
   );
