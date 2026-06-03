@@ -1,0 +1,20 @@
+[project]
+name = "jobops-agent"
+version = "0.1.0"
+description = "JobOps Copilot AI agent service (FastAPI + LangChain)."
+requires-python = ">=3.11"
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]
+
+[tool.ruff.lint.per-file-ignores]
+# Prose system prompts read better as natural sentences than hard-wrapped.
+"app/prompts.py" = ["E501"]
+
+[tool.pytest.ini_options]
+addopts = "-q"
+testpaths = ["tests"]
