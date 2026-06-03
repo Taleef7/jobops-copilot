@@ -1,5 +1,40 @@
 # Architecture
 
+## System Shape (AI-agent platform)
+
+JobOps Copilot is a three-service system plus Postgres. The Node API owns the
+CRM and orchestration; a Python service owns the real AI.
+
+```
+apps/web (Next.js)  ──REST──►  apps/api (Express)  ──delegates AI──►  services/agent (Python/FastAPI)
+                                      │                                     │ LangChain (multi-provider LLM)
+                                      └────── Azure PostgreSQL ◄────────────┘ + pgvector (RAG), HF embeddings,
+                                              (CRM + embeddings)               pandas (telemetry)
+```
+
+### Key decisions
+
+- **Additive AI, never a rewrite.** `apps/api/src/lib/agent-client.ts` delegates
+  to the Python service when `AGENT_SERVICE_URL` is set and **falls back to the
+  deterministic mock** on any error — the app always works, with or without an
+  LLM key. Shared mappers (`analysisFromParsed`/`analysisFromFit`) keep mock and
+  real paths producing identical `JobAnalysis` records.
+- **Provider-agnostic LLM.** `services/agent/app/llm/provider.py` uses LangChain
+  `init_chat_model` (Anthropic / Azure OpenAI / OpenAI / Gemini). Chains use
+  `with_structured_output`; agents use `create_agent` + `ToolStrategy`.
+- **RAG on existing infra.** Embeddings live in the same Postgres via `pgvector`
+  (`vector(384)`, HNSW cosine). HF `all-MiniLM-L6-v2` (PyTorch) embeds resume/JD
+  text; fit scoring is grounded in retrieved resume evidence.
+- **Telemetry as a transferable pattern.** One pandas analyzer (trend, moving
+  average, z-score anomalies, forecast) powers both the pipeline view and the
+  synthetic EV battery-health demo — showing the approach generalizes to vehicle
+  sensor data.
+- **Lean CI, full runtime.** Heavy deps (torch) are in `requirements-rag.txt` and
+  imported lazily, so CI stays fast; the Docker image installs everything.
+
+The sections below document the original CRM/data layer, which still underpins
+the system.
+
 ## Current Shape
 
 JobOps Copilot is a monorepo with a clean split between UI, API, data, and workflow docs:

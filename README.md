@@ -1,166 +1,120 @@
 # JobOps Copilot
 
-JobOps Copilot is a cloud-ready job search operations CRM that helps you track opportunities, analyze fit, draft outreach, and generate weekly strategy reports with human approval at every critical step.
+**An AI-agent operations platform for the job search.** JobOps Copilot tracks
+opportunities in a CRM, then uses real LLMs, retrieval-augmented generation, and
+multi-step agents to analyze fit, research companies, prep interviews, plan
+skill gaps, draft outreach, and surface time-series insights — with a human in
+the loop at every critical step.
 
-## Overview
+It is intentionally a **responsible AI operations system, not an auto-apply
+bot**: it drafts and recommends, but never sends or fabricates.
 
-The project is intentionally designed as a responsible AI operations system rather than an auto-apply bot. Phases 0 through 5 are implemented and verified:
+## Highlights
 
-- a polished Next.js dashboard;
-- an Express API with persistent job CRUD, AI parsing, fit scoring, and outreach draft endpoints;
-- an Azure PostgreSQL-backed CRM path with a repeatable bootstrap script;
-- PostgreSQL schema and seed data that can be applied idempotently;
-- prompt templates for AI workflows;
-- documentation for Azure, n8n, Zapier, and Make.com;
-- sample data for jobs, resumes, and weekly reports;
-- GitHub Actions CI and branch protection on `main`.
-
-The API supports both local file mode and PostgreSQL mode. In this workspace, the Azure PostgreSQL path is verified through `apps/api/.env`, while the file store remains the fallback when `DATABASE_URL` is absent.
-
-## Current Status
-
-See [docs/IMPLEMENTATION_STATUS.md](docs/IMPLEMENTATION_STATUS.md) for the full progress snapshot.
-
-- Phase 0 foundation complete
-- Phase 1 CRM MVP complete
-- Phase 2 AI parsing and fit scoring complete
-- Phase 3 outreach drafting, inbox review, and optional Gmail draft creation are browser-verified locally
-- Phase 5 weekly reporting persistence, dashboard history, and report export flow are complete
-- Azure PostgreSQL bootstrap and live database verification complete
-- CI runs on push and pull request
-- `main` is protected and requires the CI checks to pass
-
-## Planned Features
-
-- manual job intake
-- job description parsing
-- resume-fit scoring
-- truthful resume-tailoring suggestions
-- recruiter and referral outreach drafting
-- application status tracking
-- follow-up reminders
-- weekly reporting and analytics
-- n8n workflow orchestration
-- Zapier and Make companion automations
-- Azure hosting and storage
-
-## Tech Stack
-
-- Next.js 16 with TypeScript
-- React 19
-- Express 4
-- PostgreSQL-compatible SQL migrations
-- Azure Blob Storage, Azure Functions, and Azure Static Web Apps in later phases
-- n8n, Zapier, and Make.com for workflow automation
+- **Real, multi-provider LLMs** — a Python agent service routes to Anthropic
+  Claude, Azure OpenAI, OpenAI, or Google Gemini (LangChain `init_chat_model`),
+  with structured-output validation. Falls back to a deterministic mock when no
+  key is set, so the app always works.
+- **Multi-step LangChain agents** — interview-prep, company research (with a
+  web-search **tool**), and skill-gap planning, built on `create_agent` +
+  `ToolStrategy` for provider-agnostic structured output.
+- **RAG over pgvector** — resumes/JDs are embedded with Hugging Face
+  sentence-transformers (PyTorch) and stored in Postgres `pgvector`; fit scoring
+  is grounded in retrieved resume evidence.
+- **Time-series telemetry intelligence** — pandas trend/anomaly/forecast over
+  the pipeline, narrated by an LLM, plus a synthetic **EV battery telemetry**
+  demo showing the same analysis transfers to vehicle sensor data.
+- **Workflow automation** — n8n webhooks for job intake, follow-up reminders,
+  and weekly reports.
+- **Production discipline** — npm + Python CI (lint, typecheck, build, tests),
+  protected `main`, Azure PostgreSQL, Blob Storage export, and an App Service
+  deploy workflow.
 
 ## Architecture
 
-- `apps/web`: dashboard and product UI
-- `apps/api`: API scaffold with health, jobs, and AI endpoints
-- `db/migrations`: PostgreSQL schema
-- `db/seed`: sample seed data
-- `prompts`: structured prompt templates for LLM-backed workflows
-- `workflows`: documentation for n8n, Zapier, and Make.com
-- `samples`: sample job descriptions, resume content, and weekly reports
+```
+apps/web (Next.js 16 / React 19)
+        │  REST
+apps/api (Express, TypeScript) ──delegates AI──> services/agent (Python / FastAPI)
+        │                                              │  LangChain (multi-provider)
+        └──────── Azure PostgreSQL ◄───────────────────┘  + pgvector (RAG)
+                  (jobs CRM + embeddings)                  HF embeddings (PyTorch)
+                                                           pandas (telemetry)
+```
 
-## Local Development
+- `apps/web` — dashboard and product UI (jobs, outreach, reports, AI agents, telemetry).
+- `apps/api` — Express API: CRUD, AI proxy routes, n8n webhooks, telemetry. Delegates AI to the agent service when `AGENT_SERVICE_URL` is set, else uses a mock.
+- `services/agent` — **Python FastAPI** service: real LLM chains, RAG, LangChain agents, and telemetry analysis. See [services/agent/README.md](services/agent/README.md).
+- `db/migrations` — PostgreSQL schema (incl. `pgvector` embeddings table).
+- `prompts` — canonical prompt templates.
+- `workflows` — n8n/Zapier/Make automation docs and exports.
 
-1. Install dependencies.
+A full walkthrough is in **[docs/DEMO.md](docs/DEMO.md)**; design detail in
+**[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)**.
+
+## Tech stack
+
+- **Frontend:** Next.js 16, React 19, TypeScript.
+- **API:** Express 4, TypeScript, `pg`.
+- **Agent service:** Python 3.12, FastAPI, LangChain, sentence-transformers (PyTorch), pandas, psycopg/pgvector.
+- **Data/cloud:** Azure Database for PostgreSQL (+ pgvector), Azure Blob Storage, Azure App Service.
+- **Automation:** n8n.
+
+## Local development
 
 ```bash
+# 1. Node API + web
 npm install
+npm run dev            # web on :3000, api on :4000
+
+# 2. Python agent service (real AI)
+cd services/agent
+python -m venv .venv && .venv/Scripts/activate     # (or source .venv/bin/activate)
+pip install -r requirements-dev.txt                # add -r requirements-rag.txt for RAG
+cp .env.example .env                               # set a provider key, e.g. ANTHROPIC_API_KEY
+uvicorn app.main:app --reload --port 8000
 ```
 
-2. If you want the Azure PostgreSQL-backed path locally, create `apps/api/.env` with `DATABASE_URL` and run the bootstrap script.
+Then set `AGENT_SERVICE_URL=http://127.0.0.1:8000` in the repo-root `.env` so the
+API delegates AI to the agent service. With `DATABASE_URL` set (and `pgvector`
+enabled), fit scoring becomes retrieval-augmented.
+
+Verify everything:
 
 ```bash
-npm run db:init --workspace @jobops/api
+npm run check                                   # web + api: lint, typecheck, build
+cd services/agent && pytest && ruff check app tests
 ```
 
-3. Run the frontend and backend together.
+## Status
 
-```bash
-npm run dev
-```
+Phases 0–5 (CRM, AI endpoints, n8n, weekly reporting) and the AI-agent push are
+complete:
 
-4. Or run each workspace separately.
+| Phase | Scope | Status |
+| --- | --- | --- |
+| 0–5 | CRM, AI endpoints (mock), n8n, weekly reporting, Azure Postgres | ✅ |
+| 9 | Real multi-provider LLM + Python agent service | ✅ |
+| 10 | RAG + pgvector + HF embeddings | ✅ |
+| 8 | Advanced LangChain agents (interview-prep, research, skill-gap) | ✅ |
+| 11 | Time-series telemetry intelligence (+ EV demo) | ✅ |
+| 6 | Live Azure hosting for web/api/agent + monitoring | 🚧 |
+| 7 | Zapier/Make companion flows | ⏳ deferred |
 
-```bash
-npm run dev:web
-npm run dev:api
-```
+See [docs/IMPLEMENTATION_STATUS.md](docs/IMPLEMENTATION_STATUS.md) and
+[docs/ROADMAP.md](docs/ROADMAP.md).
 
-5. Verify the repository.
+## Working this repo
 
-```bash
-npm run typecheck
-npm run lint
-npm run build
-```
+1. Branch from `main` (protected; CI must pass).
+2. Keep changes coherent; run `npm run check` (and `pytest`/`ruff` for the agent) before committing.
+3. Open a PR; squash-merge after green CI.
 
-The frontend runs on the default Next.js port and the API runs on `http://localhost:4000`.
-The web app reads `NEXT_PUBLIC_API_BASE_URL` from `.env.local` and defaults to `http://127.0.0.1:4000`, so only change it if you move the API elsewhere. If you want the Postgres-backed store active, add a real `DATABASE_URL` before starting the API.
-If you want optional Gmail draft creation, set `GMAIL_DRAFTS_ENABLED=true` and provide `GMAIL_CLIENT_ID`, `GMAIL_CLIENT_SECRET`, and `GMAIL_REFRESH_TOKEN` from a Google Cloud OAuth flow with the Gmail compose scope.
+## Safety and human approval
 
-## Working This Repo
+JobOps Copilot supports the user, it does not replace judgment.
 
-1. Create a feature branch from `main`.
-2. Make the smallest coherent set of changes you can.
-3. Run `npm run check` before you commit.
-4. Run `git diff --cached --check` before the commit lands.
-5. Use a descriptive commit message that explains the scope.
-6. Push the branch and open a PR to `main`. `main` is protected and requires CI to pass.
-
-## Project Status
-
-Current phase: Phase 6 partial. Azure deployment is now the active slice.
-
-What is real now:
-
-- dashboard pages and navigation
-- live jobs list, create, detail, and update flows
-- live parse-job and score-fit actions from the job detail page
-- draft-outreach and outreach review/status endpoints
-- live outreach inbox with drafted, approved, sent, and skipped states
-- optional Gmail draft creation behind a feature flag
-- browser-verified end-to-end outreach draft flow with optional Gmail draft creation
-- weekly report draft endpoint, report storage, and dashboard
-- live Azure PostgreSQL storage behind `DATABASE_URL`
-- seed-backed dashboard fallback when the API is unavailable
-- API route scaffolds and validation
-- job analysis persistence and fit score updates
-- database schema and idempotent Azure bootstrap support
-- prompt templates
-- workflow documentation
-- n8n webhook endpoints for job intake, follow-up reminders, and weekly report drafts
-- GitHub Actions CI on push and pull request
-- protected `main` branch with required checks
-
-What is still mocked or placeholder-based:
-
-- LLM provider integration is still mock-mode when no provider key is configured
-- optional Blob Storage report exports with a local file fallback
-- outreach sending remains manual-only
-- full Azure hosting for the web and API apps
-- Blob Storage integration
-
-## Roadmap
-
-1. Phase 0: Project foundation
-2. Phase 1: CRM MVP with real job CRUD
-3. Phase 2: AI parsing and fit scoring
-4. Phase 3: Outreach drafting
-5. Phase 4: n8n workflow integration
-6. Phase 5: Weekly reporting
-7. Phase 6: Azure deployment
-8. Phase 7: Zapier and Make companion flows
-9. Phase 8: Advanced agents
-
-## Safety And Human Approval
-
-JobOps Copilot is designed to support the user, not replace judgment.
-
-- It may draft outreach, but it must not send messages automatically.
-- It may recommend resume improvements, but it must not fabricate experience.
-- It may score job fit, but the user remains in control of the final decision.
-- It may schedule reminders and summarize data, but it should stay auditable and transparent.
+- It drafts outreach but never sends automatically.
+- It suggests resume emphasis but never fabricates experience.
+- It scores fit and researches companies, but the user decides.
+- Outputs stay structured, grounded, and auditable.
