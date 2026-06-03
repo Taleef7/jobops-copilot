@@ -9,6 +9,12 @@ the loop at every critical step.
 It is intentionally a **responsible AI operations system, not an auto-apply
 bot**: it drafts and recommends, but never sends or fabricates.
 
+> **Live on Azure:** dashboard → https://jobops-web.azurewebsites.net ·
+> API health → https://jobops-api.azurewebsites.net/api/health
+> (Web + API run on Azure App Service against Azure PostgreSQL. The Python
+> agent service runs locally for the full-AI demo; the cloud app degrades
+> gracefully to the deterministic analysis when the agent is not attached.)
+
 ## Highlights
 
 - **Real, multi-provider LLMs** — a Python agent service routes to Anthropic
