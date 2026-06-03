@@ -24,7 +24,8 @@ healthRouter.get('/status', async (_request, response, next) => {
       try {
         const res = await fetch(`${agentUrl}/health`, { signal: AbortSignal.timeout(8000) });
         if (res.ok) {
-          agent = { enabled: true, reachable: true, ...(await res.json()) };
+          const agentHealth = (await res.json()) as Record<string, unknown>;
+          agent = { ...agentHealth, enabled: true, reachable: true };
         }
       } catch {
         // Agent asleep/unreachable — report enabled but not reachable.
