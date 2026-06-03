@@ -23,6 +23,8 @@ import {
   updateOutreachGmailDraftId,
 } from '@/data/job-store';
 import { saveWeeklyReport } from '@/data/report-store';
+import { getUserProfile } from '@/data/profile-store';
+import { requireUser } from '@/lib/auth';
 import { exportWeeklyReportMarkdown } from '@/lib/report-export';
 import { getRequestBaseUrl } from '@/lib/request-url';
 import { buildWeeklyReportRecord, formatWeeklyReportResponse } from '@/lib/weekly-report';
@@ -31,6 +33,9 @@ import type { DraftOutreachBody, OutreachDraft, ParseJobBody, ScoreFitBody, Week
 export const aiRouter = Router();
 
 aiRouter.post('/parse-job', async (request, response, next) => {
+  const userId = requireUser(request, response);
+  if (!userId) return;
+
   const body = request.body as ParseJobBody;
 
   try {
@@ -45,12 +50,12 @@ aiRouter.post('/parse-job', async (request, response, next) => {
     }
 
     if (body.job_id) {
-      const job = await getJobById(body.job_id);
+      const job = await getJobById(userId, body.job_id);
       if (!job) {
         return response.status(404).json({ error: 'Job not found' });
       }
 
-      await saveJobAnalysis(body.job_id, analysisFromParsed(parsed));
+      await saveJobAnalysis(userId, body.job_id, analysisFromParsed(parsed));
     }
 
     return response.json({
@@ -63,26 +68,38 @@ aiRouter.post('/parse-job', async (request, response, next) => {
 });
 
 aiRouter.post('/score-fit', async (request, response, next) => {
+  const userId = requireUser(request, response);
+  if (!userId) return;
+
   const body = request.body as ScoreFitBody;
 
   if (!body.job_id) {
     return response.status(400).json({ error: 'job_id is required' });
   }
 
-  if (!body.resume_text?.trim() || !body.profile_text?.trim()) {
-    return response.status(400).json({ error: 'resume_text and profile_text are required' });
-  }
-
   try {
-    const job = await getJobById(body.job_id);
+    const job = await getJobById(userId, body.job_id);
     if (!job) {
       return response.status(404).json({ error: 'Job not found' });
     }
 
+    // Fall back to the saved profile so the client doesn't need to resend the
+    // resume on every call; require that a resume exists somewhere.
+    const profile = await getUserProfile(userId);
+    const resumeText = body.resume_text?.trim() || profile?.resumeText || '';
+    const profileText = body.profile_text?.trim() || profile?.profileText || resumeText;
+
+    if (!resumeText) {
+      return response
+        .status(400)
+        .json({ error: 'No resume on file. Add your resume in onboarding or settings first.' });
+    }
+
     const scored = await resolveFitScore({
+      userId,
       descriptionText: job.descriptionText,
-      resumeText: body.resume_text,
-      profileText: body.profile_text,
+      resumeText,
+      profileText,
       requiredSkills: job.analysis.requiredSkills,
       preferredSkills: job.analysis.preferredSkills,
       atsKeywords: job.analysis.atsKeywords,
@@ -97,7 +114,7 @@ aiRouter.post('/score-fit', async (request, response, next) => {
       preferredSkills: job.analysis.preferredSkills,
     });
 
-    await saveJobAnalysis(body.job_id, analysis, scored.fit_score);
+    await saveJobAnalysis(userId, body.job_id, analysis, scored.fit_score);
 
     return response.json({
       job_id: body.job_id,
@@ -109,6 +126,9 @@ aiRouter.post('/score-fit', async (request, response, next) => {
 });
 
 aiRouter.post('/draft-outreach', async (request, response, next) => {
+  const userId = requireUser(request, response);
+  if (!userId) return;
+
   const body = request.body as DraftOutreachBody;
   const contactEmail = body.contact_email?.trim();
 
@@ -122,19 +142,20 @@ aiRouter.post('/draft-outreach', async (request, response, next) => {
   let job: Awaited<ReturnType<typeof getJobById>> = undefined;
   if (body.job_id) {
     try {
-      job = await getJobById(body.job_id);
+      job = await getJobById(userId, body.job_id);
     } catch (error) {
       next(error);
       return;
     }
   }
 
+  const profile = await getUserProfile(userId);
   const payload = await resolveOutreachDraft({
     ...body,
     contact_email: contactEmail,
     company: job?.company,
     job_context: body.job_context ?? job?.descriptionText,
-    resume_summary: body.resume_summary,
+    resume_summary: body.resume_summary ?? profile?.profileText ?? profile?.resumeText,
   });
   const draft: OutreachDraft = {
     id: randomUUID(),
@@ -154,7 +175,7 @@ aiRouter.post('/draft-outreach', async (request, response, next) => {
 
   if (job) {
     try {
-      await appendOutreachDraft(job.id, draft);
+      await appendOutreachDraft(userId, job.id, draft);
     } catch (error) {
       next(error);
       return;
@@ -175,7 +196,7 @@ aiRouter.post('/draft-outreach', async (request, response, next) => {
 
       if (job) {
         try {
-          await updateOutreachGmailDraftId(draft.id, gmailDraft.gmailDraftId);
+          await updateOutreachGmailDraftId(userId, draft.id, gmailDraft.gmailDraftId);
         } catch (error) {
           gmailDraftMessage = `${gmailDraft.message} The local outreach record could not be updated.`;
           console.error('Gmail draft created but local outreach update failed', error);
@@ -206,6 +227,9 @@ const AGENT_DISABLED_MESSAGE =
   'The AI agent service is not configured. Set AGENT_SERVICE_URL and a provider key to enable the agents.';
 
 aiRouter.post('/agents/interview-prep', async (request, response, next) => {
+  const userId = requireUser(request, response);
+  if (!userId) return;
+
   const body = request.body as { job_id?: string; resume_text?: string };
 
   if (!body.job_id) {
@@ -213,14 +237,15 @@ aiRouter.post('/agents/interview-prep', async (request, response, next) => {
   }
 
   try {
-    const job = await getJobById(body.job_id);
+    const job = await getJobById(userId, body.job_id);
     if (!job) {
       return response.status(404).json({ error: 'Job not found' });
     }
 
+    const profile = await getUserProfile(userId);
     const result = await runAgentTask('/agents/interview-prep', {
       job_description: job.descriptionText,
-      resume_text: body.resume_text,
+      resume_text: body.resume_text ?? profile?.resumeText,
       company: job.company,
       role: job.title,
     });
@@ -235,6 +260,9 @@ aiRouter.post('/agents/interview-prep', async (request, response, next) => {
 });
 
 aiRouter.post('/agents/research', async (request, response, next) => {
+  const userId = requireUser(request, response);
+  if (!userId) return;
+
   const body = request.body as { job_id?: string };
 
   if (!body.job_id) {
@@ -242,7 +270,7 @@ aiRouter.post('/agents/research', async (request, response, next) => {
   }
 
   try {
-    const job = await getJobById(body.job_id);
+    const job = await getJobById(userId, body.job_id);
     if (!job) {
       return response.status(404).json({ error: 'Job not found' });
     }
@@ -263,6 +291,9 @@ aiRouter.post('/agents/research', async (request, response, next) => {
 });
 
 aiRouter.post('/agents/skill-gap', async (request, response, next) => {
+  const userId = requireUser(request, response);
+  if (!userId) return;
+
   const body = request.body as { job_id?: string; resume_text?: string };
 
   if (!body.job_id) {
@@ -270,15 +301,16 @@ aiRouter.post('/agents/skill-gap', async (request, response, next) => {
   }
 
   try {
-    const job = await getJobById(body.job_id);
+    const job = await getJobById(userId, body.job_id);
     if (!job) {
       return response.status(404).json({ error: 'Job not found' });
     }
 
+    const profile = await getUserProfile(userId);
     const result = await runAgentTask('/agents/skill-gap', {
       missing_skills: job.analysis.missingSkills,
       job_description: job.descriptionText,
-      resume_text: body.resume_text,
+      resume_text: body.resume_text ?? profile?.resumeText,
     });
 
     return response.json(result);
@@ -291,6 +323,9 @@ aiRouter.post('/agents/skill-gap', async (request, response, next) => {
 });
 
 aiRouter.post('/generate-weekly-report', async (request, response, next) => {
+  const userId = requireUser(request, response);
+  if (!userId) return;
+
   const body = request.body as WeeklyReportBody;
 
   if (!body.week_start || !body.week_end) {
@@ -298,12 +333,12 @@ aiRouter.post('/generate-weekly-report', async (request, response, next) => {
   }
 
   try {
-    const jobs = await listJobs();
+    const jobs = await listJobs(userId);
     const report = buildWeeklyReportRecord(jobs, body);
     const reportUrl = await exportWeeklyReportMarkdown(report, {
       publicBaseUrl: getRequestBaseUrl(request),
     });
-    const savedReport = await saveWeeklyReport({
+    const savedReport = await saveWeeklyReport(userId, {
       ...report,
       reportUrl,
     });

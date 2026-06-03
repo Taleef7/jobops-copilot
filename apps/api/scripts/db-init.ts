@@ -14,7 +14,6 @@ if (!databaseUrl) {
 const scriptDir = dirname(fileURLToPath(import.meta.url));
 const repoRoot = join(scriptDir, '..', '..', '..');
 const migrationDir = join(repoRoot, 'db', 'migrations');
-const seedPath = join(repoRoot, 'db', 'seed', 'sample_jobs.sql');
 
 function describeTarget(url: string) {
   const parsed = new URL(url);
@@ -57,7 +56,7 @@ async function main() {
     for (const migrationPath of await listMigrationFiles()) {
       await runSql(pool, `schema migration ${migrationPath.split('\\').pop() ?? migrationPath}`, migrationPath);
     }
-    await runSql(pool, 'seed data', seedPath);
+    // No global seed: sample data is loaded per-account via POST /api/demo/seed.
     console.log('Azure PostgreSQL bootstrap completed successfully.');
   } finally {
     await pool.end();

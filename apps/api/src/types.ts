@@ -56,6 +56,7 @@ export interface OutreachDraft {
 
 export interface JobRecord {
   id: string;
+  userId?: string;
   jobUrl?: string;
   source: string;
   company: string;
@@ -80,6 +81,7 @@ export interface JobRecord {
 
 export interface WeeklyReportRecord {
   id: string;
+  userId?: string;
   weekStart: string;
   weekEnd: string;
   jobsDiscovered: number;

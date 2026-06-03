@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { readFile } from 'node:fs/promises';
 import { getLatestWeeklyReport, listWeeklyReports } from '@/data/report-store';
+import { requireUser } from '@/lib/auth';
 import {
   buildLocalWeeklyReportExportPath,
   buildWeeklyReportExportFileName,
@@ -8,18 +9,24 @@ import {
 
 export const reportsRouter = Router();
 
-reportsRouter.get('/', async (_request, response, next) => {
+reportsRouter.get('/', async (request, response, next) => {
   try {
-    const reports = await listWeeklyReports();
+    const userId = requireUser(request, response);
+    if (!userId) return;
+
+    const reports = await listWeeklyReports(userId);
     response.json({ reports });
   } catch (error) {
     next(error);
   }
 });
 
-reportsRouter.get('/latest', async (_request, response, next) => {
+reportsRouter.get('/latest', async (request, response, next) => {
   try {
-    const report = await getLatestWeeklyReport();
+    const userId = requireUser(request, response);
+    if (!userId) return;
+
+    const report = await getLatestWeeklyReport(userId);
 
     if (!report) {
       response.status(404).json({ error: 'No weekly reports found' });
@@ -34,7 +41,10 @@ reportsRouter.get('/latest', async (_request, response, next) => {
 
 reportsRouter.get('/:reportId/export', async (request, response, next) => {
   try {
-    const reports = await listWeeklyReports();
+    const userId = requireUser(request, response);
+    if (!userId) return;
+
+    const reports = await listWeeklyReports(userId);
     const report = reports.find((entry) => entry.id === request.params.reportId);
 
     if (!report) {

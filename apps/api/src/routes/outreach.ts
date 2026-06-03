@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import { updateOutreachDraft } from '@/data/job-store';
+import { requireUser } from '@/lib/auth';
 import type { OutreachStatus } from '@/types';
 
 export const outreachRouter = Router();
@@ -47,6 +48,9 @@ export function validateOutreachUpdateBody(body: OutreachUpdateInput) {
 }
 
 outreachRouter.patch('/:id', async (request, response, next) => {
+  const userId = requireUser(request, response);
+  if (!userId) return;
+
   const body = request.body as OutreachUpdateInput;
   const { errors, normalized } = validateOutreachUpdateBody(body);
 
@@ -56,7 +60,7 @@ outreachRouter.patch('/:id', async (request, response, next) => {
   }
 
   try {
-    const outreach = await updateOutreachDraft(request.params.id, {
+    const outreach = await updateOutreachDraft(userId, request.params.id, {
       status: normalized.status as OutreachStatus | undefined,
       gmailDraftId: normalized.gmailDraftId,
       sentAt: normalized.sentAt,

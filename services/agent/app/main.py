@@ -71,6 +71,7 @@ class IngestRequest(BaseModel):
     source_type: str
     source_id: str
     text: str
+    user_id: str | None = None
 
 
 class SearchRequest(BaseModel):
@@ -78,6 +79,7 @@ class SearchRequest(BaseModel):
     k: int = Field(default=4, ge=1, le=20)
     source_type: str | None = None
     source_id: str | None = None
+    user_id: str | None = None
 
 
 @app.get("/health")
@@ -102,7 +104,9 @@ def score_fit_endpoint(req: ScoreFitRequest) -> FitScoreResponse:
     # RAG augmentation: ground the assessment in the resume chunks most relevant
     # to this job. Best-effort — falls through to direct scoring if RAG is off.
     if rag_available() and req.resume_text and not req.retrieved_context:
-        evidence = retrieve_resume_evidence(req.resume_text, req.description_text)
+        evidence = retrieve_resume_evidence(
+            req.resume_text, req.description_text, user_id=req.user_id
+        )
         if evidence:
             req.retrieved_context = evidence
     return _run(score_fit, req)
@@ -112,7 +116,7 @@ def score_fit_endpoint(req: ScoreFitRequest) -> FitScoreResponse:
 def rag_ingest_endpoint(req: IngestRequest) -> dict:
     if not rag_available():
         raise HTTPException(status_code=503, detail="RAG is disabled; set DATABASE_URL.")
-    count = _run(ingest_document, req.source_type, req.source_id, req.text)
+    count = _run(ingest_document, req.source_type, req.source_id, req.text, req.user_id)
     return {"source_type": req.source_type, "source_id": req.source_id, "chunks_ingested": count}
 
 
@@ -120,7 +124,7 @@ def rag_ingest_endpoint(req: IngestRequest) -> dict:
 def rag_search_endpoint(req: SearchRequest) -> dict:
     if not rag_available():
         raise HTTPException(status_code=503, detail="RAG is disabled; set DATABASE_URL.")
-    matches = _run(retrieve, req.query, req.k, req.source_type, req.source_id)
+    matches = _run(retrieve, req.query, req.k, req.source_type, req.source_id, req.user_id)
     return {"query": req.query, "matches": matches}
 
 

@@ -226,17 +226,17 @@ test('creates and enriches a job-intake webhook payload', async () => {
   try {
     await withServer(
       createN8nRouter({
-        createJob: async (body) => {
+        createJob: async (_userId, body) => {
           createdJobBody = body;
           return createdJob;
         },
         listJobs: async () => [],
-        saveJobAnalysis: async (_jobId, analysis, fitScore) => {
+        saveJobAnalysis: async (_userId, _jobId, analysis, fitScore) => {
           savedAnalysis = analysis;
           savedFitScore = fitScore;
           return scoredJob;
         },
-        updateJob: async (_jobId, body) => {
+        updateJob: async (_userId, _jobId, body) => {
           updatedJobBody = body;
           return scoredJob;
         },
@@ -463,7 +463,8 @@ test('persists weekly report drafts generated through the n8n webhook', async ()
         assert.ok(reportPayload.report_id);
         assert.ok(reportPayload.report_url);
 
-        const reports = await listWeeklyReports();
+        // The n8n webhook owns its data under the system user (default dev id).
+        const reports = await listWeeklyReports('user_local_dev');
         assert.equal(reports[0]?.id, reportPayload.report_id);
         assert.equal(reports[0]?.reportUrl, reportPayload.report_url ?? undefined);
       },

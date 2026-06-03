@@ -1,9 +1,12 @@
 import cors from 'cors';
 import express from 'express';
+import { attachUserId, clerkAuth } from '@/lib/auth';
 import { aiRouter } from '@/routes/ai';
+import { demoRouter } from '@/routes/demo';
 import { healthRouter } from '@/routes/health';
 import { jobsRouter } from '@/routes/jobs';
 import { n8nRouter } from '@/routes/n8n';
+import { profileRouter } from '@/routes/profile';
 import { reportsRouter } from '@/routes/reports';
 import { outreachRouter } from '@/routes/outreach';
 import { telemetryRouter } from '@/routes/telemetry';
@@ -48,11 +51,15 @@ export function createApp() {
     }),
   );
   app.use(requireSharedApiKey);
-  app.use(express.json({ limit: '1mb' }));
+  app.use(express.json({ limit: '5mb' }));
+  app.use(clerkAuth);
+  app.use(attachUserId);
 
   app.use('/api', healthRouter);
   app.use('/api/jobs', jobsRouter);
   app.use('/api/ai', aiRouter);
+  app.use('/api/profile', profileRouter);
+  app.use('/api/demo', demoRouter);
   app.use('/api/outreach', outreachRouter);
   app.use('/api/reports', reportsRouter);
   app.use('/api/telemetry', telemetryRouter);

@@ -1,5 +1,4 @@
 import { randomUUID } from 'node:crypto';
-import type { PoolClient } from 'pg';
 import type {
   CreateJobBody,
   JobAnalysis,
@@ -71,8 +70,6 @@ type JobStateRow = {
   status: string;
   next_action: string | null;
 };
-
-let readyPromise: Promise<void> | null = null;
 
 function poolOrThrow() {
   const pool = getPool();
@@ -166,218 +163,13 @@ function mapJob(row: JobRow, analysisRow?: JobAnalysisRow, outreachRows: Outreac
   };
 }
 
-async function ensureSeedData(client: PoolClient) {
-  const { rows } = await client.query<{ count: string }>('select count(*)::text as count from jobs');
-  if (Number(rows[0]?.count ?? '0') > 0) {
-    return;
-  }
-
-  for (const job of seedJobs) {
-    await client.query(
-      `
-        insert into jobs (
-          id,
-          job_url,
-          source,
-          company,
-          title,
-          location,
-          employment_type,
-          workplace_type,
-          date_posted,
-          discovered_at,
-          description_text,
-          status,
-          priority,
-          fit_score,
-          notes,
-          next_action,
-          next_action_due,
-          created_at,
-          updated_at
-        ) values (
-          $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19
-        )
-        on conflict (id) do update set
-          job_url = excluded.job_url,
-          source = excluded.source,
-          company = excluded.company,
-          title = excluded.title,
-          location = excluded.location,
-          employment_type = excluded.employment_type,
-          workplace_type = excluded.workplace_type,
-          date_posted = excluded.date_posted,
-          discovered_at = excluded.discovered_at,
-          description_text = excluded.description_text,
-          status = excluded.status,
-          priority = excluded.priority,
-          fit_score = excluded.fit_score,
-          notes = excluded.notes,
-          next_action = excluded.next_action,
-          next_action_due = excluded.next_action_due,
-          created_at = excluded.created_at,
-          updated_at = excluded.updated_at
-      `,
-      [
-        job.id,
-        job.jobUrl ?? null,
-        job.source,
-        job.company,
-        job.title,
-        job.location,
-        job.employmentType,
-        job.workplaceType,
-        job.datePosted ?? null,
-        job.discoveredAt,
-        job.descriptionText,
-        job.status,
-        job.priority,
-        job.fitScore,
-        job.notes ?? null,
-        job.nextAction ?? null,
-        job.nextActionDue ?? null,
-        job.createdAt,
-        job.updatedAt,
-      ],
-    );
-
-    await client.query(
-      `
-        insert into job_analysis (
-          job_id,
-          required_skills,
-          preferred_skills,
-          matched_skills,
-          missing_skills,
-          ats_keywords,
-          fit_summary,
-          recommended_resume_angle,
-          apply_recommendation,
-          confidence_score,
-          model_used,
-          created_at
-        ) values (
-          $1, $2::jsonb, $3::jsonb, $4::jsonb, $5::jsonb, $6::jsonb, $7, $8, $9, $10, $11, $12
-        )
-        on conflict (job_id) do update set
-          required_skills = excluded.required_skills,
-          preferred_skills = excluded.preferred_skills,
-          matched_skills = excluded.matched_skills,
-          missing_skills = excluded.missing_skills,
-          ats_keywords = excluded.ats_keywords,
-          fit_summary = excluded.fit_summary,
-          recommended_resume_angle = excluded.recommended_resume_angle,
-          apply_recommendation = excluded.apply_recommendation,
-          confidence_score = excluded.confidence_score,
-          model_used = excluded.model_used
-      `,
-      [
-        job.id,
-        JSON.stringify(job.analysis.requiredSkills),
-        JSON.stringify(job.analysis.preferredSkills),
-        JSON.stringify(job.analysis.matchedSkills),
-        JSON.stringify(job.analysis.missingSkills),
-        JSON.stringify(job.analysis.atsKeywords),
-        job.analysis.fitSummary,
-        job.analysis.recommendedResumeAngle,
-        job.analysis.applyRecommendation,
-        job.analysis.confidenceScore,
-        job.analysis.modelUsed,
-        job.createdAt,
-      ],
-    );
-
-    for (const draft of job.outreach) {
-      await client.query(
-        `
-        insert into outreach (
-          id,
-          job_id,
-          contact_name,
-          contact_role,
-          contact_source,
-          linkedin_url,
-          email,
-          message_type,
-          draft_text,
-          gmail_draft_id,
-          status,
-          created_at,
-          sent_at,
-          follow_up_due
-        ) values (
-          $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14
-        )
-        on conflict (id) do update set
-          job_id = excluded.job_id,
-          contact_name = excluded.contact_name,
-          contact_role = excluded.contact_role,
-          contact_source = excluded.contact_source,
-          linkedin_url = excluded.linkedin_url,
-          email = excluded.email,
-          message_type = excluded.message_type,
-          draft_text = excluded.draft_text,
-          gmail_draft_id = excluded.gmail_draft_id,
-          status = excluded.status,
-          created_at = excluded.created_at,
-          sent_at = excluded.sent_at,
-          follow_up_due = excluded.follow_up_due
-      `,
-        [
-          draft.id,
-          job.id,
-          draft.contactName ?? null,
-          draft.contactRole ?? null,
-          draft.contactSource ?? null,
-          draft.linkedinUrl ?? null,
-          draft.email ?? null,
-          draft.messageType,
-          draft.draftText,
-          draft.gmailDraftId ?? null,
-          draft.status,
-          draft.createdAt,
-          draft.sentAt ?? null,
-          draft.followUpDue ?? null,
-        ],
-      );
-    }
-  }
-}
-
-async function ensureReady() {
-  if (readyPromise) {
-    await readyPromise;
-    return;
-  }
-
+export async function listJobs(userId: string): Promise<JobRecord[]> {
   const pool = poolOrThrow();
 
-  readyPromise = (async () => {
-    const client = await pool.connect();
-    try {
-      await client.query('begin');
-      await ensureSeedData(client);
-      await client.query('commit');
-    } catch (error) {
-      await client.query('rollback');
-      throw error;
-    } finally {
-      client.release();
-    }
-  })();
-
-  try {
-    await readyPromise;
-  } finally {
-    readyPromise = null;
-  }
-}
-
-export async function listJobs(): Promise<JobRecord[]> {
-  await ensureReady();
-  const pool = poolOrThrow();
-
-  const jobsResult = await pool.query<JobRow>('select * from jobs order by created_at desc');
+  const jobsResult = await pool.query<JobRow>(
+    'select * from jobs where user_id = $1 order by created_at desc',
+    [userId],
+  );
   if (jobsResult.rowCount === 0) {
     return [];
   }
@@ -407,11 +199,13 @@ export async function listJobs(): Promise<JobRecord[]> {
   return jobsResult.rows.map((row: JobRow) => mapJob(row, analysisByJobId.get(row.id), outreachByJobId.get(row.id)));
 }
 
-export async function getJobById(jobId: string): Promise<JobRecord | undefined> {
-  await ensureReady();
+export async function getJobById(userId: string, jobId: string): Promise<JobRecord | undefined> {
   const pool = poolOrThrow();
 
-  const { rows } = await pool.query<JobRow>('select * from jobs where id::text = $1 limit 1', [jobId]);
+  const { rows } = await pool.query<JobRow>(
+    'select * from jobs where id::text = $1 and user_id = $2 limit 1',
+    [jobId, userId],
+  );
   const job = rows[0] as JobRow | undefined;
 
   if (!job) {
@@ -428,8 +222,7 @@ export async function getJobById(jobId: string): Promise<JobRecord | undefined> 
   return mapJob(job, analysisResult.rows[0] as JobAnalysisRow | undefined, outreachResult.rows as OutreachRow[]);
 }
 
-export async function createJob(body: CreateJobBody): Promise<JobRecord> {
-  await ensureReady();
+export async function createJob(userId: string, body: CreateJobBody): Promise<JobRecord> {
   const pool = poolOrThrow();
   const client = await pool.connect();
   const jobId = randomUUID();
@@ -443,6 +236,7 @@ export async function createJob(body: CreateJobBody): Promise<JobRecord> {
       `
         insert into jobs (
           id,
+          user_id,
           job_url,
           source,
           company,
@@ -461,12 +255,13 @@ export async function createJob(body: CreateJobBody): Promise<JobRecord> {
           created_at,
           updated_at
         ) values (
-          $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18
+          $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19
         )
         returning *
       `,
       [
         jobId,
+        userId,
         body.jobUrl ?? null,
         body.source ?? 'manual',
         body.company.trim(),
@@ -543,7 +338,7 @@ export async function createJob(body: CreateJobBody): Promise<JobRecord> {
     );
 
     await client.query('commit');
-    const created = await getJobById(insertedJob.id);
+    const created = await getJobById(userId, insertedJob.id);
     if (!created) {
       throw new Error('Created job could not be reloaded');
     }
@@ -557,8 +352,11 @@ export async function createJob(body: CreateJobBody): Promise<JobRecord> {
   }
 }
 
-export async function updateJob(jobId: string, body: UpdateJobBody): Promise<JobRecord | undefined> {
-  await ensureReady();
+export async function updateJob(
+  userId: string,
+  jobId: string,
+  body: UpdateJobBody,
+): Promise<JobRecord | undefined> {
   const pool = poolOrThrow();
   const client = await pool.connect();
 
@@ -575,7 +373,7 @@ export async function updateJob(jobId: string, body: UpdateJobBody): Promise<Job
           fit_score = coalesce($5, fit_score),
           next_action = case when $6::text is null then next_action else nullif($6::text, '') end,
           next_action_due = case when $7::timestamptz is null then next_action_due else $7::timestamptz end
-        where id::text = $1
+        where id::text = $1 and user_id = $8
         returning *
       `,
       [
@@ -586,6 +384,7 @@ export async function updateJob(jobId: string, body: UpdateJobBody): Promise<Job
         typeof body.fitScore === 'undefined' ? null : body.fitScore,
         body.nextAction ?? null,
         body.nextActionDue ?? null,
+        userId,
       ],
     );
 
@@ -595,7 +394,7 @@ export async function updateJob(jobId: string, body: UpdateJobBody): Promise<Job
       return undefined;
     }
 
-    return getJobById(jobId);
+    return getJobById(userId, jobId);
   } catch (error) {
     await client.query('rollback');
     throw error;
@@ -604,13 +403,25 @@ export async function updateJob(jobId: string, body: UpdateJobBody): Promise<Job
   }
 }
 
-export async function appendOutreachDraft(jobId: string, draft: OutreachDraft): Promise<OutreachDraft | undefined> {
-  await ensureReady();
+export async function appendOutreachDraft(
+  userId: string,
+  jobId: string,
+  draft: OutreachDraft,
+): Promise<OutreachDraft | undefined> {
   const pool = poolOrThrow();
   const client = await pool.connect();
 
   try {
     await client.query('begin');
+
+    const ownership = await client.query('select 1 from jobs where id::text = $1 and user_id = $2 limit 1', [
+      jobId,
+      userId,
+    ]);
+    if (ownership.rowCount === 0) {
+      await client.query('rollback');
+      return undefined;
+    }
 
     const { rows } = await client.query<OutreachRow>(
       `
@@ -694,10 +505,10 @@ export async function appendOutreachDraft(jobId: string, draft: OutreachDraft): 
 }
 
 export async function updateOutreachDraft(
+  userId: string,
   outreachId: string,
   body: UpdateOutreachBody,
 ): Promise<OutreachDraft | undefined> {
-  await ensureReady();
   const pool = poolOrThrow();
   const client = await pool.connect();
 
@@ -717,6 +528,7 @@ export async function updateOutreachDraft(
           end,
           follow_up_due = case when $5::timestamptz is null then follow_up_due else $5::timestamptz end
         where id::text = $1
+          and job_id in (select id from jobs where user_id = $6)
         returning *
       `,
       [
@@ -725,6 +537,7 @@ export async function updateOutreachDraft(
         body.gmailDraftId ?? null,
         body.sentAt ?? null,
         body.followUpDue ?? null,
+        userId,
       ],
     );
 
@@ -778,18 +591,18 @@ export async function updateOutreachDraft(
 }
 
 export async function saveJobAnalysis(
+  userId: string,
   jobId: string,
   analysis: JobAnalysis,
   fitScore?: number | null,
 ): Promise<JobRecord | undefined> {
-  await ensureReady();
   const pool = poolOrThrow();
 
   if (!validateJobAnalysis(analysis)) {
     throw new Error('Invalid job analysis payload');
   }
 
-  const job = await getJobById(jobId);
+  const job = await getJobById(userId, jobId);
   if (!job) {
     return undefined;
   }
@@ -851,14 +664,14 @@ export async function saveJobAnalysis(
     await pool.query('update jobs set updated_at = now() where id::text = $1', [jobId]);
   }
 
-  return getJobById(jobId);
+  return getJobById(userId, jobId);
 }
 
 export async function updateOutreachGmailDraftId(
+  userId: string,
   outreachId: string,
   gmailDraftId: string,
 ): Promise<OutreachDraft | undefined> {
-  await ensureReady();
   const pool = poolOrThrow();
   const client = await pool.connect();
 
@@ -870,9 +683,10 @@ export async function updateOutreachGmailDraftId(
         update outreach
         set gmail_draft_id = case when $2::text is null then gmail_draft_id else nullif($2::text, '') end
         where id::text = $1
+          and job_id in (select id from jobs where user_id = $3)
         returning *
       `,
-      [outreachId, gmailDraftId],
+      [outreachId, gmailDraftId, userId],
     );
 
     const outreach = rows[0] as OutreachRow | undefined;
@@ -883,6 +697,121 @@ export async function updateOutreachGmailDraftId(
 
     await client.query('commit');
     return mapOutreach(outreach);
+  } catch (error) {
+    await client.query('rollback');
+    throw error;
+  } finally {
+    client.release();
+  }
+}
+
+/** Delete a user's jobs (cascades analysis/outreach) and their embeddings. */
+export async function clearUserData(userId: string): Promise<void> {
+  const pool = poolOrThrow();
+  const client = await pool.connect();
+  try {
+    await client.query('begin');
+    await client.query('delete from embeddings where user_id = $1', [userId]);
+    await client.query('delete from jobs where user_id = $1', [userId]);
+    await client.query('commit');
+  } catch (error) {
+    await client.query('rollback');
+    throw error;
+  } finally {
+    client.release();
+  }
+}
+
+/** Replace a user's data with the sample CRM (for instant demos). */
+export async function seedDemoData(userId: string): Promise<void> {
+  await clearUserData(userId);
+  const pool = poolOrThrow();
+  const client = await pool.connect();
+  try {
+    await client.query('begin');
+
+    for (const job of seedJobs) {
+      const jobId = randomUUID();
+      await client.query(
+        `insert into jobs (
+          id, user_id, job_url, source, company, title, location, employment_type,
+          workplace_type, date_posted, discovered_at, description_text, status, priority,
+          fit_score, notes, next_action, next_action_due, created_at, updated_at
+        ) values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20)`,
+        [
+          jobId,
+          userId,
+          job.jobUrl ?? null,
+          job.source,
+          job.company,
+          job.title,
+          job.location,
+          job.employmentType,
+          job.workplaceType,
+          job.datePosted ?? null,
+          job.discoveredAt,
+          job.descriptionText,
+          job.status,
+          job.priority,
+          job.fitScore,
+          job.notes ?? null,
+          job.nextAction ?? null,
+          job.nextActionDue ?? null,
+          job.createdAt,
+          job.updatedAt,
+        ],
+      );
+
+      await client.query(
+        `insert into job_analysis (
+          id, job_id, required_skills, preferred_skills, matched_skills, missing_skills,
+          ats_keywords, fit_summary, recommended_resume_angle, apply_recommendation,
+          confidence_score, model_used, created_at
+        ) values ($1,$2,$3::jsonb,$4::jsonb,$5::jsonb,$6::jsonb,$7::jsonb,$8,$9,$10,$11,$12,$13)`,
+        [
+          randomUUID(),
+          jobId,
+          JSON.stringify(job.analysis.requiredSkills),
+          JSON.stringify(job.analysis.preferredSkills),
+          JSON.stringify(job.analysis.matchedSkills),
+          JSON.stringify(job.analysis.missingSkills),
+          JSON.stringify(job.analysis.atsKeywords),
+          job.analysis.fitSummary,
+          job.analysis.recommendedResumeAngle,
+          job.analysis.applyRecommendation,
+          job.analysis.confidenceScore,
+          job.analysis.modelUsed,
+          job.createdAt,
+        ],
+      );
+
+      for (const draft of job.outreach) {
+        await client.query(
+          `insert into outreach (
+            id, job_id, contact_name, contact_role, contact_source, linkedin_url, email,
+            message_type, draft_text, gmail_draft_id, status, created_at, sent_at, follow_up_due
+          ) values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)`,
+          [
+            randomUUID(),
+            jobId,
+            draft.contactName ?? null,
+            draft.contactRole ?? null,
+            draft.contactSource ?? null,
+            draft.linkedinUrl ?? null,
+            draft.email ?? null,
+            draft.messageType,
+            draft.draftText,
+            draft.gmailDraftId ?? null,
+            draft.status,
+            draft.createdAt,
+            draft.sentAt ?? null,
+            draft.followUpDue ?? null,
+          ],
+        );
+      }
+    }
+
+    await client.query('commit');
   } catch (error) {
     await client.query('rollback');
     throw error;

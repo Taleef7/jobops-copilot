@@ -70,11 +70,12 @@ function extractKeywords(text: string): string[] {
   return keywords.filter((keyword) => text.toLowerCase().includes(keyword.toLowerCase()));
 }
 
-function createBaseJob(body: CreateJobBody): JobRecord {
+function createBaseJob(userId: string, body: CreateJobBody): JobRecord {
   const timestamp = new Date().toISOString();
 
   return {
     id: randomUUID(),
+    userId,
     jobUrl: body.jobUrl,
     source: body.source ?? 'manual',
     company: body.company.trim(),
@@ -161,47 +162,51 @@ async function runExclusive<T>(operation: () => Promise<T>): Promise<T> {
   }
 }
 
-export async function listJobs(): Promise<JobRecord[]> {
+export async function listJobs(userId: string): Promise<JobRecord[]> {
   if (hasPostgresConnection()) {
-    return postgresStore.listJobs();
+    return postgresStore.listJobs(userId);
   }
 
   const jobs = await ensureLoaded();
-  return clone(jobs);
+  return clone(jobs.filter((entry) => entry.userId === userId));
 }
 
-export async function getJobById(jobId: string): Promise<JobRecord | undefined> {
+export async function getJobById(userId: string, jobId: string): Promise<JobRecord | undefined> {
   if (hasPostgresConnection()) {
-    return postgresStore.getJobById(jobId);
+    return postgresStore.getJobById(userId, jobId);
   }
 
   const jobs = await ensureLoaded();
-  const job = jobs.find((entry) => entry.id === jobId);
+  const job = jobs.find((entry) => entry.id === jobId && entry.userId === userId);
   return job ? clone(job) : undefined;
 }
 
-export async function createJob(body: CreateJobBody): Promise<JobRecord> {
+export async function createJob(userId: string, body: CreateJobBody): Promise<JobRecord> {
   if (hasPostgresConnection()) {
-    return postgresStore.createJob(body);
+    return postgresStore.createJob(userId, body);
   }
 
   return runExclusive(async () => {
     const jobs = await ensureLoaded();
-    const job = createBaseJob(body);
+    const job = createBaseJob(userId, body);
     jobs.unshift(job);
     await persistJobs();
     return clone(job);
   });
 }
 
-export async function updateJob(jobId: string, body: UpdateJobBody): Promise<JobRecord | undefined> {
+export async function updateJob(
+  userId: string,
+  jobId: string,
+  body: UpdateJobBody,
+): Promise<JobRecord | undefined> {
   if (hasPostgresConnection()) {
-    return postgresStore.updateJob(jobId, body);
+    return postgresStore.updateJob(userId, jobId, body);
   }
 
   return runExclusive(async () => {
     const jobs = await ensureLoaded();
-    const job = jobs.find((entry) => entry.id === jobId);
+    const job = jobs.find((entry) => entry.id === jobId && entry.userId === userId);
 
     if (!job) {
       return undefined;
@@ -232,14 +237,18 @@ export async function updateJob(jobId: string, body: UpdateJobBody): Promise<Job
   });
 }
 
-export async function appendOutreachDraft(jobId: string, draft: OutreachDraft): Promise<OutreachDraft | undefined> {
+export async function appendOutreachDraft(
+  userId: string,
+  jobId: string,
+  draft: OutreachDraft,
+): Promise<OutreachDraft | undefined> {
   if (hasPostgresConnection()) {
-    return postgresStore.appendOutreachDraft(jobId, draft);
+    return postgresStore.appendOutreachDraft(userId, jobId, draft);
   }
 
   return runExclusive(async () => {
     const jobs = await ensureLoaded();
-    const job = jobs.find((entry) => entry.id === jobId);
+    const job = jobs.find((entry) => entry.id === jobId && entry.userId === userId);
 
     if (!job) {
       return undefined;
@@ -264,17 +273,22 @@ export async function appendOutreachDraft(jobId: string, draft: OutreachDraft): 
 }
 
 export async function updateOutreachDraft(
+  userId: string,
   outreachId: string,
   body: UpdateOutreachBody,
 ): Promise<OutreachDraft | undefined> {
   if (hasPostgresConnection()) {
-    return postgresStore.updateOutreachDraft(outreachId, body);
+    return postgresStore.updateOutreachDraft(userId, outreachId, body);
   }
 
   return runExclusive(async () => {
     const jobs = await ensureLoaded();
 
     for (const job of jobs) {
+      if (job.userId !== userId) {
+        continue;
+      }
+
       const draft = job.outreach.find((entry) => entry.id === outreachId);
 
       if (!draft) {
@@ -315,17 +329,22 @@ export async function updateOutreachDraft(
 }
 
 export async function updateOutreachGmailDraftId(
+  userId: string,
   outreachId: string,
   gmailDraftId: string,
 ): Promise<OutreachDraft | undefined> {
   if (hasPostgresConnection()) {
-    return postgresStore.updateOutreachGmailDraftId(outreachId, gmailDraftId);
+    return postgresStore.updateOutreachGmailDraftId(userId, outreachId, gmailDraftId);
   }
 
   return runExclusive(async () => {
     const jobs = await ensureLoaded();
 
     for (const job of jobs) {
+      if (job.userId !== userId) {
+        continue;
+      }
+
       const draft = job.outreach.find((entry) => entry.id === outreachId);
 
       if (!draft) {
@@ -343,17 +362,18 @@ export async function updateOutreachGmailDraftId(
 }
 
 export async function saveJobAnalysis(
+  userId: string,
   jobId: string,
   analysis: JobAnalysis,
   fitScore?: number | null,
 ): Promise<JobRecord | undefined> {
   if (hasPostgresConnection()) {
-    return postgresStore.saveJobAnalysis(jobId, analysis, fitScore);
+    return postgresStore.saveJobAnalysis(userId, jobId, analysis, fitScore);
   }
 
   return runExclusive(async () => {
     const jobs = await ensureLoaded();
-    const job = jobs.find((entry) => entry.id === jobId);
+    const job = jobs.find((entry) => entry.id === jobId && entry.userId === userId);
 
     if (!job) {
       return undefined;
@@ -370,5 +390,36 @@ export async function saveJobAnalysis(
     job.updatedAt = new Date().toISOString();
     await persistJobs();
     return clone(job);
+  });
+}
+
+export async function clearUserData(userId: string): Promise<void> {
+  if (hasPostgresConnection()) {
+    return postgresStore.clearUserData(userId);
+  }
+
+  await runExclusive(async () => {
+    const jobs = await ensureLoaded();
+    jobsCache = jobs.filter((entry) => entry.userId !== userId);
+    await persistJobs();
+  });
+}
+
+export async function seedDemoData(userId: string): Promise<void> {
+  if (hasPostgresConnection()) {
+    return postgresStore.seedDemoData(userId);
+  }
+
+  await runExclusive(async () => {
+    const jobs = await ensureLoaded();
+    const others = jobs.filter((entry) => entry.userId !== userId);
+    const mine = clone(seedJobs).map((job) => ({
+      ...job,
+      id: randomUUID(),
+      userId,
+      outreach: job.outreach.map((draft) => ({ ...draft, id: randomUUID() })),
+    }));
+    jobsCache = [...mine, ...others];
+    await persistJobs();
   });
 }

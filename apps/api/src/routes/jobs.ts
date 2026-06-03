@@ -5,6 +5,7 @@ import {
   listJobs,
   updateJob,
 } from '@/data/job-store';
+import { requireUser } from '@/lib/auth';
 import type { CreateJobBody, JobPriority, JobStatus, UpdateJobBody } from '@/types';
 
 export const jobsRouter = Router();
@@ -34,10 +35,13 @@ function isValidUrl(value: string) {
   }
 }
 
-jobsRouter.get('/', async (_request, response, next) => {
+jobsRouter.get('/', async (request, response, next) => {
   try {
+    const userId = requireUser(request, response);
+    if (!userId) return;
+
     response.json({
-      jobs: await listJobs(),
+      jobs: await listJobs(userId),
     });
   } catch (error) {
     next(error);
@@ -46,9 +50,12 @@ jobsRouter.get('/', async (_request, response, next) => {
 
 jobsRouter.post('/', async (request, response, next) => {
   try {
+    const userId = requireUser(request, response);
+    if (!userId) return;
+
     const body = request.body as Partial<CreateJobBody>;
     const errors: Record<string, string> = {};
-    const existingJobs = await listJobs();
+    const existingJobs = await listJobs(userId);
     const normalizedJobUrl = body.jobUrl?.trim();
 
     if (!body.company?.trim()) {
@@ -78,7 +85,7 @@ jobsRouter.post('/', async (request, response, next) => {
       return;
     }
 
-    const job = await createJob({
+    const job = await createJob(userId, {
       company: body.company!.trim(),
       title: body.title!.trim(),
       descriptionText: body.descriptionText!.trim(),
@@ -100,7 +107,10 @@ jobsRouter.post('/', async (request, response, next) => {
 
 jobsRouter.get('/:id', async (request, response, next) => {
   try {
-    const job = await getJobById(request.params.id);
+    const userId = requireUser(request, response);
+    if (!userId) return;
+
+    const job = await getJobById(userId, request.params.id);
 
     if (!job) {
       response.status(404).json({ error: 'Job not found' });
@@ -114,6 +124,9 @@ jobsRouter.get('/:id', async (request, response, next) => {
 });
 
 jobsRouter.patch('/:id', async (request, response, next) => {
+  const userId = requireUser(request, response);
+  if (!userId) return;
+
   const body = request.body as UpdateJobBody;
   const errors: Record<string, string> = {};
 
@@ -139,7 +152,7 @@ jobsRouter.patch('/:id', async (request, response, next) => {
   }
 
   try {
-    const job = await updateJob(request.params.id, {
+    const job = await updateJob(userId, request.params.id, {
       status: body.status,
       priority: body.priority,
       notes: body.notes?.trim(),

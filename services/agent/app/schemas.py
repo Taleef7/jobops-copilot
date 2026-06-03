@@ -115,6 +115,8 @@ class ScoreFitRequest(BaseModel):
     required_skills: list[str] | None = None
     preferred_skills: list[str] | None = None
     ats_keywords: list[str] | None = None
+    # Scopes RAG retrieval so a user's resume only grounds their own scoring.
+    user_id: str | None = None
     # Optional retrieved resume evidence (Phase 10 RAG). When present the model
     # is instructed to ground its assessment in these snippets.
     retrieved_context: list[str] | None = None

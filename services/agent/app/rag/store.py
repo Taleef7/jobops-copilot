@@ -37,8 +37,17 @@ def _vector_literal(vector: list[float]) -> str:
     return "[" + ",".join(f"{value:.6f}" for value in vector) + "]"
 
 
-def ingest_document(source_type: str, source_id: str, text: str) -> int:
-    """Chunk, embed, and upsert a document's embeddings. Returns chunk count."""
+def ingest_document(
+    source_type: str,
+    source_id: str,
+    text: str,
+    user_id: str | None = None,
+) -> int:
+    """Chunk, embed, and upsert a document's embeddings. Returns chunk count.
+
+    Embeddings are scoped to ``user_id`` so one user's resume can never ground
+    another user's retrieval.
+    """
     chunks = chunk_text(text)
     if not chunks:
         return 0
@@ -46,15 +55,24 @@ def ingest_document(source_type: str, source_id: str, text: str) -> int:
     vectors = embed_texts(chunks)
     with _connect() as conn, conn.cursor() as cur:
         cur.execute(
-            "delete from embeddings where source_type = %s and source_id = %s",
-            (source_type, source_id),
+            "delete from embeddings "
+            "where source_type = %s and source_id = %s and user_id is not distinct from %s",
+            (source_type, source_id, user_id),
         )
         for index, (chunk, vector) in enumerate(zip(chunks, vectors, strict=False)):
             cur.execute(
                 "insert into embeddings "
-                "(id, source_type, source_id, chunk_index, chunk_text, embedding) "
-                "values (%s, %s, %s, %s, %s, %s::vector)",
-                (str(uuid.uuid4()), source_type, source_id, index, chunk, _vector_literal(vector)),
+                "(id, user_id, source_type, source_id, chunk_index, chunk_text, embedding) "
+                "values (%s, %s, %s, %s, %s, %s, %s::vector)",
+                (
+                    str(uuid.uuid4()),
+                    user_id,
+                    source_type,
+                    source_id,
+                    index,
+                    chunk,
+                    _vector_literal(vector),
+                ),
             )
         conn.commit()
     return len(chunks)
@@ -65,6 +83,7 @@ def retrieve(
     k: int = 4,
     source_type: str | None = None,
     source_id: str | None = None,
+    user_id: str | None = None,
 ) -> list[str]:
     """Return the ``k`` most similar chunk texts (cosine distance)."""
     query_literal = _vector_literal(embed_query(query))
@@ -77,6 +96,9 @@ def retrieve(
     if source_id:
         conditions.append("source_id = %s")
         params.append(source_id)
+    if user_id is not None:
+        conditions.append("user_id = %s")
+        params.append(user_id)
     where_sql = ("where " + " and ".join(conditions)) if conditions else ""
 
     sql = (
@@ -90,14 +112,21 @@ def retrieve(
         return [row[0] for row in cur.fetchall()]
 
 
-def retrieve_resume_evidence(resume_text: str, job_description: str, k: int = 4) -> list[str]:
+def retrieve_resume_evidence(
+    resume_text: str,
+    job_description: str,
+    k: int = 4,
+    user_id: str | None = None,
+) -> list[str]:
     """Ingest the resume (idempotent) and retrieve the chunks most relevant to
     the job description. Returns [] and logs on any failure so callers can
     proceed without RAG."""
     try:
         source_id = resume_source_id(resume_text)
-        ingest_document("resume", source_id, resume_text)
-        return retrieve(job_description, k=k, source_type="resume", source_id=source_id)
+        ingest_document("resume", source_id, resume_text, user_id=user_id)
+        return retrieve(
+            job_description, k=k, source_type="resume", source_id=source_id, user_id=user_id
+        )
     except Exception:  # noqa: BLE001 - RAG is best-effort augmentation
         logger.exception("resume RAG retrieval failed; continuing without evidence")
         return []
