@@ -70,8 +70,9 @@ export interface ParseJobResponse {
 
 export interface ScoreFitPayload {
   jobId: string;
-  resumeText: string;
-  profileText: string;
+  // Optional: when omitted the API grounds scoring in the user's saved profile.
+  resumeText?: string;
+  profileText?: string;
 }
 
 export interface ScoreFitResponse {
@@ -168,8 +169,8 @@ export async function scoreFit(payload: ScoreFitPayload): Promise<ScoreFitRespon
     method: 'POST',
     body: JSON.stringify({
       job_id: payload.jobId,
-      resume_text: payload.resumeText,
-      profile_text: payload.profileText,
+      ...(payload.resumeText ? { resume_text: payload.resumeText } : {}),
+      ...(payload.profileText ? { profile_text: payload.profileText } : {}),
     }),
   });
 }

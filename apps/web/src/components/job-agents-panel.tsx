@@ -80,7 +80,7 @@ function ListBlock({ title, items }: { title: string; items: string[] }) {
   );
 }
 
-export function JobAgentsPanel({ jobId, resumeText }: { jobId: string; resumeText: string }) {
+export function JobAgentsPanel({ jobId }: { jobId: string }) {
   const [running, setRunning] = useState<AgentKind | null>(null);
   const [interview, setInterview] = useState<InterviewPrepResponse | null>(null);
   const [research, setResearch] = useState<ResearchBriefResponse | null>(null);
@@ -98,9 +98,9 @@ export function JobAgentsPanel({ jobId, resumeText }: { jobId: string; resumeTex
   }
 
   function trigger(kind: AgentKind) {
-    if (kind === 'interview') run(kind, () => runInterviewPrep({ jobId, resumeText }), setInterview);
+    if (kind === 'interview') run(kind, () => runInterviewPrep({ jobId }), setInterview);
     if (kind === 'research') run(kind, () => runResearch({ jobId }), setResearch);
-    if (kind === 'skillGap') run(kind, () => runSkillGap({ jobId, resumeText }), setSkillGap);
+    if (kind === 'skillGap') run(kind, () => runSkillGap({ jobId }), setSkillGap);
   }
 
   const agentMeta = (kind: AgentKind) => AGENTS.find((agent) => agent.kind === kind)!;

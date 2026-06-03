@@ -41,12 +41,10 @@ type Result = {
 export function JobOutreachActions({
   jobId,
   jobContext,
-  resumeSummary,
   disabled = false,
 }: {
   jobId: string;
   jobContext: string;
-  resumeSummary: string;
   disabled?: boolean;
 }) {
   const router = useRouter();
@@ -76,7 +74,6 @@ export function JobOutreachActions({
         contactRole: form.contactRole.trim() || undefined,
         contactEmail: form.contactEmail.trim() || undefined,
         jobContext,
-        resumeSummary,
       });
       setResult({
         subject: draft.subject,
