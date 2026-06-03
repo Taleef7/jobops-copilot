@@ -88,35 +88,12 @@ export default async function DashboardPage() {
         </Card>
       ) : null}
 
-      {/* KPI tiles */}
+      {/* KPI tiles — real values only (no fabricated trend/sparkline history). */}
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        <StatTile
-          label="Jobs tracked"
-          value={summary.totalJobs}
-          icon={Briefcase}
-          spark={[3, 5, 4, 6, 7, 6, summary.totalJobs || 8]}
-        />
-        <StatTile
-          label="Avg fit score"
-          value={summary.averageFitScore}
-          icon={Target}
-          trend={6}
-          trendLabel="vs last week"
-          spark={[58, 61, 60, 65, 68, 70, summary.averageFitScore || 72]}
-          sparkVariant="line"
-        />
-        <StatTile
-          label="Outreach drafts"
-          value={summary.outreachDrafts}
-          icon={Send}
-          spark={[1, 2, 2, 3, 4, 5, summary.outreachDrafts || 6]}
-        />
-        <StatTile
-          label="Follow-ups due"
-          value={summary.followUpsDue}
-          icon={TimerReset}
-          spark={[2, 1, 3, 2, 4, 3, summary.followUpsDue || 3]}
-        />
+        <StatTile label="Jobs tracked" value={summary.totalJobs} icon={Briefcase} />
+        <StatTile label="Avg fit score" value={summary.averageFitScore} icon={Target} />
+        <StatTile label="Outreach drafts" value={summary.outreachDrafts} icon={Send} />
+        <StatTile label="Follow-ups due" value={summary.followUpsDue} icon={TimerReset} />
       </div>
 
       {/* Pipeline funnel */}
