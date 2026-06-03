@@ -1,6 +1,7 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
+import { JobAgentsPanel } from '@/components/job-agents-panel';
 import { JobAnalysisActions } from '@/components/job-analysis-actions';
 import { JobEditPanel } from '@/components/job-edit-panel';
 import { JobOutreachActions } from '@/components/job-outreach-actions';
@@ -169,6 +170,14 @@ export default async function JobDetailPage({ params }: JobDetailParams) {
                 <p className="detail-card__value">{job.analysis.applyRecommendation}</p>
               </div>
             </div>
+          </SectionCard>
+
+          <SectionCard
+            id="agents"
+            title="AI agents"
+            description="Multi-step LangChain agents for interview prep, company research, and skill-gap planning."
+          >
+            <JobAgentsPanel jobId={job.id} resumeText={demoResumeText} />
           </SectionCard>
 
           <SectionCard

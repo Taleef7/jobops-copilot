@@ -6,7 +6,13 @@ import {
   validateFitScoreOutput,
   validateParsedJobOutput,
 } from '@/lib/analysis-core';
-import { resolveFitScore, resolveOutreachDraft, resolveParsedJob } from '@/lib/agent-client';
+import {
+  AgentDisabledError,
+  resolveFitScore,
+  resolveOutreachDraft,
+  resolveParsedJob,
+  runAgentTask,
+} from '@/lib/agent-client';
 import { isSingleRecipientEmailAddress } from '@/lib/email';
 import { createGmailDraftIfEnabled } from '@/lib/gmail';
 import {
@@ -194,6 +200,94 @@ aiRouter.post('/draft-outreach', async (request, response, next) => {
     gmail_draft_id: draft.gmailDraftId ?? null,
     gmail_draft_message: gmailDraftMessage,
   });
+});
+
+const AGENT_DISABLED_MESSAGE =
+  'The AI agent service is not configured. Set AGENT_SERVICE_URL and a provider key to enable the agents.';
+
+aiRouter.post('/agents/interview-prep', async (request, response, next) => {
+  const body = request.body as { job_id?: string; resume_text?: string };
+
+  if (!body.job_id) {
+    return response.status(400).json({ error: 'job_id is required' });
+  }
+
+  try {
+    const job = await getJobById(body.job_id);
+    if (!job) {
+      return response.status(404).json({ error: 'Job not found' });
+    }
+
+    const result = await runAgentTask('/agents/interview-prep', {
+      job_description: job.descriptionText,
+      resume_text: body.resume_text,
+      company: job.company,
+      role: job.title,
+    });
+
+    return response.json(result);
+  } catch (error) {
+    if (error instanceof AgentDisabledError) {
+      return response.status(503).json({ error: AGENT_DISABLED_MESSAGE });
+    }
+    next(error);
+  }
+});
+
+aiRouter.post('/agents/research', async (request, response, next) => {
+  const body = request.body as { job_id?: string };
+
+  if (!body.job_id) {
+    return response.status(400).json({ error: 'job_id is required' });
+  }
+
+  try {
+    const job = await getJobById(body.job_id);
+    if (!job) {
+      return response.status(404).json({ error: 'Job not found' });
+    }
+
+    const result = await runAgentTask('/agents/research', {
+      company: job.company,
+      role: job.title,
+      context: job.descriptionText,
+    });
+
+    return response.json(result);
+  } catch (error) {
+    if (error instanceof AgentDisabledError) {
+      return response.status(503).json({ error: AGENT_DISABLED_MESSAGE });
+    }
+    next(error);
+  }
+});
+
+aiRouter.post('/agents/skill-gap', async (request, response, next) => {
+  const body = request.body as { job_id?: string; resume_text?: string };
+
+  if (!body.job_id) {
+    return response.status(400).json({ error: 'job_id is required' });
+  }
+
+  try {
+    const job = await getJobById(body.job_id);
+    if (!job) {
+      return response.status(404).json({ error: 'Job not found' });
+    }
+
+    const result = await runAgentTask('/agents/skill-gap', {
+      missing_skills: job.analysis.missingSkills,
+      job_description: job.descriptionText,
+      resume_text: body.resume_text,
+    });
+
+    return response.json(result);
+  } catch (error) {
+    if (error instanceof AgentDisabledError) {
+      return response.status(503).json({ error: AGENT_DISABLED_MESSAGE });
+    }
+    next(error);
+  }
 });
 
 aiRouter.post('/generate-weekly-report', async (request, response, next) => {

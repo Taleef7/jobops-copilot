@@ -66,6 +66,41 @@ class WeeklyRecommendationsLLM(BaseModel):
     recommendations: str = ""
 
 
+# --- Phase 8 agent outputs --------------------------------------------------
+
+
+class InterviewPrep(BaseModel):
+    """Prep brief produced by the interview-prep agent."""
+
+    likely_questions: list[str] = Field(default_factory=list)
+    talking_points: list[str] = Field(default_factory=list)
+    gaps_to_address: list[str] = Field(default_factory=list)
+    questions_to_ask: list[str] = Field(default_factory=list)
+
+
+class SkillGapItem(BaseModel):
+    skill: str
+    why_it_matters: str = ""
+    learning_resources: list[str] = Field(default_factory=list)
+    estimated_time: str = ""
+
+
+class SkillGapPlan(BaseModel):
+    summary: str = ""
+    prioritized_skills: list[SkillGapItem] = Field(default_factory=list)
+
+
+class ResearchBrief(BaseModel):
+    """Company/role research brief produced by the research agent."""
+
+    company_summary: str = ""
+    recent_signals: list[str] = Field(default_factory=list)
+    role_context: str = ""
+    talking_points: list[str] = Field(default_factory=list)
+    questions_to_ask: list[str] = Field(default_factory=list)
+    used_web_search: bool = False
+
+
 # --- API request bodies ----------------------------------------------------
 
 
@@ -98,6 +133,25 @@ class DraftOutreachRequest(BaseModel):
 class WeeklyRecommendationsRequest(BaseModel):
     metrics: dict[str, int] = Field(default_factory=dict)
     common_missing_skills: list[str] = Field(default_factory=list)
+
+
+class InterviewPrepRequest(BaseModel):
+    job_description: str
+    resume_text: str | None = None
+    company: str | None = None
+    role: str | None = None
+
+
+class ResearchRequest(BaseModel):
+    company: str
+    role: str | None = None
+    context: str | None = None
+
+
+class SkillGapRequest(BaseModel):
+    missing_skills: list[str] = Field(default_factory=list)
+    job_description: str | None = None
+    resume_text: str | None = None
 
 
 # --- API responses (add server-controlled fields) --------------------------

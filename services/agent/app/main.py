@@ -12,6 +12,7 @@ import logging
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel, Field
 
+from app.agents.runner import run_interview_prep, run_research, run_skill_gap
 from app.chains.draft_outreach import draft_outreach
 from app.chains.parse_job import parse_job
 from app.chains.score_fit import score_fit
@@ -21,10 +22,16 @@ from app.rag.store import ingest_document, rag_available, retrieve, retrieve_res
 from app.schemas import (
     DraftOutreachRequest,
     FitScoreResponse,
+    InterviewPrep,
+    InterviewPrepRequest,
     OutreachDraftResponse,
     ParsedJob,
     ParseJobRequest,
+    ResearchBrief,
+    ResearchRequest,
     ScoreFitRequest,
+    SkillGapPlan,
+    SkillGapRequest,
     WeeklyRecommendationsLLM,
     WeeklyRecommendationsRequest,
 )
@@ -126,3 +133,24 @@ def weekly_recommendations_endpoint(
 ) -> WeeklyRecommendationsLLM:
     _require_llm()
     return _run(weekly_recommendations, req)
+
+
+# --- Phase 8 agents ---------------------------------------------------------
+
+
+@app.post("/agents/interview-prep", response_model=InterviewPrep)
+def interview_prep_endpoint(req: InterviewPrepRequest) -> InterviewPrep:
+    _require_llm()
+    return _run(run_interview_prep, req)
+
+
+@app.post("/agents/research", response_model=ResearchBrief)
+def research_endpoint(req: ResearchRequest) -> ResearchBrief:
+    _require_llm()
+    return _run(run_research, req)
+
+
+@app.post("/agents/skill-gap", response_model=SkillGapPlan)
+def skill_gap_endpoint(req: SkillGapRequest) -> SkillGapPlan:
+    _require_llm()
+    return _run(run_skill_gap, req)
