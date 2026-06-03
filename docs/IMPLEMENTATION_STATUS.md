@@ -17,6 +17,7 @@ intelligence.
 
 ## Verified Milestones
 
+- Frontend redesign: Next.js + Tailwind v4 + shadcn/ui (Base UI) with light/dark themes, fully responsive shell (sidebar + mobile sheet), a marketing landing page, and Clerk authentication with protected routes. All pages ported (dashboard, jobs, job detail tabs, outreach kanban, reports, telemetry, settings, add-job). Verified end-to-end with Playwright (auth flow, dark mode, responsiveness, zero app console errors).
 - Phase 9: real multi-provider LLM integration via the Python agent service (parse, score, outreach, weekly) with mock fallback
 - Phase 10: RAG with pgvector + Hugging Face embeddings; retrieval-augmented fit scoring
 - Phase 8: advanced LangChain agents — interview-prep, company research (web-search tool), skill-gap planner — surfaced in the dashboard
