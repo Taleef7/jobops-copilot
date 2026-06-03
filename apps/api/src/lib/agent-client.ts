@@ -17,6 +17,7 @@ import {
   type ParsedJobOutput,
 } from '@/lib/analysis-core';
 import { draftOutreachBody } from '@/data/mock-store';
+import type { ActivityPoint, TelemetryInsights } from '@/lib/telemetry';
 import type { DraftOutreachBody } from '@/types';
 
 const AGENT_URL = process.env.AGENT_SERVICE_URL?.trim().replace(/\/$/, '');
@@ -61,6 +62,25 @@ export async function runAgentTask<T>(path: string, payload: unknown): Promise<T
     throw new AgentDisabledError();
   }
   return callAgent<T>(path, payload, AGENT_TASK_TIMEOUT_MS);
+}
+
+/** Analyze the activity series via the agent (pandas + LLM narration). */
+export async function analyzeTelemetryViaAgent(series: ActivityPoint[]): Promise<TelemetryInsights> {
+  return callAgent<TelemetryInsights>('/telemetry/insights', { series }, AGENT_TASK_TIMEOUT_MS);
+}
+
+/** Fetch the synthetic EV battery telemetry demo from the agent (GET). */
+export async function fetchEvDemoViaAgent(): Promise<TelemetryInsights> {
+  if (!isAgentEnabled()) {
+    throw new AgentDisabledError();
+  }
+  const response = await fetch(`${AGENT_URL}/telemetry/ev-demo`, {
+    signal: AbortSignal.timeout(AGENT_TASK_TIMEOUT_MS),
+  });
+  if (!response.ok) {
+    throw new Error(`agent /telemetry/ev-demo responded with ${response.status}`);
+  }
+  return (await response.json()) as TelemetryInsights;
 }
 
 export interface ScoreFitInput {

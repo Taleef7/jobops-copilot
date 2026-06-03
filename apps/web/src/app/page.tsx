@@ -5,6 +5,7 @@ import { formatPercent } from '@/lib/format';
 import { StatCard } from '@/components/stat-card';
 import { SectionCard } from '@/components/section-card';
 import { StatusPill } from '@/components/status-pill';
+import { TelemetryInsightsPanel } from '@/components/telemetry-insights';
 
 export const dynamic = 'force-dynamic';
 
@@ -141,6 +142,13 @@ export default async function DashboardPage() {
           </div>
         </SectionCard>
       </section>
+
+      <SectionCard
+        title="Pipeline telemetry intelligence"
+        description="Time-series trend, anomaly detection, and forecasting — the same analysis that transfers to vehicle sensor data."
+      >
+        <TelemetryInsightsPanel />
+      </SectionCard>
 
       <SectionCard
         title="What this phase already proves"

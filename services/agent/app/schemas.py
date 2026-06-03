@@ -154,6 +154,39 @@ class SkillGapRequest(BaseModel):
     resume_text: str | None = None
 
 
+# --- Phase 11 telemetry -----------------------------------------------------
+
+
+class ActivityPoint(BaseModel):
+    date: str
+    discovered: int = 0
+    outreach_drafted: int = 0
+    outreach_sent: int = 0
+
+
+class TelemetryRequest(BaseModel):
+    series: list[ActivityPoint] = Field(default_factory=list)
+
+
+class TelemetryNarrationLLM(BaseModel):
+    narrative: str = ""
+    recommendations: list[str] = Field(default_factory=list)
+
+
+class TelemetryInsights(BaseModel):
+    metric: str
+    total: float
+    trend: str  # rising | falling | flat
+    moving_average_7d: float
+    anomaly_dates: list[str] = Field(default_factory=list)
+    forecast_next: float
+    narrative: str = ""
+    recommendations: list[str] = Field(default_factory=list)
+    series_labels: list[str] = Field(default_factory=list)
+    series_values: list[float] = Field(default_factory=list)
+    llm_used: bool = False
+
+
 # --- API responses (add server-controlled fields) --------------------------
 
 

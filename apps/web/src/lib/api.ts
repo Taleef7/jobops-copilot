@@ -255,6 +255,28 @@ export async function runSkillGap(payload: {
   });
 }
 
+export interface TelemetryInsightsResponse {
+  metric: string;
+  total: number;
+  trend: string;
+  moving_average_7d: number;
+  anomaly_dates: string[];
+  forecast_next: number;
+  narrative: string;
+  recommendations: string[];
+  series_labels: string[];
+  series_values: number[];
+  llm_used: boolean;
+}
+
+export async function fetchTelemetryInsights(): Promise<TelemetryInsightsResponse> {
+  return requestJson<TelemetryInsightsResponse>('/api/telemetry/insights', { cache: 'no-store' });
+}
+
+export async function fetchEvTelemetryDemo(): Promise<TelemetryInsightsResponse> {
+  return requestJson<TelemetryInsightsResponse>('/api/telemetry/ev-demo', { cache: 'no-store' });
+}
+
 export async function fetchWeeklyReports(): Promise<WeeklyReport[]> {
   const response = await requestJson<WeeklyReportsResponse>('/api/reports', { cache: 'no-store' });
   return response.reports;
