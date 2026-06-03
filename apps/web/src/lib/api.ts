@@ -200,6 +200,61 @@ export async function updateOutreach(
   });
 }
 
+export interface InterviewPrepResponse {
+  likely_questions: string[];
+  talking_points: string[];
+  gaps_to_address: string[];
+  questions_to_ask: string[];
+}
+
+export interface ResearchBriefResponse {
+  company_summary: string;
+  recent_signals: string[];
+  role_context: string;
+  talking_points: string[];
+  questions_to_ask: string[];
+  used_web_search: boolean;
+}
+
+export interface SkillGapItemResponse {
+  skill: string;
+  why_it_matters: string;
+  learning_resources: string[];
+  estimated_time: string;
+}
+
+export interface SkillGapPlanResponse {
+  summary: string;
+  prioritized_skills: SkillGapItemResponse[];
+}
+
+export async function runInterviewPrep(payload: {
+  jobId: string;
+  resumeText?: string;
+}): Promise<InterviewPrepResponse> {
+  return requestJson<InterviewPrepResponse>('/api/ai/agents/interview-prep', {
+    method: 'POST',
+    body: JSON.stringify({ job_id: payload.jobId, resume_text: payload.resumeText }),
+  });
+}
+
+export async function runResearch(payload: { jobId: string }): Promise<ResearchBriefResponse> {
+  return requestJson<ResearchBriefResponse>('/api/ai/agents/research', {
+    method: 'POST',
+    body: JSON.stringify({ job_id: payload.jobId }),
+  });
+}
+
+export async function runSkillGap(payload: {
+  jobId: string;
+  resumeText?: string;
+}): Promise<SkillGapPlanResponse> {
+  return requestJson<SkillGapPlanResponse>('/api/ai/agents/skill-gap', {
+    method: 'POST',
+    body: JSON.stringify({ job_id: payload.jobId, resume_text: payload.resumeText }),
+  });
+}
+
 export async function fetchWeeklyReports(): Promise<WeeklyReport[]> {
   const response = await requestJson<WeeklyReportsResponse>('/api/reports', { cache: 'no-store' });
   return response.reports;

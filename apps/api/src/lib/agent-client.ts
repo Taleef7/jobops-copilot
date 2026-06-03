@@ -21,17 +21,27 @@ import type { DraftOutreachBody } from '@/types';
 
 const AGENT_URL = process.env.AGENT_SERVICE_URL?.trim().replace(/\/$/, '');
 const AGENT_TIMEOUT_MS = Number(process.env.AGENT_TIMEOUT_MS ?? 60_000);
+// Tool-using agents (Phase 8) can take longer than the single-shot chains.
+const AGENT_TASK_TIMEOUT_MS = Number(process.env.AGENT_TASK_TIMEOUT_MS ?? 120_000);
+
+/** Thrown when an agent task is requested but the service is not configured. */
+export class AgentDisabledError extends Error {
+  constructor() {
+    super('The AI agent service is not configured.');
+    this.name = 'AgentDisabledError';
+  }
+}
 
 export function isAgentEnabled(): boolean {
   return Boolean(AGENT_URL);
 }
 
-async function callAgent<T>(path: string, payload: unknown): Promise<T> {
+async function callAgent<T>(path: string, payload: unknown, timeoutMs = AGENT_TIMEOUT_MS): Promise<T> {
   const response = await fetch(`${AGENT_URL}${path}`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(payload),
-    signal: AbortSignal.timeout(AGENT_TIMEOUT_MS),
+    signal: AbortSignal.timeout(timeoutMs),
   });
 
   if (!response.ok) {
@@ -39,6 +49,18 @@ async function callAgent<T>(path: string, payload: unknown): Promise<T> {
   }
 
   return (await response.json()) as T;
+}
+
+/**
+ * Run a Phase 8 agent task (interview-prep, research, skill-gap). Unlike the
+ * analysis resolvers, these have no mock fallback — they are net-new
+ * capabilities — so this throws AgentDisabledError when the service is unset.
+ */
+export async function runAgentTask<T>(path: string, payload: unknown): Promise<T> {
+  if (!isAgentEnabled()) {
+    throw new AgentDisabledError();
+  }
+  return callAgent<T>(path, payload, AGENT_TASK_TIMEOUT_MS);
 }
 
 export interface ScoreFitInput {

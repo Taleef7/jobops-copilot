@@ -20,6 +20,9 @@ auto-detected from whichever credentials are present.
 | `POST` | `/weekly-recommendations` | LLM-narrated weekly strategy recommendations. |
 | `POST` | `/rag/ingest` | Chunk + embed a document into the pgvector store. |
 | `POST` | `/rag/search` | Cosine-similarity retrieval over stored embeddings. |
+| `POST` | `/agents/interview-prep` | Interview-prep agent (structured brief). |
+| `POST` | `/agents/research` | Company/role research agent (web-search tool use). |
+| `POST` | `/agents/skill-gap` | Skill-gap learning-plan agent. |
 
 RAG (Phase 10): `score-fit` is **retrieval-augmented** — it ingests the resume
 into pgvector (Hugging Face `all-MiniLM-L6-v2` embeddings, on PyTorch) and feeds
@@ -27,7 +30,12 @@ the chunks most relevant to the job description back to the model so the
 assessment is grounded in real resume evidence. RAG is best-effort: when
 `DATABASE_URL` is unset the service scores directly without it.
 
-Later phases add `/agents/*` (Phase 8) and `/telemetry/*` (Phase 11).
+Agents (Phase 8): real LangChain agents built with `create_agent` + `ToolStrategy`
+for provider-agnostic structured output. The research agent uses a Tavily-backed
+`web_search` tool (degrades gracefully without `TAVILY_API_KEY`). They require a
+configured LLM provider — unlike the analysis chains, they have no mock fallback.
+
+Later phases add `/telemetry/*` (Phase 11).
 
 Each endpoint returns **structured, validated JSON** whose shape mirrors the
 TypeScript contracts in `apps/api/src/lib/analysis-core.ts`, so the Node API
