@@ -1,4 +1,6 @@
 import type { ReactNode } from 'react';
+import { Card } from '@/components/ui/card';
+import { cn } from '@/lib/utils';
 
 export function SectionCard({
   id,
@@ -6,23 +8,25 @@ export function SectionCard({
   description,
   children,
   action,
+  className,
 }: {
   id?: string;
   title: string;
   description?: string;
   children: ReactNode;
   action?: ReactNode;
+  className?: string;
 }) {
   return (
-    <section className="panel" id={id}>
-      <div className="panel__header">
-        <div>
-          <h2 className="panel__title">{title}</h2>
-          {description ? <p className="panel__subtitle">{description}</p> : null}
+    <Card id={id} className={cn('scroll-mt-20 gap-4 p-5 sm:p-6', className)}>
+      <div className="flex items-start justify-between gap-3">
+        <div className="space-y-1">
+          <h2 className="font-heading text-base font-semibold">{title}</h2>
+          {description ? <p className="text-muted-foreground text-sm">{description}</p> : null}
         </div>
-        {action ? <div>{action}</div> : null}
+        {action ? <div className="shrink-0">{action}</div> : null}
       </div>
-      <div className="panel__body">{children}</div>
-    </section>
+      <div>{children}</div>
+    </Card>
   );
 }
