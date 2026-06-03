@@ -32,9 +32,12 @@ from app.schemas import (
     ScoreFitRequest,
     SkillGapPlan,
     SkillGapRequest,
+    TelemetryInsights,
+    TelemetryRequest,
     WeeklyRecommendationsLLM,
     WeeklyRecommendationsRequest,
 )
+from app.telemetry.insights import ev_demo_insights, pipeline_insights
 
 logger = logging.getLogger("jobops.agent")
 
@@ -154,3 +157,18 @@ def research_endpoint(req: ResearchRequest) -> ResearchBrief:
 def skill_gap_endpoint(req: SkillGapRequest) -> SkillGapPlan:
     _require_llm()
     return _run(run_skill_gap, req)
+
+
+# --- Phase 11 telemetry -----------------------------------------------------
+# These do NOT require an LLM: pandas computes the analysis, and narration
+# degrades to a deterministic summary when no provider is configured.
+
+
+@app.post("/telemetry/insights", response_model=TelemetryInsights)
+def telemetry_insights_endpoint(req: TelemetryRequest) -> TelemetryInsights:
+    return _run(pipeline_insights, req.series)
+
+
+@app.get("/telemetry/ev-demo", response_model=TelemetryInsights)
+def telemetry_ev_demo_endpoint() -> TelemetryInsights:
+    return _run(ev_demo_insights)

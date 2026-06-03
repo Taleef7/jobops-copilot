@@ -6,6 +6,7 @@ import { jobsRouter } from '@/routes/jobs';
 import { n8nRouter } from '@/routes/n8n';
 import { reportsRouter } from '@/routes/reports';
 import { outreachRouter } from '@/routes/outreach';
+import { telemetryRouter } from '@/routes/telemetry';
 
 const mutatingMethods = new Set(['POST', 'PATCH', 'PUT', 'DELETE']);
 
@@ -54,6 +55,7 @@ export function createApp() {
   app.use('/api/ai', aiRouter);
   app.use('/api/outreach', outreachRouter);
   app.use('/api/reports', reportsRouter);
+  app.use('/api/telemetry', telemetryRouter);
   app.use('/api/n8n', n8nRouter);
 
   app.use((_request, response) => {
