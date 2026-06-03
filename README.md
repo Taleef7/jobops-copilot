@@ -30,6 +30,11 @@ bot**: it drafts and recommends, but never sends or fabricates.
 - **Time-series telemetry intelligence** — pandas trend/anomaly/forecast over
   the pipeline, narrated by an LLM, plus a synthetic **EV battery telemetry**
   demo showing the same analysis transfers to vehicle sensor data.
+- **Modern, responsive UI** — Next.js 16 + Tailwind v4 + shadcn/ui (Base UI),
+  light/dark themes, a marketing landing page, and **Clerk authentication** with
+  protected routes. Visual-first: fit-score rings, status pills, skill chips,
+  sparklines, and a kanban outreach board. Verified with Playwright across
+  breakpoints.
 - **Workflow automation** — n8n webhooks for job intake, follow-up reminders,
   and weekly reports.
 - **Production discipline** — npm + Python CI (lint, typecheck, build, tests),
@@ -60,7 +65,7 @@ A full walkthrough is in **[docs/DEMO.md](docs/DEMO.md)**; design detail in
 
 ## Tech stack
 
-- **Frontend:** Next.js 16, React 19, TypeScript.
+- **Frontend:** Next.js 16, React 19, TypeScript, Tailwind v4, shadcn/ui (Base UI), next-themes, Clerk auth.
 - **API:** Express 4, TypeScript, `pg`.
 - **Agent service:** Python 3.12, FastAPI, LangChain, sentence-transformers (PyTorch), pandas, psycopg/pgvector.
 - **Data/cloud:** Azure Database for PostgreSQL (+ pgvector), Azure Blob Storage, Azure App Service.

@@ -1,8 +1,14 @@
 'use client';
 
+import { useRouter } from 'next/navigation';
 import type { FormEvent } from 'react';
 import { useState } from 'react';
-import { useRouter } from 'next/navigation';
+import { toast } from 'sonner';
+import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
+import { Card } from '@/components/ui/card';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
 import { ApiRequestError, draftOutreach } from '@/lib/api';
 import type { OutreachMessageType } from '@/types/job';
 
@@ -14,6 +20,9 @@ const messageTypeOptions: { label: string; value: OutreachMessageType }[] = [
   { label: 'Thank you', value: 'thank_you' },
 ];
 
+const selectClass =
+  'border-input bg-card h-9 w-full rounded-md border px-2.5 text-sm shadow-xs focus-visible:border-ring focus-visible:ring-ring/50 focus-visible:ring-[3px] outline-none disabled:opacity-50';
+
 type FormState = {
   messageType: OutreachMessageType;
   contactName: string;
@@ -21,11 +30,11 @@ type FormState = {
   contactEmail: string;
 };
 
-type JobOutreachActionsProps = {
-  jobId: string;
-  jobContext: string;
-  resumeSummary: string;
-  disabled?: boolean;
+type Result = {
+  subject: string;
+  draftText: string;
+  safetyNotes: string;
+  gmailDraftStatus: 'created' | 'skipped' | 'failed';
 };
 
 export function JobOutreachActions({
@@ -33,7 +42,12 @@ export function JobOutreachActions({
   jobContext,
   resumeSummary,
   disabled = false,
-}: JobOutreachActionsProps) {
+}: {
+  jobId: string;
+  jobContext: string;
+  resumeSummary: string;
+  disabled?: boolean;
+}) {
   const router = useRouter();
   const [form, setForm] = useState<FormState>({
     messageType: 'recruiter_email',
@@ -41,35 +55,18 @@ export function JobOutreachActions({
     contactRole: '',
     contactEmail: '',
   });
-  const [result, setResult] = useState<{
-    subject: string;
-    draftText: string;
-    safetyNotes: string;
-    gmailDraftStatus: 'created' | 'skipped' | 'failed';
-    gmailDraftMessage: string;
-    gmailDraftId: string | null;
-  } | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const [result, setResult] = useState<Result | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   function updateField<K extends keyof FormState>(field: K, value: FormState[K]) {
-    setForm((current) => ({
-      ...current,
-      [field]: value,
-    }));
+    setForm((current) => ({ ...current, [field]: value }));
   }
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-
-    if (disabled) {
-      return;
-    }
-
-    setError(null);
+    if (disabled) return;
     setResult(null);
     setIsSubmitting(true);
-
     try {
       const draft = await draftOutreach({
         jobId,
@@ -80,81 +77,50 @@ export function JobOutreachActions({
         jobContext,
         resumeSummary,
       });
-
       setResult({
         subject: draft.subject,
         draftText: draft.draft_text,
         safetyNotes: draft.safety_notes,
         gmailDraftStatus: draft.gmail_draft_status,
-        gmailDraftMessage: draft.gmail_draft_message,
-        gmailDraftId: draft.gmail_draft_id,
       });
+      toast.success('Draft created — review it in the inbox before sending.');
       router.refresh();
-    } catch (requestError) {
-      if (requestError instanceof ApiRequestError) {
-        setError(requestError.message);
-      } else {
-        setError(requestError instanceof Error ? requestError.message : 'Failed to draft outreach.');
-      }
+    } catch (error) {
+      toast.error(error instanceof ApiRequestError ? error.message : 'Failed to draft outreach.');
     } finally {
       setIsSubmitting(false);
     }
   }
 
+  const busy = disabled || isSubmitting;
+
   return (
-    <form className="stack" onSubmit={handleSubmit}>
-      <div className="detail-card">
-        <p className="detail-card__title">Generate a draft</p>
-        <p className="detail-card__value">
-          The AI uses the current job description and demo resume snapshot, then stores the result
-          as a human-reviewed outreach draft.
-        </p>
-      </div>
+    <form className="space-y-4" onSubmit={handleSubmit}>
+      <p className="text-muted-foreground text-sm">
+        The AI drafts from the job description and your resume snapshot, then stores a
+        <span className="text-foreground font-medium"> human-reviewed draft</span> — nothing is sent.
+      </p>
 
       {disabled ? (
-        <div className="callout callout--accent">
-          <p className="callout__title">API unavailable</p>
-          <p className="callout__text">
-            The inbox is showing seed data right now, so draft generation is disabled until the live
-            API is available.
+        <Card className="border-amber-500/30 bg-amber-500/5 gap-1 p-3">
+          <p className="text-sm font-medium text-amber-700 dark:text-amber-400">API unavailable</p>
+          <p className="text-muted-foreground text-sm">
+            Draft generation is disabled while showing seed data.
           </p>
-        </div>
+        </Card>
       ) : null}
 
-      {result ? (
-        <div className="callout">
-          <p className="callout__title">Draft created</p>
-          <p className="callout__text">
-            Subject: {result.subject}
-            <br />
-            {result.safetyNotes}
-            <br />
-            Gmail draft: {result.gmailDraftStatus}
-            {result.gmailDraftMessage ? ` - ${result.gmailDraftMessage}` : ''}
-            {result.gmailDraftId ? ` (id: ${result.gmailDraftId})` : ''}
-            <br />
-          </p>
-          <p className="detail-card__value" style={{ whiteSpace: 'pre-wrap' }}>
-            {result.draftText}
-          </p>
-        </div>
-      ) : null}
-
-      {error ? (
-        <div className="callout callout--accent">
-          <p className="callout__title">Could not draft outreach</p>
-          <p className="callout__text">{error}</p>
-        </div>
-      ) : null}
-
-      <div className="form-grid form-grid--two">
-        <label className="field">
-          <span className="field__label">Message type</span>
+      <div className="grid gap-3 sm:grid-cols-2">
+        <div className="space-y-1.5">
+          <Label htmlFor="msg-type">Message type</Label>
           <select
-            className="field__input"
+            id="msg-type"
+            className={selectClass}
             value={form.messageType}
-            onChange={(event) => updateField('messageType', event.target.value as OutreachMessageType)}
-            disabled={disabled || isSubmitting}
+            onChange={(event) =>
+              updateField('messageType', event.target.value as OutreachMessageType)
+            }
+            disabled={busy}
           >
             {messageTypeOptions.map((option) => (
               <option key={option.value} value={option.value}>
@@ -162,51 +128,54 @@ export function JobOutreachActions({
               </option>
             ))}
           </select>
-        </label>
-
-        <label className="field">
-          <span className="field__label">Contact name</span>
-          <input
-            className="field__input"
+        </div>
+        <div className="space-y-1.5">
+          <Label htmlFor="contact-name">Contact name</Label>
+          <Input
+            id="contact-name"
             value={form.contactName}
             onChange={(event) => updateField('contactName', event.target.value)}
             placeholder="Optional"
-            disabled={disabled || isSubmitting}
+            disabled={busy}
           />
-        </label>
+        </div>
+        <div className="space-y-1.5">
+          <Label htmlFor="contact-email">Contact email</Label>
+          <Input
+            id="contact-email"
+            type="email"
+            value={form.contactEmail}
+            onChange={(event) => updateField('contactEmail', event.target.value)}
+            placeholder="Optional (for Gmail draft)"
+            disabled={busy}
+          />
+        </div>
+        <div className="space-y-1.5">
+          <Label htmlFor="contact-role">Contact role</Label>
+          <Input
+            id="contact-role"
+            value={form.contactRole}
+            onChange={(event) => updateField('contactRole', event.target.value)}
+            placeholder="Recruiter, hiring manager…"
+            disabled={busy}
+          />
+        </div>
       </div>
 
-      <label className="field">
-        <span className="field__label">Contact email</span>
-        <input
-          className="field__input"
-          type="email"
-          value={form.contactEmail}
-          onChange={(event) => updateField('contactEmail', event.target.value)}
-          placeholder="Optional, used for Gmail draft creation when enabled"
-          disabled={disabled || isSubmitting}
-        />
-      </label>
+      <Button type="submit" disabled={busy} className="gap-1.5">
+        {isSubmitting ? 'Drafting…' : 'Generate outreach'}
+      </Button>
 
-      <label className="field">
-        <span className="field__label">Contact role</span>
-        <input
-          className="field__input"
-          value={form.contactRole}
-          onChange={(event) => updateField('contactRole', event.target.value)}
-          placeholder="Recruiter, hiring manager, referral partner, and so on"
-          disabled={disabled || isSubmitting}
-        />
-      </label>
-
-      <div className="hero__actions">
-        <button className="button button--primary" type="submit" disabled={disabled || isSubmitting}>
-          {isSubmitting ? 'Drafting...' : 'Generate outreach'}
-        </button>
-        <a className="button button--ghost" href="/outreach">
-          Open inbox
-        </a>
-      </div>
+      {result ? (
+        <Card className="gap-2 p-4">
+          <div className="flex items-center justify-between gap-2">
+            <p className="text-sm font-semibold">{result.subject}</p>
+            <Badge variant="secondary">Gmail: {result.gmailDraftStatus}</Badge>
+          </div>
+          <p className="text-sm whitespace-pre-wrap">{result.draftText}</p>
+          <p className="text-muted-foreground border-t pt-2 text-xs">{result.safetyNotes}</p>
+        </Card>
+      ) : null}
     </form>
   );
 }

@@ -1,6 +1,11 @@
 'use client';
 
+import { Activity, BatteryCharging, CircleCheck, TrendingUp, TriangleAlert } from 'lucide-react';
 import { useState } from 'react';
+import { Sparkline } from '@/components/sparkline';
+import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
+import { Card } from '@/components/ui/card';
 import {
   ApiRequestError,
   fetchEvTelemetryDemo,
@@ -10,25 +15,11 @@ import {
 
 type Mode = 'pipeline' | 'ev';
 
-function SparkBars({ values }: { values: number[] }) {
-  if (!values.length) {
-    return null;
-  }
-  const max = Math.max(...values, 1);
-  const min = Math.min(...values, 0);
-  const span = max - min || 1;
+function Metric({ label, value }: { label: string; value: string }) {
   return (
-    <div className="report-bars">
-      {values.map((value, index) => (
-        <div className="report-bar" key={index}>
-          <div className="report-bar__track">
-            <div
-              className="report-bar__fill"
-              style={{ width: `${Math.max(6, ((value - min) / span) * 100)}%` }}
-            />
-          </div>
-        </div>
-      ))}
+    <div className="bg-muted/40 rounded-lg p-3">
+      <p className="text-muted-foreground text-xs">{label}</p>
+      <p className="font-heading mt-0.5 text-lg font-bold tabular-nums">{value}</p>
     </div>
   );
 }
@@ -47,7 +38,9 @@ export function TelemetryInsightsPanel() {
       if (requestError instanceof ApiRequestError) {
         setError(requestError.message);
       } else {
-        setError(requestError instanceof Error ? requestError.message : 'Telemetry analysis failed.');
+        setError(
+          requestError instanceof Error ? requestError.message : 'Telemetry analysis failed.',
+        );
       }
     } finally {
       setRunning(null);
@@ -55,88 +48,85 @@ export function TelemetryInsightsPanel() {
   }
 
   const busy = running !== null;
+  const firstAnomaly = insights?.anomaly_dates[0];
+  const anomalyIndex =
+    insights && firstAnomaly ? insights.series_labels.indexOf(firstAnomaly) : null;
 
   return (
-    <div className="stack">
-      <p className="callout__text">
-        Time-series intelligence: trend, anomaly detection, and a short forecast — computed with
-        pandas and narrated by an LLM in the agent service. The EV demo applies the same analysis to
-        synthetic battery-health sensor data.
+    <div className="space-y-4">
+      <p className="text-muted-foreground text-sm">
+        Trend, anomaly detection, and a short forecast — computed with pandas and narrated by an
+        LLM. The EV demo applies the same analysis to synthetic battery-health sensor data.
       </p>
 
-      <div className="hero__actions">
-        <button
-          className="button button--primary"
-          type="button"
-          disabled={busy}
-          onClick={() => run('pipeline')}
-        >
-          {running === 'pipeline' ? 'Analyzing…' : 'Analyze pipeline telemetry'}
-        </button>
-        <button
-          className="button button--ghost"
-          type="button"
-          disabled={busy}
-          onClick={() => run('ev')}
-        >
-          {running === 'ev' ? 'Analyzing…' : 'EV battery telemetry demo'}
-        </button>
+      <div className="flex flex-wrap gap-2">
+        <Button onClick={() => run('pipeline')} disabled={busy} className="gap-1.5">
+          <Activity className="size-4" />
+          {running === 'pipeline' ? 'Analyzing…' : 'Analyze pipeline'}
+        </Button>
+        <Button onClick={() => run('ev')} disabled={busy} variant="outline" className="gap-1.5">
+          <BatteryCharging className="size-4" />
+          {running === 'ev' ? 'Analyzing…' : 'EV battery demo'}
+        </Button>
       </div>
 
       {error ? (
-        <div className="callout callout--accent">
-          <p className="callout__title">Telemetry unavailable</p>
-          <p className="callout__text">{error}</p>
-        </div>
+        <Card className="border-destructive/30 bg-destructive/5 text-destructive gap-1 p-3">
+          <p className="text-sm font-medium">Telemetry unavailable</p>
+          <p className="text-sm opacity-90">{error}</p>
+        </Card>
       ) : null}
 
       {insights ? (
-        <div className="stack">
-          <div className="inline-metrics">
-            <div className="inline-metric">
-              <strong>{insights.trend}</strong>
-              <span>Trend</span>
-            </div>
-            <div className="inline-metric">
-              <strong>{insights.moving_average_7d.toFixed(1)}</strong>
-              <span>7-pt avg</span>
-            </div>
-            <div className="inline-metric">
-              <strong>{insights.forecast_next.toFixed(1)}</strong>
-              <span>Forecast</span>
-            </div>
-            <div className="inline-metric">
-              <strong>{insights.anomaly_dates.length}</strong>
-              <span>Anomalies</span>
-            </div>
+        <div className="space-y-4">
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+            <Metric label="Trend" value={insights.trend} />
+            <Metric label="7-pt avg" value={insights.moving_average_7d.toFixed(1)} />
+            <Metric label="Forecast" value={insights.forecast_next.toFixed(1)} />
+            <Metric label="Anomalies" value={String(insights.anomaly_dates.length)} />
           </div>
 
-          <div className="callout">
-            <p className="callout__title">
-              {insights.metric}
-              {insights.llm_used ? ' · LLM narrated' : ''}
-            </p>
-            <p className="callout__text">{insights.narrative}</p>
-          </div>
+          <Card className="gap-3 p-4">
+            <div className="flex items-center justify-between gap-2">
+              <p className="text-sm font-medium">{insights.metric}</p>
+              <Badge variant="secondary" className="gap-1">
+                <TrendingUp className="size-3" />
+                {insights.llm_used ? 'LLM narrated' : 'computed'}
+              </Badge>
+            </div>
+            <Sparkline
+              values={insights.series_values}
+              variant="area"
+              fluid
+              width={640}
+              height={96}
+              anomalyIndex={anomalyIndex}
+              className="h-24 w-full"
+            />
+          </Card>
 
-          <SparkBars values={insights.series_values} />
+          {insights.narrative ? (
+            <Card className="bg-accent/40 gap-0 p-4">
+              <p className="text-sm leading-relaxed">{insights.narrative}</p>
+            </Card>
+          ) : null}
 
           {insights.anomaly_dates.length ? (
-            <div className="detail-card">
-              <p className="detail-card__title">Anomaly points</p>
-              <p className="detail-card__value">{insights.anomaly_dates.join(', ')}</p>
-            </div>
+            <p className="text-muted-foreground flex items-center gap-1.5 text-xs">
+              <TriangleAlert className="size-3.5 text-amber-500" />
+              Anomaly at {insights.anomaly_dates.join(', ')}
+            </p>
           ) : null}
 
           {insights.recommendations.length ? (
-            <div className="detail-card">
-              <p className="detail-card__title">Recommendations</p>
-              <ul className="list">
-                {insights.recommendations.map((rec, index) => (
-                  <li key={index}>{rec}</li>
-                ))}
-              </ul>
-            </div>
+            <ul className="space-y-2">
+              {insights.recommendations.map((rec, index) => (
+                <li key={index} className="flex items-start gap-2 text-sm">
+                  <CircleCheck className="text-primary mt-0.5 size-4 shrink-0" />
+                  {rec}
+                </li>
+              ))}
+            </ul>
           ) : null}
         </div>
       ) : null}

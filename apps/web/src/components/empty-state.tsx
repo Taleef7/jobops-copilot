@@ -1,4 +1,6 @@
+import { Inbox } from 'lucide-react';
 import Link from 'next/link';
+import { Button } from '@/components/ui/button';
 
 export function EmptyState({
   title,
@@ -12,13 +14,19 @@ export function EmptyState({
   actionHref?: string;
 }) {
   return (
-    <div className="empty-state">
-      <h3>{title}</h3>
-      <p>{description}</p>
+    <div className="flex flex-col items-center justify-center rounded-xl border border-dashed py-12 text-center">
+      <span className="bg-muted text-muted-foreground mb-3 flex size-12 items-center justify-center rounded-full">
+        <Inbox className="size-6" />
+      </span>
+      <h3 className="font-heading text-base font-semibold">{title}</h3>
+      <p className="text-muted-foreground mt-1 max-w-sm text-sm">{description}</p>
       {actionLabel && actionHref ? (
-        <Link className="button button--ghost" href={actionHref}>
-          {actionLabel}
-        </Link>
+        <Button
+          render={<Link href={actionHref}>{actionLabel}</Link>}
+          variant="outline"
+          size="sm"
+          className="mt-4"
+        />
       ) : null}
     </div>
   );

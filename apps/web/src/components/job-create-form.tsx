@@ -1,13 +1,22 @@
 'use client';
 
+import { Sparkles } from 'lucide-react';
+import { useRouter } from 'next/navigation';
 import type { FormEvent } from 'react';
 import { useState } from 'react';
-import { useRouter } from 'next/navigation';
+import { toast } from 'sonner';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { Textarea } from '@/components/ui/textarea';
 import { ApiRequestError, createJob } from '@/lib/api';
 import type { Job } from '@/types/job';
 
 const workplaceTypeOptions: Array<Job['workplaceType']> = ['remote', 'hybrid', 'onsite', 'flexible'];
 const priorityOptions: Array<Job['priority']> = ['high', 'medium', 'low'];
+
+const selectClass =
+  'border-input bg-card h-9 w-full rounded-md border px-2.5 text-sm capitalize shadow-xs focus-visible:border-ring focus-visible:ring-ring/50 focus-visible:ring-[3px] outline-none';
 
 type FormState = {
   company: string;
@@ -42,24 +51,14 @@ export function JobCreateForm() {
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   function updateField<K extends keyof FormState>(field: K, value: FormState[K]) {
-    setForm((current) => ({
-      ...current,
-      [field]: value,
-    }));
+    setForm((current) => ({ ...current, [field]: value }));
   }
 
   function validate(values: FormState) {
     const nextErrors: Record<string, string> = {};
-
-    if (!values.company.trim()) {
-      nextErrors.company = 'Company is required.';
-    }
-    if (!values.title.trim()) {
-      nextErrors.title = 'Job title is required.';
-    }
-    if (!values.descriptionText.trim()) {
-      nextErrors.descriptionText = 'Job description is required.';
-    }
+    if (!values.company.trim()) nextErrors.company = 'Company is required.';
+    if (!values.title.trim()) nextErrors.title = 'Job title is required.';
+    if (!values.descriptionText.trim()) nextErrors.descriptionText = 'Job description is required.';
     if (values.jobUrl.trim()) {
       try {
         void new URL(values.jobUrl.trim());
@@ -67,22 +66,16 @@ export function JobCreateForm() {
         nextErrors.jobUrl = 'Enter a valid job URL.';
       }
     }
-
     return nextErrors;
   }
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    setErrors({});
-
     const nextErrors = validate(form);
-    if (Object.keys(nextErrors).length > 0) {
-      setErrors(nextErrors);
-      return;
-    }
+    setErrors(nextErrors);
+    if (Object.keys(nextErrors).length > 0) return;
 
     setIsSubmitting(true);
-
     try {
       const job = await createJob({
         company: form.company.trim(),
@@ -96,14 +89,15 @@ export function JobCreateForm() {
         notes: form.notes.trim() || undefined,
         descriptionText: form.descriptionText.trim(),
       });
-
+      toast.success('Job saved.');
       router.push(`/jobs/${job.id}`);
       router.refresh();
     } catch (error) {
       if (error instanceof ApiRequestError) {
-        setErrors(error.fields ?? { form: error.message });
+        setErrors(error.fields ?? {});
+        toast.error(error.message);
       } else {
-        setErrors({ form: error instanceof Error ? error.message : 'Failed to create the job.' });
+        toast.error(error instanceof Error ? error.message : 'Failed to create the job.');
       }
     } finally {
       setIsSubmitting(false);
@@ -111,90 +105,74 @@ export function JobCreateForm() {
   }
 
   return (
-    <form className="form-grid" onSubmit={handleSubmit}>
-      {errors.form ? (
-        <div className="callout callout--accent">
-          <p className="callout__title">Could not save job</p>
-          <p className="callout__text">{errors.form}</p>
+    <form className="space-y-5" onSubmit={handleSubmit}>
+      <div className="space-y-1.5">
+        <div className="flex items-center justify-between">
+          <Label htmlFor="description">Job description</Label>
+          <span className="text-muted-foreground inline-flex items-center gap-1 text-xs">
+            <Sparkles className="size-3.5 text-indigo-500" /> AI extracts skills &amp; scores fit
+          </span>
         </div>
-      ) : null}
+        <Textarea
+          id="description"
+          value={form.descriptionText}
+          onChange={(event) => updateField('descriptionText', event.target.value)}
+          placeholder="Paste the full job posting here…"
+          className="min-h-40"
+          required
+        />
+        {errors.descriptionText ? (
+          <p className="text-destructive text-xs">{errors.descriptionText}</p>
+        ) : null}
+      </div>
 
-      <div className="form-grid form-grid--two">
-        <label className="field">
-          <span className="field__label">Company</span>
-          <input
-            className="field__input"
+      <div className="grid gap-4 sm:grid-cols-2">
+        <div className="space-y-1.5">
+          <Label htmlFor="company">Company</Label>
+          <Input
+            id="company"
             value={form.company}
             onChange={(event) => updateField('company', event.target.value)}
-            placeholder="Northwind Labs"
+            placeholder="Pebble"
             required
           />
-          {errors.company ? <span className="field-error">{errors.company}</span> : null}
-        </label>
-
-        <label className="field">
-          <span className="field__label">Job title</span>
-          <input
-            className="field__input"
+          {errors.company ? <p className="text-destructive text-xs">{errors.company}</p> : null}
+        </div>
+        <div className="space-y-1.5">
+          <Label htmlFor="title">Job title</Label>
+          <Input
+            id="title"
             value={form.title}
             onChange={(event) => updateField('title', event.target.value)}
-            placeholder="AI Automation Engineer"
+            placeholder="AI Software Engineer"
             required
           />
-          {errors.title ? <span className="field-error">{errors.title}</span> : null}
-        </label>
-      </div>
-
-      <div className="form-grid form-grid--two">
-        <label className="field">
-          <span className="field__label">Job URL</span>
-          <input
-            className="field__input"
+          {errors.title ? <p className="text-destructive text-xs">{errors.title}</p> : null}
+        </div>
+        <div className="space-y-1.5">
+          <Label htmlFor="jobUrl">Job URL</Label>
+          <Input
+            id="jobUrl"
             value={form.jobUrl}
             onChange={(event) => updateField('jobUrl', event.target.value)}
-            placeholder="https://careers.example.com/jobs/ai-automation-engineer"
+            placeholder="https://…"
           />
-          {errors.jobUrl ? <span className="field-error">{errors.jobUrl}</span> : null}
-        </label>
-
-        <label className="field">
-          <span className="field__label">Source</span>
-          <input
-            className="field__input"
-            value={form.source}
-            onChange={(event) => updateField('source', event.target.value)}
-            placeholder="manual"
-          />
-        </label>
-      </div>
-
-      <div className="form-grid form-grid--two">
-        <label className="field">
-          <span className="field__label">Location</span>
-          <input
-            className="field__input"
+          {errors.jobUrl ? <p className="text-destructive text-xs">{errors.jobUrl}</p> : null}
+        </div>
+        <div className="space-y-1.5">
+          <Label htmlFor="location">Location</Label>
+          <Input
+            id="location"
             value={form.location}
             onChange={(event) => updateField('location', event.target.value)}
-            placeholder="Remote"
+            placeholder="Remote · San Francisco"
           />
-        </label>
-
-        <label className="field">
-          <span className="field__label">Employment type</span>
-          <input
-            className="field__input"
-            value={form.employmentType}
-            onChange={(event) => updateField('employmentType', event.target.value)}
-            placeholder="Full-time"
-          />
-        </label>
-      </div>
-
-      <div className="form-grid form-grid--two">
-        <label className="field">
-          <span className="field__label">Workplace type</span>
+        </div>
+        <div className="space-y-1.5">
+          <Label htmlFor="workplace">Workplace</Label>
           <select
-            className="field__input"
+            id="workplace"
+            className={selectClass}
             value={form.workplaceType}
             onChange={(event) =>
               updateField('workplaceType', event.target.value as Job['workplaceType'])
@@ -206,12 +184,12 @@ export function JobCreateForm() {
               </option>
             ))}
           </select>
-        </label>
-
-        <label className="field">
-          <span className="field__label">Priority</span>
+        </div>
+        <div className="space-y-1.5">
+          <Label htmlFor="priority">Priority</Label>
           <select
-            className="field__input"
+            id="priority"
+            className={selectClass}
             value={form.priority}
             onChange={(event) => updateField('priority', event.target.value as Job['priority'])}
           >
@@ -221,38 +199,14 @@ export function JobCreateForm() {
               </option>
             ))}
           </select>
-        </label>
+        </div>
       </div>
 
-      <label className="field">
-        <span className="field__label">Description</span>
-        <textarea
-          className="field__textarea"
-          value={form.descriptionText}
-          onChange={(event) => updateField('descriptionText', event.target.value)}
-          placeholder="Paste the full job description here."
-          required
-        />
-        {errors.descriptionText ? <span className="field-error">{errors.descriptionText}</span> : null}
-      </label>
-
-      <label className="field">
-        <span className="field__label">Notes</span>
-        <textarea
-          className="field__textarea field__textarea--small"
-          value={form.notes}
-          onChange={(event) => updateField('notes', event.target.value)}
-          placeholder="Optional internal notes."
-        />
-      </label>
-
-      <div className="hero__actions">
-        <button className="button button--primary" type="submit" disabled={isSubmitting}>
-          {isSubmitting ? 'Saving...' : 'Save job'}
-        </button>
-        <button className="button button--ghost" type="button" disabled>
-          AI analysis starts after save
-        </button>
+      <div className="flex gap-2">
+        <Button type="submit" disabled={isSubmitting} className="gap-1.5">
+          <Sparkles className="size-4" />
+          {isSubmitting ? 'Saving…' : 'Save & analyze'}
+        </Button>
       </div>
     </form>
   );

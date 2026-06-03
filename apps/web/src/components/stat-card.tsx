@@ -1,3 +1,5 @@
+import { Card } from '@/components/ui/card';
+
 export function StatCard({
   label,
   value,
@@ -8,10 +10,12 @@ export function StatCard({
   detail: string;
 }) {
   return (
-    <article className="metric-card">
-      <span className="metric-card__label">{label}</span>
-      <strong className="metric-card__value">{value}</strong>
-      <span className="metric-card__meta">{detail}</span>
-    </article>
+    <Card className="gap-1 p-4">
+      <span className="text-muted-foreground text-xs font-medium tracking-wide uppercase">
+        {label}
+      </span>
+      <strong className="font-heading text-2xl font-bold tabular-nums">{value}</strong>
+      <span className="text-muted-foreground text-xs">{detail}</span>
+    </Card>
   );
 }
