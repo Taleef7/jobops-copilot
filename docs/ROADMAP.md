@@ -9,8 +9,13 @@
 - Phase 4: complete
 - Phase 5: complete
 - Phase 6: partial, because Azure PostgreSQL is complete but app hosting is still pending
-- Phase 7: planned
-- Phase 8: planned
+- Phase 7: deferred (Zapier/Make companion flows, out of scope for the current push)
+- Phase 8: planned (advanced agents)
+- Phase 9: planned (real LLM integration and Python agent service)
+- Phase 10: planned (RAG and vector search)
+- Phase 11: planned (time-series telemetry intelligence)
+
+Active execution order for the current push: Phase 9 -> Phase 10 -> Phase 8 -> Phase 11 -> Phase 6.
 
 ## Phase 0: Project Foundation
 
@@ -56,13 +61,14 @@ Done:
 
 ## Phase 4: n8n Integration
 
-In progress:
+Complete:
 
 - webhook-driven processing
-- daily job discovery workflow
-- weekly report automation
-- follow-up reminders
+- daily job discovery workflow scaffolding
+- weekly report automation endpoint integration
+- follow-up reminders endpoint integration
 - sample export JSON files and workflow docs
+- local n8n runtime validation pass with screenshots and evidence
 
 ## Phase 5: Weekly Reporting
 
@@ -85,7 +91,7 @@ Partial:
 
 ## Phase 7: Zapier And Make
 
-Planned:
+Deferred (out of scope for the current push):
 
 - one Zapier flow
 - one Make scenario
@@ -95,7 +101,34 @@ Planned:
 
 Planned:
 
-- interview prep
-- hiring manager research
-- skill gap planning
-- salary or offer prep support
+- interview prep agent
+- hiring manager / company research agent (tool use + web search)
+- skill gap planning agent
+- agent runs surfaced in the dashboard
+
+## Phase 9: Real LLM Integration And Python Agent Service
+
+Planned:
+
+- `services/agent` FastAPI microservice
+- provider-agnostic LLM router (Anthropic Claude, Azure OpenAI, Gemini)
+- real LLM calls for parse-job, score-fit, draft-outreach, and weekly recommendations
+- structured-output validation
+- TS API delegation via `agent-client.ts` with a deterministic mock fallback
+
+## Phase 10: RAG And Vector Search
+
+Planned:
+
+- pgvector on Azure PostgreSQL and an embeddings table
+- Hugging Face sentence-transformers embeddings (PyTorch)
+- retrieval-augmented fit scoring and outreach drafting grounded in resume evidence
+
+## Phase 11: Time-Series Telemetry Intelligence
+
+Planned:
+
+- pipeline time-series metrics over the CRM (pandas)
+- trend/anomaly detection and lightweight forecasting
+- LLM-narrated insights endpoint and dashboard chart
+- stretch: synthetic EV battery/sensor telemetry demo

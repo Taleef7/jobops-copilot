@@ -9,6 +9,10 @@ to the ready-to-run `compose.yaml` and `.env.example` files in this folder.
 
 The API now exposes n8n-specific webhook endpoints and expects `X-N8N-Webhook-Secret` when `N8N_WEBHOOK_SECRET` is configured.
 
+Note on n8n webhook URLs: use the production URL shown by n8n for the active
+workflow node. Newer n8n versions can namespace the webhook route with workflow
+and node identifiers rather than exposing only `/webhook/job-intake`.
+
 Recommended local baseline:
 
 - Docker Desktop

@@ -70,6 +70,15 @@ to `owner.env` and keep the owner values there.
 The important value is `N8N_WEBHOOK_SECRET`. Keep it identical to the value in
 the JobOps API environment.
 
+For n8n v2 in this repo, also keep this in `workflows/n8n/.env`:
+
+```env
+N8N_BLOCK_ENV_ACCESS_IN_NODE=false
+```
+
+This allows the sample workflow expressions to read `$env.*` values (API base
+URL and webhook secret) during local execution.
+
 If you want to skip the first-time signup screen, you can also pre-provision
 the instance owner through environment variables. The Compose file reads those
 values from `owner.env` too.
