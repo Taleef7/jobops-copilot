@@ -92,3 +92,34 @@ def test_draft_outreach_happy_path(monkeypatch):
 def test_draft_outreach_rejects_bad_message_type():
     res = client.post("/draft-outreach", json={"message_type": "carrier_pigeon"})
     assert res.status_code == 422
+
+
+def test_rag_ingest_returns_503_when_disabled(monkeypatch):
+    monkeypatch.setattr(main, "rag_available", lambda: False)
+    res = client.post(
+        "/rag/ingest",
+        json={"source_type": "resume", "source_id": "r1", "text": "hello"},
+    )
+    assert res.status_code == 503
+
+
+def test_score_fit_skips_rag_when_disabled(monkeypatch):
+    monkeypatch.setattr(main, "llm_available", lambda: True)
+    monkeypatch.setattr(main, "rag_available", lambda: False)
+    monkeypatch.setattr(
+        main,
+        "score_fit",
+        lambda req: FitScoreResponse(
+            fit_score=70,
+            fit_summary="ok",
+            recommended_resume_angle="ok",
+            apply_recommendation="review",
+            confidence_score=60,
+            model_used="mock",
+        ),
+    )
+    res = client.post(
+        "/score-fit",
+        json={"description_text": "d", "resume_text": "r", "profile_text": "p"},
+    )
+    assert res.status_code == 200

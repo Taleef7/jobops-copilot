@@ -18,9 +18,16 @@ auto-detected from whichever credentials are present.
 | `POST` | `/score-fit` | Honest, evidence-grounded resume/job fit scoring. |
 | `POST` | `/draft-outreach` | Human-review outreach drafting. |
 | `POST` | `/weekly-recommendations` | LLM-narrated weekly strategy recommendations. |
+| `POST` | `/rag/ingest` | Chunk + embed a document into the pgvector store. |
+| `POST` | `/rag/search` | Cosine-similarity retrieval over stored embeddings. |
 
-Later phases add `/rag/*` (Phase 10), `/agents/*` (Phase 8), and
-`/telemetry/*` (Phase 11).
+RAG (Phase 10): `score-fit` is **retrieval-augmented** — it ingests the resume
+into pgvector (Hugging Face `all-MiniLM-L6-v2` embeddings, on PyTorch) and feeds
+the chunks most relevant to the job description back to the model so the
+assessment is grounded in real resume evidence. RAG is best-effort: when
+`DATABASE_URL` is unset the service scores directly without it.
+
+Later phases add `/agents/*` (Phase 8) and `/telemetry/*` (Phase 11).
 
 Each endpoint returns **structured, validated JSON** whose shape mirrors the
 TypeScript contracts in `apps/api/src/lib/analysis-core.ts`, so the Node API

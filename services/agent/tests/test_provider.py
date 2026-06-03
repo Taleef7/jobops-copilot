@@ -5,13 +5,14 @@ from app.llm import provider as provider_module
 
 
 def _resolve_with(monkeypatch, **overrides):
-    monkeypatch.setattr(provider_module, "settings", Settings(**overrides))
+    # _env_file=None isolates from any local .env so precedence is deterministic.
+    monkeypatch.setattr(provider_module, "settings", Settings(_env_file=None, **overrides))
     return provider_module.resolve_provider()
 
 
 def test_no_credentials_returns_none(monkeypatch):
     assert _resolve_with(monkeypatch) is None
-    monkeypatch.setattr(provider_module, "settings", Settings())
+    monkeypatch.setattr(provider_module, "settings", Settings(_env_file=None))
     assert provider_module.llm_available() is False
 
 

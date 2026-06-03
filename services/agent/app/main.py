@@ -10,12 +10,14 @@ from __future__ import annotations
 import logging
 
 from fastapi import FastAPI, HTTPException
+from pydantic import BaseModel, Field
 
 from app.chains.draft_outreach import draft_outreach
 from app.chains.parse_job import parse_job
 from app.chains.score_fit import score_fit
 from app.chains.weekly import weekly_recommendations
 from app.llm.provider import LLMNotConfigured, llm_available, resolve_provider
+from app.rag.store import ingest_document, rag_available, retrieve, retrieve_resume_evidence
 from app.schemas import (
     DraftOutreachRequest,
     FitScoreResponse,
@@ -55,12 +57,26 @@ def _run(fn, *args):
         raise HTTPException(status_code=502, detail=f"Agent chain failed: {exc}") from exc
 
 
+class IngestRequest(BaseModel):
+    source_type: str
+    source_id: str
+    text: str
+
+
+class SearchRequest(BaseModel):
+    query: str
+    k: int = Field(default=4, ge=1, le=20)
+    source_type: str | None = None
+    source_id: str | None = None
+
+
 @app.get("/health")
 def health() -> dict:
     return {
         "status": "ok",
         "llm_configured": llm_available(),
         "provider": resolve_provider(),
+        "rag_enabled": rag_available(),
     }
 
 
@@ -73,7 +89,29 @@ def parse_job_endpoint(req: ParseJobRequest) -> ParsedJob:
 @app.post("/score-fit", response_model=FitScoreResponse)
 def score_fit_endpoint(req: ScoreFitRequest) -> FitScoreResponse:
     _require_llm()
+    # RAG augmentation: ground the assessment in the resume chunks most relevant
+    # to this job. Best-effort — falls through to direct scoring if RAG is off.
+    if rag_available() and req.resume_text and not req.retrieved_context:
+        evidence = retrieve_resume_evidence(req.resume_text, req.description_text)
+        if evidence:
+            req.retrieved_context = evidence
     return _run(score_fit, req)
+
+
+@app.post("/rag/ingest")
+def rag_ingest_endpoint(req: IngestRequest) -> dict:
+    if not rag_available():
+        raise HTTPException(status_code=503, detail="RAG is disabled; set DATABASE_URL.")
+    count = _run(ingest_document, req.source_type, req.source_id, req.text)
+    return {"source_type": req.source_type, "source_id": req.source_id, "chunks_ingested": count}
+
+
+@app.post("/rag/search")
+def rag_search_endpoint(req: SearchRequest) -> dict:
+    if not rag_available():
+        raise HTTPException(status_code=503, detail="RAG is disabled; set DATABASE_URL.")
+    matches = _run(retrieve, req.query, req.k, req.source_type, req.source_id)
+    return {"query": req.query, "matches": matches}
 
 
 @app.post("/draft-outreach", response_model=OutreachDraftResponse)

@@ -1,0 +1,5 @@
+# RAG / vector search runtime deps (Phase 10). Kept separate from
+# requirements.txt so CI's lint/test job stays light: the agent code imports
+# these lazily, so unit tests run without torch installed.
+psycopg[binary]>=3.2,<4
+sentence-transformers>=3.0,<6
