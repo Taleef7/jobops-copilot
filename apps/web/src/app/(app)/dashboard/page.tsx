@@ -4,7 +4,6 @@ import { FitScoreRing } from '@/components/fit-score-ring';
 import { SectionCard } from '@/components/section-card';
 import { StatTile } from '@/components/stat-tile';
 import { StatusPill } from '@/components/status-pill';
-import { TelemetryInsightsPanel } from '@/components/telemetry-insights';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { getDashboardSummary } from '@/lib/dashboard';
@@ -63,6 +62,29 @@ export default async function DashboardPage() {
             The API is not reachable, so the dashboard is rendering local seed data. It switches to
             live CRM data automatically once the backend is up.
           </p>
+        </Card>
+      ) : null}
+
+      {summary.totalJobs === 0 ? (
+        <Card className="flex flex-col items-center gap-3 p-10 text-center">
+          <span className="bg-primary/10 text-primary flex size-12 items-center justify-center rounded-xl">
+            <Briefcase className="size-6" />
+          </span>
+          <div>
+            <p className="font-heading text-lg font-semibold">No jobs yet</p>
+            <p className="text-muted-foreground mx-auto max-w-sm text-sm">
+              Add a job (paste its description) and the AI will parse it, score your fit, and draft
+              outreach. You can also load sample data from Settings to explore first.
+            </p>
+          </div>
+          <div className="flex gap-2">
+            <Button render={<Link href="/jobs/new" />} className="gap-1.5">
+              <Plus className="size-4" /> Add your first job
+            </Button>
+            <Button render={<Link href="/settings" />} variant="outline">
+              Load sample data
+            </Button>
+          </div>
         </Card>
       ) : null}
 
@@ -178,14 +200,6 @@ export default async function DashboardPage() {
           </div>
         </SectionCard>
       </div>
-
-      {/* Telemetry */}
-      <SectionCard
-        title="Pipeline telemetry"
-        description="Time-series trend, anomaly detection, and forecasting — the same analysis that transfers to vehicle sensor data."
-      >
-        <TelemetryInsightsPanel />
-      </SectionCard>
     </div>
   );
 }

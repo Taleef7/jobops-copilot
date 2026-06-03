@@ -17,6 +17,7 @@ from app.chains.draft_outreach import draft_outreach
 from app.chains.parse_job import parse_job
 from app.chains.score_fit import score_fit
 from app.chains.weekly import weekly_recommendations
+from app.config import settings
 from app.llm.provider import LLMNotConfigured, llm_available, resolve_provider
 from app.rag.store import ingest_document, rag_available, retrieve, retrieve_resume_evidence
 from app.schemas import (
@@ -82,13 +83,25 @@ class SearchRequest(BaseModel):
     user_id: str | None = None
 
 
+def _active_model(provider: str | None) -> str | None:
+    return {
+        "anthropic": settings.anthropic_model,
+        "openai": settings.openai_model,
+        "azure_openai": settings.azure_openai_deployment or "gpt-4o-mini",
+        "google_genai": settings.gemini_model,
+    }.get(provider or "")
+
+
 @app.get("/health")
 def health() -> dict:
+    provider = resolve_provider()
     return {
         "status": "ok",
         "llm_configured": llm_available(),
-        "provider": resolve_provider(),
+        "provider": provider,
+        "model": _active_model(provider),
         "rag_enabled": rag_available(),
+        "tavily_configured": bool(settings.tavily_api_key),
     }
 
 
