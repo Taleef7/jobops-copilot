@@ -6,8 +6,10 @@ ENV PYTHONUNBUFFERED=1 \
 
 WORKDIR /app
 
-COPY requirements.txt ./
-RUN pip install --upgrade pip && pip install -r requirements.txt
+COPY requirements.txt requirements-rag.txt ./
+RUN pip install --upgrade pip \
+    && pip install -r requirements.txt \
+    && pip install -r requirements-rag.txt
 
 COPY app ./app
 
