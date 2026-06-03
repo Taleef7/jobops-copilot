@@ -47,11 +47,21 @@ intelligence.
 - The API switches between local file mode and Postgres mode depending on `DATABASE_URL`
 - `GET /api/health` reports which store is active
 
+## Live Deployment
+
+- Web (Next.js, standalone) and API (Express) are deployed on **Azure App Service**
+  (one B1 Linux plan, Mexico Central) against the live **Azure PostgreSQL**:
+  - dashboard: https://jobops-web.azurewebsites.net
+  - API health: https://jobops-api.azurewebsites.net/api/health
+- `pgvector` is allow-listed on the Postgres server; firewall opened to Azure services.
+- The Python agent service runs locally for the full-AI demo; the cloud API
+  degrades gracefully to the deterministic analysis when the agent is unattached.
+
 ## What Is Still Pending
 
-- Live Azure hosting: provision web/api/agent App Services and wire publish profiles (scaffold in `.github/workflows/azure-app-service.yml`; provisioning in `scripts/azure/provision.sh`)
-- Application Insights wiring at runtime (connection string set during provisioning)
-- Phase 7 (Zapier/Make companion flows) — deferred
+- Optional: host the Python agent in the cloud (Azure Container Apps from `services/agent/Dockerfile`) for an agent-attached cloud demo.
+- Apply the `embeddings` (pgvector) migration to the cloud DB from a stable network (`npm run db:init --workspace @jobops/api`); core schema is already live.
+- Phase 7 (Zapier/Make companion flows) — deferred.
 
 ## How To Verify The Live Stack
 

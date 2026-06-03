@@ -26,6 +26,8 @@ workflows/n8n/owner.env
 .serena/
 tmp/
 
+.deploy/
+
 # Python (services/agent)
 .venv/
 __pycache__/
