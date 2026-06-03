@@ -55,12 +55,15 @@ intelligence.
   - dashboard: https://jobops-web.azurewebsites.net
   - API health: https://jobops-api.azurewebsites.net/api/health
 - `pgvector` is allow-listed on the Postgres server; firewall opened to Azure services.
-- The Python agent service runs locally for the full-AI demo; the cloud API
-  degrades gracefully to the deterministic analysis when the agent is unattached.
+- The Python agent service is deployed on **Azure Container Apps** (consumption,
+  scale-to-zero) in East US, so the live URL is **fully agent-powered** end to end
+  (web → API → agent → `gpt-5.4-nano`, with RAG over pgvector). The cloud API still
+  degrades gracefully to the deterministic analysis if the agent is ever unattached.
+  Image is CPU-only torch (~1.6 GB) built locally and pushed to ACR (Azure for
+  Students blocks server-side ACR Tasks builds).
 
 ## What Is Still Pending
 
-- Optional: host the Python agent in the cloud (Azure Container Apps from `services/agent/Dockerfile`) for an agent-attached cloud demo.
 - Apply the `embeddings` (pgvector) migration to the cloud DB from a stable network (`npm run db:init --workspace @jobops/api`); core schema is already live.
 - Phase 7 (Zapier/Make companion flows) — deferred.
 
