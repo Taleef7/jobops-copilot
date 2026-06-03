@@ -6,6 +6,7 @@ import {
   updateJob,
 } from '@/data/job-store';
 import { saveWeeklyReport } from '@/data/report-store';
+import { N8N_USER_ID } from '@/lib/auth';
 import {
   analysisFromFit,
   analysisFromParsed,
@@ -164,6 +165,8 @@ export function createN8nRouter(dependencies: N8nDependencies = defaultDependenc
   router.use(requireN8nWebhookSecret);
 
   router.post('/job-intake', async (request, response, next) => {
+    const userId = N8N_USER_ID;
+
     const body = request.body as Partial<N8nJobIntakeBody>;
     const validation = validateJobIntakeBody(body);
 
@@ -176,7 +179,7 @@ export function createN8nRouter(dependencies: N8nDependencies = defaultDependenc
         return;
       }
 
-      const existingJobs = await dependencies.listJobs();
+      const existingJobs = await dependencies.listJobs(userId);
 
       if (validation.normalized.jobUrl) {
         const existingJob = existingJobs.find((job) => job.jobUrl === validation.normalized.jobUrl);
@@ -192,7 +195,7 @@ export function createN8nRouter(dependencies: N8nDependencies = defaultDependenc
         }
       }
 
-      const createdJob = await dependencies.createJob({
+      const createdJob = await dependencies.createJob(userId, {
         jobUrl: validation.normalized.jobUrl,
         source: validation.normalized.source,
         company: validation.normalized.company!,
@@ -220,6 +223,7 @@ export function createN8nRouter(dependencies: N8nDependencies = defaultDependenc
 
       if (validation.normalized.resumeText && validation.normalized.profileText) {
         const fit = await resolveFitScore({
+          userId,
           descriptionText: createdJob.descriptionText,
           resumeText: validation.normalized.resumeText,
           profileText: validation.normalized.profileText,
@@ -244,14 +248,14 @@ export function createN8nRouter(dependencies: N8nDependencies = defaultDependenc
         fitMessage = 'Fit scoring was skipped because both resume_text and profile_text are required.';
       }
 
-      const savedJob = await dependencies.saveJobAnalysis(createdJob.id, analysis, fitScore);
+      const savedJob = await dependencies.saveJobAnalysis(userId, createdJob.id, analysis, fitScore);
 
       if (!savedJob) {
         response.status(500).json({ error: 'Could not save the n8n analysis result' });
         return;
       }
 
-      const updatedJob = await dependencies.updateJob(savedJob.id, {
+      const updatedJob = await dependencies.updateJob(userId, savedJob.id, {
         nextAction: fitStatus === 'scored'
           ? 'Review the AI analysis and decide whether to shortlist.'
           : 'Review the parsed job and decide whether to score it.',
@@ -274,6 +278,8 @@ export function createN8nRouter(dependencies: N8nDependencies = defaultDependenc
   });
 
   router.post('/follow-up-reminders', async (request, response, next) => {
+    const userId = N8N_USER_ID;
+
     const body = request.body as Partial<N8nFollowUpRemindersBody>;
     const validation = validateFollowUpBody(body);
 
@@ -286,7 +292,7 @@ export function createN8nRouter(dependencies: N8nDependencies = defaultDependenc
     }
 
     try {
-      const jobs = await dependencies.listJobs();
+      const jobs = await dependencies.listJobs(userId);
       const asOf = validation.normalized.as_of ? new Date(validation.normalized.as_of) : new Date();
       const reminders = selectDueFollowUps(jobs, asOf);
 
@@ -303,6 +309,8 @@ export function createN8nRouter(dependencies: N8nDependencies = defaultDependenc
   });
 
   router.post('/weekly-report', async (request, response, next) => {
+    const userId = N8N_USER_ID;
+
     const body = request.body as Partial<N8nWeeklyReportBody>;
     const validation = validateWeeklyReportBody(body);
 
@@ -315,7 +323,7 @@ export function createN8nRouter(dependencies: N8nDependencies = defaultDependenc
     }
 
     try {
-      const jobs = await dependencies.listJobs();
+      const jobs = await dependencies.listJobs(userId);
       const report = buildWeeklyReportRecord(jobs, {
         week_start: validation.normalized.week_start!,
         week_end: validation.normalized.week_end!,
@@ -323,7 +331,7 @@ export function createN8nRouter(dependencies: N8nDependencies = defaultDependenc
       const reportUrl = await exportWeeklyReportMarkdown(report, {
         publicBaseUrl: getRequestBaseUrl(request),
       });
-      const savedReport = await saveWeeklyReport({
+      const savedReport = await saveWeeklyReport(userId, {
         ...report,
         reportUrl,
       });

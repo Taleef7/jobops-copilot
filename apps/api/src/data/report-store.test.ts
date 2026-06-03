@@ -8,7 +8,10 @@ import {
   listWeeklyReports,
   resetWeeklyReportStoreForTests,
   saveWeeklyReport,
+  seedDemoReports,
 } from './report-store';
+
+const USER = 'user_test';
 
 function makeReport(overrides: Partial<WeeklyReportRecord> = {}): WeeklyReportRecord {
   return {
@@ -34,7 +37,7 @@ function snapshotCwd() {
   return process.cwd();
 }
 
-test('loads the seeded weekly report into the current data directory', async () => {
+test('a new user starts empty and can load the sample report', async () => {
   const originalCwd = snapshotCwd();
   const tempDir = await mkdtemp(join(tmpdir(), 'jobops-weekly-report-'));
 
@@ -42,10 +45,15 @@ test('loads the seeded weekly report into the current data directory', async () 
     process.chdir(tempDir);
     resetWeeklyReportStoreForTests();
 
-    const reports = await listWeeklyReports();
+    assert.equal((await listWeeklyReports(USER)).length, 0);
 
+    await seedDemoReports(USER);
+    const reports = await listWeeklyReports(USER);
     assert.equal(reports.length, 1);
-    assert.equal(reports[0]?.id, '44444444-4444-4444-8444-444444444444');
+    assert.equal(reports[0]?.weekStart, '2026-05-11');
+
+    // Isolation: a different user still sees nothing.
+    assert.equal((await listWeeklyReports('user_other')).length, 0);
   } finally {
     process.chdir(originalCwd);
     await rm(tempDir, { recursive: true, force: true });
@@ -60,8 +68,9 @@ test('upserts reports by week range and keeps the latest version first', async (
     process.chdir(tempDir);
     resetWeeklyReportStoreForTests();
 
-    const firstSave = await saveWeeklyReport(makeReport({ createdAt: '2026-05-24T18:00:00.000Z' }));
+    const firstSave = await saveWeeklyReport(USER, makeReport({ createdAt: '2026-05-24T18:00:00.000Z' }));
     const updatedSave = await saveWeeklyReport(
+      USER,
       makeReport({
         jobsApplied: 2,
         recommendations: ['Review the higher-priority shortlist first.'],
@@ -70,7 +79,7 @@ test('upserts reports by week range and keeps the latest version first', async (
       }),
     );
 
-    const reports = await listWeeklyReports();
+    const reports = await listWeeklyReports(USER);
     const latest = reports[0];
     assert.ok(latest);
     assert.equal(firstSave.weekStart, updatedSave.weekStart);

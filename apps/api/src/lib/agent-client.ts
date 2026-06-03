@@ -84,6 +84,7 @@ export async function fetchEvDemoViaAgent(): Promise<TelemetryInsights> {
 }
 
 export interface ScoreFitInput {
+  userId?: string;
   descriptionText: string;
   resumeText: string;
   profileText: string;
@@ -122,6 +123,7 @@ export async function resolveFitScore(input: ScoreFitInput): Promise<FitScoreOut
   if (isAgentEnabled()) {
     try {
       const scored = await callAgent<FitScoreOutput>('/score-fit', {
+        user_id: input.userId,
         description_text: input.descriptionText,
         resume_text: input.resumeText,
         profile_text: input.profileText,

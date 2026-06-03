@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import type { WeeklyReportRecord } from '@/types';
@@ -89,37 +90,44 @@ async function runExclusive<T>(operation: () => Promise<T>): Promise<T> {
   }
 }
 
-export async function listWeeklyReports(): Promise<WeeklyReportRecord[]> {
+export async function listWeeklyReports(userId: string): Promise<WeeklyReportRecord[]> {
   if (hasPostgresConnection()) {
-    return postgresStore.listWeeklyReports();
+    return postgresStore.listWeeklyReports(userId);
   }
 
   const reports = await ensureLoaded();
-  return sortReports(clone(reports));
+  return sortReports(clone(reports.filter((entry) => entry.userId === userId)));
 }
 
-export async function getLatestWeeklyReport(): Promise<WeeklyReportRecord | undefined> {
-  const reports = await listWeeklyReports();
+export async function getLatestWeeklyReport(userId: string): Promise<WeeklyReportRecord | undefined> {
+  const reports = await listWeeklyReports(userId);
   return reports[0];
 }
 
-export async function saveWeeklyReport(report: WeeklyReportRecord): Promise<WeeklyReportRecord> {
+export async function saveWeeklyReport(
+  userId: string,
+  report: WeeklyReportRecord,
+): Promise<WeeklyReportRecord> {
   if (hasPostgresConnection()) {
-    return postgresStore.saveWeeklyReport(report);
+    return postgresStore.saveWeeklyReport(userId, report);
   }
 
   return runExclusive(async () => {
     const reports = await ensureLoaded();
     const reportIndex = reports.findIndex(
-      (entry) => entry.weekStart === report.weekStart && entry.weekEnd === report.weekEnd,
+      (entry) =>
+        entry.userId === userId &&
+        entry.weekStart === report.weekStart &&
+        entry.weekEnd === report.weekEnd,
     );
     const savedReport: WeeklyReportRecord =
       reportIndex >= 0
         ? {
             ...clone(report),
             id: reports[reportIndex]!.id,
+            userId,
           }
-        : clone(report);
+        : { ...clone(report), userId };
 
     if (reportIndex >= 0) {
       reports[reportIndex] = savedReport;
@@ -130,6 +138,36 @@ export async function saveWeeklyReport(report: WeeklyReportRecord): Promise<Week
     reportsCache = sortReports(reports);
     await persistReports();
     return clone(savedReport);
+  });
+}
+
+export async function clearUserReports(userId: string): Promise<void> {
+  if (hasPostgresConnection()) {
+    return postgresStore.clearUserReports(userId);
+  }
+
+  await runExclusive(async () => {
+    const reports = await ensureLoaded();
+    reportsCache = reports.filter((entry) => entry.userId !== userId);
+    await persistReports();
+  });
+}
+
+export async function seedDemoReports(userId: string): Promise<void> {
+  if (hasPostgresConnection()) {
+    return postgresStore.seedDemoReports(userId);
+  }
+
+  await runExclusive(async () => {
+    const reports = await ensureLoaded();
+    const others = reports.filter((entry) => entry.userId !== userId);
+    const mine = clone(seedWeeklyReports).map((report) => ({
+      ...report,
+      id: randomUUID(),
+      userId,
+    }));
+    reportsCache = sortReports([...mine, ...others]);
+    await persistReports();
   });
 }
 

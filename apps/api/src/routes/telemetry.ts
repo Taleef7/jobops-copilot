@@ -6,6 +6,7 @@ import {
   fetchEvDemoViaAgent,
   isAgentEnabled,
 } from '@/lib/agent-client';
+import { requireUser } from '@/lib/auth';
 import { buildActivitySeries, localTelemetryFallback } from '@/lib/telemetry';
 
 export const telemetryRouter = Router();
@@ -15,9 +16,12 @@ export const telemetryRouter = Router();
  * analyzes it via the agent (pandas trend/anomaly/forecast + LLM narration),
  * falling back to a deterministic local summary when the agent is unavailable.
  */
-telemetryRouter.get('/insights', async (_request, response, next) => {
+telemetryRouter.get('/insights', async (request, response, next) => {
   try {
-    const series = buildActivitySeries(await listJobs());
+    const userId = requireUser(request, response);
+    if (!userId) return;
+
+    const series = buildActivitySeries(await listJobs(userId));
 
     if (isAgentEnabled()) {
       try {

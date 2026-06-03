@@ -1,4 +1,4 @@
-import type { PoolClient } from 'pg';
+import { randomUUID } from 'node:crypto';
 import type { WeeklyReportRecord } from '@/types';
 import { getPool } from '@/lib/postgres';
 import { seedWeeklyReports } from '@/data/mock-store';
@@ -20,8 +20,6 @@ type WeeklyReportRow = {
   report_url: string | null;
   created_at: string;
 };
-
-let readyPromise: Promise<void> | null = null;
 
 function poolOrThrow() {
   const pool = getPool();
@@ -61,119 +59,25 @@ function mapReport(row: WeeklyReportRow): WeeklyReportRecord {
   };
 }
 
-async function ensureSeedData(client: PoolClient) {
-  const { rows } = await client.query<{ count: string }>('select count(*)::text as count from weekly_reports');
-  if (Number(rows[0]?.count ?? '0') > 0) {
-    return;
-  }
-
-  for (const report of seedWeeklyReports) {
-    await client.query(
-      `
-        insert into weekly_reports (
-          id,
-          week_start,
-          week_end,
-          jobs_discovered,
-          jobs_shortlisted,
-          jobs_applied,
-          outreach_drafted,
-          outreach_sent,
-          responses_received,
-          interviews,
-          common_missing_skills,
-          recommendations,
-          report_markdown,
-          report_url,
-          created_at
-        ) values (
-          $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11::jsonb,$12::jsonb,$13,$14,$15
-        )
-        on conflict (id) do update set
-          week_start = excluded.week_start,
-          week_end = excluded.week_end,
-          jobs_discovered = excluded.jobs_discovered,
-          jobs_shortlisted = excluded.jobs_shortlisted,
-          jobs_applied = excluded.jobs_applied,
-          outreach_drafted = excluded.outreach_drafted,
-          outreach_sent = excluded.outreach_sent,
-          responses_received = excluded.responses_received,
-          interviews = excluded.interviews,
-          common_missing_skills = excluded.common_missing_skills,
-          recommendations = excluded.recommendations,
-          report_markdown = excluded.report_markdown,
-          report_url = excluded.report_url,
-          created_at = excluded.created_at
-      `,
-      [
-        report.id,
-        report.weekStart,
-        report.weekEnd,
-        report.jobsDiscovered,
-        report.jobsShortlisted,
-        report.jobsApplied,
-        report.outreachDrafted,
-        report.outreachSent,
-        report.responsesReceived,
-        report.interviews,
-        JSON.stringify(report.commonMissingSkills),
-        JSON.stringify(report.recommendations),
-        report.reportMarkdown,
-        report.reportUrl ?? null,
-        report.createdAt,
-      ],
-    );
-  }
-}
-
-async function ensureReady() {
-  if (readyPromise) {
-    await readyPromise;
-    return;
-  }
-
-  const pool = poolOrThrow();
-
-  readyPromise = (async () => {
-    const client = await pool.connect();
-    try {
-      await client.query('begin');
-      await ensureSeedData(client);
-      await client.query('commit');
-    } catch (error) {
-      await client.query('rollback');
-      throw error;
-    } finally {
-      client.release();
-    }
-  })();
-
-  try {
-    await readyPromise;
-  } finally {
-    readyPromise = null;
-  }
-}
-
-export async function listWeeklyReports(): Promise<WeeklyReportRecord[]> {
-  await ensureReady();
+export async function listWeeklyReports(userId: string): Promise<WeeklyReportRecord[]> {
   const pool = poolOrThrow();
 
   const { rows } = await pool.query<WeeklyReportRow>(
-    'select * from weekly_reports order by created_at desc, week_end desc, week_start desc',
+    'select * from weekly_reports where user_id = $1 order by created_at desc, week_end desc, week_start desc',
+    [userId],
   );
 
   return rows.map(mapReport);
 }
 
-export async function saveWeeklyReport(report: WeeklyReportRecord): Promise<WeeklyReportRecord> {
-  await ensureReady();
+export async function saveWeeklyReport(userId: string, report: WeeklyReportRecord): Promise<WeeklyReportRecord> {
   const pool = poolOrThrow();
 
   const { rows } = await pool.query<WeeklyReportRow>(
     `
       insert into weekly_reports (
         id,
+        user_id,
         week_start,
         week_end,
         jobs_discovered,
@@ -189,9 +93,9 @@ export async function saveWeeklyReport(report: WeeklyReportRecord): Promise<Week
         report_url,
         created_at
       ) values (
-        $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11::jsonb,$12::jsonb,$13,$14,$15
+        $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12::jsonb,$13::jsonb,$14,$15,$16
       )
-      on conflict (week_start, week_end) do update set
+      on conflict (user_id, week_start, week_end) do update set
         jobs_discovered = excluded.jobs_discovered,
         jobs_shortlisted = excluded.jobs_shortlisted,
         jobs_applied = excluded.jobs_applied,
@@ -208,6 +112,7 @@ export async function saveWeeklyReport(report: WeeklyReportRecord): Promise<Week
     `,
     [
       report.id,
+      userId,
       report.weekStart,
       report.weekEnd,
       report.jobsDiscovered,
@@ -233,7 +138,19 @@ export async function saveWeeklyReport(report: WeeklyReportRecord): Promise<Week
   return mapReport(savedReport);
 }
 
-export async function getLatestWeeklyReport(): Promise<WeeklyReportRecord | undefined> {
-  const reports = await listWeeklyReports();
+export async function getLatestWeeklyReport(userId: string): Promise<WeeklyReportRecord | undefined> {
+  const reports = await listWeeklyReports(userId);
   return reports[0];
+}
+
+export async function clearUserReports(userId: string): Promise<void> {
+  const pool = poolOrThrow();
+  await pool.query('delete from weekly_reports where user_id = $1', [userId]);
+}
+
+export async function seedDemoReports(userId: string): Promise<void> {
+  await clearUserReports(userId);
+  for (const report of seedWeeklyReports) {
+    await saveWeeklyReport(userId, { ...report, id: randomUUID() });
+  }
 }

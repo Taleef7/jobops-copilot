@@ -79,7 +79,8 @@ test('persists generated weekly reports and exposes them through the reports API
         reports: Array<{ id: string }>;
       };
       assert.equal(listPayload.reports[0]?.id, generatedPayload.report_id);
-      assert.equal(listPayload.reports.length, 2);
+      // New accounts start empty, so only the just-generated report exists.
+      assert.equal(listPayload.reports.length, 1);
 
       const exportResponse = await fetch(generatedPayload.report_url);
       assert.equal(exportResponse.status, 200);
