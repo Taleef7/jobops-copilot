@@ -11,8 +11,16 @@ JobOps Copilot now has a working end-to-end foundation through weekly reporting:
 - branch protection on `main`
 - repeatable Azure bootstrap support for local development against the cloud database
 
+It now also has a real AI layer: a Python agent service with multi-provider
+LLMs, RAG over pgvector, multi-step LangChain agents, and time-series telemetry
+intelligence.
+
 ## Verified Milestones
 
+- Phase 9: real multi-provider LLM integration via the Python agent service (parse, score, outreach, weekly) with mock fallback
+- Phase 10: RAG with pgvector + Hugging Face embeddings; retrieval-augmented fit scoring
+- Phase 8: advanced LangChain agents — interview-prep, company research (web-search tool), skill-gap planner — surfaced in the dashboard
+- Phase 11: pandas time-series telemetry (trend/anomaly/forecast) with LLM narration + synthetic EV battery demo
 - Phase 0: project foundation complete
 - Phase 1: CRM MVP complete
 - Phase 2: AI parsing and fit scoring complete
@@ -41,9 +49,9 @@ JobOps Copilot now has a working end-to-end foundation through weekly reporting:
 
 ## What Is Still Pending
 
-- Azure App Service deployment scaffold exists, but the live web and API App Service resources still need to be provisioned and wired up
-- full Azure hosting for the web and API apps
-- AI provider integration beyond the mock analysis layer
+- Live Azure hosting: provision web/api/agent App Services and wire publish profiles (scaffold in `.github/workflows/azure-app-service.yml`; provisioning in `scripts/azure/provision.sh`)
+- Application Insights wiring at runtime (connection string set during provisioning)
+- Phase 7 (Zapier/Make companion flows) — deferred
 
 ## How To Verify The Live Stack
 
