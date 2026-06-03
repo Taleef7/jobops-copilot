@@ -105,3 +105,18 @@ export async function upsertUserProfile(
   await writeFileProfiles(profiles);
   return merged;
 }
+
+/** Deletes a user's stored profile (resume + profile text). */
+export async function deleteUserProfile(userId: string): Promise<void> {
+  if (hasPostgresConnection()) {
+    const pool = getPool()!;
+    await pool.query('delete from user_profiles where user_id = $1', [userId]);
+    return;
+  }
+
+  const profiles = await readFileProfiles();
+  if (userId in profiles) {
+    delete profiles[userId];
+    await writeFileProfiles(profiles);
+  }
+}

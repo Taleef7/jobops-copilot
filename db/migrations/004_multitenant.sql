@@ -11,6 +11,11 @@
 -- 1. Per-user ownership columns ------------------------------------------------
 alter table jobs add column if not exists user_id text;
 create index if not exists jobs_user_id_idx on jobs (user_id);
+-- job_url was globally unique (jobs_job_url_key). Scope it per user so two
+-- accounts can track the same posting and per-user demo seeding never collides.
+alter table jobs drop constraint if exists jobs_job_url_key;
+create unique index if not exists jobs_user_job_url_unique_idx
+  on jobs (user_id, job_url) where job_url is not null;
 
 alter table weekly_reports add column if not exists user_id text;
 create index if not exists weekly_reports_user_id_idx on weekly_reports (user_id);
