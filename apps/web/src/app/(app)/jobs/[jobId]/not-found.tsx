@@ -1,23 +1,18 @@
 import Link from 'next/link';
+import { Button } from '@/components/ui/button';
+import { Card } from '@/components/ui/card';
 
 export default function JobNotFound() {
   return (
-    <div className="stack">
-      <section className="hero">
-        <p className="eyebrow">Not found</p>
-        <h2 className="hero__title">That job record does not exist.</h2>
-        <p className="hero__lead">
-          The record may have been removed, archived, or the URL may be stale.
-        </p>
-        <div className="hero__actions">
-          <Link className="button button--primary" href="/jobs">
-            Back to jobs
-          </Link>
-          <Link className="button button--ghost" href="/jobs/new">
-            Add a job
-          </Link>
-        </div>
-      </section>
-    </div>
+    <Card className="mx-auto max-w-md items-center gap-3 p-8 text-center">
+      <h2 className="font-heading text-lg font-semibold">That job does not exist</h2>
+      <p className="text-muted-foreground text-sm">
+        The record may have been removed or archived, or the URL is stale.
+      </p>
+      <div className="flex gap-2">
+        <Button render={<Link href="/jobs">Back to jobs</Link>} />
+        <Button render={<Link href="/jobs/new">Add a job</Link>} variant="outline" />
+      </div>
+    </Card>
   );
 }

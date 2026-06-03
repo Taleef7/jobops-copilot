@@ -1,289 +1,197 @@
 import type { Metadata } from 'next';
+import { ArrowLeft } from 'lucide-react';
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
+import { FitScoreRing } from '@/components/fit-score-ring';
 import { JobAgentsPanel } from '@/components/job-agents-panel';
 import { JobAnalysisActions } from '@/components/job-analysis-actions';
 import { JobEditPanel } from '@/components/job-edit-panel';
 import { JobOutreachActions } from '@/components/job-outreach-actions';
-import { SectionCard } from '@/components/section-card';
+import { SkillChipList } from '@/components/skill-chip';
 import { StatusPill } from '@/components/status-pill';
+import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
+import { Card } from '@/components/ui/card';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { demoProfileText, demoResumeText } from '@/lib/demo-analysis';
-import { loadJob, loadJobs } from '@/lib/job-data';
-import { formatCompactDateTime, formatDate } from '@/lib/format';
+import { formatDate } from '@/lib/format';
+import { loadJob } from '@/lib/job-data';
 
 export const dynamic = 'force-dynamic';
 
-type JobDetailParams = {
-  params: Promise<{
-    jobId: string;
-  }>;
-};
+type JobDetailParams = { params: Promise<{ jobId: string }> };
 
 export async function generateMetadata({ params }: JobDetailParams): Promise<Metadata> {
   const { jobId } = await params;
   const { job } = await loadJob(jobId);
-
-  if (!job) {
-    return { title: 'Job detail' };
-  }
-
-  return { title: `${job.company} · ${job.title}` };
+  return { title: job ? `${job.company} · ${job.title}` : 'Job detail' };
 }
 
 export default async function JobDetailPage({ params }: JobDetailParams) {
   const { jobId } = await params;
-  const jobPromise = loadJob(jobId);
-  const jobsPromise = loadJobs();
-  const { job, source } = await jobPromise;
-
-  if (!job) {
-    notFound();
-  }
-
-  const { jobs: allJobs } = await jobsPromise;
-  const relatedJobs = allJobs.filter((candidate) => candidate.id !== job.id).slice(0, 3);
+  const { job, source } = await loadJob(jobId);
+  if (!job) notFound();
 
   return (
-    <div className="stack">
-      <section className="hero">
-        <p className="eyebrow">Job detail</p>
-        <h2 className="hero__title">
-          {job.company} · {job.title}
-        </h2>
-        <p className="hero__lead">{job.descriptionText}</p>
-        <div className="chip-row">
-          <StatusPill status={job.status} />
-          <span className="chip">{job.priority} priority</span>
-          <span className="chip">{job.workplaceType}</span>
-          <span className="chip">{job.employmentType}</span>
+    <div className="space-y-6">
+      <Button render={<Link href="/jobs" />} variant="ghost" size="sm" className="-ml-2 gap-1.5">
+        <ArrowLeft className="size-4" /> Back to jobs
+      </Button>
+
+      {/* Summary header */}
+      <Card className="gap-4 p-5 sm:p-6">
+        <div className="flex flex-wrap items-start justify-between gap-4">
+          <div className="min-w-0 space-y-2">
+            <h1 className="font-heading text-2xl font-bold tracking-tight">{job.title}</h1>
+            <p className="text-muted-foreground">{job.company}</p>
+            <div className="flex flex-wrap items-center gap-2">
+              <StatusPill status={job.status} />
+              <Badge variant="outline" className="capitalize">{job.location}</Badge>
+              <Badge variant="outline" className="capitalize">{job.workplaceType}</Badge>
+              <Badge variant="outline" className="capitalize">{job.employmentType}</Badge>
+              <Badge variant="outline" className="capitalize">{job.priority} priority</Badge>
+            </div>
+          </div>
+          <div className="flex flex-col items-center gap-1">
+            <FitScoreRing score={job.fitScore} size={72} strokeWidth={7} />
+            <span className="text-muted-foreground text-xs">Fit score</span>
+          </div>
         </div>
-        <div className="hero__actions">
-          <Link className="button button--ghost" href="/jobs">
-            Back to jobs
-          </Link>
-          <a className="button button--primary" href="#analysis">
-            Run AI analysis
-          </a>
+        <div className="border-t pt-4">
+          <JobAnalysisActions
+            jobId={job.id}
+            descriptionText={job.descriptionText}
+            resumeText={demoResumeText}
+            profileText={demoProfileText}
+          />
         </div>
-      </section>
+      </Card>
 
       {source === 'seed' ? (
-        <div className="callout callout--accent">
-          <p className="callout__title">Seed data shown</p>
-          <p className="callout__text">
-            The backend is not reachable right now, so this detail page is rendering the local seed
-            record. Once the API is available, it will read and update live CRM data.
+        <Card className="border-amber-500/30 bg-amber-500/5 gap-1 p-4">
+          <p className="text-sm font-medium text-amber-700 dark:text-amber-400">Seed data shown</p>
+          <p className="text-muted-foreground text-sm">
+            The backend is not reachable, so this page renders the local seed record.
           </p>
-        </div>
+        </Card>
       ) : null}
 
-      <div className="detail-grid">
-        <div className="stack">
-          <SectionCard title="Job snapshot" description="Core CRM metadata for this opportunity.">
-            <div className="stack">
-              <div className="detail-card">
-                <p className="detail-card__title">Company / role</p>
-                <p className="detail-card__value">
-                  {job.company} · {job.title}
-                </p>
-              </div>
-              <div className="detail-card">
-                <p className="detail-card__title">Dates</p>
-                <p className="detail-card__value">
-                  Posted {formatDate(job.datePosted)} · Discovered {formatCompactDateTime(job.discoveredAt)}
-                </p>
-              </div>
-              <div className="detail-card">
-                <p className="detail-card__title">Notes</p>
-                <p className="detail-card__value">{job.notes ?? 'No notes yet.'}</p>
-              </div>
-              <div className="detail-card">
-                <p className="detail-card__title">Next action</p>
-                <p className="detail-card__value">
-                  {job.nextAction}
-                  {job.nextActionDue ? ` Due ${formatDate(job.nextActionDue)}` : ''}
-                </p>
-              </div>
-            </div>
-          </SectionCard>
+      <div className="grid gap-6 lg:grid-cols-3">
+        {/* Main: tabbed content */}
+        <div className="lg:col-span-2">
+          <Tabs defaultValue="analysis" className="gap-4">
+            <TabsList>
+              <TabsTrigger value="analysis">Analysis</TabsTrigger>
+              <TabsTrigger value="agents">AI agents</TabsTrigger>
+              <TabsTrigger value="outreach">Outreach</TabsTrigger>
+            </TabsList>
 
-          <SectionCard
-            id="analysis"
-            title="AI analysis"
-            description="Parse the job, score the fit, and keep the output auditable."
-          >
-            <div className="stack">
-              <JobAnalysisActions
-                jobId={job.id}
-                descriptionText={job.descriptionText}
-                resumeText={demoResumeText}
-                profileText={demoProfileText}
-              />
-              <div className="inline-metrics">
-                <div className="inline-metric">
-                  <strong>{job.fitScore ?? '—'}</strong>
-                  <span>Fit score</span>
+            <TabsContent value="analysis" className="space-y-4">
+              <Card className="gap-4 p-5">
+                <div className="flex flex-wrap gap-2">
+                  <Badge variant="secondary">Confidence {job.analysis.confidenceScore}</Badge>
+                  <Badge variant="secondary">Model: {job.analysis.modelUsed}</Badge>
                 </div>
-                <div className="inline-metric">
-                  <strong>{job.analysis.confidenceScore}</strong>
-                  <span>Confidence</span>
+                <div>
+                  <p className="text-muted-foreground mb-1 text-xs font-medium tracking-wide uppercase">
+                    Fit summary
+                  </p>
+                  <p className="text-sm leading-relaxed">{job.analysis.fitSummary}</p>
                 </div>
-                <div className="inline-metric">
-                  <strong>{job.analysis.modelUsed}</strong>
-                  <span>Model</span>
+                <div>
+                  <p className="text-muted-foreground mb-1 text-xs font-medium tracking-wide uppercase">
+                    Recommended resume angle
+                  </p>
+                  <p className="text-sm leading-relaxed">{job.analysis.recommendedResumeAngle}</p>
                 </div>
-              </div>
-              <div className="callout">
-                <h3 className="callout__title">Fit summary</h3>
-                <p className="callout__text">{job.analysis.fitSummary}</p>
-              </div>
-              <div className="callout">
-                <h3 className="callout__title">Recommended resume angle</h3>
-                <p className="callout__text">{job.analysis.recommendedResumeAngle}</p>
-              </div>
-              <div className="split">
-                <div className="detail-card">
-                  <p className="detail-card__title">Required skills</p>
-                  <p className="detail-card__value">{job.analysis.requiredSkills.join(', ') || 'Not parsed yet.'}</p>
+                <div className="grid gap-4 sm:grid-cols-2">
+                  <div className="space-y-2">
+                    <p className="text-muted-foreground text-xs font-medium tracking-wide uppercase">
+                      Matched skills
+                    </p>
+                    <SkillChipList items={job.analysis.matchedSkills} variant="matched" empty="None matched yet." />
+                  </div>
+                  <div className="space-y-2">
+                    <p className="text-muted-foreground text-xs font-medium tracking-wide uppercase">
+                      Missing skills
+                    </p>
+                    <SkillChipList items={job.analysis.missingSkills} variant="missing" empty="None missing." />
+                  </div>
                 </div>
-                <div className="detail-card">
-                  <p className="detail-card__title">Preferred skills</p>
-                  <p className="detail-card__value">{job.analysis.preferredSkills.join(', ') || 'Not parsed yet.'}</p>
+                <div className="space-y-2">
+                  <p className="text-muted-foreground text-xs font-medium tracking-wide uppercase">
+                    ATS keywords
+                  </p>
+                  <SkillChipList items={job.analysis.atsKeywords} empty="Not parsed yet." />
                 </div>
-              </div>
-              <div className="split">
-                <div className="detail-card">
-                  <p className="detail-card__title">Matched skills</p>
-                  <p className="detail-card__value">{job.analysis.matchedSkills.join(', ') || 'None yet.'}</p>
+                <div className="bg-muted/40 rounded-lg p-3">
+                  <p className="text-muted-foreground mb-0.5 text-xs">Apply recommendation</p>
+                  <p className="text-sm">{job.analysis.applyRecommendation}</p>
                 </div>
-                <div className="detail-card">
-                  <p className="detail-card__title">Missing skills</p>
-                  <p className="detail-card__value">{job.analysis.missingSkills.join(', ') || 'None yet.'}</p>
-                </div>
-              </div>
-              <div className="detail-card">
-                <p className="detail-card__title">ATS keywords</p>
-                <p className="detail-card__value">{job.analysis.atsKeywords.join(', ') || 'No keywords captured yet.'}</p>
-              </div>
-              <div className="detail-card">
-                <p className="detail-card__title">Apply recommendation</p>
-                <p className="detail-card__value">{job.analysis.applyRecommendation}</p>
-              </div>
-            </div>
-          </SectionCard>
+              </Card>
+            </TabsContent>
 
-          <SectionCard
-            id="agents"
-            title="AI agents"
-            description="Multi-step LangChain agents for interview prep, company research, and skill-gap planning."
-          >
-            <JobAgentsPanel jobId={job.id} resumeText={demoResumeText} />
-          </SectionCard>
+            <TabsContent value="agents">
+              <Card className="p-5">
+                <JobAgentsPanel jobId={job.id} resumeText={demoResumeText} />
+              </Card>
+            </TabsContent>
 
-          <SectionCard
-            title="Outreach drafts"
-            description="Messages stay draft-only until approved."
-            action={
-              <Link className="button button--ghost" href="/outreach">
-                Review inbox
-              </Link>
-            }
-          >
-            <div className="stack">
-              <JobOutreachActions
-                jobId={job.id}
-                jobContext={job.descriptionText}
-                resumeSummary={demoResumeText}
-                disabled={source === 'seed'}
-              />
-
-              {job.outreach.length === 0 ? (
-                <div className="empty-state">
-                  <h3>No outreach drafted yet</h3>
-                  <p>Generate a recruiter, referral, or follow-up draft from this job.</p>
-                </div>
-              ) : (
-                <div className="stack">
+            <TabsContent value="outreach" className="space-y-4">
+              <Card className="p-5">
+                <JobOutreachActions
+                  jobId={job.id}
+                  jobContext={job.descriptionText}
+                  resumeSummary={demoResumeText}
+                  disabled={source === 'seed'}
+                />
+              </Card>
+              {job.outreach.length ? (
+                <Card className="gap-3 p-5">
+                  <h3 className="font-heading text-sm font-semibold">Existing drafts</h3>
                   {job.outreach.map((draft) => (
-                    <div key={draft.id} className="detail-card">
-                      <div className="split">
-                        <div>
-                          <p className="detail-card__title">
-                            {draft.contactName} · {draft.contactRole}
-                          </p>
-                          <p className="detail-card__value" style={{ whiteSpace: 'pre-wrap' }}>
-                            {draft.draftText}
-                          </p>
-                        </div>
-                        <div style={{ justifySelf: 'end' }}>
-                          <StatusPill status={draft.status} />
-                        </div>
+                    <div key={draft.id} className="bg-muted/40 space-y-2 rounded-lg p-3">
+                      <div className="flex items-center justify-between gap-2">
+                        <p className="text-sm font-medium">
+                          {draft.contactName || 'Contact'} · {draft.contactRole || draft.messageType.replaceAll('_', ' ')}
+                        </p>
+                        <StatusPill status={draft.status} />
                       </div>
-                      <div className="chip-row">
-                        <span className="chip">{draft.messageType.replaceAll('_', ' ')}</span>
-                        {draft.email ? <span className="chip">{draft.email}</span> : null}
-                        {draft.followUpDue ? <span className="chip">Follow-up {formatDate(draft.followUpDue)}</span> : null}
-                      </div>
+                      <p className="text-sm whitespace-pre-wrap">{draft.draftText}</p>
                     </div>
                   ))}
-                </div>
-              )}
-            </div>
-          </SectionCard>
-
-          <SectionCard title="Workflow timeline" description="A simple event trail for the job record.">
-            <div className="stack">
-              <div className="detail-card">
-                <p className="detail-card__title">Discovered</p>
-                <p className="detail-card__value">{formatCompactDateTime(job.discoveredAt)}</p>
-              </div>
-              <div className="detail-card">
-                <p className="detail-card__title">Current status</p>
-                <p className="detail-card__value">{job.status.replaceAll('_', ' ')}</p>
-              </div>
-              <div className="detail-card">
-                <p className="detail-card__title">Planned next step</p>
-                <p className="detail-card__value">{job.nextAction}</p>
-              </div>
-            </div>
-          </SectionCard>
+                </Card>
+              ) : null}
+            </TabsContent>
+          </Tabs>
         </div>
 
-        <div className="stack">
-          <SectionCard
-            title="Update job"
-            description="Keep the CRM state, notes, and follow-up dates current."
-          >
+        {/* Right rail */}
+        <div className="space-y-6">
+          <Card className="gap-4 p-5">
+            <h2 className="font-heading text-base font-semibold">Update job</h2>
             <JobEditPanel key={`${job.id}-${job.updatedAt ?? job.createdAt ?? ''}`} job={job} />
-          </SectionCard>
+          </Card>
 
-          <SectionCard
-            title="Manual approval policy"
-            description="The product drafts and recommends, but never sends without review."
-          >
-            <ul className="list">
-              <li>Status and priority changes are human-driven.</li>
-              <li>Notes and follow-up dates are editable before any outreach is generated.</li>
-              <li>AI analysis is available here, but the user still controls every downstream action.</li>
-            </ul>
-          </SectionCard>
+          <Card className="gap-2 p-5">
+            <h2 className="font-heading text-base font-semibold">Snapshot</h2>
+            <dl className="text-sm">
+              <div className="flex justify-between gap-2 border-b py-2">
+                <dt className="text-muted-foreground">Posted</dt>
+                <dd>{formatDate(job.datePosted)}</dd>
+              </div>
+              <div className="flex justify-between gap-2 border-b py-2">
+                <dt className="text-muted-foreground">Next action</dt>
+                <dd className="text-right">{job.nextAction || '—'}</dd>
+              </div>
+              <div className="flex justify-between gap-2 py-2">
+                <dt className="text-muted-foreground">Follow-up</dt>
+                <dd>{job.nextActionDue ? formatDate(job.nextActionDue) : '—'}</dd>
+              </div>
+            </dl>
+          </Card>
         </div>
       </div>
-
-      <SectionCard
-        title="Related opportunities"
-        description="A few other jobs in the same dataset that the user can compare."
-      >
-        <div className="grid grid--three">
-          {relatedJobs.map((candidate) => (
-            <Link key={candidate.id} href={`/jobs/${candidate.id}`} className="detail-card">
-              <p className="detail-card__title">{candidate.company}</p>
-              <p className="detail-card__value">{candidate.title}</p>
-              <StatusPill status={candidate.status} />
-            </Link>
-          ))}
-        </div>
-      </SectionCard>
     </div>
   );
 }

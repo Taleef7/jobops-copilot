@@ -1,50 +1,45 @@
 import type { Metadata } from 'next';
+import { Plus } from 'lucide-react';
 import Link from 'next/link';
 import { JobsTable } from '@/components/jobs-table';
 import { SectionCard } from '@/components/section-card';
+import { Button } from '@/components/ui/button';
+import { Card } from '@/components/ui/card';
 import { loadJobs } from '@/lib/job-data';
 
 export const dynamic = 'force-dynamic';
 
-export const metadata: Metadata = {
-  title: 'Jobs',
-};
+export const metadata: Metadata = { title: 'Jobs' };
 
 export default async function JobsPage() {
   const { jobs, source } = await loadJobs();
 
   return (
-    <div className="stack">
-      <section className="hero">
-        <p className="eyebrow">CRM view</p>
-        <h2 className="hero__title">All tracked opportunities in one place.</h2>
-        <p className="hero__lead">
-          Search, triage, and update jobs from a single dashboard. Phase 0 is mock-backed, but the
-          layout and workflow are already designed for a real database in Phase 1.
-        </p>
-        <div className="hero__actions">
-          <Link className="button button--primary" href="/jobs/new">
-            Add job
-          </Link>
-          <Link className="button button--ghost" href="/outreach">
-            Review outreach
-          </Link>
-        </div>
-      </section>
-
-      {source === 'seed' ? (
-        <div className="callout callout--accent">
-          <p className="callout__title">Seed data shown</p>
-          <p className="callout__text">
-            The API is not reachable right now, so the app is rendering the local seed dataset.
-            Once the backend is running, this page will use live CRM data automatically.
+    <div className="space-y-6">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <h2 className="font-heading text-2xl font-bold tracking-tight">Jobs</h2>
+          <p className="text-muted-foreground text-sm">
+            Search, triage, and update every opportunity in one place.
           </p>
         </div>
+        <Button render={<Link href="/jobs/new" />} className="gap-1.5">
+          <Plus className="size-4" /> Add job
+        </Button>
+      </div>
+
+      {source === 'seed' ? (
+        <Card className="border-amber-500/30 bg-amber-500/5 gap-1 p-4">
+          <p className="text-sm font-medium text-amber-700 dark:text-amber-400">Seed data shown</p>
+          <p className="text-muted-foreground text-sm">
+            The API is not reachable, so this page is rendering the local seed dataset.
+          </p>
+        </Card>
       ) : null}
 
       <SectionCard
         title="Job pipeline"
-        description="Quick filters help you find the right follow-up or outreach action fast."
+        description="Filter by status or priority to find your next action fast."
       >
         <JobsTable jobs={jobs} />
       </SectionCard>

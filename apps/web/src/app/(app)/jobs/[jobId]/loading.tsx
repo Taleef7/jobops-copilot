@@ -1,48 +1,13 @@
+import { Skeleton } from '@/components/ui/skeleton';
+
 export default function JobDetailLoading() {
   return (
-    <div className="stack">
-      <section className="hero">
-        <div className="skeleton skeleton--label" />
-        <div className="skeleton skeleton--hero" />
-        <div className="skeleton skeleton--paragraph" />
-        <div className="hero__actions">
-          <div className="skeleton skeleton--button" />
-          <div className="skeleton skeleton--button" />
-        </div>
-      </section>
-
-      <div className="detail-grid">
-        <section className="panel">
-          <div className="panel__header">
-            <div>
-              <div className="skeleton skeleton--label" />
-              <div className="skeleton skeleton--heading" />
-            </div>
-          </div>
-          <div className="panel__body">
-            <div className="stack">
-              <div className="skeleton skeleton--block" />
-              <div className="skeleton skeleton--block" />
-              <div className="skeleton skeleton--block" />
-            </div>
-          </div>
-        </section>
-
-        <section className="panel">
-          <div className="panel__header">
-            <div>
-              <div className="skeleton skeleton--label" />
-              <div className="skeleton skeleton--heading" />
-            </div>
-          </div>
-          <div className="panel__body">
-            <div className="stack">
-              <div className="skeleton skeleton--input" />
-              <div className="skeleton skeleton--input" />
-              <div className="skeleton skeleton--input" />
-            </div>
-          </div>
-        </section>
+    <div className="space-y-6">
+      <Skeleton className="h-8 w-32" />
+      <Skeleton className="h-40 w-full rounded-xl" />
+      <div className="grid gap-6 lg:grid-cols-3">
+        <Skeleton className="h-80 rounded-xl lg:col-span-2" />
+        <Skeleton className="h-80 rounded-xl" />
       </div>
     </div>
   );

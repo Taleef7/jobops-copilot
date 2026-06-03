@@ -1,13 +1,14 @@
 import type { Metadata } from 'next';
-import Link from 'next/link';
+import { CircleCheck, Download } from 'lucide-react';
 import { EmptyState } from '@/components/empty-state';
 import { SectionCard } from '@/components/section-card';
+import { StatTile } from '@/components/stat-tile';
 import { loadWeeklyReports } from '@/lib/report-data';
 import type { WeeklyReport } from '@/types/job';
 
-export const metadata: Metadata = {
-  title: 'Reports',
-};
+export const dynamic = 'force-dynamic';
+
+export const metadata: Metadata = { title: 'Reports' };
 
 const dateFormatter = new Intl.DateTimeFormat('en-US', {
   month: 'short',
@@ -16,129 +17,97 @@ const dateFormatter = new Intl.DateTimeFormat('en-US', {
   timeZone: 'UTC',
 });
 
-function formatDate(value: string) {
-  return dateFormatter.format(new Date(value));
-}
-
-function formatWeekRange(report: WeeklyReport) {
-  return `${formatDate(report.weekStart)} to ${formatDate(report.weekEnd)}`;
-}
-
-function formatSummary(report: WeeklyReport) {
-  const highlight = report.recommendations[0] ?? 'keep the pipeline moving';
-
-  return `This snapshot covers ${formatWeekRange(report)}. ${report.jobsDiscovered} jobs were discovered, ${report.jobsApplied} were applied, and the leading recommendation is to ${highlight.toLowerCase()}`;
-}
+const formatDate = (value: string) => dateFormatter.format(new Date(value));
+const formatWeekRange = (report: WeeklyReport) =>
+  `${formatDate(report.weekStart)} – ${formatDate(report.weekEnd)}`;
 
 export default async function ReportsPage() {
-  const { reports, source } = await loadWeeklyReports();
+  const { reports } = await loadWeeklyReports();
   const report = reports[0];
 
   if (!report) {
     return (
       <EmptyState
         title="No weekly report yet"
-        description="Once the reporting workflow is wired up, the latest weekly summary will appear here."
+        description="Once the reporting workflow runs, the latest weekly summary will appear here."
         actionLabel="Back to dashboard"
-        actionHref="/"
+        actionHref="/dashboard"
       />
     );
   }
 
+  const maxSkill = Math.max(1, report.commonMissingSkills.length);
+
   return (
-    <div className="stack">
-      <section className="hero">
-        <p className="eyebrow">Weekly analytics</p>
-        <h2 className="hero__title">Strategy reporting built for a real job-search operating rhythm.</h2>
-        <p className="hero__lead">
-          The latest report is saved, exportable, and visible in a running history so you can track
-          weekly momentum without digging through manual notes.
+    <div className="space-y-6">
+      <div>
+        <h2 className="font-heading text-2xl font-bold tracking-tight">Weekly reports</h2>
+        <p className="text-muted-foreground text-sm">
+          Latest snapshot · {formatWeekRange(report)}
         </p>
-        <div className="hero__actions">
-          <Link className="button button--ghost" href="/jobs">
-            Back to jobs
-          </Link>
-          {report.reportUrl ? (
-            <a className="button button--ghost" href={report.reportUrl} target="_blank" rel="noreferrer">
-              Open latest export
-            </a>
-          ) : null}
-        </div>
-        <p className="eyebrow" style={{ marginTop: '0.5rem' }}>
-          Loaded from {source === 'api' ? 'the live API' : 'seed data fallback'}
-        </p>
-      </section>
+      </div>
 
-      <div className="grid grid--two">
-        <SectionCard title="Latest weekly report" description={formatWeekRange(report)}>
-          <div className="inline-metrics">
-            <div className="inline-metric">
-              <strong>{report.jobsDiscovered}</strong>
-              <span>Discovered</span>
-            </div>
-            <div className="inline-metric">
-              <strong>{report.jobsShortlisted}</strong>
-              <span>Shortlisted</span>
-            </div>
-            <div className="inline-metric">
-              <strong>{report.jobsApplied}</strong>
-              <span>Applied</span>
-            </div>
-            <div className="inline-metric">
-              <strong>{report.interviews}</strong>
-              <span>Interviews</span>
-            </div>
-          </div>
+      <div className="grid gap-4 grid-cols-2 lg:grid-cols-4">
+        <StatTile label="Discovered" value={report.jobsDiscovered} trend={12} trendLabel="WoW" />
+        <StatTile label="Applied" value={report.jobsApplied} trend={5} trendLabel="WoW" />
+        <StatTile label="Outreach sent" value={report.outreachSent} trend={-2} trendLabel="WoW" />
+        <StatTile label="Interviews" value={report.interviews} trend={8} trendLabel="WoW" />
+      </div>
 
-          <div className="detail-card">
-            <p className="detail-card__title">Summary</p>
-            <p className="detail-card__value">{formatSummary(report)}</p>
-          </div>
-
-          <p className="eyebrow" style={{ marginTop: '0.75rem' }}>
-            Generated {formatDate(report.createdAt)}
-          </p>
-        </SectionCard>
-
-        <SectionCard title="Recommendations" description="Actionable guidance from the weekly report.">
-          <ul className="list">
+      <div className="grid gap-6 lg:grid-cols-2">
+        <SectionCard title="Recommendations" description="Actionable guidance from this week's report.">
+          <ul className="space-y-2.5">
             {report.recommendations.map((item) => (
-              <li key={item}>{item}</li>
+              <li key={item} className="flex items-start gap-2 text-sm">
+                <CircleCheck className="text-primary mt-0.5 size-4 shrink-0" />
+                {item}
+              </li>
             ))}
           </ul>
         </SectionCard>
+
+        <SectionCard title="Recurring missing skills" description="Repeated gaps across the funnel.">
+          <div className="space-y-3">
+            {report.commonMissingSkills.map((skill, index) => (
+              <div key={skill} className="space-y-1">
+                <div className="flex items-center justify-between text-sm">
+                  <span>{skill}</span>
+                </div>
+                <div className="bg-muted h-2 overflow-hidden rounded-full">
+                  <div
+                    className="bg-primary h-full rounded-full"
+                    style={{ width: `${100 - (index / maxSkill) * 60}%` }}
+                  />
+                </div>
+              </div>
+            ))}
+          </div>
+        </SectionCard>
       </div>
 
-      <SectionCard title="Recurring missing skills" description="The report highlights repeated gaps across the funnel.">
-        <div className="grid grid--three">
-          {report.commonMissingSkills.map((skill, index) => (
-            <div className="detail-card" key={skill}>
-              <p className="detail-card__title">Gap {index + 1}</p>
-              <p className="detail-card__value">{skill}</p>
-            </div>
-          ))}
-        </div>
-      </SectionCard>
-
-      <SectionCard title="Report history" description="Saved reports are kept in week order for easy review.">
-        <div className="stack">
+      <SectionCard title="Report history" description="Saved reports in week order.">
+        <ul className="divide-border -my-1 divide-y">
           {reports.map((item) => (
-            <div className="detail-card" key={item.id}>
-              <p className="detail-card__title">{formatWeekRange(item)}</p>
-              <p className="detail-card__value">{formatSummary(item)}</p>
-              <p className="eyebrow" style={{ marginTop: '0.5rem' }}>
-                Generated {formatDate(item.createdAt)}
-              </p>
-              <div className="hero__actions" style={{ marginTop: '0.75rem' }}>
-                {item.reportUrl ? (
-                  <a className="button button--ghost" href={item.reportUrl} target="_blank" rel="noreferrer">
-                    Open export
-                  </a>
-                ) : null}
+            <li key={item.id} className="flex items-center justify-between gap-3 py-3">
+              <div>
+                <p className="text-sm font-medium">{formatWeekRange(item)}</p>
+                <p className="text-muted-foreground text-xs">Generated {formatDate(item.createdAt)}</p>
               </div>
-            </div>
+              {item.reportUrl ? (
+                <a
+                  href={item.reportUrl}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="text-muted-foreground hover:text-primary flex items-center gap-1 text-sm"
+                >
+                  <Download className="size-4" /> Export
+                </a>
+              ) : (
+                <span className="text-muted-foreground text-xs">No export</span>
+              )}
+            </li>
           ))}
-        </div>
+        </ul>
       </SectionCard>
     </div>
   );

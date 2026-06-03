@@ -6,6 +6,7 @@ export function Sparkline({
   height = 36,
   anomalyIndex,
   variant = 'area',
+  fluid = false,
   className,
 }: {
   values: number[];
@@ -13,9 +14,13 @@ export function Sparkline({
   height?: number;
   anomalyIndex?: number | null;
   variant?: 'area' | 'line' | 'bars';
+  fluid?: boolean;
   className?: string;
 }) {
   if (!values.length) return null;
+  const svgSize = fluid
+    ? ({ width: '100%', height, viewBox: `0 0 ${width} ${height}`, preserveAspectRatio: 'none' } as const)
+    : ({ width, height } as const);
 
   const max = Math.max(...values);
   const min = Math.min(...values);
@@ -25,12 +30,7 @@ export function Sparkline({
   if (variant === 'bars') {
     const gap = width / values.length;
     return (
-      <svg
-        width={width}
-        height={height}
-        className={cn('overflow-visible', className)}
-        aria-hidden
-      >
+      <svg {...svgSize} className={cn('overflow-visible', className)} aria-hidden>
         {values.map((v, i) => {
           const h = ((v - min) / span) * (height - pad) + 2;
           return (
@@ -59,7 +59,7 @@ export function Sparkline({
   const anomaly = anomalyIndex != null ? points[anomalyIndex] : undefined;
 
   return (
-    <svg width={width} height={height} className={cn('overflow-visible', className)} aria-hidden>
+    <svg {...svgSize} className={cn('overflow-visible', className)} aria-hidden>
       {variant === 'area' ? <path d={area} className="fill-primary/10" /> : null}
       <path
         d={line}

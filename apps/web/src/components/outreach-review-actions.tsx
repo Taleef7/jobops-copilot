@@ -1,128 +1,74 @@
 'use client';
 
-import { useState } from 'react';
+import { Check, Forward, X } from 'lucide-react';
 import { useRouter } from 'next/navigation';
+import { useState } from 'react';
+import { toast } from 'sonner';
+import { Button } from '@/components/ui/button';
 import { ApiRequestError, updateOutreach } from '@/lib/api';
 import type { OutreachStatus } from '@/types/job';
-
-type OutreachReviewActionsProps = {
-  outreachId: string;
-  currentStatus: OutreachStatus;
-  disabled?: boolean;
-};
 
 export function OutreachReviewActions({
   outreachId,
   currentStatus,
   disabled = false,
-}: OutreachReviewActionsProps) {
+}: {
+  outreachId: string;
+  currentStatus: OutreachStatus;
+  disabled?: boolean;
+}) {
   const router = useRouter();
   const [isUpdating, setIsUpdating] = useState(false);
-  const [error, setError] = useState<string | null>(null);
 
   async function setStatus(status: OutreachStatus) {
-    if (disabled) {
-      return;
-    }
-
-    setError(null);
+    if (disabled) return;
     setIsUpdating(true);
-
     try {
       await updateOutreach(outreachId, { status });
+      toast.success(`Marked ${status}.`);
       router.refresh();
-    } catch (requestError) {
-      if (requestError instanceof ApiRequestError) {
-        setError(requestError.message);
-      } else {
-        setError(requestError instanceof Error ? requestError.message : 'Failed to update the draft.');
-      }
+    } catch (error) {
+      toast.error(error instanceof ApiRequestError ? error.message : 'Failed to update the draft.');
     } finally {
       setIsUpdating(false);
     }
   }
 
-  if (currentStatus === 'sent' || currentStatus === 'skipped') {
-    return (
-      <div className="stack">
-        {error ? (
-          <div className="callout callout--accent">
-            <p className="callout__title">Could not update draft</p>
-            <p className="callout__text">{error}</p>
-          </div>
-        ) : null}
-        <p className="table-copy">No further inbox actions are available for this draft.</p>
-      </div>
-    );
-  }
-
+  if (currentStatus === 'sent' || currentStatus === 'skipped') return null;
   if (disabled) {
-    return (
-      <div className="stack">
-        {error ? (
-          <div className="callout callout--accent">
-            <p className="callout__title">Could not update draft</p>
-            <p className="callout__text">{error}</p>
-          </div>
-        ) : null}
-        <div className="callout callout--accent">
-          <p className="callout__title">Actions disabled</p>
-          <p className="callout__text">
-            The inbox is showing seed data right now, so review actions are read-only until the live
-            backend is available.
-          </p>
-        </div>
-        <p className="table-copy">Seed drafts stay visible for review, but they cannot be updated here.</p>
-      </div>
-    );
+    return <p className="text-muted-foreground text-xs">Read-only (seed data).</p>;
   }
 
   const showApprove = currentStatus === 'drafted';
   const showSend = currentStatus === 'approved';
 
   return (
-    <div className="stack">
-      {error ? (
-        <div className="callout callout--accent">
-          <p className="callout__title">Could not update draft</p>
-          <p className="callout__text">{error}</p>
-        </div>
-      ) : null}
-
-      <div className="hero__actions">
-        {showApprove ? (
-          <button
-            className="button button--ghost"
-            type="button"
-            onClick={() => setStatus('approved')}
-            disabled={disabled || isUpdating}
-          >
-            {isUpdating ? 'Updating...' : 'Approve'}
-          </button>
-        ) : null}
-        {showSend ? (
-          <button
-            className="button button--primary"
-            type="button"
-            onClick={() => setStatus('sent')}
-            disabled={disabled || isUpdating}
-          >
-            {isUpdating ? 'Updating...' : 'Mark sent'}
-          </button>
-        ) : null}
-        <button
-          className="button button--ghost"
-          type="button"
-          onClick={() => setStatus('skipped')}
-          disabled={disabled || isUpdating}
+    <div className="flex flex-wrap gap-1.5">
+      {showApprove ? (
+        <Button
+          size="sm"
+          variant="secondary"
+          onClick={() => setStatus('approved')}
+          disabled={isUpdating}
+          className="gap-1"
         >
-          {isUpdating ? 'Updating...' : 'Skip'}
-        </button>
-      </div>
-
-      <p className="table-copy">
-        Mark sent only after you manually send the message yourself. Nothing is auto-delivered here.
-      </p>
+          <Check className="size-3.5" /> Approve
+        </Button>
+      ) : null}
+      {showSend ? (
+        <Button size="sm" onClick={() => setStatus('sent')} disabled={isUpdating} className="gap-1">
+          <Forward className="size-3.5" /> Mark sent
+        </Button>
+      ) : null}
+      <Button
+        size="sm"
+        variant="ghost"
+        onClick={() => setStatus('skipped')}
+        disabled={isUpdating}
+        className="gap-1"
+      >
+        <X className="size-3.5" /> Skip
+      </Button>
     </div>
   );
 }

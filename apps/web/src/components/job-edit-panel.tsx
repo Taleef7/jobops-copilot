@@ -1,8 +1,12 @@
 'use client';
 
+import { useRouter } from 'next/navigation';
 import type { FormEvent } from 'react';
 import { useState } from 'react';
-import { useRouter } from 'next/navigation';
+import { toast } from 'sonner';
+import { Button } from '@/components/ui/button';
+import { Label } from '@/components/ui/label';
+import { Textarea } from '@/components/ui/textarea';
 import { ApiRequestError, updateJob } from '@/lib/api';
 import { fromDatetimeLocalValue, toDatetimeLocalValue } from '@/lib/format';
 import type { Job } from '@/types/job';
@@ -23,6 +27,9 @@ const statusOptions: Job['status'][] = [
 
 const priorityOptions: Job['priority'][] = ['high', 'medium', 'low'];
 
+const selectClass =
+  'border-input bg-card h-9 w-full rounded-md border px-2.5 text-sm capitalize shadow-xs focus-visible:border-ring focus-visible:ring-ring/50 focus-visible:ring-[3px] outline-none';
+
 type FormState = {
   status: Job['status'];
   priority: Job['priority'];
@@ -40,83 +47,50 @@ export function JobEditPanel({ job }: { job: Job }) {
     nextAction: job.nextAction ?? '',
     nextActionDue: toDatetimeLocalValue(job.nextActionDue),
   });
-  const [errors, setErrors] = useState<Record<string, string>>({});
+  const [dateError, setDateError] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState(false);
 
   function updateField<K extends keyof FormState>(field: K, value: FormState[K]) {
-    setForm((current) => ({
-      ...current,
-      [field]: value,
-    }));
-  }
-
-  function validate(values: FormState) {
-    const nextErrors: Record<string, string> = {};
-
-    if (values.nextActionDue.trim()) {
-      const parsed = Date.parse(values.nextActionDue);
-      if (Number.isNaN(parsed)) {
-        nextErrors.nextActionDue = 'Please enter a valid follow-up date and time.';
-      }
-    }
-
-    return nextErrors;
+    setForm((current) => ({ ...current, [field]: value }));
   }
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    setErrors({});
+    setDateError(null);
 
-    const nextErrors = validate(form);
-    if (Object.keys(nextErrors).length > 0) {
-      setErrors(nextErrors);
+    if (form.nextActionDue.trim() && Number.isNaN(Date.parse(form.nextActionDue))) {
+      setDateError('Please enter a valid follow-up date and time.');
       return;
     }
 
     setIsSaving(true);
-
     try {
       await updateJob(job.id, {
         status: form.status,
         priority: form.priority,
         notes: form.notes.trim() || undefined,
         nextAction: form.nextAction.trim() || undefined,
-        nextActionDue: form.nextActionDue.trim() ? fromDatetimeLocalValue(form.nextActionDue) : undefined,
+        nextActionDue: form.nextActionDue.trim()
+          ? fromDatetimeLocalValue(form.nextActionDue)
+          : undefined,
       });
-
+      toast.success('Job updated.');
       router.refresh();
     } catch (error) {
-      if (error instanceof ApiRequestError) {
-        setErrors(error.fields ?? { form: error.message });
-      } else {
-        setErrors({ form: error instanceof Error ? error.message : 'Failed to update the job.' });
-      }
+      toast.error(error instanceof ApiRequestError ? error.message : 'Failed to update the job.');
     } finally {
       setIsSaving(false);
     }
   }
 
   return (
-    <form className="form-grid" onSubmit={handleSubmit}>
-      <div className="detail-card">
-        <p className="detail-card__title">Job status</p>
-        <p className="detail-card__value">
-          Keep the CRM state current and use this panel to move the job through the pipeline.
-        </p>
-      </div>
-
-      {errors.form ? (
-        <div className="callout callout--accent">
-          <p className="callout__title">Could not save changes</p>
-          <p className="callout__text">{errors.form}</p>
-        </div>
-      ) : null}
-
-      <div className="form-grid form-grid--two">
-        <label className="field">
-          <span className="field__label">Status</span>
+    <form className="space-y-4" onSubmit={handleSubmit}>
+      <div className="grid grid-cols-2 gap-3">
+        <div className="space-y-1.5">
+          <Label htmlFor="job-status">Status</Label>
           <select
-            className="field__input"
+            id="job-status"
+            className={selectClass}
             value={form.status}
             onChange={(event) => updateField('status', event.target.value as Job['status'])}
           >
@@ -126,12 +100,12 @@ export function JobEditPanel({ job }: { job: Job }) {
               </option>
             ))}
           </select>
-        </label>
-
-        <label className="field">
-          <span className="field__label">Priority</span>
+        </div>
+        <div className="space-y-1.5">
+          <Label htmlFor="job-priority">Priority</Label>
           <select
-            className="field__input"
+            id="job-priority"
+            className={selectClass}
             value={form.priority}
             onChange={(event) => updateField('priority', event.target.value as Job['priority'])}
           >
@@ -141,48 +115,45 @@ export function JobEditPanel({ job }: { job: Job }) {
               </option>
             ))}
           </select>
-        </label>
+        </div>
       </div>
 
-      <label className="field">
-        <span className="field__label">Notes</span>
-        <textarea
-          className="field__textarea"
+      <div className="space-y-1.5">
+        <Label htmlFor="job-notes">Notes</Label>
+        <Textarea
+          id="job-notes"
           value={form.notes}
           onChange={(event) => updateField('notes', event.target.value)}
-          placeholder="Add context, comp notes, or follow-up reminders."
+          placeholder="Add context, comp notes, or reminders."
         />
-      </label>
+      </div>
 
-      <label className="field">
-        <span className="field__label">Next action</span>
-        <textarea
-          className="field__textarea field__textarea--small"
+      <div className="space-y-1.5">
+        <Label htmlFor="job-next-action">Next action</Label>
+        <Textarea
+          id="job-next-action"
+          className="min-h-16"
           value={form.nextAction}
           onChange={(event) => updateField('nextAction', event.target.value)}
-          placeholder="Example: Send follow-up after resume review."
+          placeholder="e.g. Send follow-up after resume review."
         />
-      </label>
+      </div>
 
-      <label className="field">
-        <span className="field__label">Follow-up due</span>
+      <div className="space-y-1.5">
+        <Label htmlFor="job-followup">Follow-up due</Label>
         <input
-          className="field__input"
+          id="job-followup"
           type="datetime-local"
+          className={selectClass}
           value={form.nextActionDue}
           onChange={(event) => updateField('nextActionDue', event.target.value)}
         />
-        {errors.nextActionDue ? <span className="field-error">{errors.nextActionDue}</span> : null}
-      </label>
-
-      <div className="hero__actions">
-        <button className="button button--primary" type="submit" disabled={isSaving}>
-          {isSaving ? 'Saving...' : 'Save changes'}
-        </button>
-        <a className="button button--ghost" href="#analysis">
-          Open AI analysis
-        </a>
+        {dateError ? <p className="text-destructive text-xs">{dateError}</p> : null}
       </div>
+
+      <Button type="submit" disabled={isSaving} className="w-full">
+        {isSaving ? 'Saving…' : 'Save changes'}
+      </Button>
     </form>
   );
 }

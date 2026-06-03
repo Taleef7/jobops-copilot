@@ -1,23 +1,18 @@
 'use client';
 
 import Link from 'next/link';
+import { Button } from '@/components/ui/button';
+import { Card } from '@/components/ui/card';
 
 export default function JobsError({ error, reset }: { error: Error & { digest?: string }; reset: () => void }) {
   return (
-    <div className="stack">
-      <section className="hero">
-        <p className="eyebrow">Jobs error</p>
-        <h2 className="hero__title">We could not load the job list.</h2>
-        <p className="hero__lead">{error.message}</p>
-        <div className="hero__actions">
-          <button className="button button--primary" type="button" onClick={reset}>
-            Try again
-          </button>
-          <Link className="button button--ghost" href="/">
-            Back to dashboard
-          </Link>
-        </div>
-      </section>
-    </div>
+    <Card className="mx-auto max-w-md items-center gap-3 p-8 text-center">
+      <h2 className="font-heading text-lg font-semibold">Could not load jobs</h2>
+      <p className="text-muted-foreground text-sm">{error.message}</p>
+      <div className="flex gap-2">
+        <Button onClick={reset}>Try again</Button>
+        <Button render={<Link href="/dashboard">Dashboard</Link>} variant="outline" />
+      </div>
+    </Card>
   );
 }
