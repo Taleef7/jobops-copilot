@@ -25,3 +25,11 @@ workflows/n8n/owner.env
 .playwright-mcp/
 .serena/
 tmp/
+
+# Python (services/agent)
+.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+*.egg-info/

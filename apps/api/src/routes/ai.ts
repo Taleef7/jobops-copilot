@@ -1,16 +1,14 @@
 import { randomUUID } from 'node:crypto';
 import { Router } from 'express';
 import {
-  buildAnalysisFromParse,
-  buildAnalysisFromScore,
-  parseJobDescription,
-  scoreJobFit,
+  analysisFromFit,
+  analysisFromParsed,
   validateFitScoreOutput,
   validateParsedJobOutput,
 } from '@/lib/analysis-core';
+import { resolveFitScore, resolveOutreachDraft, resolveParsedJob } from '@/lib/agent-client';
 import { isSingleRecipientEmailAddress } from '@/lib/email';
 import { createGmailDraftIfEnabled } from '@/lib/gmail';
-import { draftOutreachBody } from '@/data/mock-store';
 import {
   appendOutreachDraft,
   getJobById,
@@ -34,7 +32,7 @@ aiRouter.post('/parse-job', async (request, response, next) => {
       return response.status(400).json({ error: 'description_text is required' });
     }
 
-    const parsed = parseJobDescription(body.description_text);
+    const parsed = await resolveParsedJob(body.description_text);
 
     if (!validateParsedJobOutput(parsed)) {
       return response.status(500).json({ error: 'AI parser returned an invalid payload' });
@@ -46,7 +44,7 @@ aiRouter.post('/parse-job', async (request, response, next) => {
         return response.status(404).json({ error: 'Job not found' });
       }
 
-      await saveJobAnalysis(body.job_id, buildAnalysisFromParse(body.description_text));
+      await saveJobAnalysis(body.job_id, analysisFromParsed(parsed));
     }
 
     return response.json({
@@ -75,7 +73,7 @@ aiRouter.post('/score-fit', async (request, response, next) => {
       return response.status(404).json({ error: 'Job not found' });
     }
 
-    const scored = scoreJobFit({
+    const scored = await resolveFitScore({
       descriptionText: job.descriptionText,
       resumeText: body.resume_text,
       profileText: body.profile_text,
@@ -88,13 +86,9 @@ aiRouter.post('/score-fit', async (request, response, next) => {
       return response.status(500).json({ error: 'AI scorer returned an invalid payload' });
     }
 
-    const analysis = buildAnalysisFromScore({
-      descriptionText: job.descriptionText,
-      resumeText: body.resume_text,
-      profileText: body.profile_text,
+    const analysis = analysisFromFit(scored, {
       requiredSkills: job.analysis.requiredSkills,
       preferredSkills: job.analysis.preferredSkills,
-      atsKeywords: job.analysis.atsKeywords,
     });
 
     await saveJobAnalysis(body.job_id, analysis, scored.fit_score);
@@ -129,9 +123,10 @@ aiRouter.post('/draft-outreach', async (request, response, next) => {
     }
   }
 
-  const payload = draftOutreachBody({
+  const payload = await resolveOutreachDraft({
     ...body,
     contact_email: contactEmail,
+    company: job?.company,
     job_context: body.job_context ?? job?.descriptionText,
     resume_summary: body.resume_summary,
   });

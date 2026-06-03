@@ -1,0 +1,14 @@
+# Core service + LLM providers (Phase 9).
+# RAG deps (psycopg, pgvector, sentence-transformers) are added in Phase 10,
+# telemetry deps (pandas) in Phase 11.
+fastapi>=0.115,<0.120
+uvicorn[standard]>=0.30,<0.40
+pydantic>=2.7,<3
+pydantic-settings>=2.3,<3
+python-dotenv>=1.0,<2
+
+# LangChain provider-agnostic layer
+langchain>=1.0,<2
+langchain-anthropic>=1.0,<2
+langchain-openai>=1.0,<2
+langchain-google-genai>=3.0,<4

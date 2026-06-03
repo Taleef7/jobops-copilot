@@ -7,13 +7,12 @@ import {
 } from '@/data/job-store';
 import { saveWeeklyReport } from '@/data/report-store';
 import {
-  buildAnalysisFromParse,
-  buildAnalysisFromScore,
-  parseJobDescription,
-  scoreJobFit,
+  analysisFromFit,
+  analysisFromParsed,
   validateFitScoreOutput,
   validateParsedJobOutput,
 } from '@/lib/analysis-core';
+import { resolveFitScore, resolveParsedJob } from '@/lib/agent-client';
 import { exportWeeklyReportMarkdown } from '@/lib/report-export';
 import { getRequestBaseUrl } from '@/lib/request-url';
 import {
@@ -207,20 +206,20 @@ export function createN8nRouter(dependencies: N8nDependencies = defaultDependenc
         descriptionText: validation.normalized.descriptionText!,
       });
 
-      const parsed = parseJobDescription(createdJob.descriptionText);
+      const parsed = await resolveParsedJob(createdJob.descriptionText);
 
       if (!validateParsedJobOutput(parsed)) {
         response.status(500).json({ error: 'n8n parser returned an invalid payload' });
         return;
       }
 
-      let analysis = buildAnalysisFromParse(createdJob.descriptionText);
+      let analysis = analysisFromParsed(parsed);
       let fitStatus: 'skipped' | 'scored' = 'skipped';
       let fitMessage = 'Fit scoring was skipped because resume/profile context was not supplied.';
       let fitScore: number | null | undefined;
 
       if (validation.normalized.resumeText && validation.normalized.profileText) {
-        const fit = scoreJobFit({
+        const fit = await resolveFitScore({
           descriptionText: createdJob.descriptionText,
           resumeText: validation.normalized.resumeText,
           profileText: validation.normalized.profileText,
@@ -234,13 +233,9 @@ export function createN8nRouter(dependencies: N8nDependencies = defaultDependenc
           return;
         }
 
-        analysis = buildAnalysisFromScore({
-          descriptionText: createdJob.descriptionText,
-          resumeText: validation.normalized.resumeText,
-          profileText: validation.normalized.profileText,
+        analysis = analysisFromFit(fit, {
           requiredSkills: parsed.required_skills,
           preferredSkills: parsed.preferred_skills,
-          atsKeywords: [...parsed.required_skills, ...parsed.preferred_skills],
         });
         fitStatus = 'scored';
         fitMessage = `Fit scoring completed with a score of ${fit.fit_score}.`;

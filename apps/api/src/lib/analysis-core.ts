@@ -105,9 +105,11 @@ function buildResponsibilities(keywords: string[]) {
   return keywords.slice(0, 4).map((keyword) => `Contribute to ${keyword.toLowerCase()} initiatives.`);
 }
 
-function baseAnalysis(descriptionText: string): JobAnalysis {
-  const parsed = parseJobDescription(descriptionText);
-
+/**
+ * Map a parsed job description (from the mock parser OR the real LLM agent)
+ * into a persisted JobAnalysis record. Pure function so both paths agree.
+ */
+export function analysisFromParsed(parsed: ParsedJobOutput): JobAnalysis {
   return {
     requiredSkills: parsed.required_skills,
     preferredSkills: parsed.preferred_skills,
@@ -120,6 +122,37 @@ function baseAnalysis(descriptionText: string): JobAnalysis {
     confidenceScore: 48,
     modelUsed: 'mock-analysis-v1',
   };
+}
+
+/**
+ * Map a fit-score result (mock OR real LLM agent) into a persisted JobAnalysis.
+ * Pure function: keeps the score route and n8n route in agreement.
+ */
+export function analysisFromFit(
+  fit: FitScoreOutput,
+  context: { requiredSkills: string[]; preferredSkills: string[] },
+): JobAnalysis {
+  return {
+    requiredSkills: unique(context.requiredSkills),
+    preferredSkills: unique(context.preferredSkills),
+    matchedSkills: fit.matched_skills,
+    missingSkills: fit.missing_skills,
+    atsKeywords: fit.ats_keywords,
+    fitSummary: fit.fit_summary,
+    recommendedResumeAngle: fit.recommended_resume_angle,
+    applyRecommendation:
+      fit.apply_recommendation === 'apply'
+        ? 'Apply with a customized resume and a short human-reviewed outreach message.'
+        : fit.apply_recommendation === 'review'
+          ? 'Review manually before deciding whether to apply.'
+          : 'Hold off unless you can make a stronger truthful case.',
+    confidenceScore: fit.confidence_score,
+    modelUsed: fit.model_used,
+  };
+}
+
+function baseAnalysis(descriptionText: string): JobAnalysis {
+  return analysisFromParsed(parseJobDescription(descriptionText));
 }
 
 export function parseJobDescription(descriptionText: string): ParsedJobOutput {
@@ -196,24 +229,12 @@ export function buildAnalysisFromScore(input: {
   atsKeywords?: string[];
 }): JobAnalysis {
   const fit = scoreJobFit(input);
+  const parsed = parseJobDescription(input.descriptionText);
 
-  return {
-    requiredSkills: unique(input.requiredSkills ?? parseJobDescription(input.descriptionText).required_skills),
-    preferredSkills: unique(input.preferredSkills ?? parseJobDescription(input.descriptionText).preferred_skills),
-    matchedSkills: fit.matched_skills,
-    missingSkills: fit.missing_skills,
-    atsKeywords: fit.ats_keywords,
-    fitSummary: fit.fit_summary,
-    recommendedResumeAngle: fit.recommended_resume_angle,
-    applyRecommendation:
-      fit.apply_recommendation === 'apply'
-        ? 'Apply with a customized resume and a short human-reviewed outreach message.'
-        : fit.apply_recommendation === 'review'
-          ? 'Review manually before deciding whether to apply.'
-          : 'Hold off unless you can make a stronger truthful case.',
-    confidenceScore: fit.confidence_score,
-    modelUsed: fit.model_used,
-  };
+  return analysisFromFit(fit, {
+    requiredSkills: input.requiredSkills ?? parsed.required_skills,
+    preferredSkills: input.preferredSkills ?? parsed.preferred_skills,
+  });
 }
 
 export function validateParsedJobOutput(value: unknown): value is ParsedJobOutput {
