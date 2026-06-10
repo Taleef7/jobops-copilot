@@ -29,6 +29,23 @@ fi
 
 KV_ID=$(az keyvault show --name "$VAULT" --resource-group "$RG" --query id -o tsv)
 
+# Idempotent role assignment: create only if an equivalent assignment is absent.
+# Re-running an unguarded `az role assignment create` hits RoleAssignmentExists and
+# aborts under `set -e`. Queries by principalId at the scope (ARM only, no Graph).
+ensure_role() {
+  local oid="$1" ptype="$2" role="$3" scope="$4"
+  local existing
+  existing=$(az role assignment list --scope "$scope" \
+    --query "[?principalId=='$oid' && roleDefinitionName=='$role'] | [0].id" -o tsv 2>/dev/null)
+  if [ -n "$existing" ]; then
+    echo "Role '$role' already assigned to $oid; skipping."
+  else
+    az role assignment create \
+      --assignee-object-id "$oid" --assignee-principal-type "$ptype" \
+      --role "$role" --scope "$scope"
+  fi
+}
+
 # Deployer (current signed-in user) needs a data-plane role to manage secrets.
 # RBAC mode rejects secret writes from Owner/Contributor alone.
 # Derive the object id from the access-token `oid` claim instead of calling
@@ -36,17 +53,13 @@ KV_ID=$(az keyvault show --name "$VAULT" --resource-group "$RG" --query id -o ts
 # subscription (recurring invalid_grant) even right after `az login`.
 CALLER_OID=$(az account get-access-token --query accessToken -o tsv \
   | node -e "let d='';process.stdin.on('data',c=>d+=c).on('end',()=>{const p=d.trim().split('.')[1].replace(/-/g,'+').replace(/_/g,'/');process.stdout.write(JSON.parse(Buffer.from(p,'base64').toString()).oid)})")
-az role assignment create \
-  --assignee-object-id "$CALLER_OID" --assignee-principal-type User \
-  --role "Key Vault Secrets Officer" --scope "$KV_ID"
+ensure_role "$CALLER_OID" User "Key Vault Secrets Officer" "$KV_ID"
 
 # Grant each App Service's system-assigned identity read access to secrets.
 for APP in jobops-api jobops-web; do
   az webapp identity assign --resource-group "$RG" --name "$APP"
   PID=$(az webapp identity show --resource-group "$RG" --name "$APP" --query principalId -o tsv)
-  az role assignment create \
-    --assignee-object-id "$PID" --assignee-principal-type ServicePrincipal \
-    --role "Key Vault Secrets User" --scope "$KV_ID"
+  ensure_role "$PID" ServicePrincipal "Key Vault Secrets User" "$KV_ID"
 done
 
 echo "Key Vault $VAULT ready. Vault URI:"
