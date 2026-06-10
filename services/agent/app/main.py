@@ -44,7 +44,7 @@ from app.telemetry.insights import ev_demo_insights, pipeline_insights
 logger = logging.getLogger("jobops.agent")
 
 
-def _configure_telemetry() -> bool:
+def _configure_app_insights() -> bool:
     """Enable Azure Monitor (App Insights) when the conn string is present."""
     if not os.getenv("APPLICATIONINSIGHTS_CONNECTION_STRING"):
         return False
@@ -54,7 +54,7 @@ def _configure_telemetry() -> bool:
     return True
 
 
-_configure_telemetry()
+_configure_app_insights()
 
 app = FastAPI(
     title="JobOps Copilot Agent Service",

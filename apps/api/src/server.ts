@@ -1,7 +1,7 @@
 import 'dotenv/config';
-import { startTelemetry } from '@/lib/telemetry';
+import { startAppInsights } from '@/lib/app-insights';
 
-startTelemetry();
+startAppInsights();
 
 import { createApp } from '@/app';
 

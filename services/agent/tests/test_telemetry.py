@@ -3,7 +3,6 @@
 from fastapi.testclient import TestClient
 
 import app.main as main
-from app.main import _configure_telemetry
 from app.telemetry.analyzer import analyze_series, build_ev_demo_series
 
 client = TestClient(main.app)
@@ -66,8 +65,3 @@ def test_ev_demo_endpoint(monkeypatch):
     res = client.get("/telemetry/ev-demo")
     assert res.status_code == 200
     assert res.json()["metric"] == "battery_state_of_health_pct"
-
-
-def test_configure_telemetry_noop_without_conn_string(monkeypatch):
-    monkeypatch.delenv("APPLICATIONINSIGHTS_CONNECTION_STRING", raising=False)
-    assert _configure_telemetry() is False

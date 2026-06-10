@@ -6,31 +6,7 @@
  * forecast) in the agent service.
  */
 
-import * as appInsights from 'applicationinsights';
 import type { JobRecord } from '@/types';
-
-/**
- * Starts Application Insights when APPLICATIONINSIGHTS_CONNECTION_STRING is set.
- * No-op (returns false) in local dev / tests where the var is absent.
- */
-export function startTelemetry(): boolean {
-  const connectionString = process.env.APPLICATIONINSIGHTS_CONNECTION_STRING?.trim();
-  if (!connectionString) {
-    return false;
-  }
-
-  appInsights
-    .setup(connectionString)
-    .setAutoCollectRequests(true)
-    .setAutoCollectDependencies(true)
-    .setAutoCollectExceptions(true)
-    .setAutoCollectPerformance(true, false)
-    .setSendLiveMetrics(false)
-    .setInternalLogging(false, false)
-    .start();
-
-  return true;
-}
 
 export interface ActivityPoint {
   date: string;
