@@ -23,7 +23,7 @@
         ],
         "bodyType": "raw",
         "contentType": "application/json",
-        "data": "{\n  \"company\": \"{{1.company}}\",\n  \"title\": \"{{1.title}}\",\n  \"description_text\": \"{{1.description_text}}\",\n  \"job_url\": \"{{1.job_url}}\",\n  \"source\": \"make\"\n}"
+        "data": "{\n  \"company\": \"{{1.company}}\",\n  \"title\": \"{{1.title}}\",\n  \"description_text\": \"{{1.description_text}}\",\n  \"job_url\": \"{{1.job_url}}\",\n  \"resume_text\": \"{{1.resume_text}}\",\n  \"profile_text\": \"{{1.profile_text}}\",\n  \"source\": \"make\"\n}"
       },
       "metadata": { "designer": { "x": 300, "y": 0 } }
     },
