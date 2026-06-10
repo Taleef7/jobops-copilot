@@ -83,8 +83,16 @@ Replace `<MAKE_WEBHOOK_URL>` with the URL you copied in Step 5.
 The scenario should execute all three modules:
 
 1. **Custom webhook** — receives the payload, extracts `company`, `title`, `description_text`, `job_url`.
-2. **HTTP** — POSTs to the JobOps API, which creates the job record, parses the description, and runs fit scoring. The API response includes `fit_status` (e.g. `strong_fit`) and `notification` (a human-readable summary string).
-3. **Email** — sends you an email with the subject `JobOps: AI Engineer @ Acme processed` and a body showing the fit status and notification text.
+2. **HTTP** — POSTs to the JobOps API, which creates the job record and parses the description. The API returns `fit_status` and `notification`. Because the basic test payload above does not include `resume_text` or `profile_text`, the API returns `fit_status: "skipped"` with `notification: "Job created and parsed. Fit scoring can run once resume/profile context is available."` — fit scoring is skipped when there is no resume or profile context to score against.
+3. **Email** — sends you an email with the subject `JobOps: AI Engineer @ Acme processed` and a body showing `Fit status: skipped` and the notification text.
+
+> **Tip — exercising the SCORED path:** To get `fit_status: "scored"` (with a numeric fit score) instead of `"skipped"`, include `resume_text` and `profile_text` in the webhook payload. For example:
+>
+> ```bash
+> curl -X POST "<MAKE_WEBHOOK_URL>" \
+>   -H "Content-Type: application/json" \
+>   -d '{"company":"Acme","title":"AI Engineer","description_text":"Build LLM apps with Python and Azure.","job_url":"https://example.com/job/1","resume_text":"Experienced ML engineer with Python and Azure background.","profile_text":"Seeking senior AI/ML roles in cloud-native environments."}'
+> ```
 
 In Make's execution history you will see green checkmarks on all three modules. After a successful test run, click **Save** and then **Activate** the scenario.
 

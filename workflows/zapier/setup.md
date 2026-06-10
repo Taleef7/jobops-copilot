@@ -62,7 +62,7 @@ The result is a deliberately lightweight **sidecar** that handles the one job Za
    | Calendar field | Value to map |
    |----------------|-------------|
    | **Summary** | Type `Follow up: ` then insert the dynamic field `title`, then type ` @ `, then insert `company`. The result should read like: `Follow up: AI Engineer @ Acme`. |
-   | **Start Date & Time** | Map to `follow_up_date` from the trigger. Zapier accepts dates in YYYY-MM-DD format; the template column uses this format. |
+   | **Start Date & Time** | Map to `follow_up_date` from the trigger. Zapier accepts dates in YYYY-MM-DD format; the template column uses this format. **Note:** a date-only value creates an all-day (midnight) event. To get a timed reminder instead, append a time when you fill the spreadsheet cell — e.g. `2026-06-17 09:00`. |
    | **Description** | Type `Notes: ` then insert `notes`, then a newline, then `Job URL: ` then insert `job_url`. |
    | **Calendar** | Select whichever Google Calendar you want the event added to. |
 

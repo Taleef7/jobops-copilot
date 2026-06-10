@@ -10,7 +10,7 @@ Custom Webhook  →  HTTP POST /api/n8n/job-intake  →  Email notification
 
 1. **Trigger (Custom Webhook)** — Make receives a JSON payload containing `company`, `title`, `description_text`, `job_url`, and `source`.
 2. **API call (HTTP module)** — The scenario POSTs the payload to `https://jobops-api.azurewebsites.net/api/n8n/job-intake` with the `X-N8N-Webhook-Secret` header. The API creates the job record, parses the description, and runs fit scoring in a single request, returning `fit_status` and `notification`.
-3. **Email notification (Email module)** — Make sends you a plain-text email with the job title, company, fit status, and notification string from the API response.
+3. **Email notification (Email module)** — Make sends you a plain-text email whose **subject** carries the job title and company (e.g. `JobOps: AI Engineer @ Acme processed`) and whose **body** carries the fit status and notification string from the API response.
 
 ## Files
 

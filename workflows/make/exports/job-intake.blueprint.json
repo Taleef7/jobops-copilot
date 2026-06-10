@@ -13,7 +13,7 @@
       "id": 2,
       "module": "http:ActionSendData",
       "version": 3,
-      "parameters": { "handleErrors": true, "useNewZLibDeCompress": true },
+      "parameters": { "handleErrors": true, "useNewZLibDeCompress": true, "parseResponse": true },
       "mapper": {
         "url": "https://jobops-api.azurewebsites.net/api/n8n/job-intake",
         "method": "post",
