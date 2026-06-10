@@ -368,6 +368,14 @@ az keyvault create \
 
 KV_ID=$(az keyvault show --name "$VAULT" --resource-group "$RG" --query id -o tsv)
 
+# Grant the deployer (current signed-in user) data-plane access so Task B2's
+# `az keyvault secret set` works. RBAC mode rejects secret writes from Owner/
+# Contributor alone — a Key Vault data-plane role is required.
+CALLER_OID=$(az ad signed-in-user show --query id -o tsv)
+az role assignment create \
+  --assignee-object-id "$CALLER_OID" --assignee-principal-type User \
+  --role "Key Vault Secrets Officer" --scope "$KV_ID"
+
 for APP in jobops-api jobops-web; do
   az webapp identity assign --resource-group "$RG" --name "$APP"
   PID=$(az webapp identity show --resource-group "$RG" --name "$APP" --query principalId -o tsv)
@@ -413,6 +421,9 @@ az keyvault secret set --vault-name jobops-kv --name DATABASE-URL --value "<api 
 az keyvault secret set --vault-name jobops-kv --name CLERK-SECRET-KEY --value "<CLERK_SECRET_KEY>"
 ```
 Expected: JSON for each secret (id ends with `/secrets/DATABASE-URL/<version>`).
+This relies on the deployer's `Key Vault Secrets Officer` assignment from Task B1.
+If the writes return `Forbidden`/`AKV10032`, the role hasn't propagated yet — wait
+~1–5 min and retry.
 
 - [ ] **Step 3: Point the app settings at Key Vault references**
 
