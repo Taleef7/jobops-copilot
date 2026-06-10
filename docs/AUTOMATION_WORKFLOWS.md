@@ -1,10 +1,10 @@
 # Automation Workflows
 
-The workflow docs describe how JobOps Copilot should automate the job-search process while keeping the user in control. The API already exposes the main integration surfaces, but the orchestrated n8n, Zapier, and Make.com flows are still documentation-first.
+The workflow docs describe how JobOps Copilot automates the job-search process while keeping the user in control. The API exposes the main integration surfaces, and the n8n, Zapier, and Make.com flows are ready to import or build in their respective GUIs.
 
 ## Current API Hooks
 
-The workflows should build on the endpoints that already exist:
+The workflows build on the endpoints that already exist:
 
 - `POST /api/jobs` for manual intake
 - `POST /api/ai/parse-job` for structured parsing
@@ -26,7 +26,7 @@ The API expects `X-N8N-Webhook-Secret` when `N8N_WEBHOOK_SECRET` is configured.
 For the cheapest beginner-friendly setup, see
 [workflows/n8n/self-hosting.md](../workflows/n8n/self-hosting.md).
 
-Planned workflows:
+Implemented workflows:
 
 - manual job intake processing
 - daily job discovery
@@ -51,29 +51,44 @@ Recommended n8n pattern:
 
 ## Zapier
 
-Zapier is the lightweight companion automation layer.
+Zapier is a lightweight companion sidecar — a 2-step Zap that watches a Google Sheet of tracked job applications and creates a Google Calendar follow-up reminder for each new row.
 
-Planned use:
+**Trigger:** Google Sheets — New Spreadsheet Row  
+**Action:** Google Calendar — Create Detailed Event (summary `Follow up: <title> @ <company>`, date from `follow_up_date`, description with `notes` and `job_url`).
 
-- create calendar reminders
-- create Gmail drafts
-- send a self-notification after a job is added
-- surface quick "needs review" tasks
+Setup: [workflows/zapier/setup.md](../workflows/zapier/setup.md) — includes creating the sheet from the CSV template, building the Zap step by step, field mapping, and testing.
 
-Zapier should stay narrow and user-facing. It is best for simple sidecar automations rather than the main CRM orchestration path.
+Zapier is kept narrow and user-facing. It handles the human scheduling layer rather than the API-integrated intake path.
 
 ## Make.com
 
-Make.com demonstrates a visual automation scenario.
+Make.com runs the API-integrated job-intake scenario: a custom webhook receives a job payload, POSTs it to `/api/n8n/job-intake` (with the `X-N8N-Webhook-Secret` header), and sends an email notification with the API's `fit_status` and `notification` response fields.
 
-Planned use:
+**Trigger:** Custom Webhook  
+**Step 2:** HTTP POST → `https://jobops-api.azurewebsites.net/api/n8n/job-intake`  
+**Step 3:** Email notification with fit status and notification text.
 
-- receive a new job payload via webhook
-- call the API for parsing and scoring
-- store or update the CRM record
-- send a formatted summary message to the user
+The scenario blueprint is at `workflows/make/exports/job-intake.blueprint.json` — import it directly into Make.com via **Create scenario → ⋮ → Import Blueprint**.
 
-Make is useful as a visual proof point for the portfolio, especially if a workflow needs to be easy to explain in screenshots or a case study.
+Setup: [workflows/make/setup.md](../workflows/make/setup.md) — includes blueprint import, credential wiring, webhook URL retrieval, and a curl test command.
+
+## n8n vs Zapier vs Make — When to Reach for Each
+
+| Dimension | n8n | Make.com | Zapier (free) |
+|-----------|-----|----------|---------------|
+| **Hosting** | Self-hosted (Docker) | Hosted SaaS | Hosted SaaS |
+| **Orchestration depth** | Full — multi-step, branching, custom code, schedules | Visual multi-step, data transformation | 2-step only (free tier) |
+| **Webhooks** | Free, built-in | Free (Custom Webhook module) | Premium app — not free |
+| **HTTP / API calls** | Free, built-in | Free (HTTP module) | Premium app — not free |
+| **Free tier ops** | Unlimited (self-hosted) | 1,000 ops/month | 100 tasks/month |
+| **Role in JobOps** | Primary orchestrator for full pipeline | Full API-integrated intake scenario | Lightweight sidecar (sheet → calendar) |
+| **Best when** | You want full control, self-hosting is fine, complex flows needed | You want a visual hosted scenario that calls the API without a server | You need a dead-simple human-scheduling hook and have no need for webhooks |
+
+**Rule of thumb:**
+
+- Reach for **n8n** when you want the full job-intake + fit-scoring + outreach-drafting pipeline running on your own infrastructure.
+- Reach for **Make.com** when you want the same API-integrated scenario without running a server, and you can stay within 1,000 ops/month.
+- Reach for **Zapier** when you need a quick, business-user-friendly sidecar (like a spreadsheet row firing a calendar reminder) and your monthly volume fits within 100 tasks.
 
 ## Shared Automation Rules
 
@@ -89,4 +104,4 @@ Make is useful as a visual proof point for the portfolio, especially if a workfl
 - Outreach drafts are stored as drafts, not sent automatically, and the inbox can move them through manual review states.
 - Gmail draft creation is optional and only runs when the feature flag plus OAuth credentials are present.
 - Weekly report generation currently returns a draft report from seeded analytics data.
-- Workflow execution will become more useful once n8n and the companion tools are connected to the live API.
+- The Make.com blueprint and Zapier setup guide are ready to import/build. Screenshots will be added to `docs/design/phase7/` after the maintainer activates the flows.

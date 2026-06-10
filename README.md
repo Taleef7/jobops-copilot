@@ -36,7 +36,8 @@ bot**: it drafts and recommends, but never sends or fabricates.
   sparklines, and a kanban outreach board. Verified with Playwright across
   breakpoints.
 - **Workflow automation** — n8n webhooks for job intake, follow-up reminders,
-  and weekly reports.
+  and weekly reports. Companion flows for Make.com (webhook → API → email) and
+  Zapier (sheet row → calendar reminder) are ready to import/build.
 - **Production discipline** — npm + Python CI (lint, typecheck, build, tests),
   protected `main`, Azure PostgreSQL, Blob Storage export, and an App Service
   deploy workflow.
@@ -69,7 +70,15 @@ A full walkthrough is in **[docs/DEMO.md](docs/DEMO.md)**; design detail in
 - **API:** Express 4, TypeScript, `pg`.
 - **Agent service:** Python 3.12, FastAPI, LangChain, sentence-transformers (PyTorch), pandas, psycopg/pgvector.
 - **Data/cloud:** Azure Database for PostgreSQL (+ pgvector), Azure Blob Storage, Azure App Service.
-- **Automation:** n8n.
+- **Automation:** n8n (primary orchestrator, self-hosted), Make.com (hosted webhook-to-API scenario), Zapier (2-step sidecar).
+
+## Automation tiers
+
+Three automation tools cover different points in the free-tier / complexity space. See [docs/AUTOMATION_WORKFLOWS.md](docs/AUTOMATION_WORKFLOWS.md) for the full comparison and the n8n vs Make vs Zapier decision guide.
+
+- **n8n** — self-hosted, full orchestration, unlimited ops. The primary pipeline: job intake, fit scoring, follow-up reminders, weekly reports. Setup: [workflows/n8n/README.md](workflows/n8n/README.md).
+- **Make.com** — hosted SaaS, 1,000 ops/month free, custom webhooks and HTTP calls free. Runs the same webhook → `/api/n8n/job-intake` → email-notification flow as n8n, without a server to manage. Blueprint ready to import: [workflows/make/setup.md](workflows/make/setup.md).
+- **Zapier** — hosted SaaS, 100 tasks/month free, 2-step Zaps only on the free plan (no webhooks). A lightweight sidecar: adds a Google Calendar follow-up reminder whenever you add a row to your Jobs tracking sheet. Zap ready to build: [workflows/zapier/setup.md](workflows/zapier/setup.md).
 
 ## Local development
 
