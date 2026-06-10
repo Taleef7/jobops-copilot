@@ -1,14 +1,11 @@
 # Implementation Checklist
 
-This checklist tracks the remaining implementation work in execution order.
-Phase 4 runtime validation is complete. The active push reorders the remaining
-work to land a genuinely AI-powered, agentic, deployed product: real LLM
-integration (Phase 9) and retrieval-augmented analysis (Phase 10) come first
-because they unblock the advanced agents (Phase 8), the telemetry intelligence
-(Phase 11), and the live Azure deployment (Phase 6).
+The AI-agent push is complete. Real LLM integration (Phase 9), retrieval-augmented
+analysis (Phase 10), advanced agents (Phase 8), telemetry intelligence (Phase 11),
+and live Azure deployment (Phase 6) have all landed, in that order.
 
-Execution order: Phase 9 → Phase 10 → Phase 8 → Phase 11 → Phase 6.
-Phase 7 (Zapier/Make) is deferred and out of scope for the current push.
+The only remaining item is Phase 7 (Zapier/Make), which is deferred and out of
+scope for the current push.
 
 ## Phase 4: n8n Integration
 
@@ -20,41 +17,42 @@ Phase 7 (Zapier/Make) is deferred and out of scope for the current push.
 
 ## Phase 9: Real LLM Integration and Python Agent Service
 
-- [ ] Scaffold the `services/agent` FastAPI microservice.
-- [ ] Add a provider-agnostic LLM router (Anthropic Claude, Azure OpenAI, Gemini).
-- [ ] Port parse-job, score-fit, draft-outreach, and weekly recommendations to real LLM calls with structured-output validation.
-- [ ] Delegate from the TS API via `agent-client.ts` when `AGENT_SERVICE_URL` is set, keeping the deterministic mock as a fallback.
-- [ ] Add Python unit tests and wire the service into local dev.
+- [x] Scaffold the `services/agent` FastAPI microservice.
+- [x] Add a provider-agnostic LLM router (Anthropic Claude, Azure OpenAI, Gemini).
+- [x] Port parse-job, score-fit, draft-outreach, and weekly recommendations to real LLM calls with structured-output validation.
+- [x] Delegate from the TS API via `agent-client.ts` when `AGENT_SERVICE_URL` is set, keeping the deterministic mock as a fallback.
+- [x] Add Python unit tests and wire the service into local dev.
 
 ## Phase 10: RAG and Vector Search
 
-- [ ] Enable `pgvector` on Azure PostgreSQL and add the `embeddings` table migration.
-- [ ] Embed resumes and job descriptions with Hugging Face sentence-transformers (PyTorch).
-- [ ] Store and query embeddings via pgvector cosine similarity.
-- [ ] Make fit scoring and outreach drafting retrieval-augmented and grounded in retrieved resume evidence.
+- [x] Enable `pgvector` on Azure PostgreSQL and add the `embeddings` table migration.
+- [x] Embed resumes and job descriptions with Hugging Face sentence-transformers (PyTorch).
+- [x] Store and query embeddings via pgvector cosine similarity.
+- [x] Make fit scoring and outreach drafting retrieval-augmented and grounded in retrieved resume evidence.
 
 ## Phase 8: Advanced Agents
 
-- [ ] Build the interview prep agent.
-- [ ] Build the hiring manager / company research agent (tool use + web search).
-- [ ] Build the skill-gap planning agent.
-- [ ] Surface agent runs in the dashboard UI.
+- [x] Build the interview prep agent.
+- [x] Build the hiring manager / company research agent (tool use + web search).
+- [x] Build the skill-gap planning agent.
+- [x] Surface agent runs in the dashboard UI.
 
 ## Phase 11: Time-Series Telemetry Intelligence
 
-- [ ] Compute pipeline time-series metrics (pandas) over the CRM.
-- [ ] Detect trends/anomalies and add a lightweight forecast.
-- [ ] Add an LLM-narrated insights endpoint and dashboard chart.
-- [ ] (Stretch) Synthetic EV battery/sensor telemetry demo proving the pattern transfers to vehicle data.
+- [x] Compute pipeline time-series metrics (pandas) over the CRM.
+- [x] Detect trends/anomalies and add a lightweight forecast.
+- [x] Add an LLM-narrated insights endpoint and dashboard chart.
+- [x] (Stretch) Synthetic EV battery/sensor telemetry demo proving the pattern transfers to vehicle data.
 
 ## Phase 6: Azure Deployment
 
-- [ ] Provision the dashboard hosting target.
-- [ ] Provision the API hosting target.
-- [ ] Provision the Python agent service hosting target.
-- [ ] Wire Blob Storage, application settings, and secrets management.
-- [ ] Add monitoring and tracing (Application Insights).
-- [ ] Capture deployment screenshots.
+- [x] Provision the dashboard hosting target. (Azure App Service, Next.js standalone)
+- [x] Provision the API hosting target. (Azure App Service, `postgres` mode)
+- [x] Provision the Python agent service hosting target. (Azure Container Apps, scale-to-zero)
+- [x] Apply the full cloud Postgres schema, including the `pgvector` embeddings migration. (verified 2026-06-10)
+- [x] Wire application settings and secrets management on the hosting targets.
+- [x] Capture deployment screenshots.
+- [ ] (Deferred, optional hardening) Add monitoring and tracing (Application Insights) + Key Vault.
 
 ## Phase 7: Zapier and Make (deferred)
 
