@@ -7,10 +7,14 @@ set -euo pipefail
 # (/subscriptions/...) into a C:\ path when passed to --workspace. No-op elsewhere.
 export MSYS_NO_PATHCONV=1
 
-RG=projects
-LOCATION=eastus
-WORKSPACE=jobops-logs
-COMPONENT=jobops-insights
+# Allow env overrides for resource names/location.
+RG="${RG:-projects}"
+LOCATION="${LOCATION:-eastus}"
+WORKSPACE="${WORKSPACE:-jobops-logs}"
+COMPONENT="${COMPONENT:-jobops-insights}"
+
+# Fail early with a clear message if not logged in.
+az account show -o none
 
 az extension add -n application-insights -y
 
@@ -28,5 +32,6 @@ az monitor app-insights component create \
   --app "$COMPONENT" --resource-group "$RG" --location "$LOCATION" \
   --workspace "$WORKSPACE_ID" --application-type web
 
+echo "Application Insights connection string:" >&2
 az monitor app-insights component show \
   --app "$COMPONENT" --resource-group "$RG" --query connectionString -o tsv

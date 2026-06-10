@@ -48,10 +48,17 @@ def _configure_app_insights() -> bool:
     """Enable Azure Monitor (App Insights) when the conn string is present."""
     if not os.getenv("APPLICATIONINSIGHTS_CONNECTION_STRING"):
         return False
-    from azure.monitor.opentelemetry import configure_azure_monitor
+    try:
+        from azure.monitor.opentelemetry import configure_azure_monitor
 
-    configure_azure_monitor()
-    return True
+        configure_azure_monitor()
+        return True
+    except Exception:
+        logging.getLogger(__name__).warning(
+            "Application Insights failed to start; continuing without telemetry.",
+            exc_info=True,
+        )
+        return False
 
 
 _configure_app_insights()
