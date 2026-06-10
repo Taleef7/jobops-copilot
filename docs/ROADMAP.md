@@ -8,14 +8,15 @@
 - Phase 3: complete
 - Phase 4: complete
 - Phase 5: complete
-- Phase 6: partial, because Azure PostgreSQL is complete but app hosting is still pending
+- Phase 6: complete — web/API/agent hosted on Azure and the cloud Postgres (incl. pgvector) is fully migrated; App Insights/Key Vault monitoring deferred as optional hardening
 - Phase 7: deferred (Zapier/Make companion flows, out of scope for the current push)
-- Phase 8: planned (advanced agents)
-- Phase 9: planned (real LLM integration and Python agent service)
-- Phase 10: planned (RAG and vector search)
-- Phase 11: planned (time-series telemetry intelligence)
+- Phase 8: complete (advanced agents)
+- Phase 9: complete (real LLM integration and Python agent service)
+- Phase 10: complete (RAG and vector search)
+- Phase 11: complete (time-series telemetry intelligence)
 
-Active execution order for the current push: Phase 9 -> Phase 10 -> Phase 8 -> Phase 11 -> Phase 6.
+The AI-agent push ran Phase 9 -> Phase 10 -> Phase 8 -> Phase 11 -> Phase 6, all
+landed. Phase 7 is the only remaining (deferred) item.
 
 ## Phase 0: Project Foundation
 
@@ -81,13 +82,21 @@ Complete:
 
 ## Phase 6: Azure Deployment
 
-Partial:
+Complete:
 
-- Azure PostgreSQL is in place and verified
-- App Service deployment workflow scaffold is now in the repo
-- full static web app or app hosting still needs to be deployed
-- API hosting still needs to be deployed
-- Blob Storage, monitoring, and secrets management still need to be wired in
+- Azure PostgreSQL in place and verified; full schema migrated, including the
+  `pgvector` embeddings store (extension v0.8.2 + `embeddings` table + vector
+  index applied to the cloud DB on 2026-06-10)
+- web (Next.js standalone) deployed on Azure App Service
+- API (Express) deployed on Azure App Service, running in `postgres` mode
+- Python agent service deployed on Azure Container Apps (consumption, scale-to-zero)
+- application settings / secrets configured on the App Service and Container App
+- deployment screenshots captured in `docs/design/`
+
+Deferred (optional hardening, not a blocker):
+
+- App Insights monitoring/tracing
+- Key Vault for secrets (currently in application settings)
 
 ## Phase 7: Zapier And Make
 
@@ -99,16 +108,16 @@ Deferred (out of scope for the current push):
 
 ## Phase 8: Advanced Agents
 
-Planned:
+Complete:
 
 - interview prep agent
 - hiring manager / company research agent (tool use + web search)
 - skill gap planning agent
-- agent runs surfaced in the dashboard
+- agent runs surfaced in the dashboard (per-agent tabs on the job detail page)
 
 ## Phase 9: Real LLM Integration And Python Agent Service
 
-Planned:
+Complete:
 
 - `services/agent` FastAPI microservice
 - provider-agnostic LLM router (Anthropic Claude, Azure OpenAI, Gemini)
@@ -118,17 +127,17 @@ Planned:
 
 ## Phase 10: RAG And Vector Search
 
-Planned:
+Complete:
 
-- pgvector on Azure PostgreSQL and an embeddings table
-- Hugging Face sentence-transformers embeddings (PyTorch)
-- retrieval-augmented fit scoring and outreach drafting grounded in resume evidence
+- pgvector on Azure PostgreSQL and an `embeddings` table (live on the cloud DB)
+- Hugging Face sentence-transformers embeddings (PyTorch, CPU-only)
+- retrieval-augmented, user-scoped fit scoring grounded in resume evidence
 
 ## Phase 11: Time-Series Telemetry Intelligence
 
-Planned:
+Complete:
 
 - pipeline time-series metrics over the CRM (pandas)
 - trend/anomaly detection and lightweight forecasting
-- LLM-narrated insights endpoint and dashboard chart
-- stretch: synthetic EV battery/sensor telemetry demo
+- LLM-narrated insights endpoint (retained in `services/agent` for demos)
+- synthetic EV battery/sensor telemetry demo

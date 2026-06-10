@@ -31,6 +31,7 @@ intelligence.
 - Phase 4: n8n local runtime validation complete, including live workflow imports, secret wiring checks, webhook round-trips, and screenshots
 - Phase 5: weekly reporting complete, including persisted reports, dashboard history, and markdown export
 - Azure PostgreSQL bootstrap complete
+- Phase 6: live Azure hosting complete — web (App Service), API (App Service, `postgres` mode), and the Python agent (Container Apps) are deployed and healthy; cloud Postgres carries the full schema including the pgvector embeddings store (verified 2026-06-10)
 - repo CI complete
 - `main` branch protected
 
@@ -62,11 +63,18 @@ intelligence.
   degrades gracefully to the deterministic analysis if the agent is ever unattached.
   Image is CPU-only torch (~1.6 GB) built locally and pushed to ACR (Azure for
   Students blocks server-side ACR Tasks builds).
+- The cloud Postgres carries the **complete** schema. The `pgvector` migration
+  (`003_vector_store.sql`) was applied to the live DB on 2026-06-10 — verified:
+  `vector` extension v0.8.2, the `embeddings` table (with `user_id`), and the
+  `embeddings_vector_idx` similarity index all exist. RAG retrieval on the cloud
+  is fully backed end to end. (The earlier "flaky connection" blocker was in fact
+  the server firewall not allow-listing the local client IP; adding a firewall
+  rule for the current IP let the idempotent `db:init` run cleanly.)
 
 ## What Is Still Pending
 
-- Apply the `embeddings` (pgvector) migration to the cloud DB from a stable network (`npm run db:init --workspace @jobops/api`); core schema is already live.
 - Phase 7 (Zapier/Make companion flows) — deferred.
+- App Insights monitoring + Key Vault — optional Phase 6 hardening, deferred (not a blocker). Secrets are currently held in App Service / Container Apps application settings.
 
 ## How To Verify The Live Stack
 
