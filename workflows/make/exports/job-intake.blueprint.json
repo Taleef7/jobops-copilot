@@ -1,0 +1,49 @@
+{
+  "name": "JobOps - Job Intake (webhook -> API -> notify)",
+  "flow": [
+    {
+      "id": 1,
+      "module": "gateway:CustomWebHook",
+      "version": 1,
+      "parameters": { "hook": "JobOps job intake", "maxResults": 1 },
+      "mapper": {},
+      "metadata": { "designer": { "x": 0, "y": 0 } }
+    },
+    {
+      "id": 2,
+      "module": "http:ActionSendData",
+      "version": 3,
+      "parameters": { "handleErrors": true, "useNewZLibDeCompress": true },
+      "mapper": {
+        "url": "https://jobops-api.azurewebsites.net/api/n8n/job-intake",
+        "method": "post",
+        "headers": [
+          { "name": "Content-Type", "value": "application/json" },
+          { "name": "X-N8N-Webhook-Secret", "value": "REPLACE_WITH_N8N_WEBHOOK_SECRET" }
+        ],
+        "bodyType": "raw",
+        "contentType": "application/json",
+        "data": "{\n  \"company\": \"{{1.company}}\",\n  \"title\": \"{{1.title}}\",\n  \"description_text\": \"{{1.description_text}}\",\n  \"job_url\": \"{{1.job_url}}\",\n  \"source\": \"make\"\n}"
+      },
+      "metadata": { "designer": { "x": 300, "y": 0 } }
+    },
+    {
+      "id": 3,
+      "module": "email:ActionSendEmail",
+      "version": 6,
+      "parameters": {},
+      "mapper": {
+        "to": ["REPLACE_WITH_YOUR_EMAIL"],
+        "subject": "JobOps: {{1.title}} @ {{1.company}} processed",
+        "contentType": "text",
+        "text": "Job created and analyzed by JobOps.\n\nFit status: {{2.fit_status}}\nNotification: {{2.notification}}"
+      },
+      "metadata": { "designer": { "x": 600, "y": 0 } }
+    }
+  ],
+  "metadata": {
+    "version": 1,
+    "scenario": { "roundtrips": 1, "maxErrors": 3, "autoCommit": true },
+    "designer": { "orphans": [] }
+  }
+}
