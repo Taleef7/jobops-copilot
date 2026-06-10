@@ -7,6 +7,9 @@ const nextConfig: NextConfig = {
   // In this npm-workspaces monorepo, dependencies are hoisted to the repo root,
   // so widen the file-tracing root past apps/web to include them.
   outputFileTracingRoot: path.join(__dirname, '..', '..'),
+  // Keep applicationinsights as a Node.js external so Turbopack/webpack never
+  // tries to bundle its dynamic-require internals (mysql, etc.).
+  serverExternalPackages: ['applicationinsights'],
 };
 
 export default nextConfig;
