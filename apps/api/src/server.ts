@@ -1,4 +1,8 @@
 import 'dotenv/config';
+import { startAppInsights } from '@/lib/app-insights';
+
+startAppInsights();
+
 import { createApp } from '@/app';
 
 const port = Number(process.env.PORT ?? 4000);

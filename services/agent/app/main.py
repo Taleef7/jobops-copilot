@@ -8,6 +8,7 @@ Node API can transparently fall back to its deterministic mock.
 from __future__ import annotations
 
 import logging
+import os
 
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel, Field
@@ -41,6 +42,26 @@ from app.schemas import (
 from app.telemetry.insights import ev_demo_insights, pipeline_insights
 
 logger = logging.getLogger("jobops.agent")
+
+
+def _configure_app_insights() -> bool:
+    """Enable Azure Monitor (App Insights) when the conn string is present."""
+    if not os.getenv("APPLICATIONINSIGHTS_CONNECTION_STRING"):
+        return False
+    try:
+        from azure.monitor.opentelemetry import configure_azure_monitor
+
+        configure_azure_monitor()
+        return True
+    except Exception:
+        logging.getLogger(__name__).warning(
+            "Application Insights failed to start; continuing without telemetry.",
+            exc_info=True,
+        )
+        return False
+
+
+_configure_app_insights()
 
 app = FastAPI(
     title="JobOps Copilot Agent Service",
