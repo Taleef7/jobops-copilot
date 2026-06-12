@@ -8,15 +8,15 @@
 - Phase 3: complete
 - Phase 4: complete
 - Phase 5: complete
-- Phase 6: complete — web/API/agent hosted on Azure and the cloud Postgres (incl. pgvector) is fully migrated; App Insights/Key Vault monitoring deferred as optional hardening
-- Phase 7: deferred (Zapier/Make companion flows, out of scope for the current push)
+- Phase 6: complete — web/API/agent hosted on Azure and the cloud Postgres (incl. pgvector) is fully migrated; the optional hardening (Application Insights monitoring + Key Vault secret references) is also in place
+- Phase 7: complete (Zapier + Make companion flows built and live, with screenshots)
 - Phase 8: complete (advanced agents)
 - Phase 9: complete (real LLM integration and Python agent service)
 - Phase 10: complete (RAG and vector search)
 - Phase 11: complete (time-series telemetry intelligence)
 
 The AI-agent push ran Phase 9 -> Phase 10 -> Phase 8 -> Phase 11 -> Phase 6, all
-landed. Phase 7 is the only remaining (deferred) item.
+landed. Phase 7 (Zapier + Make companion flows) is now complete as well.
 
 ## Phase 0: Project Foundation
 
@@ -93,18 +93,24 @@ Complete:
 - application settings / secrets configured on the App Service and Container App
 - deployment screenshots captured in `docs/design/`
 
-Deferred (optional hardening, not a blocker):
+Optional hardening (also complete):
 
-- App Insights monitoring/tracing
-- Key Vault for secrets (currently in application settings)
+- Application Insights monitoring/tracing across web, API, and agent
+  (`jobops-insights` + Log Analytics `jobops-logs`, 1 GB/day cap)
+- Key Vault (`jobops-kv`, RBAC) serving the App Service secrets as
+  managed-identity references (the agent Container App keeps its native
+  secret store by design)
 
 ## Phase 7: Zapier And Make
 
-Deferred (out of scope for the current push):
+Complete:
 
-- one Zapier flow
-- one Make scenario
-- screenshots and comparison notes
+- Zapier flow (Google Sheets new/updated row -> Google Calendar follow-up reminder),
+  built, tested, and published live (`docs/design/phase7/zapier-zap.png`)
+- Make scenario (Webhook -> API `/api/n8n/job-intake` -> email notification),
+  built and run end to end (`docs/design/phase7/make-scenario.png`)
+- importable blueprint + setup guides under `workflows/make` and `workflows/zapier`,
+  with comparison notes in `docs/AUTOMATION_WORKFLOWS.md`
 
 ## Phase 8: Advanced Agents
 

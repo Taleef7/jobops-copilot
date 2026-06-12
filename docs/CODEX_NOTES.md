@@ -40,8 +40,10 @@
 
 ## Next Recommended Task
 
-Continue Phase 6:
+All phases are complete (0–11) plus the optional Phase 6 hardening. Phase 6 is live:
+web + API on Azure App Service, the agent on Container Apps, Blob Storage wired,
+Application Insights (`jobops-insights`) across all three services, and Key Vault
+(`jobops-kv`) serving the App Service secrets via managed identity. Phase 7 (Zapier +
+Make companion flows) is built and live with screenshots.
 
-- deploy the web app and API hosts on Azure App Service;
-- wire Blob Storage, monitoring, and secrets management;
-- capture deployment screenshots and add a repeatable verification runbook.
+No outstanding implementation task — the focus is now maintenance and demos.

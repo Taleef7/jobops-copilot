@@ -2,17 +2,22 @@
 
 ## Current State
 
-The Azure PostgreSQL portion of the deployment is already working. The repository currently uses Azure Database for PostgreSQL Flexible Server as the live cloud database path when `DATABASE_URL` is set.
+Phase 6 is complete — the whole stack is live on Azure:
 
-The remaining Azure hosting work is still future scope:
+- Next.js dashboard on **Azure App Service** (https://jobops-web.azurewebsites.net)
+- Express API on **Azure App Service**, running in `postgres` mode
+  (https://jobops-api.azurewebsites.net/api/health)
+- Python agent service on **Azure Container Apps** (consumption, scale-to-zero)
+- **Azure Database for PostgreSQL** Flexible Server as the live store, full schema
+  migrated including the `pgvector` embeddings store
+- **Azure Blob Storage** for report exports
+- **Azure Application Insights** (`jobops-insights` + Log Analytics `jobops-logs`,
+  1 GB/day cap) instrumenting web, API, and agent
+- **Azure Key Vault** (`jobops-kv`, RBAC) serving the App Service secrets as
+  managed-identity references
 
-- Azure Static Web Apps or another web host for the Next.js dashboard
-- Azure Functions or another API host for the Express API
-- Azure Blob Storage for resumes, snapshots, and generated reports
-- Azure Application Insights for monitoring and tracing
-- Azure Key Vault for secrets
-
-Phase 6 now focuses on turning those hosted pieces into a repeatable deployment path.
+The provisioning steps below are retained as the repeatable record of how the stack
+was stood up.
 
 ## Azure PostgreSQL Setup
 
