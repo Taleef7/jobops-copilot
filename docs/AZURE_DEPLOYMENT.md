@@ -87,7 +87,7 @@ Why this route:
 
 Required app settings:
 
-- `SCM_DO_BUILD_DURING_DEPLOYMENT=true` on both apps so App Service installs dependencies and runs the workspace build during deployment
+- `SCM_DO_BUILD_DURING_DEPLOYMENT=false` and `WEBSITE_RUN_FROM_PACKAGE=1` on the API app: CI ships a pre-built, self-contained package (see `deploy-api.yml`), so App Service must not rebuild and instead mounts the package read-only
 - `NEXT_PUBLIC_API_BASE_URL=https://<api-app>.azurewebsites.net` on the web app
 - `DATABASE_URL=...` on the API app
 - `API_PUBLIC_BASE_URL=https://<api-app>.azurewebsites.net` on the API app
@@ -111,11 +111,17 @@ GitHub Actions inputs and secrets:
 - `secrets.AZURE_WEBAPP_PUBLISH_PROFILE_WEB`
 - `secrets.AZURE_WEBAPP_PUBLISH_PROFILE_API`
 
-Recommended workflow:
+Deploy workflows (canonical):
 
-- run the manual Azure deployment workflow from the Actions tab
-- deploy the web app and API together after `npm run build:web` and `npm run build:api` pass
-- switch to push-based deployment later only after the App Service settings are stable
+- **API** — `.github/workflows/deploy-api.yml` runs on push to `main` under
+  `apps/api/**` (and on manual dispatch). It builds the API, assembles a
+  self-contained package (`dist` + `package.json` + a local `npm install --omit=dev`),
+  deploys it, and gates on a `/api/health` check returning `"mode":"postgres"`.
+- **Web** — `.github/workflows/deploy-web.yml` runs on push to `main` under
+  `apps/web/**` (and on manual dispatch), deploying the Next.js standalone bundle.
+- **Agent** — containerized: build `services/agent/Dockerfile`, push to ACR, then
+  `az containerapp update`. The `azure-app-service.yml` agent target is a code-deploy
+  fallback for a no-RAG agent only.
 
 ## Recommended Phase 6 Order
 
