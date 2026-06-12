@@ -62,17 +62,21 @@ Subscription-scoped ARM template (schema
   (`thresholdType: Actual`) and `Forecast_100` (`thresholdType: Forecasted`). Each:
   `enabled: true`, `operator: GreaterThanOrEqualTo`, `threshold: <pct>`,
   `contactRoles: ["Owner"]`, `contactEmails: [contactEmails]`.
-- Because every notification has `contactRoles: ["Owner"]`, the budget is valid with an
-  **empty** `contactEmails` — so no email need ever be committed.
+- A subscription-scope budget **requires at least one `contactEmails`** entry
+  (`contactRoles` alone is rejected by the `Microsoft.Consumption/budgets` schema). The
+  script therefore defaults `contactEmails` to the signed-in operator's own email
+  (read at runtime from `az account show --query user.name`, never committed), overridable
+  via `BUDGET_EMAIL`; `contactRoles: ["Owner"]` is kept as an additional recipient.
 
 ### Script (`provision-budget.sh`)
 
 - `set -euo pipefail`; `export MSYS_NO_PATHCONV=1`; `az account show -o none` preflight
   (matches `provision-appinsights.sh`).
 - Env overrides: `BUDGET_NAME` (default `jobops-monthly-30`), `BUDGET_AMOUNT` (default
-  `30`), `BUDGET_EMAIL` (optional; if set, passed as a one-element `contactEmails`
-  array; if unset, `contactEmails=[]` and alerts go to the Owner role only),
-  `DEPLOY_LOCATION` (default `eastus`, only deployment metadata).
+  `30`), `BUDGET_EMAIL` (recipient; defaults to the signed-in account's email from
+  `az account show --query user.name`, validated to look like an email; the script
+  errors asking for `BUDGET_EMAIL` if none can be derived), `DEPLOY_LOCATION` (default
+  `eastus`, only deployment metadata).
 - Compute `START_DATE` = first day of the current month (`date +%Y-%m-01`).
 - Deploy:
   `az deployment sub create --name jobops-budget-deploy --location "$DEPLOY_LOCATION"

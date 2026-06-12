@@ -161,13 +161,17 @@ not cap or stop anything.
 
 ```bash
 az login
-scripts/azure/provision-budget.sh                                  # $30/mo, alerts to the Owner role
-BUDGET_EMAIL=you@example.com scripts/azure/provision-budget.sh      # also email a specific inbox
+scripts/azure/provision-budget.sh                                  # $30/mo, emails your signed-in account
+BUDGET_EMAIL=you@example.com scripts/azure/provision-budget.sh      # send alerts to a specific inbox instead
 ```
 
-Override `BUDGET_AMOUNT` / `BUDGET_NAME` via env vars; re-running updates the same
-budget in place. Requires Cost Management Contributor or Owner on the subscription. If
-the Consumption API is unavailable for the offer, create it in the portal instead
+By default the alerts go to the email of your signed-in `az` account (read at runtime,
+never committed) plus the subscription Owner role; pass `BUDGET_EMAIL` to use a
+different inbox. A subscription-scope budget **requires at least one contact email**, so
+if none can be derived from your session the script asks you to set `BUDGET_EMAIL`.
+Override `BUDGET_AMOUNT` / `BUDGET_NAME` via env vars; re-running updates the same budget
+in place. Requires Cost Management Contributor or Owner on the subscription. If the
+Consumption API is unavailable for the offer, create it in the portal instead
 (Cost Management → Budgets).
 
 ### Pause / resume the baseline

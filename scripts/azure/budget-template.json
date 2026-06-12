@@ -5,7 +5,7 @@
     "budgetName": { "type": "string", "defaultValue": "jobops-monthly-30" },
     "amount": { "type": "int", "defaultValue": 30 },
     "startDate": { "type": "string" },
-    "contactEmails": { "type": "array", "defaultValue": [] }
+    "contactEmails": { "type": "array" }
   },
   "resources": [
     {
