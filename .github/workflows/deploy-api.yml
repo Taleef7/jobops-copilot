@@ -59,7 +59,13 @@ jobs:
           mkdir -p apps/api/.deploy/dist
           cp -r apps/api/dist/. apps/api/.deploy/dist/
           cp apps/api/package.json apps/api/.deploy/package.json
-          ( cd apps/api/.deploy && npm install --omit=dev --no-audit --no-fund )
+          # Copy the repo-root lockfile so the packaged dependencies are the EXACT
+          # versions npm ci installed and tested in this job (deterministic) rather
+          # than a fresh semver re-resolve. npm ci honours the lockfile's pinned
+          # versions; a few hoisted peer packages (e.g. react) come along but the
+          # API never requires them, so they are inert under WEBSITE_RUN_FROM_PACKAGE.
+          cp package-lock.json apps/api/.deploy/package-lock.json
+          ( cd apps/api/.deploy && npm ci --omit=dev --no-audit --no-fund )
           # Fail fast if any production dependency did not land in the package.
           ( cd apps/api/.deploy && node -e "const d=require('./package.json').dependencies||{};for(const k of Object.keys(d))require.resolve(k);console.log('OK:',Object.keys(d).length,'prod deps resolve');" )
 

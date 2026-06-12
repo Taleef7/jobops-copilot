@@ -63,8 +63,9 @@ manual workflow so there is a single source of truth.
    keeps it under the existing `.deploy/` `.gitignore` entry):
    - copy `apps/api/dist` → `apps/api/.deploy/dist`
    - copy `apps/api/package.json` → `apps/api/.deploy/package.json`
-   - run `npm install --omit=dev --no-audit --no-fund` **inside** `apps/api/deploy`
-     so it gets a real, un-hoisted `node_modules` with the 9 prod deps.
+   - copy the repo-root `package-lock.json` into the deploy dir and run
+     `npm ci --omit=dev` so the packaged versions match the lockfile exactly
+     (deterministic) and get a real, un-hoisted `node_modules` with the prod deps.
 6. Deploy with `azure/webapps-deploy@v3`:
    - `app-name: ${{ vars.AZURE_WEBAPP_NAME_API }}`
    - `publish-profile: ${{ secrets.AZURE_WEBAPP_PUBLISH_PROFILE_API }}`
@@ -132,7 +133,10 @@ the health-check step is the automated acceptance test.
 
 ## Reproducibility note
 
-`npm install --omit=dev` in the assembled dir resolves transitive versions by semver
-range rather than strictly from the root lockfile. This matches the proven manual
-process and is acceptable here; direct deps are caret-pinned in `apps/api/package.json`.
-A stricter lockfile-pinned prune (e.g. a workspace-prune tool) is out of scope.
+The deploy install copies the repo-root `package-lock.json` into the assembled
+directory and runs `npm ci --omit=dev`, so the packaged dependency versions are the
+exact versions the lockfile pins (the same ones `npm ci` built and tested earlier in
+the job) rather than a fresh semver re-resolve. Because npm hoists workspace
+dependencies into a single lockfile, a few packages that belong to other workspaces
+(e.g. `react`) are installed too; the API never imports them, so they are inert and
+harmless under `WEBSITE_RUN_FROM_PACKAGE=1` (the package is mounted read-only).
