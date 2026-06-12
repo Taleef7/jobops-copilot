@@ -59,9 +59,10 @@ manual workflow so there is a single source of truth.
 2. `actions/setup-node@v4` with `node-version: 22.x`, `cache: npm`.
 3. `npm ci` (root — installs all workspaces from the committed lockfile).
 4. `npm run build:api` → produces `apps/api/dist` (tsc + tsc-alias).
-5. Assemble the self-contained package in `apps/api/deploy/`:
-   - copy `apps/api/dist` → `apps/api/deploy/dist`
-   - copy `apps/api/package.json` → `apps/api/deploy/package.json`
+5. Assemble the self-contained package in `apps/api/.deploy/` (the leading dot
+   keeps it under the existing `.deploy/` `.gitignore` entry):
+   - copy `apps/api/dist` → `apps/api/.deploy/dist`
+   - copy `apps/api/package.json` → `apps/api/.deploy/package.json`
    - run `npm install --omit=dev --no-audit --no-fund` **inside** `apps/api/deploy`
      so it gets a real, un-hoisted `node_modules` with the 9 prod deps.
 6. Deploy with `azure/webapps-deploy@v3`:
