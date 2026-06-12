@@ -68,6 +68,30 @@ curl -s localhost:4000/api/telemetry/ev-demo
 curl -s localhost:8000/health
 ```
 
+## Live cloud demo (deployed stack)
+
+To present from the **deployed** stack instead of local servers, use the operator
+script `scripts/azure/demo.sh` (needs `az login`; it acts only via your own Azure
+session and stores no credentials):
+
+```bash
+az login                         # if your token has expired
+scripts/azure/demo.sh warm       # wake the agent + allow-list your IP + health-gate
+# ... present using the live web URL that 'warm' prints ...
+scripts/azure/demo.sh cool       # back to scale-to-zero idle + remove the firewall rule
+```
+
+- `warm` scales the Container App agent to `min-replicas=1`, adds a single
+  fixed-name Postgres firewall rule for your current IP, and waits until web, API
+  (`/api/health/ready` → `db:ok`) and agent (`/health`) are all green.
+- `status` runs the same checks read-only (safe anytime).
+- `cool` returns the agent to scale-to-zero and deletes the firewall rule.
+
+> **Cost:** the agent at `min-replicas=1` bills ~$20–30/mo on 1 vCPU / 2 GiB, so
+> always run `cool` after the demo. Resource names default to the live deployment
+> (resource group `projects`, agent region `eastus`) and can be overridden with the
+> `RESOURCE_GROUP` / `AGENT_APP` / `WEB_APP` / `API_APP` / `PG_SERVER` env vars.
+
 ## What to emphasize in the interview
 
 - Real, **provider-agnostic** LLM integration with structured output and a safe
