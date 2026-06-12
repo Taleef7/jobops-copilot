@@ -10,9 +10,7 @@ on:
         default: all
         options:
           - all
-          - both
           - web
-          - api
           - agent
 
 permissions:
@@ -40,28 +38,18 @@ jobs:
         run: npm ci
 
       - name: Build web app
-        if: ${{ inputs.target == 'all' || inputs.target == 'both' || inputs.target == 'web' }}
+        if: ${{ inputs.target == 'all' || inputs.target == 'web' }}
         run: npm run build:web
 
-      - name: Build API
-        if: ${{ inputs.target == 'all' || inputs.target == 'both' || inputs.target == 'api' }}
-        run: npm run build:api
-
+      # API deploys live in deploy-api.yml (push-triggered + dispatch). This
+      # combined workflow covers web and the code-deploy agent path only.
       - name: Deploy web app
-        if: ${{ inputs.target == 'all' || inputs.target == 'both' || inputs.target == 'web' }}
+        if: ${{ inputs.target == 'all' || inputs.target == 'web' }}
         uses: azure/webapps-deploy@v3
         with:
           app-name: ${{ vars.AZURE_WEBAPP_NAME_WEB }}
           publish-profile: ${{ secrets.AZURE_WEBAPP_PUBLISH_PROFILE_WEB }}
           package: apps/web # workspace package root; tsconfig is self-contained
-
-      - name: Deploy API
-        if: ${{ inputs.target == 'all' || inputs.target == 'both' || inputs.target == 'api' }}
-        uses: azure/webapps-deploy@v3
-        with:
-          app-name: ${{ vars.AZURE_WEBAPP_NAME_API }}
-          publish-profile: ${{ secrets.AZURE_WEBAPP_PUBLISH_PROFILE_API }}
-          package: apps/api # workspace package root; tsconfig is self-contained
 
       # The Python agent service ships PyTorch (RAG) and is best deployed as a
       # container using services/agent/Dockerfile (App Service for Containers or
