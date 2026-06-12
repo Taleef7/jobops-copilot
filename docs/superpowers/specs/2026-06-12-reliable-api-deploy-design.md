@@ -69,7 +69,7 @@ manual workflow so there is a single source of truth.
 6. Deploy with `azure/webapps-deploy@v3`:
    - `app-name: ${{ vars.AZURE_WEBAPP_NAME_API }}`
    - `publish-profile: ${{ secrets.AZURE_WEBAPP_PUBLISH_PROFILE_API }}`
-   - `package: apps/api/deploy`
+   - `package: apps/api/.deploy`
 7. Health-check gate: poll `/api/health/ready` (a readiness probe that runs
    `SELECT 1`) with a bounded retry loop (e.g. up to ~12 attempts, 15s apart ≈ 3 min).
    Require HTTP 200 with `"db":"ok"`, so the gate proves the database is reachable, not
@@ -103,7 +103,7 @@ manual workflow so there is a single source of truth.
 ```
 push to main (apps/api/**)  ─┐
 workflow_dispatch           ─┴─►  deploy-api.yml
-   checkout ─► npm ci ─► build:api ─► assemble apps/api/deploy
+   checkout ─► npm ci ─► build:api ─► assemble apps/api/.deploy
         (dist + package.json + cp package-lock.json + npm ci --omit=dev)
    ─► azure/webapps-deploy (publish profile, WEBSITE_RUN_FROM_PACKAGE=1)
    ─► GET /api/health/ready  ── 200 & "db":"ok" ──► success
@@ -113,7 +113,7 @@ workflow_dispatch           ─┴─►  deploy-api.yml
 ## Error handling
 
 - **Missing prod dep at runtime** — root cause; eliminated by the self-contained
-  `npm install --omit=dev` in the deploy dir.
+  `npm ci --omit=dev` (lockfile-pinned) in the deploy dir.
 - **Bad deploy reaches production** — caught by the health-check gate; the run goes
   red and surfaces the failing `/api/health/ready` response.
 - **Overlapping deploys** — prevented by the concurrency group.
@@ -124,8 +124,8 @@ workflow_dispatch           ─┴─►  deploy-api.yml
 Local (no Azure creds needed), proves the package is self-contained:
 
 1. `npm ci && npm run build:api`
-2. Assemble `apps/api/deploy` exactly as the workflow does.
-3. From `apps/api/deploy`, run `node dist/server.js` and confirm it boots without a
+2. Assemble `apps/api/.deploy` exactly as the workflow does.
+3. From `apps/api/.deploy`, run `node dist/server.js` and confirm it boots without a
    `Cannot find module` error (it will then try to bind/connect — module resolution
    succeeding is the signal we care about).
 4. Lint the workflow YAML (`actionlint` if available; otherwise a YAML parse check).
