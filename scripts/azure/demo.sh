@@ -159,9 +159,18 @@ cmd_cool() {
   az containerapp update -g "$RESOURCE_GROUP" -n "$AGENT_APP" --min-replicas 0 -o none \
     || die "failed to scale down the agent."
   log "removing firewall rule '$FIREWALL_RULE' ..."
-  az postgres flexible-server firewall-rule delete -g "$PG_RESOURCE_GROUP" -n "$PG_SERVER" \
-    --rule-name "$FIREWALL_RULE" --yes -o none 2>/dev/null \
-    || warn "firewall rule '$FIREWALL_RULE' not present (already removed)."
+  # Tolerate ONLY the not-found case. Any other delete failure (wrong RG/server,
+  # lost network, missing RBAC) must fail loudly — otherwise we would claim the
+  # stack is idle while the demo /32 rule is potentially still OPEN.
+  local del_err
+  if del_err="$(az postgres flexible-server firewall-rule delete -g "$PG_RESOURCE_GROUP" -n "$PG_SERVER" \
+      --rule-name "$FIREWALL_RULE" --yes -o none 2>&1)"; then
+    log "removed firewall rule '$FIREWALL_RULE'."
+  elif printf '%s' "$del_err" | grep -qiE 'not[ _-]?found|does not exist|could not be found|resourcenotfound'; then
+    warn "firewall rule '$FIREWALL_RULE' not present (already removed)."
+  else
+    die "failed to remove firewall rule '$FIREWALL_RULE' — it may still be OPEN; remove it manually. az error: ${del_err}"
+  fi
   log "stack is back to idle (agent scale-to-zero, demo firewall rule removed)."
 }
 
