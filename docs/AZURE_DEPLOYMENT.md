@@ -198,3 +198,34 @@ Caveats:
 
 `cool` vs `pause`: `demo.sh cool` only sleeps the agent (demo cost); `lifecycle.sh
 pause` sleeps the whole baseline (DB + agent) for longer idle periods.
+
+## Monitoring & alerts
+
+Application Insights (`jobops-insights`) collects telemetry from web, API, and agent.
+`scripts/azure/provision-monitoring.sh` makes that telemetry actionable — an email action
+group, two failure alerts, and a portal dashboard. Local tool: acts only via your
+`az login`, commits no secrets, never run from CI.
+
+```bash
+az login
+scripts/azure/provision-monitoring.sh                              # emails your signed-in account
+ALERT_EMAIL=you@example.com scripts/azure/provision-monitoring.sh   # send alerts to a specific inbox
+```
+
+**Alerts** (Azure Monitor metric alerts on the component, severity 2, emailed via the
+`jobops-alerts` action group):
+
+- `jobops-failed-requests` — 5+ failed HTTP requests in 5 minutes.
+- `jobops-server-exceptions` — 5+ server exceptions in 5 minutes.
+
+Both are failure-count based, so they stay quiet when the app is idle or `pause`d (no
+traffic → no failures → no alert). There is deliberately **no latency alert** (the AI
+endpoints make real LLM calls that are legitimately slow) and **no uptime ping** (it would
+false-fire while intentionally paused). Response time is shown on the dashboard instead.
+
+**Dashboard** `jobops-monitoring` (Azure portal → Dashboard) shows four tiles: requests,
+failed requests, server response time, and server exceptions.
+
+Re-running updates everything in place. Requires Monitoring Contributor (or Owner) on the
+resource group. Cost is ~$0.20/mo (two alert rules; the action group and dashboard are
+free).
