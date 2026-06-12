@@ -70,10 +70,12 @@ manual workflow so there is a single source of truth.
    - `app-name: ${{ vars.AZURE_WEBAPP_NAME_API }}`
    - `publish-profile: ${{ secrets.AZURE_WEBAPP_PUBLISH_PROFILE_API }}`
    - `package: apps/api/deploy`
-7. Health-check gate: poll `https://${{ vars.AZURE_WEBAPP_NAME_API }}.azurewebsites.net/api/health`
-   with a bounded retry loop (e.g. up to ~12 attempts, 15s apart ≈ 3 min). Pass when
-   the response is HTTP 200 and the body contains `"mode":"postgres"`; otherwise
-   print the last response and `exit 1`.
+7. Health-check gate: poll `/api/health/ready` (a readiness probe that runs
+   `SELECT 1`) with a bounded retry loop (e.g. up to ~12 attempts, 15s apart ≈ 3 min).
+   Require HTTP 200 with `"db":"ok"`, so the gate proves the database is reachable, not
+   merely configured; otherwise print the last response and `exit 1`.
+   (Liveness endpoint `/api/health` stays unchanged — it is not touched by this
+   workflow.)
 
 **Header comment — required preconditions (already set on `jobops-api`)**
 
@@ -102,10 +104,10 @@ manual workflow so there is a single source of truth.
 push to main (apps/api/**)  ─┐
 workflow_dispatch           ─┴─►  deploy-api.yml
    checkout ─► npm ci ─► build:api ─► assemble apps/api/deploy
-        (dist + package.json + npm install --omit=dev)
+        (dist + package.json + cp package-lock.json + npm ci --omit=dev)
    ─► azure/webapps-deploy (publish profile, WEBSITE_RUN_FROM_PACKAGE=1)
-   ─► GET /api/health  ── 200 & "mode":"postgres" ──► success
-                        └─ otherwise ───────────────► fail (exit 1)
+   ─► GET /api/health/ready  ── 200 & "db":"ok" ──► success
+                              └─ otherwise ────────► fail (exit 1)
 ```
 
 ## Error handling
@@ -113,7 +115,7 @@ workflow_dispatch           ─┴─►  deploy-api.yml
 - **Missing prod dep at runtime** — root cause; eliminated by the self-contained
   `npm install --omit=dev` in the deploy dir.
 - **Bad deploy reaches production** — caught by the health-check gate; the run goes
-  red and surfaces the failing `/api/health` response.
+  red and surfaces the failing `/api/health/ready` response.
 - **Overlapping deploys** — prevented by the concurrency group.
 - **Hung run** — bounded by `timeout-minutes` and the capped health-check retries.
 
@@ -129,7 +131,8 @@ Local (no Azure creds needed), proves the package is self-contained:
 4. Lint the workflow YAML (`actionlint` if available; otherwise a YAML parse check).
 
 Live: triggered by merging an `apps/api/**` change to `main` (or manual dispatch);
-the health-check step is the automated acceptance test.
+the health-check step polls `/api/health/ready` and requires `"db":"ok"` — it is the
+automated acceptance test that proves the database is reachable.
 
 ## Reproducibility note
 

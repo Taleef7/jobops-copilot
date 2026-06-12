@@ -35,3 +35,18 @@ export async function closePool() {
   pool = null;
   await activePool.end();
 }
+
+export async function pingDatabase(): Promise<boolean> {
+  const activePool = getPool();
+  if (!activePool) {
+    return false;
+  }
+
+  try {
+    await activePool.query('SELECT 1');
+    return true;
+  } catch (error) {
+    console.error('Database readiness ping failed:', error);
+    return false;
+  }
+}

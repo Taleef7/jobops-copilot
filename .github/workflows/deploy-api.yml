@@ -76,21 +76,24 @@ jobs:
           publish-profile: ${{ secrets.AZURE_WEBAPP_PUBLISH_PROFILE_API }}
           package: apps/api/.deploy
 
-      - name: Health check
+      - name: Health check (readiness — proves DB connectivity)
         env:
           API_NAME: ${{ vars.AZURE_WEBAPP_NAME_API }}
         run: |
           set -euo pipefail
-          url="https://${API_NAME}.azurewebsites.net/api/health"
+          # /api/health/ready runs a real "SELECT 1", so it only reports db:ok when
+          # Postgres is actually reachable — a broken data path fails this gate
+          # instead of going green on a mode flag that only checks DATABASE_URL.
+          url="https://${API_NAME}.azurewebsites.net/api/health/ready"
           echo "Polling $url"
           for i in $(seq 1 12); do
             body="$(curl -fsS --max-time 10 "$url" || true)"
             echo "attempt $i: $body"
-            if printf '%s' "$body" | grep -Eq '"mode"[[:space:]]*:[[:space:]]*"postgres"'; then
-              echo "API healthy."
+            if printf '%s' "$body" | grep -Eq '"db"[[:space:]]*:[[:space:]]*"ok"'; then
+              echo "API ready (database reachable)."
               exit 0
             fi
             sleep 15
           done
-          echo "API did not report a healthy postgres mode in time." >&2
+          echo "API did not report a reachable database (/api/health/ready db:ok) in time." >&2
           exit 1
