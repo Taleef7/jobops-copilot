@@ -119,7 +119,7 @@ complete:
 | 8 | Advanced LangChain agents (interview-prep, research, skill-gap) | ✅ |
 | 11 | Time-series telemetry intelligence (+ EV demo) | ✅ |
 | 6 | Live Azure hosting for web/api/agent + Postgres/pgvector | ✅ |
-| 7 | Zapier/Make companion flows | ⏳ deferred |
+| 7 | Zapier/Make companion flows | ✅ |
 
 Phase 6 hosting and data layer are fully live and verified end to end: web, API,
 and the Python agent are deployed, and the cloud Postgres carries the complete

@@ -4,8 +4,8 @@ The AI-agent push is complete. Real LLM integration (Phase 9), retrieval-augment
 analysis (Phase 10), advanced agents (Phase 8), telemetry intelligence (Phase 11),
 and live Azure deployment (Phase 6) have all landed, in that order.
 
-The only remaining item is Phase 7 (Zapier/Make), which is deferred and out of
-scope for the current push.
+Phase 7 (Zapier/Make companion flows) is now complete as well — both flows are
+built, tested, and live, with screenshots captured.
 
 ## Phase 4: n8n Integration
 
@@ -54,8 +54,8 @@ scope for the current push.
 - [x] Capture deployment screenshots.
 - [ ] (Deferred, optional hardening) Add monitoring and tracing (Application Insights) + Key Vault.
 
-## Phase 7: Zapier and Make (deferred)
+## Phase 7: Zapier and Make
 
-- [ ] Build one Zapier flow.
-- [ ] Build one Make scenario.
-- [ ] Write the comparison notes and capture screenshots.
+- [x] Build one Zapier flow (Sheets row -> Calendar follow-up reminder, published live).
+- [x] Build one Make scenario (Webhook -> API `/api/n8n/job-intake` -> email).
+- [x] Write the comparison notes and capture screenshots.

@@ -70,10 +70,16 @@ intelligence.
   is fully backed end to end. (The earlier "flaky connection" blocker was in fact
   the server firewall not allow-listing the local client IP; adding a firewall
   rule for the current IP let the idempotent `db:init` run cleanly.)
+- **Phase 7 companion automations are live.** A Zapier flow (Google Sheets
+  new/updated row → Google Calendar follow-up reminder) is built, tested, and
+  published; a Make scenario (Webhook → API `/api/n8n/job-intake` → email) runs
+  end to end. Importable blueprint + setup guides are under `workflows/`, with a
+  side-by-side comparison in `docs/AUTOMATION_WORKFLOWS.md` and screenshots in
+  `docs/design/phase7/`.
 
 ## What Is Still Pending
 
-- Phase 7 (Zapier/Make companion flows) — deferred.
+- App Insights monitoring + Key Vault — optional Phase 6 hardening, deferred (not a blocker). Secrets are currently held in App Service / Container Apps application settings.
 - App Insights monitoring + Key Vault — optional Phase 6 hardening, deferred (not a blocker). Secrets are currently held in App Service / Container Apps application settings.
 
 ## How To Verify The Live Stack
