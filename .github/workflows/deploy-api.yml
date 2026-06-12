@@ -1,0 +1,99 @@
+# Deploy the JobOps API to Azure App Service.
+#
+# Why this exists: apps/api is an npm workspace whose dependencies are hoisted to
+# the repo-root node_modules. Deploying the workspace folder directly ships no
+# node_modules, so the app crashes with "Cannot find module '@clerk/express'".
+# This workflow assembles a SELF-CONTAINED package (dist + package.json + a local
+# production install) and deploys that, then verifies the live app is healthy.
+#
+# Preconditions (already configured on the jobops-api App Service):
+#   - App setting WEBSITE_RUN_FROM_PACKAGE=1        (package mounted read-only;
+#     avoids the B1 big-node_modules extraction hang)
+#   - App setting SCM_DO_BUILD_DURING_DEPLOYMENT=false  (no Oryx rebuild)
+#   - DB / Clerk / App Insights secrets (or Key Vault references) set
+# Repo config:
+#   - Variable AZURE_WEBAPP_NAME_API
+#   - Secret   AZURE_WEBAPP_PUBLISH_PROFILE_API
+name: Deploy API (Azure)
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'apps/api/**'
+      - '.github/workflows/deploy-api.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: deploy-api
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: Build + deploy API
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22.x
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build API
+        run: npm run build:api
+
+      - name: Assemble self-contained deploy package
+        run: |
+          set -euo pipefail
+          rm -rf apps/api/.deploy
+          mkdir -p apps/api/.deploy/dist
+          cp -r apps/api/dist/. apps/api/.deploy/dist/
+          cp apps/api/package.json apps/api/.deploy/package.json
+          # Copy the repo-root lockfile so the packaged dependencies are the EXACT
+          # versions npm ci installed and tested in this job (deterministic) rather
+          # than a fresh semver re-resolve. npm ci honours the lockfile's pinned
+          # versions; a few hoisted peer packages (e.g. react) come along but the
+          # API never requires them, so they are inert under WEBSITE_RUN_FROM_PACKAGE.
+          cp package-lock.json apps/api/.deploy/package-lock.json
+          ( cd apps/api/.deploy && npm ci --omit=dev --no-audit --no-fund )
+          # Fail fast if any production dependency did not land in the package.
+          ( cd apps/api/.deploy && node -e "const d=require('./package.json').dependencies||{};for(const k of Object.keys(d))require.resolve(k);console.log('OK:',Object.keys(d).length,'prod deps resolve');" )
+
+      - name: Deploy to Azure App Service
+        uses: azure/webapps-deploy@v3
+        with:
+          app-name: ${{ vars.AZURE_WEBAPP_NAME_API }}
+          publish-profile: ${{ secrets.AZURE_WEBAPP_PUBLISH_PROFILE_API }}
+          package: apps/api/.deploy
+
+      - name: Health check (readiness — proves DB connectivity)
+        env:
+          API_NAME: ${{ vars.AZURE_WEBAPP_NAME_API }}
+        run: |
+          set -euo pipefail
+          # /api/health/ready runs a real "SELECT 1", so it only reports db:ok when
+          # Postgres is actually reachable — a broken data path fails this gate
+          # instead of going green on a mode flag that only checks DATABASE_URL.
+          url="https://${API_NAME}.azurewebsites.net/api/health/ready"
+          echo "Polling $url"
+          for i in $(seq 1 12); do
+            body="$(curl -fsS --max-time 10 "$url" || true)"
+            echo "attempt $i: $body"
+            if printf '%s' "$body" | grep -Eq '"db"[[:space:]]*:[[:space:]]*"ok"'; then
+              echo "API ready (database reachable)."
+              exit 0
+            fi
+            sleep 15
+          done
+          echo "API did not report a reachable database (/api/health/ready db:ok) in time." >&2
+          exit 1
