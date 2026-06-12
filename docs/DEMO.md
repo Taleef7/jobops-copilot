@@ -92,6 +92,9 @@ scripts/azure/demo.sh cool       # back to scale-to-zero idle + remove the firew
 > (resource group `projects`, agent region `eastus`) and can be overridden with the
 > `RESOURCE_GROUP` / `AGENT_APP` / `WEB_APP` / `API_APP` / `PG_SERVER` env vars.
 
+> For longer idle periods (not just between demos), `scripts/azure/lifecycle.sh pause`
+> stops the database and agent too — see "Cost controls" in `docs/AZURE_DEPLOYMENT.md`.
+
 ## What to emphasize in the interview
 
 - Real, **provider-agnostic** LLM integration with structured output and a safe

@@ -146,3 +146,51 @@ For the first pass, keep the deployment small and auditable:
 - The Azure database layer is verified and live.
 - Full hosting for the web and API applications is still to come.
 - The repo now includes a repeatable bootstrap script so the cloud database can be recreated without manual SQL copy-paste.
+
+## Cost controls
+
+The deployment runs on an Azure for Students subscription with a $100 credit cap.
+Two local operator tools help avoid surprise spend — both act only via your own
+`az login` session, commit no secrets, and are never run from CI.
+
+### Budget alerts
+
+`scripts/azure/provision-budget.sh` creates a monthly Cost Management budget that
+**emails alerts** at 50/80/100% (actual) and 100% (forecast). It only alerts — it does
+not cap or stop anything.
+
+```bash
+az login
+scripts/azure/provision-budget.sh                                  # $30/mo, alerts to the Owner role
+BUDGET_EMAIL=you@example.com scripts/azure/provision-budget.sh      # also email a specific inbox
+```
+
+Override `BUDGET_AMOUNT` / `BUDGET_NAME` via env vars; re-running updates the same
+budget in place. Requires Cost Management Contributor or Owner on the subscription. If
+the Consumption API is unavailable for the offer, create it in the portal instead
+(Cost Management → Budgets).
+
+### Pause / resume the baseline
+
+`scripts/azure/lifecycle.sh` stops/starts the chargeable baseline for stretches when
+you are not using the stack:
+
+```bash
+scripts/azure/lifecycle.sh pause    # stop Postgres + scale the agent to zero
+scripts/azure/lifecycle.sh status   # show Postgres state + agent min-replicas
+scripts/azure/lifecycle.sh resume   # start Postgres back up
+```
+
+Caveats:
+
+- **While paused, the live site's database features do not work** — `resume` first.
+- **Azure auto-restarts a stopped Flexible Server after ~7 days** — re-run `pause` for
+  longer breaks.
+- **The App Service B1 plan (~$13/mo) keeps billing while paused.** Stopping the apps
+  does not reduce the plan charge. To go fully to ~$0 you must either downgrade the plan
+  to Free (`az appservice plan update -g projects -n jobops-plan --sku F1` — Free has
+  real limits: no always-on, reduced quotas, no custom-domain TLS) or delete the plan
+  (destructive). These are manual, opt-in steps; the script does not do them.
+
+`cool` vs `pause`: `demo.sh cool` only sleeps the agent (demo cost); `lifecycle.sh
+pause` sleeps the whole baseline (DB + agent) for longer idle periods.
