@@ -1,0 +1,60 @@
+{
+  "$schema": "https://schema.management.azure.com/schemas/2018-05-01/subscriptionDeploymentTemplate.json#",
+  "contentVersion": "1.0.0.0",
+  "parameters": {
+    "budgetName": { "type": "string", "defaultValue": "jobops-monthly-30" },
+    "amount": { "type": "int", "defaultValue": 30 },
+    "startDate": { "type": "string" },
+    "contactEmails": { "type": "array", "defaultValue": [] }
+  },
+  "resources": [
+    {
+      "type": "Microsoft.Consumption/budgets",
+      "apiVersion": "2023-11-01",
+      "name": "[parameters('budgetName')]",
+      "properties": {
+        "category": "Cost",
+        "amount": "[parameters('amount')]",
+        "timeGrain": "Monthly",
+        "timePeriod": {
+          "startDate": "[parameters('startDate')]",
+          "endDate": "2035-12-31"
+        },
+        "notifications": {
+          "Actual_50": {
+            "enabled": true,
+            "operator": "GreaterThanOrEqualTo",
+            "threshold": 50,
+            "contactEmails": "[parameters('contactEmails')]",
+            "contactRoles": [ "Owner" ],
+            "thresholdType": "Actual"
+          },
+          "Actual_80": {
+            "enabled": true,
+            "operator": "GreaterThanOrEqualTo",
+            "threshold": 80,
+            "contactEmails": "[parameters('contactEmails')]",
+            "contactRoles": [ "Owner" ],
+            "thresholdType": "Actual"
+          },
+          "Actual_100": {
+            "enabled": true,
+            "operator": "GreaterThanOrEqualTo",
+            "threshold": 100,
+            "contactEmails": "[parameters('contactEmails')]",
+            "contactRoles": [ "Owner" ],
+            "thresholdType": "Actual"
+          },
+          "Forecast_100": {
+            "enabled": true,
+            "operator": "GreaterThanOrEqualTo",
+            "threshold": 100,
+            "contactEmails": "[parameters('contactEmails')]",
+            "contactRoles": [ "Owner" ],
+            "thresholdType": "Forecasted"
+          }
+        }
+      }
+    }
+  ]
+}
