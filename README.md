@@ -124,8 +124,9 @@ complete:
 Phase 6 hosting and data layer are fully live and verified end to end: web, API,
 and the Python agent are deployed, and the cloud Postgres carries the complete
 schema including the `pgvector` embeddings store (extension + `embeddings` table +
-vector index applied 2026-06-10). App Insights monitoring and Key Vault remain an
-optional hardening item (deferred), not a blocker.
+vector index applied 2026-06-10). The optional Phase 6 hardening is also in place:
+Application Insights monitoring spans web/API/agent, and the App Service secrets are
+served from Key Vault via managed identity.
 
 See [docs/IMPLEMENTATION_STATUS.md](docs/IMPLEMENTATION_STATUS.md) and
 [docs/ROADMAP.md](docs/ROADMAP.md).

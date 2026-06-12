@@ -52,7 +52,7 @@ built, tested, and live, with screenshots captured.
 - [x] Apply the full cloud Postgres schema, including the `pgvector` embeddings migration. (verified 2026-06-10)
 - [x] Wire application settings and secrets management on the hosting targets.
 - [x] Capture deployment screenshots.
-- [ ] (Deferred, optional hardening) Add monitoring and tracing (Application Insights) + Key Vault.
+- [x] (Optional hardening) Add monitoring and tracing (Application Insights) + Key Vault. (`jobops-insights` across web/API/agent; `jobops-kv` serving App Service secrets via managed identity, 2026-06-10)
 
 ## Phase 7: Zapier and Make
 

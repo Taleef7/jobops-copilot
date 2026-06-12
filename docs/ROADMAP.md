@@ -8,7 +8,7 @@
 - Phase 3: complete
 - Phase 4: complete
 - Phase 5: complete
-- Phase 6: complete — web/API/agent hosted on Azure and the cloud Postgres (incl. pgvector) is fully migrated; App Insights/Key Vault monitoring deferred as optional hardening
+- Phase 6: complete — web/API/agent hosted on Azure and the cloud Postgres (incl. pgvector) is fully migrated; the optional hardening (Application Insights monitoring + Key Vault secret references) is also in place
 - Phase 7: complete (Zapier + Make companion flows built and live, with screenshots)
 - Phase 8: complete (advanced agents)
 - Phase 9: complete (real LLM integration and Python agent service)
@@ -93,10 +93,13 @@ Complete:
 - application settings / secrets configured on the App Service and Container App
 - deployment screenshots captured in `docs/design/`
 
-Deferred (optional hardening, not a blocker):
+Optional hardening (also complete):
 
-- App Insights monitoring/tracing
-- Key Vault for secrets (currently in application settings)
+- Application Insights monitoring/tracing across web, API, and agent
+  (`jobops-insights` + Log Analytics `jobops-logs`, 1 GB/day cap)
+- Key Vault (`jobops-kv`, RBAC) serving the App Service secrets as
+  managed-identity references (the agent Container App keeps its native
+  secret store by design)
 
 ## Phase 7: Zapier And Make
 
