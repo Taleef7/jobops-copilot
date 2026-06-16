@@ -21,7 +21,7 @@ export default async function MarketingLayout({ children }: { children: React.Re
           </Link>
           <nav className="ml-auto flex items-center gap-1.5 sm:gap-2">
             <Button
-              render={<a href="#features">Features</a>}
+              render={<Link href="/#features">Features</Link>}
               variant="ghost"
               size="sm"
               className="hidden sm:inline-flex"
