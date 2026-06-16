@@ -5,12 +5,10 @@
 JobOps Copilot is a three-service system plus Postgres. The Node API owns the
 CRM and orchestration; a Python service owns the real AI.
 
-```
-apps/web (Next.js)  ──REST──►  apps/api (Express)  ──delegates AI──►  services/agent (Python/FastAPI)
-                                      │                                     │ LangChain (multi-provider LLM)
-                                      └────── Azure PostgreSQL ◄────────────┘ + pgvector (RAG), HF embeddings,
-                                              (CRM + embeddings)               pandas (telemetry)
-```
+![JobOps Copilot system architecture](architecture/architecture-blueprint.svg)
+
+> An interactive version (pan, zoom, click any node) will be available at
+> `/architecture` on the live app once the web-app page lands.
 
 ### Key decisions
 
@@ -76,6 +74,43 @@ The current backend flow is:
 - `apps/api/src/lib/weekly-report.ts` builds report snapshots and API payloads.
 - `apps/api/src/lib/report-export.ts` writes local report artifacts and uploads them to Blob Storage when configured.
 - `apps/api/scripts/db-init.ts` bootstraps the Azure PostgreSQL schema and seed data.
+
+## Request & data flow
+
+The AI pipeline (job intake → analysis), at a glance:
+
+```mermaid
+flowchart LR
+  U([User]) --> W[Web · Next.js + Clerk]
+  W -->|REST · /api/proxy| A[API · Express]
+  A -->|delegate AI| AG[Agent · FastAPI + LangChain]
+  AG -->|init_chat_model| L[(LLM provider ×4)]
+  AG -->|retrieve resume evidence| V[(Postgres + pgvector)]
+  A -->|CRM read / write| V
+  AG -->|structured JobAnalysis| A
+  A -->|persist + return| W
+```
+
+Request lifecycle for an AI call, including the graceful fallback that keeps the
+app working with or without an LLM key:
+
+```mermaid
+sequenceDiagram
+  participant W as Web (Clerk JWT)
+  participant A as API (Express)
+  participant AG as Agent (FastAPI)
+  participant DB as Postgres + pgvector
+  W->>A: POST /api/ai/score-fit
+  alt AGENT_SERVICE_URL set and agent healthy
+    A->>AG: delegate
+    AG->>DB: RAG · retrieve resume chunks
+    AG-->>A: structured fit analysis (real LLM)
+  else agent cold / unattached / no key
+    A->>A: deterministic mock analysis
+  end
+  A->>DB: persist analysis + fit_score
+  A-->>W: JobAnalysis
+```
 
 ## Data Flow
 
