@@ -178,3 +178,19 @@ export interface N8nWeeklyReportBody {
 export interface N8nFollowUpRemindersBody {
   as_of?: string;
 }
+
+export interface SavedSearch {
+  id: string;
+  userId?: string;
+  query: string;
+  location?: string;
+  remoteOnly: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface CreateSavedSearchBody {
+  query: string;
+  location?: string;
+  remoteOnly?: boolean;
+}
