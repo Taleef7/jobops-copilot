@@ -24,6 +24,7 @@ apps/api/data/*.tmp
 workflows/n8n/owner.env
 .playwright-mcp/
 .serena/
+.superpowers/
 tmp/
 
 .deploy/
