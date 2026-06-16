@@ -10,6 +10,8 @@ import { profileRouter } from '@/routes/profile';
 import { reportsRouter } from '@/routes/reports';
 import { outreachRouter } from '@/routes/outreach';
 import { telemetryRouter } from '@/routes/telemetry';
+import { discoveryRouter, discoverySweepRouter } from '@/routes/discovery';
+import { savedSearchesRouter } from '@/routes/saved-searches';
 
 const mutatingMethods = new Set(['POST', 'PATCH', 'PUT', 'DELETE']);
 
@@ -63,6 +65,11 @@ export function createApp() {
   app.use('/api/outreach', outreachRouter);
   app.use('/api/reports', reportsRouter);
   app.use('/api/telemetry', telemetryRouter);
+  app.use('/api/discovery', discoveryRouter);
+  app.use('/api/saved-searches', savedSearchesRouter);
+  // Mounted before '/api/n8n' so this more specific path wins; it inherits the
+  // shared-API-key exemption (path starts with /api/n8n) and uses the n8n secret.
+  app.use('/api/n8n/discover', discoverySweepRouter);
   app.use('/api/n8n', n8nRouter);
 
   app.use((_request, response) => {
