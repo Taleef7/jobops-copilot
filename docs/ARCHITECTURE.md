@@ -7,8 +7,8 @@ CRM and orchestration; a Python service owns the real AI.
 
 ![JobOps Copilot system architecture](architecture/architecture-blueprint.svg)
 
-> An interactive version (pan, zoom, click any node) will be available at
-> `/architecture` on the live app once the web-app page lands.
+> An interactive version (pan, zoom, click any node) is available at
+> [`/architecture`](https://jobops-web.azurewebsites.net/architecture) on the live app.
 
 ### Key decisions
 
