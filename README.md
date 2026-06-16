@@ -30,9 +30,6 @@ bot**: it drafts and recommends, but never sends or fabricates.
 
 ![JobOps Copilot system architecture — browser to Next.js web to Express API to Python FastAPI agent (LangChain, RAG, telemetry) to Azure Postgres with pgvector, plus Blob Storage, Hugging Face embeddings, n8n/Make/Zapier automation, and Azure platform services](docs/architecture/architecture-blueprint.svg)
 
-> 🔎 **Interactive version** (pan · zoom · click any node):
-> [`/architecture`](https://jobops-web.azurewebsites.net/architecture) on the live app.
-
 ## Highlights
 
 - **Real, multi-provider LLMs** — a Python agent service routes to Anthropic
