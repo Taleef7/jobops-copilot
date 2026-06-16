@@ -64,7 +64,7 @@ export function createSavedSearchesRouter(deps: SavedSearchDeps = defaultDeps) {
         response.status(404).json({ error: 'Saved search not found' });
         return;
       }
-      response.status(204).end();
+      response.json({ deleted: true });
     } catch (error) {
       next(error);
     }

@@ -129,7 +129,7 @@ test('saved-search routes are user-scoped CRUD', async () => {
         method: 'DELETE',
         headers: { 'X-User-Id': 'user_test' },
       });
-      assert.equal(removed.status, 204);
+      assert.equal(removed.status, 200);
     },
   );
 });

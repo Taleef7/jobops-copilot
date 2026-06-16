@@ -1,5 +1,6 @@
 import type { Metadata } from 'next';
 import { Database, FileText, Webhook } from 'lucide-react';
+import { SavedSearchesManager } from '@/components/saved-searches';
 import { SectionCard } from '@/components/section-card';
 import { DemoDataActions, ExportDataButton, ResumeReupload } from '@/components/settings-actions';
 import { Badge } from '@/components/ui/badge';
@@ -72,6 +73,10 @@ export default async function SettingsPage() {
           </div>
           <ResumeReupload />
         </div>
+      </SectionCard>
+
+      <SectionCard title="Job discovery" description="Save searches, then pull real postings into your CRM.">
+        <SavedSearchesManager />
       </SectionCard>
 
       <SectionCard title="AI provider" description="Configured on the server — shown here for transparency.">
