@@ -26,6 +26,12 @@ export default async function MarketingLayout({ children }: { children: React.Re
               size="sm"
               className="hidden sm:inline-flex"
             />
+            <Button
+              render={<Link href="/architecture">Architecture</Link>}
+              variant="ghost"
+              size="sm"
+              className="hidden sm:inline-flex"
+            />
             <ModeToggle />
             {signedIn ? (
               <>
