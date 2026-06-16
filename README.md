@@ -1,5 +1,17 @@
 # JobOps Copilot
 
+[![CI](https://github.com/Taleef7/jobops-copilot/actions/workflows/ci.yml/badge.svg)](https://github.com/Taleef7/jobops-copilot/actions/workflows/ci.yml)
+[![Live demo](https://img.shields.io/badge/demo-live-059669)](https://jobops-web.azurewebsites.net)
+![Next.js](https://img.shields.io/badge/Next.js-16-000?logo=nextdotjs&logoColor=white)
+![React](https://img.shields.io/badge/React-19-20232a?logo=react&logoColor=61dafb)
+![TypeScript](https://img.shields.io/badge/TypeScript-5-3178c6?logo=typescript&logoColor=white)
+![Python](https://img.shields.io/badge/Python-3.12-3776ab?logo=python&logoColor=white)
+![FastAPI](https://img.shields.io/badge/FastAPI-009688?logo=fastapi&logoColor=white)
+![LangChain](https://img.shields.io/badge/LangChain-agents-1c3c3c?logo=langchain&logoColor=white)
+![Azure](https://img.shields.io/badge/Azure-App%20Service%20%2B%20Container%20Apps-0078d4?logo=microsoftazure&logoColor=white)
+![pgvector](https://img.shields.io/badge/Postgres-pgvector-4169e1?logo=postgresql&logoColor=white)
+![Human in the loop](https://img.shields.io/badge/AI-human--in--the--loop-7c3aed)
+
 **An AI-agent operations platform for the job search.** JobOps Copilot tracks
 opportunities in a CRM, then uses real LLMs, retrieval-augmented generation, and
 multi-step agents to analyze fit, research companies, prep interviews, plan
@@ -11,9 +23,12 @@ bot**: it drafts and recommends, but never sends or fabricates.
 
 > **Live on Azure:** dashboard → https://jobops-web.azurewebsites.net ·
 > API health → https://jobops-api.azurewebsites.net/api/health
-> (Web + API run on Azure App Service against Azure PostgreSQL. The Python
-> agent service runs locally for the full-AI demo; the cloud app degrades
-> gracefully to the deterministic analysis when the agent is not attached.)
+> (Web + API run on Azure App Service against Azure PostgreSQL; the Python agent
+> runs on Azure Container Apps, scale-to-zero, and is warmed on demand for live
+> AI demos via `scripts/azure/demo.sh warm`. When the agent is cold or
+> unattached, the cloud app degrades gracefully to the deterministic analysis.)
+
+![JobOps Copilot system architecture — browser to Next.js web to Express API to Python FastAPI agent (LangChain, RAG, telemetry) to Azure Postgres with pgvector, plus Blob Storage, Hugging Face embeddings, n8n/Make/Zapier automation, and Azure platform services](docs/architecture/architecture-blueprint.svg)
 
 ## Highlights
 
@@ -44,15 +59,11 @@ bot**: it drafts and recommends, but never sends or fabricates.
 
 ## Architecture
 
-```
-apps/web (Next.js 16 / React 19)
-        │  REST
-apps/api (Express, TypeScript) ──delegates AI──> services/agent (Python / FastAPI)
-        │                                              │  LangChain (multi-provider)
-        └──────── Azure PostgreSQL ◄───────────────────┘  + pgvector (RAG)
-                  (jobs CRM + embeddings)                  HF embeddings (PyTorch)
-                                                           pandas (telemetry)
-```
+The **system diagram at the top of this README** (source:
+[`docs/architecture/architecture-blueprint.svg`](docs/architecture/architecture-blueprint.svg))
+shows the full topology. In short: `apps/web` (Next.js) → `apps/api` (Express) →
+`services/agent` (Python/FastAPI, which owns the real AI) → Azure PostgreSQL +
+`pgvector`, with Blob Storage, automation, and Azure platform services around it.
 
 - `apps/web` — dashboard and product UI (jobs, outreach, reports, AI agents, telemetry).
 - `apps/api` — Express API: CRUD, AI proxy routes, n8n webhooks, telemetry. Delegates AI to the agent service when `AGENT_SERVICE_URL` is set, else uses a mock.
