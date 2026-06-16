@@ -1,7 +1,7 @@
 import { clerkMiddleware, createRouteMatcher } from '@clerk/nextjs/server';
 
-// Public surface: marketing landing + auth pages. Everything else requires sign-in.
-const isPublicRoute = createRouteMatcher(['/', '/sign-in(.*)', '/sign-up(.*)']);
+// Public surface: marketing landing + architecture page + auth pages. Everything else requires sign-in.
+const isPublicRoute = createRouteMatcher(['/', '/architecture', '/sign-in(.*)', '/sign-up(.*)']);
 
 export default clerkMiddleware(async (auth, request) => {
   if (!isPublicRoute(request)) {
