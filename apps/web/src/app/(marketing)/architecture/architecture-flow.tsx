@@ -1,6 +1,5 @@
 'use client';
 
-import { useCallback } from 'react';
 import {
   Background,
   BackgroundVariant,
@@ -10,7 +9,6 @@ import {
   ReactFlow,
   type Edge,
   type Node,
-  type NodeMouseHandler,
   type NodeProps,
   type NodeTypes,
 } from '@xyflow/react';
@@ -59,6 +57,17 @@ const SIDES: Array<['top' | 'right' | 'bottom' | 'left', Position]> = [
 function BlueprintNode({ data }: NodeProps<BpNode>) {
   const accent = ACCENT[data.kind];
   const isAi = data.kind === 'ai';
+  const content = (
+    <>
+      <div style={{ color: isAi ? '#b8fff0' : '#cfe8ff', fontSize: 12.5, fontWeight: 600 }}>
+        {data.title}
+        {data.href ? <span style={{ color: accent, opacity: 0.7 }}> ↗</span> : null}
+      </div>
+      {data.sub ? (
+        <div style={{ color: isAi ? '#86c9bd' : '#6f93b4', fontSize: 10, marginTop: 3 }}>{data.sub}</div>
+      ) : null}
+    </>
+  );
   return (
     <div
       style={{
@@ -68,7 +77,6 @@ function BlueprintNode({ data }: NodeProps<BpNode>) {
         background: isAi ? '#0c2230' : '#0e1f33',
         border: `1px solid ${accent}`,
         fontFamily: 'var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace)',
-        cursor: data.href ? 'pointer' : 'default',
         boxShadow: isAi ? '0 0 0 1px rgba(94,234,212,0.15)' : 'none',
       }}
     >
@@ -78,13 +86,22 @@ function BlueprintNode({ data }: NodeProps<BpNode>) {
           <Handle id={id} type="target" position={position} style={handleStyle} isConnectable={false} />
         </span>
       ))}
-      <div style={{ color: isAi ? '#b8fff0' : '#cfe8ff', fontSize: 12.5, fontWeight: 600 }}>
-        {data.title}
-        {data.href ? <span style={{ color: accent, opacity: 0.7 }}> ↗</span> : null}
-      </div>
-      {data.sub ? (
-        <div style={{ color: isAi ? '#86c9bd' : '#6f93b4', fontSize: 10, marginTop: 3 }}>{data.sub}</div>
-      ) : null}
+      {data.href ? (
+        // Real anchor → keyboard-focusable (Tab) and Enter-activatable, not mouse-only.
+        // nodrag/nopan keep React Flow from hijacking the interaction.
+        <a
+          href={data.href}
+          target="_blank"
+          rel="noopener noreferrer"
+          aria-label={`${data.title} — open source (opens in a new tab)`}
+          className="nodrag nopan"
+          style={{ display: 'block', color: 'inherit', textDecoration: 'none', cursor: 'pointer', borderRadius: 3 }}
+        >
+          {content}
+        </a>
+      ) : (
+        content
+      )}
     </div>
   );
 }
@@ -200,11 +217,6 @@ const edges: Edge[] = [
 ];
 
 export function ArchitectureFlow() {
-  const onNodeClick: NodeMouseHandler<BpNode> = useCallback((_event, clicked) => {
-    const { href } = clicked.data;
-    if (href) window.open(href, '_blank', 'noopener,noreferrer');
-  }, []);
-
   return (
     <ReactFlow
       aria-label="JobOps Copilot system architecture — interactive node diagram. A text description precedes this canvas for screen readers."
@@ -218,9 +230,10 @@ export function ArchitectureFlow() {
       maxZoom={2}
       nodesDraggable={false}
       nodesConnectable={false}
+      nodesFocusable={false}
+      elementsSelectable={false}
       edgesFocusable={false}
       proOptions={{ hideAttribution: false }}
-      onNodeClick={onNodeClick}
       style={{ background: '#0a1626' }}
     >
       <Background variant={BackgroundVariant.Lines} gap={24} color="#13314d" />
