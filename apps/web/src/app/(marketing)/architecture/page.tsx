@@ -23,6 +23,15 @@ export default function ArchitecturePage() {
       </p>
 
       <div className="bg-card mt-6 h-[72vh] min-h-[520px] overflow-hidden rounded-xl border">
+        <p className="sr-only">
+          System architecture: a browser uses the Next.js web app, which calls the Express API
+          over REST. The API delegates AI work to a Python FastAPI agent (LangChain
+          multi-provider LLMs, retrieval-augmented generation, and pandas telemetry). Data is
+          stored in Azure PostgreSQL with the pgvector extension. Supporting services include
+          Azure Blob Storage for report exports, Hugging Face sentence-transformer embeddings,
+          n8n / Make / Zapier automation feeding the API webhooks, and Azure platform services
+          (Application Insights, Key Vault, and Log Analytics).
+        </p>
         <ArchitectureFlow />
       </div>
 

@@ -10,6 +10,7 @@ import {
   ReactFlow,
   type Edge,
   type Node,
+  type NodeMouseHandler,
   type NodeProps,
   type NodeTypes,
 } from '@xyflow/react';
@@ -179,7 +180,6 @@ const edge = (
   labelBgStyle: { fill: '#0a1626', fillOpacity: 0.9 },
   labelBgPadding: [4, 2],
   labelBgBorderRadius: 3,
-  markerEnd: undefined,
 });
 
 const edges: Edge[] = [
@@ -200,13 +200,14 @@ const edges: Edge[] = [
 ];
 
 export function ArchitectureFlow() {
-  const onNodeClick = useCallback((_event: unknown, clicked: Node) => {
-    const href = (clicked.data as BpData).href;
+  const onNodeClick: NodeMouseHandler<BpNode> = useCallback((_event, clicked) => {
+    const { href } = clicked.data;
     if (href) window.open(href, '_blank', 'noopener,noreferrer');
   }, []);
 
   return (
     <ReactFlow
+      aria-label="JobOps Copilot system architecture — interactive node diagram. A text description precedes this canvas for screen readers."
       nodeTypes={nodeTypes}
       defaultNodes={nodes}
       defaultEdges={edges}
