@@ -169,6 +169,15 @@ The Express API protects the expensive AI paths (Phase 2 · Workstream G):
 All guards degrade gracefully: the usage store falls back to in-memory without a
 database, and budget accounting fails open so a store hiccup never blocks AI calls.
 
+## Privacy & PII
+
+The agent strips high-precision **contact-PII** (email / phone / URL / SSN) from
+resume, profile, and job text **before** it reaches a third-party LLM, and masks the same
+data in Langfuse traces — skills and experience (what scoring needs) are preserved.
+Implemented in `services/agent/app/safety/pii.py`, applied across the parse/score/outreach
+chains and the Langfuse `mask`, and toggled by `PII_REDACTION_ENABLED` (default on). Full
+details and retention stance: [`docs/PRIVACY.md`](PRIVACY.md).
+
 ## Design Principles
 
 - Human-in-the-loop by default.

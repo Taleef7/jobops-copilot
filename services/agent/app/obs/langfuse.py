@@ -12,12 +12,51 @@ import os
 from contextlib import contextmanager
 
 from app.config import settings
+from app.safety.pii import redact_pii_in_obj
 
 logger = logging.getLogger("jobops.agent.obs")
 
 
 def _enabled() -> bool:
     return bool(settings.langfuse_public_key and settings.langfuse_secret_key)
+
+
+def _mask(*, data, **_kwargs):
+    """Langfuse ``mask`` callback (Phase 2 · Workstream H): scrub contact-PII from trace
+    inputs/outputs before they leave the process. Gated by the same redaction toggle and
+    never raises into the SDK."""
+    if not settings.pii_redaction_enabled:
+        return data
+    try:
+        return redact_pii_in_obj(data)
+    except Exception:  # noqa: BLE001 - masking must never break tracing
+        return data
+
+
+_client_ready = False
+
+
+def _ensure_client():
+    """Initialize the singleton Langfuse client with PII masking, once, and return it.
+
+    Returns ``None`` when tracing is disabled or the SDK is unavailable. Constructing
+    ``Langfuse(mask=...)`` registers the global client that ``get_client()`` and the
+    LangChain ``CallbackHandler`` reuse, so the mask applies to every trace; keys/host
+    are read from the env bridged by ``_bridge_env`` to avoid SDK-version kwarg drift."""
+    global _client_ready
+    if not _enabled():
+        return None
+    try:
+        _bridge_env()
+        from langfuse import Langfuse, get_client
+
+        if not _client_ready:
+            Langfuse(mask=_mask)
+            _client_ready = True
+        return get_client()
+    except Exception:  # noqa: BLE001 - tracing must never break the request path
+        logger.warning("Langfuse client unavailable; tracing disabled", exc_info=True)
+        return None
 
 
 def _bridge_env() -> None:
@@ -32,11 +71,13 @@ def _bridge_env() -> None:
 
 
 def _handler():
-    """Return a Langfuse LangChain callback handler, or ``None`` when disabled."""
-    if not _enabled():
+    """Return a Langfuse LangChain callback handler, or ``None`` when disabled.
+
+    Routes through ``_ensure_client`` first so the PII-masking client is the singleton
+    the handler attaches to."""
+    if _ensure_client() is None:
         return None
     try:
-        _bridge_env()
         from langfuse.langchain import CallbackHandler
 
         return CallbackHandler()
@@ -50,7 +91,8 @@ def traced_span(name: str, **input_attrs):
     """Best-effort Langfuse span around custom (non-LangChain) work — e.g. RAG
     retrieval. Yields the span object (or ``None`` when tracing is disabled or
     unavailable) and never raises into the caller."""
-    if not _enabled():
+    client = _ensure_client()
+    if client is None:
         yield None
         return
 
@@ -58,10 +100,7 @@ def traced_span(name: str, **input_attrs):
     # exceptions from the wrapped body must propagate (catching them at `yield`
     # would raise "generator didn't stop" and mask the real error).
     try:
-        _bridge_env()
-        from langfuse import get_client
-
-        span_cm = get_client().start_as_current_observation(
+        span_cm = client.start_as_current_observation(
             as_type="span", name=name, input=input_attrs or None
         )
     except Exception:  # noqa: BLE001 - tracing setup must never break the caller
