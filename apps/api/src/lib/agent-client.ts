@@ -64,6 +64,38 @@ export async function runAgentTask<T>(path: string, payload: unknown): Promise<T
   return callAgent<T>(path, payload, AGENT_TASK_TIMEOUT_MS);
 }
 
+export interface AssistantRunInput {
+  descriptionText: string;
+  resumeText?: string;
+  profileText?: string;
+  userId?: string;
+}
+
+/** Start an application-assistant run (LangGraph). Net-new — no mock fallback. */
+export async function runAssistant(input: AssistantRunInput): Promise<unknown> {
+  if (!isAgentEnabled()) {
+    throw new AgentDisabledError();
+  }
+  return callAgent(
+    '/assistant/run',
+    {
+      description_text: input.descriptionText,
+      resume_text: input.resumeText,
+      profile_text: input.profileText,
+      user_id: input.userId,
+    },
+    AGENT_TASK_TIMEOUT_MS,
+  );
+}
+
+/** Resume a paused assistant run with the human approval decision. */
+export async function resumeAssistant(threadId: string, approved: boolean): Promise<unknown> {
+  if (!isAgentEnabled()) {
+    throw new AgentDisabledError();
+  }
+  return callAgent('/assistant/resume', { thread_id: threadId, approved }, AGENT_TASK_TIMEOUT_MS);
+}
+
 /** Analyze the activity series via the agent (pandas + LLM narration). */
 export async function analyzeTelemetryViaAgent(series: ActivityPoint[]): Promise<TelemetryInsights> {
   return callAgent<TelemetryInsights>('/telemetry/insights', { series }, AGENT_TASK_TIMEOUT_MS);
