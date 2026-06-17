@@ -211,6 +211,16 @@ def test_check_thresholds_skips_when_report_skipped():
     assert check_thresholds({"status": "skipped"}, {"skill_f1": 0.99}) == []
 
 
+def test_check_thresholds_fails_when_thresholded_metric_missing():
+    """A thresholded metric absent on an ok run (e.g. Spearman None) is a failure."""
+    from evals.gate import check_thresholds
+
+    report = {"status": "ok", "parse_job": {"skill_f1": 0.9}, "fit_score": {"ragas": {}}}
+    failures = check_thresholds(report, {"skill_f1": 0.5, "rank_correlation_spearman": 0.45})
+    assert any("rank_correlation_spearman" in f for f in failures)
+    assert not any("skill_f1" in f for f in failures)
+
+
 def test_check_regression_flags_drops():
     from evals.gate import check_regression
 

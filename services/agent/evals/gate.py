@@ -37,8 +37,10 @@ def _flatten(report: dict[str, Any]) -> dict[str, float]:
 def check_thresholds(report: dict[str, Any], thresholds: dict[str, float]) -> list[str]:
     """Return human-readable failures for metrics below their committed minimum.
 
-    Returns ``[]`` when the report is not ``status == "ok"`` (a skipped run gates nothing)
-    or when a thresholded metric is absent (e.g. Ragas skipped)."""
+    Returns ``[]`` when the report is not ``status == "ok"`` (a skipped run gates nothing).
+    On an ok run, a thresholded metric that is absent/``None`` is itself a failure — e.g. a
+    collapsed or all-failed score_fit makes Spearman ``None``, which must not pass the gate.
+    (Only metrics listed in ``thresholds`` are required; other absent metrics are ignored.)"""
     if report.get("status") != "ok":
         return []
     flat = _flatten(report)
@@ -46,6 +48,7 @@ def check_thresholds(report: dict[str, Any], thresholds: dict[str, float]) -> li
     for metric, minimum in thresholds.items():
         value = flat.get(metric)
         if value is None:
+            failures.append(f"{metric} is missing/None — cannot verify >= {minimum}")
             continue
         if value < minimum:
             failures.append(f"{metric}={value} is below threshold {minimum}")
