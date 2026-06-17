@@ -20,7 +20,7 @@ from app.chains.score_fit import score_fit
 from app.chains.weekly import weekly_recommendations
 from app.config import settings
 from app.llm.provider import LLMNotConfigured, llm_available, resolve_provider
-from app.obs import traced_config
+from app.obs import traced_config, traced_span
 from app.rag.store import ingest_document, rag_available, retrieve, retrieve_resume_evidence
 from app.schemas import (
     DraftOutreachRequest,
@@ -136,15 +136,19 @@ def parse_job_endpoint(req: ParseJobRequest) -> ParsedJob:
 @app.post("/score-fit", response_model=FitScoreResponse)
 def score_fit_endpoint(req: ScoreFitRequest) -> FitScoreResponse:
     _require_llm()
-    # RAG augmentation: ground the assessment in the resume chunks most relevant
-    # to this job. Best-effort — falls through to direct scoring if RAG is off.
-    if rag_available() and req.resume_text and not req.retrieved_context:
-        evidence = retrieve_resume_evidence(
-            req.resume_text, req.description_text, user_id=req.user_id
-        )
-        if evidence:
-            req.retrieved_context = evidence
-    return _run(score_fit, req, traced_config("score-fit", user_id=req.user_id))
+    # Open the score-fit observation *before* RAG so the `rag.retrieve` span
+    # nests inside this trace instead of being emitted as a separate root trace.
+    # No-op safe: `traced_span` yields None when tracing is disabled.
+    with traced_span("score-fit", user_id=req.user_id):
+        # RAG augmentation: ground the assessment in the resume chunks most
+        # relevant to this job. Best-effort — falls through to direct scoring.
+        if rag_available() and req.resume_text and not req.retrieved_context:
+            evidence = retrieve_resume_evidence(
+                req.resume_text, req.description_text, user_id=req.user_id
+            )
+            if evidence:
+                req.retrieved_context = evidence
+        return _run(score_fit, req, traced_config("score-fit", user_id=req.user_id))
 
 
 @app.post("/rag/ingest")
