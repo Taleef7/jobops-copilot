@@ -6,16 +6,17 @@
  * real billing backstop. Token-accurate accounting is a possible follow-up.
  */
 
+const DEFAULT_USD = 0.01;
+
 const PER_OP_USD: Record<string, number> = {
   score: 0.01,
   parse: 0.005,
   outreach: 0.01,
   research: 0.02,
-  default: 0.01,
 };
 
 export function estimateCallCostUsd(op: string): number {
-  return PER_OP_USD[op] ?? PER_OP_USD.default;
+  return PER_OP_USD[op] ?? DEFAULT_USD;
 }
 
 export function dailyBudgetUsd(): number {

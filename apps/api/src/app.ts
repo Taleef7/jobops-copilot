@@ -3,6 +3,7 @@ import express from 'express';
 import helmet from 'helmet';
 import { attachUserId, clerkAuth } from '@/lib/auth';
 import { globalLimiter, strictLimiter } from '@/lib/rate-limit';
+import { enforceDailyBudget } from '@/lib/budget';
 import { aiRouter } from '@/routes/ai';
 import { demoRouter } from '@/routes/demo';
 import { healthRouter } from '@/routes/health';
@@ -68,8 +69,9 @@ export function createApp() {
 
   app.use('/api', healthRouter);
   app.use('/api/jobs', jobsRouter);
-  // Stricter per-user limit on the expensive AI + discovery routes (LLM/3rd-party spend).
-  app.use('/api/ai', strictLimiter, aiRouter);
+  // Stricter per-user limit on the expensive AI + discovery routes; the AI routes
+  // additionally enforce the per-user daily spend ceiling (discovery has no LLM cost).
+  app.use('/api/ai', strictLimiter, enforceDailyBudget, aiRouter);
   app.use('/api/profile', profileRouter);
   app.use('/api/demo', demoRouter);
   app.use('/api/outreach', outreachRouter);
