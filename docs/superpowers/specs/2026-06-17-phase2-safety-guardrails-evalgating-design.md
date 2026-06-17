@@ -50,9 +50,15 @@ defend the LLM against untrusted input, and turn the report-only eval job into a
    overrides) is **delimited as data**, flagged on the trace, and does not alter
    extraction/scoring behavior; generated outreach passes a **moderation + groundedness**
    check before it is returned.
-5. A **deterministic eval gate** runs on PRs (no provider key needed) and **fails the
-   build** when parse-job metrics fall below committed thresholds; the **Ragas** suite
-   runs on `main` report-only and **flags regressions** against a stored baseline.
+5. **Two-tier gate, honest about the push-only judge key.** Every PR runs a *key-free*
+   gate — eval-metric unit tests + a **gold-set integrity** check + a **mock-model
+   smoke run** of the runner — that **fails the build** on broken eval code, malformed
+   gold data, or a broken pipeline. On **push-to-main** (where the provider key is
+   available) the real eval runs and **fails the job** when parse-job F1 / title /
+   seniority or fit-vs-label Spearman fall below committed thresholds, and **flags Ragas
+   regressions** against a stored baseline. (A PR cannot gate *model quality* without
+   exposing the judge key to PR code — the risk Phase 1 closed — so quality is gated at
+   `main`; this is documented and the main gate is wired as a deploy gate.)
 6. **Graceful degradation preserved:** no provider key → moderation/Ragas/LLM-based
    checks skip; no DB → rate/cost state falls back to in-memory; `npm run check` +
    agent `pytest`/`ruff` stay green.
@@ -119,16 +125,23 @@ defend the LLM against untrusted input, and turn the report-only eval job into a
 
 ## 7. Workstream J — Eval gating + full `EVALS.md`
 
-- **Two-tier CI:**
-  - *Deterministic gate (PRs).* A job that runs the parse-job deterministic metrics
-    (skill P/R/F1, title/seniority accuracy — **no provider key**) and **fails** when a
-    metric drops below the committed threshold in `evals/thresholds.json` (seeded from
-    current baselines minus a tolerance, e.g. F1 ≥ 0.55 given the 0.59 baseline). Marked
-    a **required status check** in branch protection (a repo setting, documented).
-  - *Ragas (push-to-main).* Stays report-only (the judge key is push-only by Phase 1's
-    security fix) and adds **regression detection** against `evals/baseline.json`: on a
-    drop beyond tolerance it fails-soft (annotates the run summary; optional follow-up
-    issue). It cannot block post-merge — that is by design and is documented.
+- **Constraint that shapes this:** the deterministic parse-job *metrics* are LLM-free,
+  but *producing* the candidate parse still calls the LLM (`parse_job()`), so a PR with
+  no provider key skips entirely. Quality therefore cannot be gated on PRs without
+  re-exposing the judge key to PR code — the exact risk Phase 1 closed. Hence two tiers:
+  - *PR gate (key-free, blocks merges via the existing `agent` pytest job).* Three pure
+    checks: (1) the eval-metric **unit tests**; (2) a **gold-set integrity** test —
+    every `parse_job.jsonl` / `fit_score.jsonl` row is well-formed (required keys,
+    non-empty fields) and `sample_resume.txt` exists; (3) a **mock-model smoke run** that
+    monkeypatches a fake model (the `_FakeModel` pattern already in `tests/test_tracing.py`)
+    and drives `evals.run` end-to-end, asserting it produces a report. Catches broken
+    eval code, malformed data, and pipeline breakage — no key, fully deterministic.
+  - *Main quality gate (key present, on push-to-main in `evals.yml`).* Runs the real
+    eval and **fails the job** when a metric drops below the committed threshold in
+    `evals/thresholds.json` (seeded from current baselines minus a tolerance, e.g.
+    F1 ≥ 0.50 given the 0.59 baseline). Adds **Ragas regression detection** vs
+    `evals/baseline.json` (fail on a drop beyond tolerance). A red main gate is visible
+    and is **wired as a deploy gate** (the deploy job checks the latest gate, documented).
 - **`EVALS.md` (full):** methodology, datasets, the current metrics table, thresholds,
   how to run locally, the two-tier CI rationale, and the security note on why the judge
   key is injected only on push-to-main.
