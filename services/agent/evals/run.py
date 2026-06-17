@@ -39,15 +39,20 @@ _PROVIDER_KEYS = {
 
 
 def _provider_ready() -> bool:
-    """True only when a provider is resolved *and* its API key is actually set.
+    """True only when a provider is resolved *and* fully credentialed.
 
     Stricter than ``llm_available()``: ``resolve_provider()`` returns an explicit
     ``LLM_PROVIDER`` before checking credentials, so a ``.env`` that selects a
-    provider but leaves the key blank would otherwise fall through to a failing
-    LLM call instead of the intended skipped report.
+    provider but leaves the key (or, for Azure, the endpoint) blank would
+    otherwise fall through to a failing LLM call instead of the skipped report.
     """
-    attr = _PROVIDER_KEYS.get(resolve_provider() or "")
-    return bool(attr and getattr(settings, attr, None))
+    provider = resolve_provider()
+    attr = _PROVIDER_KEYS.get(provider or "")
+    if not (attr and getattr(settings, attr, None)):
+        return False
+    if provider == "azure_openai" and not settings.azure_openai_endpoint:
+        return False
+    return True
 
 
 def _load_jsonl(path: Path) -> list[dict]:

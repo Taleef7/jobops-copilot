@@ -124,6 +124,19 @@ def test_provider_ready_requires_the_selected_key(monkeypatch):
     assert run._provider_ready() is True
 
 
+def test_provider_ready_azure_needs_endpoint(monkeypatch):
+    """Azure with a key but no endpoint is not ready (would fail at call time)."""
+    from evals import run
+
+    monkeypatch.setattr(run.settings, "llm_provider", "azure_openai")
+    monkeypatch.setattr(run.settings, "azure_openai_api_key", "key")
+    monkeypatch.setattr(run.settings, "azure_openai_endpoint", "")
+    assert run._provider_ready() is False
+
+    monkeypatch.setattr(run.settings, "azure_openai_endpoint", "https://x.openai.azure.com")
+    assert run._provider_ready() is True
+
+
 def test_run_skips_without_provider_key(tmp_path, monkeypatch):
     """No provider key -> run skips, writes a report, exits 0 (no LLM calls)."""
     import json
