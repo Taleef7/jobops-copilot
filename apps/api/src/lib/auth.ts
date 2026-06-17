@@ -32,6 +32,17 @@ export function attachUserId(request: Request, _response: Response, next: NextFu
     return next();
   }
 
+  // Service principal (e.g. the MCP server bridge): a holder of the shared API key may act
+  // on behalf of a specific user via X-User-Id. Mirrors the n8n machine-to-machine trust —
+  // only a caller with the server-side secret can set the user, so unauthenticated clients
+  // can't (the X-User-Id below it is honored only in dev where Clerk is off).
+  const sharedSecret = process.env.API_SHARED_SECRET?.trim();
+  const onBehalfOf = request.header('X-User-Id')?.trim();
+  if (sharedSecret && request.header('X-API-Key')?.trim() === sharedSecret && onBehalfOf) {
+    request.userId = onBehalfOf;
+    return next();
+  }
+
   if (clerkEnabled) {
     const { userId } = getAuth(request);
     if (userId) {
