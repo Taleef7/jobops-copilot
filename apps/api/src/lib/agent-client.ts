@@ -96,6 +96,19 @@ export async function resumeAssistant(threadId: string, approved: boolean): Prom
   return callAgent('/assistant/resume', { thread_id: threadId, approved }, AGENT_TASK_TIMEOUT_MS);
 }
 
+/** Open the agent's SSE assistant stream; returns the raw upstream Response to pipe. */
+export async function streamAssistantUpstream(payload: unknown): Promise<Response> {
+  if (!isAgentEnabled()) {
+    throw new AgentDisabledError();
+  }
+  return fetch(`${AGENT_URL}/assistant/stream`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+    signal: AbortSignal.timeout(AGENT_TASK_TIMEOUT_MS),
+  });
+}
+
 /** Analyze the activity series via the agent (pandas + LLM narration). */
 export async function analyzeTelemetryViaAgent(series: ActivityPoint[]): Promise<TelemetryInsights> {
   return callAgent<TelemetryInsights>('/telemetry/insights', { series }, AGENT_TASK_TIMEOUT_MS);
