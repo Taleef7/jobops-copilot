@@ -3,3 +3,8 @@
 # these lazily, so unit tests run without torch installed.
 psycopg[binary]>=3.2,<4
 sentence-transformers>=3.0,<6
+
+# Eval harness (Phase 1 · Workstream A). Ragas scores score-fit faithfulness /
+# answer-relevance / context-recall with an LLM judge. Only `python -m evals.run`
+# and the report-only evals CI job need this; unit tests import metrics lazily.
+ragas>=0.2,<0.4

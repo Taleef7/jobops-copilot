@@ -1,0 +1,32 @@
+Alex Rivera
+AI / Full-Stack Software Engineer
+
+SUMMARY
+Software engineer with ~3 years of experience building AI-powered web applications
+end to end. Comfortable across the stack: Python services, TypeScript front ends, and
+LLM/RAG features shipped to production on Azure. Strong on API design, retrieval-
+augmented generation, and pragmatic LLMOps (tracing, evals, graceful degradation).
+
+SKILLS
+Languages: Python, TypeScript, JavaScript, SQL
+Backend: FastAPI, Node.js, Express, REST APIs, PostgreSQL, pgvector
+AI / LLM: LangChain, large language models (LLMs), retrieval-augmented generation (RAG),
+  prompt engineering, structured output, embeddings, vector search
+Frontend: React, Next.js, Tailwind CSS
+Cloud / DevOps: Microsoft Azure (App Service, Functions), Docker, GitHub Actions CI/CD, Git
+
+EXPERIENCE
+AI Engineer (Contract) — Independent, 2023–Present
+- Built a multi-service job-search copilot: Express + TypeScript API, a Python FastAPI
+  agent (LangChain), and a Next.js/React web app, deployed on Azure with CI/CD.
+- Implemented RAG over resumes/job descriptions with PostgreSQL + pgvector and added
+  Langfuse tracing plus a Ragas/pytest eval harness for the LLM features.
+- Designed graceful degradation so the app runs with no provider key, no vector DB,
+  and no external job API.
+
+Software Engineer — Early-career roles, 2021–2023
+- Developed Python backend services and REST APIs against SQL databases.
+- Shipped React/TypeScript front ends and automated builds/tests with Git and CI.
+
+EDUCATION
+B.S. in Computer Science.
