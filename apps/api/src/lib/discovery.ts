@@ -27,7 +27,14 @@ function keysFor(job: { jobUrl?: string; company?: string; title?: string; locat
   return job.jobUrl ? [job.jobUrl.toLowerCase(), fingerprint] : [fingerprint];
 }
 
-/** Postgres unique-violation — a concurrent run already inserted this posting. */
+/**
+ * Postgres unique-violation — a concurrent run already inserted this posting.
+ * Safe to treat as a duplicate because `jobs_user_job_url_unique_idx`
+ * (the per-user `(user_id, job_url)` index) is the only raisable unique
+ * constraint in `createJob`'s transaction; `job_analysis` uses
+ * `on conflict do update`. Revisit this if another unique index is added to
+ * either table, or a real conflict would be silently counted as skipped.
+ */
 function isDuplicateKeyError(error: unknown): boolean {
   return (
     typeof error === 'object' && error !== null && (error as { code?: string }).code === '23505'

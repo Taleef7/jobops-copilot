@@ -73,6 +73,20 @@ test('dedupes a URL-less source copy against a URL-backed CRM job', async () => 
   assert.equal(created.length, 0);
 });
 
+test('dedupes a URL-less source copy against a URL-less CRM job (fingerprint match)', async () => {
+  const urlless: SourcedJob = { source: 'adzuna', company: 'A', title: 'T', location: 'L', descriptionText: '' };
+  const { deps, created } = makeDeps(
+    [urlless],
+    [{ company: 'A', title: 'T', location: 'L' }], // existing CRM job with no URL
+  );
+
+  const result = await runDiscoveryForUser('u', deps);
+
+  assert.equal(result.inserted, 0);
+  assert.equal(result.skipped, 1);
+  assert.equal(created.length, 0);
+});
+
 test('counts a concurrent duplicate insert (Postgres 23505) as skipped', async () => {
   const created: CreateJobBody[] = [];
   const deps: DiscoveryDeps = {
