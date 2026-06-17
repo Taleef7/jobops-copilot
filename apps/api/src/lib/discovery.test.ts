@@ -58,3 +58,56 @@ test('dedupes repeated postings within the same run', async () => {
   assert.equal(result.skipped, 1);
   assert.equal(created.length, 1);
 });
+
+test('dedupes a URL-less source copy against a URL-backed CRM job', async () => {
+  const urlless: SourcedJob = { source: 'adzuna', company: 'A', title: 'T', location: 'L', descriptionText: '' };
+  const { deps, created } = makeDeps(
+    [urlless],
+    [{ jobUrl: 'https://x/1', company: 'A', title: 'T', location: 'L' }],
+  );
+
+  const result = await runDiscoveryForUser('u', deps);
+
+  assert.equal(result.inserted, 0);
+  assert.equal(result.skipped, 1);
+  assert.equal(created.length, 0);
+});
+
+test('counts a concurrent duplicate insert (Postgres 23505) as skipped', async () => {
+  const created: CreateJobBody[] = [];
+  const deps: DiscoveryDeps = {
+    source: {
+      name: 'adzuna',
+      search: async () => [sourced('https://race/1'), sourced('https://race/2', { company: 'B' })],
+    },
+    listJobs: async () => [],
+    createJob: async (_userId, body) => {
+      if (body.jobUrl === 'https://race/1') {
+        throw Object.assign(new Error('duplicate key value violates unique constraint'), { code: '23505' });
+      }
+      created.push(body);
+      return body as unknown as JobRecord;
+    },
+    listSavedSearches: async () => [SEARCH],
+  };
+
+  const result = await runDiscoveryForUser('u', deps);
+
+  assert.equal(result.inserted, 1);
+  assert.equal(result.skipped, 1);
+  assert.equal(created.length, 1);
+  assert.equal(created[0]?.jobUrl, 'https://race/2');
+});
+
+test('propagates non-duplicate insert errors', async () => {
+  const deps: DiscoveryDeps = {
+    source: { name: 'adzuna', search: async () => [sourced('https://boom/1')] },
+    listJobs: async () => [],
+    createJob: async () => {
+      throw new Error('db down');
+    },
+    listSavedSearches: async () => [SEARCH],
+  };
+
+  await assert.rejects(runDiscoveryForUser('u', deps), /db down/);
+});

@@ -79,10 +79,23 @@ export function normalizeRemotive(raw: RemotiveRaw): SourcedJob {
 }
 
 /**
- * Stable per-user dedup key: the canonical job URL when present, otherwise a
+ * `company|title|location` fingerprint — the URL-less dedup fallback. Exposed
+ * so callers can record it alongside the URL key for URL-backed jobs, letting a
+ * posting collide with a URL-less copy of itself.
+ */
+export function fingerprintKey(job: {
+  company?: string;
+  title?: string;
+  location?: string;
+}): string {
+  return [job.company, job.title, job.location].map((part) => clean(part).toLowerCase()).join('|');
+}
+
+/**
+ * Stable per-user dedup key: the canonical job URL when present, otherwise the
  * `company|title|location` fingerprint so URL-less postings still dedup.
  */
 export function dedupKey(job: SourcedJob): string {
   if (job.jobUrl) return job.jobUrl.toLowerCase();
-  return [job.company, job.title, job.location].map((part) => clean(part).toLowerCase()).join('|');
+  return fingerprintKey(job);
 }

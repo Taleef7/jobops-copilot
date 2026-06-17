@@ -1,8 +1,7 @@
-import type { JobRecord } from '@/types';
 import { createJob as createJobStore, listJobs as listJobsStore } from '@/data/job-store';
 import { listSavedSearches as listSavedSearchesStore } from '@/data/saved-search-store';
 import type { JobSource } from '@/lib/job-sources';
-import { dedupKey } from '@/lib/job-sources/normalize';
+import { dedupKey, fingerprintKey } from '@/lib/job-sources/normalize';
 
 export interface DiscoveryResult {
   inserted: number;
@@ -17,10 +16,22 @@ export interface DiscoveryDeps {
   listSavedSearches: typeof listSavedSearchesStore;
 }
 
-/** Same key derivation as `dedupKey`, for the user's already-stored jobs. */
-function existingKey(job: JobRecord): string {
-  if (job.jobUrl) return job.jobUrl.toLowerCase();
-  return [job.company, job.title, job.location].map((part) => (part ?? '').trim().toLowerCase()).join('|');
+/**
+ * Every dedup key a job occupies: its URL key (when present) *and* its
+ * `company|title|location` fingerprint. Recording both for stored jobs lets a
+ * URL-backed posting collide with a URL-less copy of the same posting (e.g. a
+ * manually tracked job vs. a source row that omits the URL).
+ */
+function keysFor(job: { jobUrl?: string; company?: string; title?: string; location?: string }): string[] {
+  const fingerprint = fingerprintKey(job);
+  return job.jobUrl ? [job.jobUrl.toLowerCase(), fingerprint] : [fingerprint];
+}
+
+/** Postgres unique-violation — a concurrent run already inserted this posting. */
+function isDuplicateKeyError(error: unknown): boolean {
+  return (
+    typeof error === 'object' && error !== null && (error as { code?: string }).code === '23505'
+  );
 }
 
 /**
@@ -30,7 +41,7 @@ function existingKey(job: JobRecord): string {
  */
 export async function runDiscoveryForUser(userId: string, deps: DiscoveryDeps): Promise<DiscoveryResult> {
   const searches = await deps.listSavedSearches(userId);
-  const seen = new Set((await deps.listJobs(userId)).map(existingKey));
+  const seen = new Set((await deps.listJobs(userId)).flatMap(keysFor));
 
   let inserted = 0;
   let skipped = 0;
@@ -53,9 +64,23 @@ export async function runDiscoveryForUser(userId: string, deps: DiscoveryDeps): 
         skipped += 1;
         continue;
       }
-      seen.add(key);
-      await deps.createJob(userId, job);
-      inserted += 1;
+      // Reserve every key this posting occupies so a later URL-less/URL-backed
+      // copy in the same run is recognised as a duplicate.
+      for (const k of keysFor(job)) seen.add(k);
+      try {
+        await deps.createJob(userId, job);
+        inserted += 1;
+      } catch (error) {
+        // A concurrent discovery run (manual click + n8n sweep, or two API
+        // instances) can insert the same posting between building `seen` and
+        // this insert; Postgres' per-user (user_id, job_url) unique index then
+        // rejects it. Count the race as a skip instead of failing the request.
+        if (isDuplicateKeyError(error)) {
+          skipped += 1;
+          continue;
+        }
+        throw error;
+      }
     }
   }
 
