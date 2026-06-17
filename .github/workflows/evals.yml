@@ -38,12 +38,12 @@ jobs:
           cache: pip
           cache-dependency-path: |
             services/agent/requirements-dev.txt
-            services/agent/requirements-rag.txt
+            services/agent/requirements-evals.txt
 
       - name: Install dependencies
         run: |
           pip install -r requirements-dev.txt
-          pip install -r requirements-rag.txt
+          pip install -r requirements-evals.txt
 
       - name: Run evals (skips cleanly without a provider key)
         id: run

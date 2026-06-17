@@ -31,9 +31,12 @@ on these numbers is intentionally deferred to Phase 2; today the eval job is
 
 ```bash
 cd services/agent
-pip install -r requirements-dev.txt -r requirements-rag.txt
+pip install -r requirements-dev.txt -r requirements-evals.txt
 python -m evals.run        # writes evals/report.json + evals/report.md
 ```
+
+(`requirements-evals.txt` carries Ragas; it is intentionally **not** in the
+runtime image, which installs only `requirements.txt` + `requirements-rag.txt`.)
 
 With **no provider key** configured the run **skips** and exits 0 — so CI and
 key-less local runs stay green. The deterministic metric units are covered by
