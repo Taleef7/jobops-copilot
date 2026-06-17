@@ -1,6 +1,8 @@
 import cors from 'cors';
 import express from 'express';
+import helmet from 'helmet';
 import { attachUserId, clerkAuth } from '@/lib/auth';
+import { globalLimiter, strictLimiter } from '@/lib/rate-limit';
 import { aiRouter } from '@/routes/ai';
 import { demoRouter } from '@/routes/demo';
 import { healthRouter } from '@/routes/health';
@@ -46,6 +48,10 @@ export function createApp() {
   const app = express();
 
   app.disable('x-powered-by');
+  // One proxy hop in front of the app (Azure App Service) — needed so `req.ip` is
+  // the real client, which the rate limiter keys on for unauthenticated requests.
+  app.set('trust proxy', 1);
+  app.use(helmet());
   app.use(
     cors({
       origin: true,
@@ -56,16 +62,20 @@ export function createApp() {
   app.use(express.json({ limit: '5mb' }));
   app.use(clerkAuth);
   app.use(attachUserId);
+  // Lenient global limit (keyed by user, else IP). Runs after `attachUserId` so the
+  // user-scoped key is available; the strict limit on AI/discovery is mounted below.
+  app.use(globalLimiter);
 
   app.use('/api', healthRouter);
   app.use('/api/jobs', jobsRouter);
-  app.use('/api/ai', aiRouter);
+  // Stricter per-user limit on the expensive AI + discovery routes (LLM/3rd-party spend).
+  app.use('/api/ai', strictLimiter, aiRouter);
   app.use('/api/profile', profileRouter);
   app.use('/api/demo', demoRouter);
   app.use('/api/outreach', outreachRouter);
   app.use('/api/reports', reportsRouter);
   app.use('/api/telemetry', telemetryRouter);
-  app.use('/api/discovery', discoveryRouter);
+  app.use('/api/discovery', strictLimiter, discoveryRouter);
   app.use('/api/saved-searches', savedSearchesRouter);
   // Mounted before '/api/n8n' so this more specific path wins; it inherits the
   // shared-API-key exemption (path starts with /api/n8n) and uses the n8n secret.
