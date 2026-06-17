@@ -18,7 +18,8 @@ from pathlib import Path
 
 from app.chains.parse_job import parse_job
 from app.chains.score_fit import score_fit
-from app.llm.provider import get_model, llm_available
+from app.config import settings
+from app.llm.provider import get_model, resolve_provider
 from app.rag.chunk import chunk_text
 from app.schemas import ScoreFitRequest
 from evals.metrics.extraction import exact_match, skill_prf
@@ -27,6 +28,26 @@ from evals.metrics.ragas_fit import fit_ragas_scores, mean, spearman
 logger = logging.getLogger("jobops.evals")
 
 _DATA_DIR = Path(__file__).parent / "data"
+
+# Settings attribute holding each provider's API key.
+_PROVIDER_KEYS = {
+    "anthropic": "anthropic_api_key",
+    "openai": "openai_api_key",
+    "azure_openai": "azure_openai_api_key",
+    "google_genai": "google_gemini_api_key",
+}
+
+
+def _provider_ready() -> bool:
+    """True only when a provider is resolved *and* its API key is actually set.
+
+    Stricter than ``llm_available()``: ``resolve_provider()`` returns an explicit
+    ``LLM_PROVIDER`` before checking credentials, so a ``.env`` that selects a
+    provider but leaves the key blank would otherwise fall through to a failing
+    LLM call instead of the intended skipped report.
+    """
+    attr = _PROVIDER_KEYS.get(resolve_provider() or "")
+    return bool(attr and getattr(settings, attr, None))
 
 
 def _load_jsonl(path: Path) -> list[dict]:
@@ -188,7 +209,7 @@ def main(output_dir: Path | None = None) -> int:
     output_dir = output_dir or Path(__file__).parent
     generated_at = datetime.now(UTC).isoformat(timespec="seconds")
 
-    if not llm_available():
+    if not _provider_ready():
         report = {
             "generated_at": generated_at,
             "status": "skipped",

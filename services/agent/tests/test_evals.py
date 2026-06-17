@@ -111,13 +111,26 @@ def test_fit_score_eval_counts_failures(monkeypatch):
     assert result["ragas"] == {}  # no responses to judge
 
 
+def test_provider_ready_requires_the_selected_key(monkeypatch):
+    """An explicit LLM_PROVIDER with a blank key is NOT ready (would otherwise
+    fall through to a failing LLM call instead of skipping)."""
+    from evals import run
+
+    monkeypatch.setattr(run.settings, "llm_provider", "openai")
+    monkeypatch.setattr(run.settings, "openai_api_key", "")
+    assert run._provider_ready() is False
+
+    monkeypatch.setattr(run.settings, "openai_api_key", "sk-present")
+    assert run._provider_ready() is True
+
+
 def test_run_skips_without_provider_key(tmp_path, monkeypatch):
     """No provider key -> run skips, writes a report, exits 0 (no LLM calls)."""
     import json
 
     from evals import run
 
-    monkeypatch.setattr(run, "llm_available", lambda: False)
+    monkeypatch.setattr(run, "resolve_provider", lambda: None)
     code = run.main(output_dir=tmp_path)
     assert code == 0
     report = json.loads((tmp_path / "report.json").read_text(encoding="utf-8"))
