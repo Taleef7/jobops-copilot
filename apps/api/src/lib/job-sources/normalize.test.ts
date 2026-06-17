@@ -19,6 +19,7 @@ test('normalizeAdzuna maps and trims an Adzuna result', () => {
   assert.equal(job.title, 'AI Engineer');
   assert.equal(job.location, 'Remote');
   assert.equal(job.employmentType, 'Full-time');
+  assert.equal(job.workplaceType, 'remote');
   assert.equal(job.datePosted, '2026-06-01T00:00:00Z');
   assert.equal(job.descriptionText, 'Build agents');
 });
@@ -29,8 +30,24 @@ test('normalizeAdzuna falls back to safe defaults for missing fields', () => {
   assert.equal(job.title, 'Untitled role');
   assert.equal(job.location, '');
   assert.equal(job.employmentType, 'Full-time');
+  assert.equal(job.workplaceType, 'onsite');
   assert.equal(job.jobUrl, undefined);
   assert.equal(job.descriptionText, '');
+});
+
+test('normalizeAdzuna infers workplaceType (onsite default, hybrid/remote from text)', () => {
+  assert.equal(
+    normalizeAdzuna({ title: 'Backend Engineer', location: { display_name: 'Austin, TX' } }).workplaceType,
+    'onsite',
+  );
+  assert.equal(
+    normalizeAdzuna({ title: 'Engineer (Hybrid)', location: { display_name: 'NYC' } }).workplaceType,
+    'hybrid',
+  );
+  assert.equal(
+    normalizeAdzuna({ title: 'Remote Engineer', location: { display_name: 'Anywhere' } }).workplaceType,
+    'remote',
+  );
 });
 
 test('normalizeRemotive maps a result and marks it remote', () => {

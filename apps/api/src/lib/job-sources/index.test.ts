@@ -38,7 +38,7 @@ async function withEnv(vars: Record<string, string | undefined>, fn: () => Promi
 
 test('getJobSource uses Remotive when Adzuna is not configured', async () => {
   await withEnv({ ADZUNA_APP_ID: undefined, ADZUNA_APP_KEY: undefined }, async () => {
-    const restore = stubFetch(() => ({ ok: true, body: { jobs: [{ url: 'https://r/1', title: 'T', company_name: 'C' }] } }));
+    const restore = stubFetch(() => ({ ok: true, body: { jobs: [{ url: 'https://r/1', title: 'Engineer', company_name: 'C' }] } }));
     try {
       const source = getJobSource();
       assert.equal(source.name, 'remotive');
@@ -74,7 +74,7 @@ test('getJobSource falls back to Remotive when Adzuna fails', async () => {
     const restore = stubFetch((url) =>
       url.includes('adzuna')
         ? { ok: false, status: 429, body: {} }
-        : { ok: true, body: { jobs: [{ url: 'https://r/2', title: 'T', company_name: 'C' }] } },
+        : { ok: true, body: { jobs: [{ url: 'https://r/2', title: 'AI Engineer', company_name: 'C' }] } },
     );
     try {
       const source = getJobSource();

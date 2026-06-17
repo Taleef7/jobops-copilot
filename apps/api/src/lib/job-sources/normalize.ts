@@ -1,4 +1,4 @@
-import type { CreateJobBody } from '@/types';
+import type { CreateJobBody, JobWorkplaceType } from '@/types';
 
 /** A job from an external source, shaped for `createJob`, tagged with its origin. */
 export type SourcedJob = CreateJobBody & { source: string };
@@ -38,6 +38,18 @@ function employmentLabel(raw: unknown): string {
   return 'Full-time';
 }
 
+/**
+ * Adzuna provides no workplace field. Infer it from the text, defaulting to
+ * `onsite` — important because the job stores default an *omitted* workplaceType
+ * to `remote`, which would mislabel physical-location roles.
+ */
+function inferWorkplaceType(...fields: Array<string | undefined>): JobWorkplaceType {
+  const text = fields.map((field) => clean(field).toLowerCase()).join(' ');
+  if (text.includes('hybrid')) return 'hybrid';
+  if (/\bremote\b|work from home|\bwfh\b/.test(text)) return 'remote';
+  return 'onsite';
+}
+
 export function normalizeAdzuna(raw: AdzunaRaw): SourcedJob {
   return {
     jobUrl: clean(raw.redirect_url) || undefined,
@@ -46,6 +58,7 @@ export function normalizeAdzuna(raw: AdzunaRaw): SourcedJob {
     title: clean(raw.title, 'Untitled role'),
     location: clean(raw.location?.display_name),
     employmentType: employmentLabel(raw.contract_time),
+    workplaceType: inferWorkplaceType(raw.title, raw.location?.display_name, raw.description),
     datePosted: clean(raw.created) || undefined,
     descriptionText: clean(raw.description),
   };
