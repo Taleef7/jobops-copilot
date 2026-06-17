@@ -77,9 +77,17 @@ equally: each piece must read credibly in the portfolio **and** actually work in
   DB. The server holds the API base URL + shared API key; the MCP client supplies the
   **user id** so a session acts as that user.
 - **Auth:** unauthenticated tool calls are refused; the server forwards `X-API-Key`
-  (shared secret) + `X-User-Id` to the API. Configured via `MCP_SERVER_*` env.
-- **Rejected:** a DB-direct server (duplicates store logic, bypasses Phase 2 guards) and a
-  stdio-only server (not usable by the live app remotely; HTTP can still run locally).
+  (= the API's `API_SHARED_SECRET`) + `X-User-Id` to the API. **This requires an API-side
+  change:** today `attachUserId` only trusts Clerk when `CLERK_SECRET_KEY` is set and
+  ignores `X-User-Id` (except `/api/n8n`), so a bridge would 401 at `requireUser` on real
+  reads. Phase 3 adds a **service-auth** path to `apps/api/src/lib/auth.ts` — a valid
+  shared key plus `X-User-Id` sets `request.userId` (the same M2M trust model as n8n; only
+  a holder of the server-side secret can act on behalf of a user). Configured via
+  `MCP_SERVER_*` env.
+- **Rejected:** a DB-direct server (duplicates store logic, bypasses Phase 2 guards); a
+  stdio-only server (not usable by the live app remotely; HTTP can still run locally); and
+  minting per-user Clerk tokens in the bridge (needs Clerk M2M / a live session — heavier
+  than a shared service principal).
 
 ## 6. Workstream M — Streaming (agent → API → web)
 
@@ -90,8 +98,15 @@ equally: each piece must read credibly in the portfolio **and** actually work in
   agent's SSE through unbuffered, Clerk-auth'd, under the Phase 2 rate-limit/budget guards.
 - **Web:** a live assistant panel consuming the stream (fetch `ReadableStream` / SSE),
   rendering step progress + the streaming draft, with the approval control at the interrupt.
+  The existing catch-all `/api/proxy` route **buffers** (`await upstream.arrayBuffer()`) and
+  forwards the path after `/api/proxy` straight to `API_BASE`, so it can neither stream SSE
+  nor reach `/api/ai/...` without the `api/` segment. Phase 3 adds a **dedicated streaming
+  Next route** (`/api/assistant-stream`) that attaches the Clerk token + shared key and
+  returns `upstream.body` unbuffered; non-streaming run/resume calls use the normal proxy at
+  `/api/proxy/api/ai/assistant/*`.
 - **Degradation:** no agent/provider → 503; the UI keeps the existing non-streaming flow.
-- **Rejected:** WebSockets (heavier; SSE suffices and works on App Service).
+- **Rejected:** WebSockets (heavier; SSE suffices and works on App Service); routing SSE
+  through the buffering catch-all proxy (would defeat live streaming).
 
 ## 7. Workstream N — MCP client (`services/agent`)
 
@@ -109,9 +124,12 @@ equally: each piece must read credibly in the portfolio **and** actually work in
   `MCP_SERVER_API_BASE_URL` + `MCP_SERVER_API_KEY` (L); `MCP_CLIENT_SERVERS` (N). Live
   values via App Service config (existing pattern).
 - **Testing:** K — graph routing (strong/weak fit) + interrupt/resume with a fake model
-  (no LLM); L — each MCP tool handler against a mocked REST API + the auth-required path;
-  M — the SSE endpoint emits ordered events from a fake graph + the Express passthrough; N —
-  MCP-client tool loading with a mock adapter + the Tavily fallback. Preserve all existing
+  (no LLM); L — the **API service-auth** path (`attachUserId` resolves the user from a valid
+  shared key + `X-User-Id`, and ignores `X-User-Id` without the key) **and** each MCP tool
+  handler against a mocked REST API — so the bridge is verified against the real auth rule,
+  not just header mocks; M — the SSE endpoint emits ordered events from a fake graph + the
+  Express passthrough; N — MCP-client tool loading with a mock adapter + the Tavily
+  fallback. Preserve all existing
   graceful-degradation tests; `npm run check` + agent `pytest`/`ruff` green.
 - **Docs:** ARCHITECTURE (orchestration + MCP + streaming), README highlight, ROADMAP
   Phase 3, and a `services/mcp/README.md` (how to connect an MCP client).

@@ -28,13 +28,15 @@
 - Modify `apps/api/src/lib/agent-client.ts` + a route + minimal web action (kick off a run, show result + approval).
 - Create `services/agent/tests/test_assistant_graph.py`.
 
-**Workstream L — MCP server (new `services/mcp`)**
+**Workstream L — MCP server (new `services/mcp`) + API service-auth**
+- Modify `apps/api/src/lib/auth.ts` — **service-auth**: a valid shared key (`X-API-Key` = `API_SHARED_SECRET`) plus `X-User-Id` sets `request.userId` (so the bridge can act as a user). Without this, the bridge 401s in prod (see Task L0).
 - Create `services/mcp/pyproject.toml` (or `requirements.txt`), `server.py` (FastMCP + tools), `api_client.py` (REST bridge), `README.md`, `tests/test_tools.py`.
 - Modify `.env.example` — `MCP_SERVER_API_BASE_URL`, `MCP_SERVER_API_KEY`.
 
 **Workstream M — Streaming (agent + API + web)**
 - Modify `app/main.py` — `POST /assistant/stream` (`StreamingResponse`, `text/event-stream`).
 - Create `apps/api/src/routes/assistant.ts` (SSE passthrough) + mount in `app.ts`.
+- Create `apps/web/src/app/api/assistant-stream/route.ts` — a **streaming** Next proxy (the catch-all `/api/proxy` route buffers via `arrayBuffer()` and cannot stream SSE).
 - Modify `apps/web` — a live assistant panel consuming the stream + approval control.
 - Create `services/agent/tests/test_assistant_stream.py`.
 
@@ -149,12 +151,55 @@ def score_node(state: dict) -> dict:
 
 ## Workstream L — MCP server (standalone)
 
+### Task L0: API service-auth so the bridge can act as a user (TDD)
+**Files:** Modify `apps/api/src/lib/auth.ts`; Test `apps/api/src/lib/auth.test.ts`
+
+**Why (review fix):** with `CLERK_SECRET_KEY` set (prod), `attachUserId` only trusts Clerk and **ignores `X-User-Id`** (except `/api/n8n`), and `requireSharedApiKey` only gates *mutations* and never sets `request.userId`. So an MCP bridge sending `X-API-Key` + `X-User-Id` would pass header-mock tests but **401 at `requireUser`** on real `GET /api/jobs`, `/api/saved-searches`, etc. Add a service-principal path (mirrors the existing n8n M2M pattern).
+
+- [ ] **Step 1: Failing test** (`auth.test.ts`, mount `attachUserId` on a tiny app):
+
+```ts
+import assert from 'node:assert/strict';
+import test from 'node:test';
+import express from 'express';
+import { attachUserId } from './auth';
+
+test('a valid shared key + X-User-Id acts as that user', async () => {
+  process.env.API_SHARED_SECRET = 'svc-secret';
+  const app = express();
+  app.use(attachUserId);
+  app.get('/whoami', (req, res) => res.json({ userId: req.userId ?? null }));
+  // ... start server, then:
+  const res = await fetch(`${baseUrl}/whoami`, {
+    headers: { 'X-API-Key': 'svc-secret', 'X-User-Id': 'u_mcp' },
+  });
+  assert.equal((await res.json()).userId, 'u_mcp');
+});
+// And: with the WRONG/absent key, X-User-Id is ignored (falls through to Clerk/dev).
+```
+
+- [ ] **Step 2: Run — expect FAIL** — `npm test --workspace @jobops/api`.
+- [ ] **Step 3: Implement** — in `attachUserId`, before the Clerk branch (and after the `/api/n8n` branch):
+
+```ts
+const sharedSecret = process.env.API_SHARED_SECRET?.trim();
+const onBehalfOf = request.header('X-User-Id')?.trim();
+if (sharedSecret && request.header('X-API-Key')?.trim() === sharedSecret && onBehalfOf) {
+  request.userId = onBehalfOf; // service principal acts as the specified user
+  return next();
+}
+```
+
+Only a holder of the server-side `API_SHARED_SECRET` can act on behalf of a user, so no escalation for normal clients (absent/wrong key → `X-User-Id` ignored, exactly as today). Document this trust model in `services/mcp/README.md`.
+
+- [ ] **Step 4–5: Run PASS; `npm run check`. Commit** — `feat(api): service-auth — a valid shared key may act as a specified user`.
+
 ### Task L1: scaffold + REST bridge + first tool (TDD)
 **Files:** Create `services/mcp/requirements.txt`, `services/mcp/api_client.py`, `services/mcp/server.py`, `services/mcp/tests/test_tools.py`
 
 - [ ] **Step 0: Confirm API** — via Context7, confirm MCP Python SDK `FastMCP`, `@mcp.tool()`, and **streamable-HTTP** serving (`mcp.run(transport="streamable-http")` / `mcp.streamable_http_app()`), plus how to require auth.
 - [ ] **Step 1–2: Failing test** — `api_client.search_jobs(query, user_id)` calls `GET {BASE}/api/jobs` with `X-API-Key` + `X-User-Id` headers (mock `httpx`/`requests`); returns the parsed list. (Tools are thin wrappers over `api_client`, unit-tested without a live server.)
-- [ ] **Step 3: Implement** `api_client.py` — a small REST client reading `MCP_SERVER_API_BASE_URL` + `MCP_SERVER_API_KEY`, with `search_jobs`, `get_job`, `score_fit`, `draft_outreach`, `list_saved_searches` calling the matching API endpoints and forwarding `X-User-Id`. `server.py` — `mcp = FastMCP("jobops")` + `@mcp.tool()` wrappers delegating to `api_client`.
+- [ ] **Step 3: Implement** `api_client.py` — a small REST client reading `MCP_SERVER_API_BASE_URL` + `MCP_SERVER_API_KEY`, with `search_jobs`, `get_job`, `score_fit`, `draft_outreach`, `list_saved_searches` calling the matching API endpoints, sending `X-API-Key: MCP_SERVER_API_KEY` and `X-User-Id: <user>` on every call. **`MCP_SERVER_API_KEY` must equal the API's `API_SHARED_SECRET`** so the Task L0 service-auth path resolves the user (otherwise reads 401 in prod). `server.py` — `mcp = FastMCP("jobops")` + `@mcp.tool()` wrappers delegating to `api_client`.
 - [ ] **Step 4–5: Run PASS. Commit** — `feat(mcp): JobOps MCP server scaffold + search_jobs over the REST bridge`.
 
 ### Task L2: remaining tools + auth + run
@@ -179,9 +224,25 @@ def score_node(state: dict) -> dict:
 - [ ] **Step 3: Implement** — the route sets `Content-Type: text/event-stream`, `Cache-Control: no-cache`, `X-Accel-Buffering: no`, fetches the agent stream, and pipes `response.body` to `res`. Mount under `/api/ai/assistant/stream` (Clerk + strict limiter + budget). Confirm no global middleware buffers it.
 - [ ] **Step 4–5: Run PASS; `npm run check`. Commit** — `feat(api): SSE passthrough for the assistant stream`.
 
-### Task M3: web live panel + degradation
-**Files:** Modify `apps/web`
-- [ ] Add an assistant panel that POSTs to `/api/proxy/ai/assistant/stream`, reads the `ReadableStream`, renders per-node status + the streaming draft, and shows the Approve/Reject control at `awaiting_approval` (calling `/assistant/resume`). When the agent is unavailable (503), fall back to the non-streaming run. **Verify:** `npm run check`; manual browser check. **Commit** — `feat(web): live streaming assistant panel + approval`.
+### Task M3: web streaming proxy + live panel + degradation
+**Files:** Create `apps/web/src/app/api/assistant-stream/route.ts`; Modify `apps/web` (panel)
+
+**Why a dedicated proxy (review fix):** the catch-all `apps/web/src/app/api/proxy/[...path]/route.ts` returns `new Response(await upstream.arrayBuffer())` — it **buffers** the whole body, so SSE can't stream through it. Also, that proxy forwards the path *after* `/api/proxy` straight to `API_BASE`, so the Express route at `/api/ai/assistant/stream` is reachable only at `/api/proxy/api/ai/assistant/stream` (the `api/` segment is required).
+
+- [ ] **Step 1: Streaming proxy route** — `apps/web/src/app/api/assistant-stream/route.ts`: a `POST` handler that attaches the Clerk token + `x-api-key` (same as the catch-all proxy) and **returns the stream unbuffered**:
+
+```ts
+const upstream = await fetch(`${API_BASE}/api/ai/assistant/stream`, {
+  method: 'POST', headers, body: await request.arrayBuffer(), cache: 'no-store',
+});
+return new Response(upstream.body, {            // <-- pass the ReadableStream through; do NOT arrayBuffer()
+  status: upstream.status,
+  headers: { 'content-type': 'text/event-stream', 'cache-control': 'no-cache' },
+});
+```
+
+- [ ] **Step 2: Panel** — POST to `/api/assistant-stream`, read the `ReadableStream`, render per-node status + the streaming draft, and show Approve/Reject at `awaiting_approval` (resume via the normal buffering proxy at **`/api/proxy/api/ai/assistant/resume`**). When the agent is unavailable (503), fall back to the non-streaming run (`/api/proxy/api/ai/assistant/run`).
+- [ ] **Step 3: Verify** — `npm run check`; manual browser check that tokens render incrementally (not all-at-once). **Commit** — `feat(web): streaming proxy + live assistant panel + approval`.
 
 ---
 
