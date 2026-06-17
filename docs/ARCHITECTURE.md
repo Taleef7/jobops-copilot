@@ -148,6 +148,27 @@ so CI and key-less runs are unchanged. Enable it by setting `LANGFUSE_PUBLIC_KEY
 `docker-compose.langfuse.yml`. Azure Application Insights still covers
 infrastructure metrics; Langfuse adds the **LLM quality/cost** layer on top.
 
+## API edge guards (rate limiting + cost ceiling)
+
+The Express API protects the expensive AI paths (Phase 2 · Workstream G):
+
+- **Security headers** via `helmet`, and `trust proxy = 1` so client IPs are correct
+  behind Azure App Service.
+- **Rate limiting** (`express-rate-limit`): a lenient global limit on all routes plus a
+  strict limit on `/api/ai` and `/api/discovery`. Requests are keyed by Clerk user id,
+  falling back to the (IPv6-safe) client IP. Tunable via `RATE_LIMIT_WINDOW_MS`,
+  `RATE_LIMIT_MAX`, `RATE_LIMIT_AI_MAX`.
+- **Per-user daily AI budget**: each paid `/api/ai` call accrues a flat per-operation
+  cost estimate into a dual-mode `ai_usage` store (file/in-memory locally, Postgres in
+  prod). Once a user reaches `AI_DAILY_BUDGET_USD` for the UTC day, further AI calls get
+  a `429 { "error": "Daily AI budget reached" }`. This is an application-level abuse
+  guardrail; the Azure subscription **budget** (see
+  `docs/superpowers/specs/2026-06-12-cost-controls-design.md`) remains the billing
+  backstop.
+
+All guards degrade gracefully: the usage store falls back to in-memory without a
+database, and budget accounting fails open so a store hiccup never blocks AI calls.
+
 ## Design Principles
 
 - Human-in-the-loop by default.
