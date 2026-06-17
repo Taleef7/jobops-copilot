@@ -18,7 +18,12 @@ from typing import Any
 from app.config import settings
 
 _EMAIL = re.compile(r"[\w.+-]+@[\w-]+\.[\w.-]+")
-_URL = re.compile(r"https?://\S+")
+_URL = re.compile(r"(?:https?://|www\.)\S+", re.IGNORECASE)
+# Bare profile URLs (e.g. linkedin.com/in/jane, github.com/jane): a domain on a known web
+# TLD *with a path*. The TLD allowlist + required "/path" keep tech terms like
+# "Node.js/Express" or "React.js" from being mistaken for URLs.
+_TLD = r"(?:com|net|org|io|dev|ai|co|me|app|xyz|info|us|uk|ca|edu|gov)"
+_BARE_URL = re.compile(rf"\b[a-z0-9][a-z0-9-]*(?:\.[a-z0-9-]+)*\.{_TLD}/[^\s,;]+", re.IGNORECASE)
 _SSN = re.compile(r"\b\d{3}-\d{2}-\d{4}\b")
 # Candidate phone-like run; confirmed by digit count in the replacer below.
 _PHONE_CANDIDATE = re.compile(r"\+?\d[\d ().\-]{7,}\d")
@@ -32,6 +37,8 @@ def redact_contact_pii(text: str) -> tuple[str, dict[str, int]]:
 
     out, counts["email"] = _EMAIL.subn("[EMAIL]", text)
     out, counts["url"] = _URL.subn("[URL]", out)
+    out, bare_urls = _BARE_URL.subn("[URL]", out)
+    counts["url"] += bare_urls
     out, counts["ssn"] = _SSN.subn("[SSN]", out)
 
     def _phone(match: re.Match[str]) -> str:

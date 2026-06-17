@@ -15,12 +15,16 @@ candidate's *skills and experience*, not their contact details.
 ## Contact-PII is stripped before third-party LLMs
 
 Before any text is sent to an LLM provider, the agent redacts high-precision **contact
-PII** — email addresses, phone numbers, URLs, and US SSNs — replacing them with
+PII** — email addresses, phone numbers, URLs (including bare profile links like
+`linkedin.com/in/...` and `github.com/...`), and US SSNs — replacing them with
 placeholders (`[EMAIL]`, `[PHONE]`, `[URL]`, `[SSN]`). Skills, employers, dates, and
 narrative experience are preserved, so analysis quality is unaffected.
 
 - Implemented in `services/agent/app/safety/pii.py` (`redact_contact_pii`) and applied in
-  the parse-job, score-fit, and draft-outreach chains.
+  the parse-job, score-fit, and draft-outreach chains **and** the Phase 8 agents
+  (interview-prep, research, skill-gap) — every path that sends resume/JD text to the LLM.
+- Bare-URL matching uses a web-TLD allowlist and requires a path, so tech terms like
+  `Node.js/Express` or `React.js` are not mistaken for URLs.
 - Phone matching is **digit-count filtered (10–15 digits)** so ISO dates, salaries, and
   ZIP-like numbers are not mistaken for phone numbers.
 - **Out of scope (by design):** free-form street addresses and names are *not*

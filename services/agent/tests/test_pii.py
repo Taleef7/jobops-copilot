@@ -130,3 +130,42 @@ def test_langfuse_mask_noop_when_disabled(monkeypatch):
     monkeypatch.setattr(settings, "pii_redaction_enabled", False)
     payload = {"input": "email a@b.com"}
     assert _mask(data=payload) == payload
+
+
+# --- review fix: bare profile URLs + Phase 8 agent prompts --------------------
+
+
+def test_redacts_bare_profile_urls():
+    clean, counts = redact_contact_pii("Profiles: linkedin.com/in/jane-doe and github.com/jane")
+    assert "linkedin.com/in/jane-doe" not in clean
+    assert "github.com/jane" not in clean
+    assert clean.count("[URL]") == 2 and counts["url"] == 2
+
+
+def test_bare_url_does_not_redact_tech_terms():
+    # No path / non-web TLD -> not a URL; tech stacks must survive.
+    text = "Stack: Node.js, React.js, socket.io and TypeScript"
+    clean, counts = redact_contact_pii(text)
+    assert clean == text and counts["url"] == 0
+
+
+def test_interview_prep_agent_redacts_pii_before_llm(monkeypatch):
+    from app.agents import runner
+    from app.config import settings
+    from app.schemas import InterviewPrep, InterviewPrepRequest
+
+    monkeypatch.setattr(settings, "pii_redaction_enabled", True)
+    sink: dict = {}
+
+    class _FakeAgent:
+        def invoke(self, payload, config=None):
+            sink["content"] = payload["messages"][0]["content"]
+            return {"messages": [], "structured_response": InterviewPrep()}
+
+    monkeypatch.setattr(runner, "create_agent", lambda *a, **k: _FakeAgent())
+    monkeypatch.setattr(runner, "get_model", lambda: (object(), "fake"))
+
+    runner.run_interview_prep(
+        InterviewPrepRequest(job_description="Role at Acme", resume_text="Jane jane@doe.com")
+    )
+    assert "jane@doe.com" not in sink["content"] and "[EMAIL]" in sink["content"]
