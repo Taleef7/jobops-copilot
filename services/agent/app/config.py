@@ -51,5 +51,13 @@ class Settings(BaseSettings):
     # mask it in Langfuse traces. On by default; set PII_REDACTION_ENABLED=false to opt out.
     pii_redaction_enabled: bool = True
 
+    # LLM I/O guardrails (Phase 2 · Workstream I).
+    # injection_action: "flag" (log + trace + delimit, default) or "refuse" (block the call).
+    injection_action: str = "flag"
+    # Output moderation on drafted outreach. Prefers the OpenAI moderation endpoint when an
+    # OpenAI/dedicated key is present, else an active-provider LLM safety self-check.
+    moderation_enabled: bool = True
+    moderation_openai_api_key: str | None = None
+
 
 settings = Settings()

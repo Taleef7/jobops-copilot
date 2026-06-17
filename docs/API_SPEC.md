@@ -142,6 +142,21 @@ Validation rules:
 
 ## AI
 
+### Edge guards (rate limiting & cost ceiling)
+
+The `/api/ai/*` and `/api/discovery/*` routes are protected (Phase 2 · Workstream G):
+
+- **Rate limiting** — a lenient global limit applies to all routes, and a stricter limit
+  guards the expensive AI/discovery routes. Requests are keyed by the Clerk user id (with
+  an IPv6-safe IP fallback). Exceeding the window returns **`429`**
+  `{ "error": "Too many requests, slow down." }`. Tunable via `RATE_LIMIT_WINDOW_MS`,
+  `RATE_LIMIT_MAX`, `RATE_LIMIT_AI_MAX`.
+- **Daily AI budget** — each paid `/api/ai/*` call accrues a small per-operation cost
+  estimate against the user's UTC-day total (atomic reserve-before-work). Once the user
+  reaches `AI_DAILY_BUDGET_USD` they get **`429`** `{ "error": "Daily AI budget reached" }`
+  until the day rolls over. The n8n intake path consumes the same budget. Both guards fail
+  open if their store is unavailable. `helmet` security headers are also set.
+
 ### `POST /api/ai/parse-job`
 
 Parses raw text into structured job fields.
@@ -272,6 +287,11 @@ If `job_id` is supplied and matches an existing job, the draft is also stored in
 When the job exists, the saved job row also moves into the `outreach_drafted` stage so the CRM reflects that the draft is waiting for review.
 
 If `GMAIL_DRAFTS_ENABLED=true` and a recipient email is supplied, the API also attempts to create a Gmail draft using the Gmail API. The response includes `gmail_draft_status`, `gmail_draft_id`, and `gmail_draft_message` so the UI can show whether that optional side effect was created, skipped, or failed.
+
+The generated draft passes output guardrails (Phase 2 · Workstream I): `safety_notes` may
+carry `BLOCKED by moderation: …` (the body is withheld for human review) or
+`UNVERIFIED claims: …` when a groundedness self-check finds claims unsupported by the job/
+resume context. Contact-PII in the inputs is redacted before the LLM call.
 
 ### `PATCH /api/outreach/:id`
 

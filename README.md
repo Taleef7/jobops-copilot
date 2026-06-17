@@ -59,6 +59,13 @@ bot**: it drafts and recommends, but never sends or fabricates.
 - **Production discipline** — npm + Python CI (lint, typecheck, build, tests),
   protected `main`, Azure PostgreSQL, Blob Storage export, and an App Service
   deploy workflow.
+- **Production-grade AI ops** — real **Adzuna** job ingestion (no-key fallback),
+  **Langfuse** tracing of every LLM/RAG call, an **eval harness** (deterministic +
+  Ragas) with a two-tier CI **gate**, and runtime **guardrails**: per-user
+  rate-limiting + daily cost ceiling, contact-PII redaction (before the LLM and in
+  traces), prompt-injection defense, and output moderation. All degrade gracefully
+  without keys. See [docs/ROADMAP.md](docs/ROADMAP.md), [EVALS.md](EVALS.md), and
+  [docs/PRIVACY.md](docs/PRIVACY.md).
 
 ## Architecture
 
@@ -134,6 +141,13 @@ complete:
 | 11 | Time-series telemetry intelligence (+ EV demo) | ✅ |
 | 6 | Live Azure hosting for web/api/agent + Postgres/pgvector | ✅ |
 | 7 | Zapier/Make companion flows | ✅ |
+
+On top of the original plan, a **production-grade AI program** (epic #43) hardens the
+system for real operation — **Phase 1** (real Adzuna ingestion, Langfuse tracing, eval
+harness) and **Phase 2** (rate-limiting + cost ceiling, PII redaction, two-tier eval
+gating, prompt-injection + output-moderation guardrails) are complete; Phases 3–5
+(LangGraph/MCP/streaming, hybrid RAG/reranker, IaC/e2e/load) are deferred. Full
+breakdown in [docs/ROADMAP.md](docs/ROADMAP.md).
 
 Phase 6 hosting and data layer are fully live and verified end to end: web, API,
 and the Python agent are deployed, and the cloud Postgres carries the complete

@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from app.llm.provider import get_model
 from app.prompts import OUTREACH_DRAFTER_SYSTEM
+from app.safety.groundedness import check_groundedness
+from app.safety.moderation import moderate_text
 from app.safety.pii import maybe_redact
 from app.schemas import DraftOutreachRequest, OutreachDraftLLM, OutreachDraftResponse
 
@@ -30,4 +32,26 @@ def draft_outreach(req: DraftOutreachRequest, config: dict | None = None) -> Out
 
     messages = [("system", OUTREACH_DRAFTER_SYSTEM), ("human", "\n\n".join(parts))]
     result = structured.invoke(messages, config=config or None)
+
+    # Output guardrails: moderate the draft for safety and check it is grounded in the
+    # provided context (catches invented claims a moderation API would pass). Both surface
+    # in safety_notes; a moderation block withholds the body for human review.
+    notes = [result.safety_notes] if result.safety_notes else []
+    ctx = "\n\n".join(
+        maybe_redact(part)
+        for part in (req.job_context, req.resume_summary, *(req.retrieved_context or []))
+        if part
+    )
+    grounded = check_groundedness(result.draft_text, ctx)
+    if not grounded.grounded:
+        claims = "; ".join(grounded.unsupported_claims) or "unsupported claims present"
+        notes.append(f"UNVERIFIED claims: {claims}")
+    moderation = moderate_text(result.draft_text)
+    if not moderation.allowed:
+        flagged = ", ".join(moderation.categories) or "policy violation"
+        notes.append(f"BLOCKED by moderation: {flagged}")
+        result.draft_text = "[withheld pending human review — failed safety moderation]"
+    if notes:
+        result.safety_notes = " | ".join(notes)
+
     return OutreachDraftResponse(**result.model_dump(), model_used=label)
