@@ -14,6 +14,7 @@ import {
   validateParsedJobOutput,
 } from '@/lib/analysis-core';
 import { resolveFitScore, resolveParsedJob } from '@/lib/agent-client';
+import { reserveAiBudget } from '@/lib/budget';
 import { exportWeeklyReportMarkdown } from '@/lib/report-export';
 import { getRequestBaseUrl } from '@/lib/request-url';
 import {
@@ -209,6 +210,21 @@ export function createN8nRouter(dependencies: N8nDependencies = defaultDependenc
         descriptionText: validation.normalized.descriptionText!,
       });
 
+      // The parse/score calls below are paid LLM work owned by the n8n system user, so
+      // they must respect that user's daily AI budget just like the /api/ai routes do.
+      // When the budget is exhausted we still create the job, but skip AI enrichment.
+      if (!(await reserveAiBudget(userId, 'parse'))) {
+        response.status(201).json({
+          workflow: 'job-intake',
+          job: createdJob,
+          parsed: null,
+          fit_status: 'skipped',
+          fit_message: 'AI enrichment skipped: the daily AI budget for this account is exhausted.',
+          notification: 'Job created. AI parsing and scoring were skipped due to the daily AI budget.',
+        });
+        return;
+      }
+
       const parsed = await resolveParsedJob(createdJob.descriptionText);
 
       if (!validateParsedJobOutput(parsed)) {
@@ -222,28 +238,32 @@ export function createN8nRouter(dependencies: N8nDependencies = defaultDependenc
       let fitScore: number | null | undefined;
 
       if (validation.normalized.resumeText && validation.normalized.profileText) {
-        const fit = await resolveFitScore({
-          userId,
-          descriptionText: createdJob.descriptionText,
-          resumeText: validation.normalized.resumeText,
-          profileText: validation.normalized.profileText,
-          requiredSkills: parsed.required_skills,
-          preferredSkills: parsed.preferred_skills,
-          atsKeywords: [...parsed.required_skills, ...parsed.preferred_skills],
-        });
+        if (!(await reserveAiBudget(userId, 'score'))) {
+          fitMessage = 'Fit scoring was skipped because the daily AI budget for this account is exhausted.';
+        } else {
+          const fit = await resolveFitScore({
+            userId,
+            descriptionText: createdJob.descriptionText,
+            resumeText: validation.normalized.resumeText,
+            profileText: validation.normalized.profileText,
+            requiredSkills: parsed.required_skills,
+            preferredSkills: parsed.preferred_skills,
+            atsKeywords: [...parsed.required_skills, ...parsed.preferred_skills],
+          });
 
-        if (!validateFitScoreOutput(fit)) {
-          response.status(500).json({ error: 'n8n fit scorer returned an invalid payload' });
-          return;
+          if (!validateFitScoreOutput(fit)) {
+            response.status(500).json({ error: 'n8n fit scorer returned an invalid payload' });
+            return;
+          }
+
+          analysis = analysisFromFit(fit, {
+            requiredSkills: parsed.required_skills,
+            preferredSkills: parsed.preferred_skills,
+          });
+          fitStatus = 'scored';
+          fitMessage = `Fit scoring completed with a score of ${fit.fit_score}.`;
+          fitScore = fit.fit_score;
         }
-
-        analysis = analysisFromFit(fit, {
-          requiredSkills: parsed.required_skills,
-          preferredSkills: parsed.preferred_skills,
-        });
-        fitStatus = 'scored';
-        fitMessage = `Fit scoring completed with a score of ${fit.fit_score}.`;
-        fitScore = fit.fit_score;
       } else if (validation.normalized.resumeText || validation.normalized.profileText) {
         fitMessage = 'Fit scoring was skipped because both resume_text and profile_text are required.';
       }
