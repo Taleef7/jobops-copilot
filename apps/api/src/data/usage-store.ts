@@ -8,6 +8,11 @@ export interface DailyUsage {
   calls: number;
 }
 
+export interface Reservation {
+  allowed: boolean;
+  costUsd: number;
+}
+
 interface UsageRecord {
   userId: string;
   date: string; // UTC day, YYYY-MM-DD
@@ -77,15 +82,28 @@ async function runExclusive<T>(operation: () => Promise<T>): Promise<T> {
   }
 }
 
-/** Add a paid AI call's cost to the user's spend for today (UTC). */
-export async function addUsage(userId: string, costUsd: number): Promise<void> {
+/**
+ * Atomically reserve `costUsd` against today's spend while it is still under
+ * `ceilingUsd`. The file store serializes via `runExclusive`, so concurrent reservations
+ * can't each read an under-budget value and all slip through. A brand-new day always
+ * succeeds (the first call of the day is allowed).
+ */
+export async function reserveDailyBudget(
+  userId: string,
+  ceilingUsd: number,
+  costUsd: number,
+): Promise<Reservation> {
   if (hasPostgresConnection()) {
-    return postgresStore.addUsage(userId, costUsd);
+    return postgresStore.reserveDailyBudget(userId, ceilingUsd, costUsd);
   }
   return runExclusive(async () => {
     const all = await ensureLoaded();
     const date = today();
     const existing = all.find((entry) => entry.userId === userId && entry.date === date);
+    const current = existing?.costUsd ?? 0;
+    if (current >= ceilingUsd) {
+      return { allowed: false, costUsd: current };
+    }
     if (existing) {
       existing.costUsd += costUsd;
       existing.calls += 1;
@@ -93,6 +111,7 @@ export async function addUsage(userId: string, costUsd: number): Promise<void> {
       all.push({ userId, date, costUsd, calls: 1 });
     }
     await persist();
+    return { allowed: true, costUsd: current + costUsd };
   });
 }
 

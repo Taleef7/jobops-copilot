@@ -25,7 +25,6 @@ import {
 import { saveWeeklyReport } from '@/data/report-store';
 import { getUserProfile } from '@/data/profile-store';
 import { requireUser } from '@/lib/auth';
-import { recordAiUsage } from '@/lib/budget';
 import { exportWeeklyReportMarkdown } from '@/lib/report-export';
 import { getRequestBaseUrl } from '@/lib/request-url';
 import { buildWeeklyReportRecord, formatWeeklyReportResponse } from '@/lib/weekly-report';
@@ -45,7 +44,6 @@ aiRouter.post('/parse-job', async (request, response, next) => {
     }
 
     const parsed = await resolveParsedJob(body.description_text);
-    await recordAiUsage(userId, 'parse');
 
     if (!validateParsedJobOutput(parsed)) {
       return response.status(500).json({ error: 'AI parser returned an invalid payload' });
@@ -107,8 +105,6 @@ aiRouter.post('/score-fit', async (request, response, next) => {
       atsKeywords: job.analysis.atsKeywords,
     });
 
-    await recordAiUsage(userId, 'score');
-
     if (!validateFitScoreOutput(scored)) {
       return response.status(500).json({ error: 'AI scorer returned an invalid payload' });
     }
@@ -161,7 +157,6 @@ aiRouter.post('/draft-outreach', async (request, response, next) => {
     job_context: body.job_context ?? job?.descriptionText,
     resume_summary: body.resume_summary ?? profile?.profileText ?? profile?.resumeText,
   });
-  await recordAiUsage(userId, 'outreach');
   const draft: OutreachDraft = {
     id: randomUUID(),
     jobId: body.job_id ?? undefined,
@@ -254,7 +249,6 @@ aiRouter.post('/agents/interview-prep', async (request, response, next) => {
       company: job.company,
       role: job.title,
     });
-    await recordAiUsage(userId, 'interview-prep');
 
     return response.json(result);
   } catch (error) {
@@ -286,7 +280,6 @@ aiRouter.post('/agents/research', async (request, response, next) => {
       role: job.title,
       context: job.descriptionText,
     });
-    await recordAiUsage(userId, 'research');
 
     return response.json(result);
   } catch (error) {
@@ -319,7 +312,6 @@ aiRouter.post('/agents/skill-gap', async (request, response, next) => {
       job_description: job.descriptionText,
       resume_text: body.resume_text ?? profile?.resumeText,
     });
-    await recordAiUsage(userId, 'skill-gap');
 
     return response.json(result);
   } catch (error) {

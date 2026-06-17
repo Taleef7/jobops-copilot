@@ -1,5 +1,8 @@
 import assert from 'node:assert/strict';
+import { mkdtemp, rm } from 'node:fs/promises';
 import http from 'node:http';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import test from 'node:test';
 import type express from 'express';
 
@@ -26,14 +29,24 @@ test('the strict limiter caps the AI routes (429) while other routes stay open',
   const { createApp } = await import('@/app');
   const app = createApp();
 
-  await withApp(app, async (baseUrl) => {
-    const hit = () => fetch(`${baseUrl}/api/ai/none`, { headers: { 'X-User-Id': 'u_strict' } });
-    assert.notEqual((await hit()).status, 429);
-    assert.notEqual((await hit()).status, 429);
-    assert.equal((await hit()).status, 429);
+  // The AI routes reserve budget against the file-mode usage store; isolate its
+  // `data/` artifact in a temp cwd so the suite stays clean.
+  const originalCwd = process.cwd();
+  const tempDir = await mkdtemp(join(tmpdir(), 'jobops-ratelimit-'));
+  process.chdir(tempDir);
+  try {
+    await withApp(app, async (baseUrl) => {
+      const hit = () => fetch(`${baseUrl}/api/ai/none`, { headers: { 'X-User-Id': 'u_strict' } });
+      assert.notEqual((await hit()).status, 429);
+      assert.notEqual((await hit()).status, 429);
+      assert.equal((await hit()).status, 429);
 
-    // A non-AI route under the same user is not blocked by the strict bucket.
-    const health = await fetch(`${baseUrl}/api/health`, { headers: { 'X-User-Id': 'u_strict' } });
-    assert.notEqual(health.status, 429);
-  });
+      // A non-AI route under the same user is not blocked by the strict bucket.
+      const health = await fetch(`${baseUrl}/api/health`, { headers: { 'X-User-Id': 'u_strict' } });
+      assert.notEqual(health.status, 429);
+    });
+  } finally {
+    process.chdir(originalCwd);
+    await rm(tempDir, { recursive: true, force: true });
+  }
 });

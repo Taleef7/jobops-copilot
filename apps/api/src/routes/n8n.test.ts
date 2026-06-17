@@ -203,6 +203,11 @@ test('creates and enriches a job-intake webhook payload', async () => {
   let savedFitScore: number | null | undefined;
   let updatedJobBody: unknown;
 
+  // The intake path reserves the n8n user's daily AI budget via the real (file-mode)
+  // usage store, so isolate its data/ artifact in a temp cwd to keep the suite clean.
+  const originalCwd = process.cwd();
+  const tempDir = await mkdtemp(join(tmpdir(), 'jobops-n8n-intake-'));
+
   const createdJob = makeJob({ id: 'job-2' });
   const scoredJob = makeJob({
     id: 'job-2',
@@ -224,6 +229,7 @@ test('creates and enriches a job-intake webhook payload', async () => {
   });
 
   try {
+    process.chdir(tempDir);
     await withServer(
       createN8nRouter({
         createJob: async (_userId, body) => {
@@ -289,6 +295,8 @@ test('creates and enriches a job-intake webhook payload', async () => {
       },
     );
   } finally {
+    process.chdir(originalCwd);
+    await rm(tempDir, { recursive: true, force: true });
     restore();
   }
 });
