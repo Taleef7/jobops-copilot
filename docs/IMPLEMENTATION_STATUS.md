@@ -35,6 +35,18 @@ intelligence.
 - repo CI complete
 - `main` branch protected
 
+### Production-grade AI program (epic #43, beyond the original 0–11 plan)
+
+- **Phase 1 — real data + LLMOps:** real Adzuna ingestion + saved searches + dedup (#44);
+  Langfuse tracing of every agent LLM/RAG call, no-op without keys (#45); eval harness —
+  deterministic parse-job + Ragas score-fit on a real gold set (#46).
+- **Phase 2 — safety, guardrails & eval gating:** API rate-limiting + per-user daily AI
+  cost ceiling + `helmet` (#53); contact-PII redaction before LLMs + Langfuse trace mask
+  (#54); two-tier eval gate (key-free PR checks + main thresholds/regression) + full
+  `EVALS.md` (#55); prompt-injection defense + provider-agnostic output moderation +
+  groundedness (#56).
+- Numbered independently of the original phases; design/plans in `docs/superpowers/`.
+
 ## What Is Live Now
 
 - Jobs can be created, listed, viewed, and updated through the API and dashboard
@@ -86,6 +98,9 @@ intelligence.
 - Nothing blocking. All planned phases (0–11) plus the optional Phase 6
   hardening (App Insights, Key Vault) are complete. The agent Container App
   keeps its native secret store by design (Key Vault covers App Service only).
+- The **production-grade AI program** (epic #43) is complete through its Phase 1 and
+  Phase 2; its Phases 3–5 (LangGraph/MCP/streaming, hybrid RAG/reranker, IaC/e2e/load)
+  are intentionally deferred.
 
 ## How To Verify The Live Stack
 

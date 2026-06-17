@@ -73,10 +73,31 @@ ruff check app tests
 
 See `.env.example`. Key variables: `LLM_PROVIDER`, `ANTHROPIC_API_KEY`,
 `OPENAI_API_KEY`, `AZURE_OPENAI_*`, `GOOGLE_GEMINI_API_KEY`, `DATABASE_URL`
-(Phase 10 RAG), `TAVILY_API_KEY` (Phase 8 research agent).
+(Phase 10 RAG), `TAVILY_API_KEY` (Phase 8 research agent). Observability &
+guardrails: `LANGFUSE_PUBLIC_KEY`/`LANGFUSE_SECRET_KEY`/`LANGFUSE_HOST` (tracing),
+`PII_REDACTION_ENABLED`, `INJECTION_ACTION`, `MODERATION_ENABLED`,
+`MODERATION_OPENAI_API_KEY` — all optional and safe to leave unset.
+
+## Observability & evals
+
+LLM/RAG calls are traced with **Langfuse** (`app/obs/langfuse.py`), no-op without keys.
+Quality is measured by the eval harness in `evals/` (deterministic parse-job + Ragas
+score-fit) and gated in CI — see [`EVALS.md`](../../EVALS.md). `python -m evals.run`
+writes a report; `--gate` fails below `evals/thresholds.json`.
 
 ## Safety
 
 The prompts enforce JobOps Copilot's rules: stay grounded in the source text,
 never fabricate resume experience, keep recommendations honest and
 conservative, and never imply auto-sending. Outreach is always human-reviewed.
+
+Runtime guardrails (`app/safety/`, Phase 2):
+
+- **PII redaction** — contact-PII (email/phone/URL/SSN) is stripped before any LLM call
+  across the chains and agents, and masked in Langfuse traces. Toggle `PII_REDACTION_ENABLED`.
+  See [`docs/PRIVACY.md`](../../docs/PRIVACY.md).
+- **Prompt-injection defense** — untrusted job-description text is scanned and wrapped in
+  delimiters the prompts treat as data; `INJECTION_ACTION` is `flag` (default) or `refuse`.
+- **Output moderation + groundedness** — drafted outreach is moderated (OpenAI endpoint or
+  an active-provider safety self-check) and groundedness-checked; unsafe drafts are withheld
+  and unsupported claims flagged in `safety_notes`. All guards skip gracefully without a provider.

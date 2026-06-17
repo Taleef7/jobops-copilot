@@ -147,3 +147,36 @@ Complete:
 - trend/anomaly detection and lightweight forecasting
 - LLM-narrated insights endpoint (retained in `services/agent` for demos)
 - synthetic EV battery/sensor telemetry demo
+
+---
+
+## Production-grade AI program (beyond the original 0–11 plan)
+
+A separate hardening initiative (epic #43 → #51) that turns *"I built an AI app"* into
+*"I operate AI on real data with tracing, evals, and guardrails."* Numbered
+**independently** of the phases above (its "Phase 1/2" are not the original Phases 1/2).
+Design + plans live under `docs/superpowers/specs|plans/`.
+
+### Phase 1 — Real data + LLMOps backbone (complete)
+
+- Real job ingestion from **Adzuna** (+ no-key Remotive fallback), per-user saved
+  searches, and dedup (#44).
+- **Langfuse** tracing of every agent LLM/RAG call (tokens/cost/latency); no-op without
+  keys (#45).
+- **Eval harness**: deterministic parse-job metrics + Ragas score-fit on a real gold set,
+  report-only CI seed (#46).
+
+### Phase 2 — Safety, guardrails & eval gating (complete)
+
+- **API edge** (#53): per-user/IP rate limiting + per-user daily AI cost ceiling + `helmet`.
+- **PII** (#54): strip contact-PII before third-party LLMs and mask it in Langfuse traces.
+- **Eval gating** (#55): key-free PR gate (integrity + mock-model smoke) + a main quality
+  gate (thresholds + Ragas regression) + full `EVALS.md`.
+- **LLM I/O guardrails** (#56): prompt-injection defense (scan + delimit) + provider-agnostic
+  output moderation + groundedness check on drafted outreach.
+
+### Deferred
+
+- Phase 3 — LangGraph + MCP + streaming.
+- Phase 4 — hybrid RAG + reranker + fine-tuning.
+- Phase 5 — IaC / e2e / caching / load test.
