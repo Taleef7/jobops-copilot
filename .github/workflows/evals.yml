@@ -1,0 +1,69 @@
+name: Evals
+
+# Report-only LLM eval job (Phase 1 · Workstream A). Scores parse-job + score-fit
+# on a small real gold set and publishes the report to the run summary. It never
+# blocks a merge — gating is deferred to Phase 2. With no OPENAI_API_KEY secret
+# set, the run skips cleanly (and stays green).
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "services/agent/**"
+      - "prompts/**"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: evals-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  evals:
+    name: Evals (report-only)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: services/agent
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: |
+            services/agent/requirements-dev.txt
+            services/agent/requirements-rag.txt
+
+      - name: Install dependencies
+        run: |
+          pip install -r requirements-dev.txt
+          pip install -r requirements-rag.txt
+
+      - name: Run evals (skips cleanly without a provider key)
+        id: run
+        continue-on-error: true
+        env:
+          # Absent secret -> empty -> the run resolves no provider and skips.
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          OPENAI_MODEL: ${{ vars.JUDGE_MODEL || 'gpt-4o-mini' }}
+        run: python -m evals.run
+
+      - name: Publish report to job summary
+        if: always()
+        run: cat evals/report.md >> "$GITHUB_STEP_SUMMARY" 2>/dev/null || echo "No eval report produced." >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload report artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: eval-report
+          path: |
+            services/agent/evals/report.json
+            services/agent/evals/report.md
+          if-no-files-found: ignore
