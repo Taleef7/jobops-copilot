@@ -369,6 +369,48 @@ export async function fetchLatestWeeklyReport(): Promise<WeeklyReport | undefine
  * we route through the same-origin Next proxy (`/api/proxy/*`) which attaches
  * auth server-side, so the token is never exposed to client code.
  */
+export interface SavedSearchItem {
+  id: string;
+  query: string;
+  location?: string;
+  remoteOnly: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export async function fetchSavedSearches(): Promise<SavedSearchItem[]> {
+  const response = await requestJson<{ savedSearches: SavedSearchItem[] }>('/api/saved-searches', {
+    cache: 'no-store',
+  });
+  return response.savedSearches;
+}
+
+export async function createSavedSearch(payload: {
+  query: string;
+  location?: string;
+  remoteOnly?: boolean;
+}): Promise<SavedSearchItem> {
+  const response = await requestJson<{ savedSearch: SavedSearchItem }>('/api/saved-searches', {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  });
+  return response.savedSearch;
+}
+
+export async function deleteSavedSearch(id: string): Promise<void> {
+  await requestJson<{ deleted: boolean }>(`/api/saved-searches/${id}`, { method: 'DELETE' });
+}
+
+export interface DiscoveryRunResult {
+  inserted: number;
+  skipped: number;
+  source: string;
+}
+
+export async function runDiscovery(): Promise<DiscoveryRunResult> {
+  return requestJson<DiscoveryRunResult>('/api/discovery/run', { method: 'POST', body: '{}' });
+}
+
 async function apiFetch(path: string, init: RequestInit): Promise<Response> {
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',

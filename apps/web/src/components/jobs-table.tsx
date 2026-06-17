@@ -6,6 +6,7 @@ import { useState } from 'react';
 import { EmptyState } from '@/components/empty-state';
 import { FitScoreRing } from '@/components/fit-score-ring';
 import { StatusPill } from '@/components/status-pill';
+import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
 import {
   Table,
@@ -138,6 +139,11 @@ export function JobsTable({ jobs }: { jobs: Job[] }) {
                         <span className="text-muted-foreground block truncate text-xs">
                           {job.company} · {job.location}
                         </span>
+                        {job.source === 'adzuna' || job.source === 'remotive' ? (
+                          <Badge variant="outline" className="mt-1 text-[10px] font-normal capitalize">
+                            via {job.source}
+                          </Badge>
+                        ) : null}
                       </span>
                     </Link>
                   </TableCell>
