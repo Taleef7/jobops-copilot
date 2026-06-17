@@ -60,13 +60,20 @@ def run_parse_job_eval(rows: list[dict]) -> dict:
     precisions, recalls, f1s, titles, seniorities = [], [], [], [], []
     errors = 0
     for row in rows:
+        expected = row["expected"]
         try:
             parsed = parse_job(row["description_text"])
         except Exception:  # noqa: BLE001 - one bad row shouldn't kill the run
+            # Count the failure as a zero across every metric so a flaky model is
+            # penalized rather than silently dropping the row from the averages.
             logger.exception("parse_job failed for %s", row.get("id"))
             errors += 1
+            precisions.append(0.0)
+            recalls.append(0.0)
+            f1s.append(0.0)
+            titles.append(0.0)
+            seniorities.append(0.0)
             continue
-        expected = row["expected"]
         precision, recall, f1 = skill_prf(parsed.required_skills, expected["required_skills"])
         precisions.append(precision)
         recalls.append(recall)
@@ -100,8 +107,12 @@ def run_fit_score_eval(rows: list[dict], resume_text: str) -> dict:
             )
             response = score_fit(request)
         except Exception:  # noqa: BLE001 - one bad row shouldn't kill the run
+            # Penalize the failure in the rank correlation (worst possible score
+            # vs. its gold label); skip Ragas since there's no response to judge.
             logger.exception("score_fit failed for %s", row.get("id"))
             errors += 1
+            predicted_scores.append(0)
+            gold_labels.append(expected["fit_label"])
             continue
         predicted_scores.append(response.fit_score)
         gold_labels.append(expected["fit_label"])

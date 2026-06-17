@@ -73,6 +73,44 @@ def test_mean_ignores_none_and_rounds():
     assert mean([]) is None
 
 
+def test_parse_job_eval_counts_failures_as_zero(monkeypatch):
+    """A failed parse_job row scores 0 on every metric (not silently dropped)."""
+    from evals import run
+
+    def boom(_text):
+        raise RuntimeError("provider down")
+
+    monkeypatch.setattr(run, "parse_job", boom)
+    row = {
+        "description_text": "x",
+        "expected": {"required_skills": ["python"], "title": "Dev", "seniority": "mid"},
+    }
+    result = run.run_parse_job_eval([row])
+    assert result["n"] == 1
+    assert result["errors"] == 1
+    assert result["skill_f1"] == 0.0
+    assert result["title_accuracy"] == 0.0
+    assert result["seniority_accuracy"] == 0.0
+
+
+def test_fit_score_eval_counts_failures(monkeypatch):
+    """Failed score_fit rows are counted and don't crash the run (no Ragas judge)."""
+    from evals import run
+
+    def boom(_request):
+        raise RuntimeError("provider down")
+
+    monkeypatch.setattr(run, "score_fit", boom)
+    rows = [
+        {"description_text": "a", "expected": {"fit_label": 80, "reference": "r"}},
+        {"description_text": "b", "expected": {"fit_label": 10, "reference": "r"}},
+    ]
+    result = run.run_fit_score_eval(rows, "resume text")
+    assert result["n"] == 2
+    assert result["errors"] == 2
+    assert result["ragas"] == {}  # no responses to judge
+
+
 def test_run_skips_without_provider_key(tmp_path, monkeypatch):
     """No provider key -> run skips, writes a report, exits 0 (no LLM calls)."""
     import json
