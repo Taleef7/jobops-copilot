@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
 import {
+  clearUserSavedSearches,
   createSavedSearch,
   deleteSavedSearch,
   listSavedSearches,
@@ -39,6 +40,26 @@ test('saved searches round-trip, trim input, and stay user-scoped', async () => 
     assert.equal(await deleteSavedSearch('user_other', created.id), false);
     assert.equal(await deleteSavedSearch(USER, created.id), true);
     assert.equal((await listSavedSearches(USER)).length, 0);
+  } finally {
+    process.chdir(originalCwd);
+    await rm(tempDir, { recursive: true, force: true });
+  }
+});
+
+test('clearUserSavedSearches wipes only the given user', async () => {
+  const originalCwd = process.cwd();
+  const tempDir = await mkdtemp(join(tmpdir(), 'jobops-saved-search-'));
+  try {
+    process.chdir(tempDir);
+    resetSavedSearchStoreForTests();
+
+    await createSavedSearch(USER, { query: 'python' });
+    await createSavedSearch('user_other', { query: 'rust' });
+
+    await clearUserSavedSearches(USER);
+
+    assert.equal((await listSavedSearches(USER)).length, 0);
+    assert.equal((await listSavedSearches('user_other')).length, 1);
   } finally {
     process.chdir(originalCwd);
     await rm(tempDir, { recursive: true, force: true });

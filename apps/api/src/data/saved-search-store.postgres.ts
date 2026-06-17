@@ -60,6 +60,10 @@ export async function deleteSavedSearch(userId: string, id: string): Promise<boo
   return (rowCount ?? 0) > 0;
 }
 
+export async function clearUserSavedSearches(userId: string): Promise<void> {
+  await poolOrThrow().query('delete from saved_searches where user_id = $1', [userId]);
+}
+
 export async function listUsersWithSavedSearches(): Promise<string[]> {
   const { rows } = await poolOrThrow().query<{ user_id: string }>('select distinct user_id from saved_searches');
   return rows.map((row) => row.user_id);

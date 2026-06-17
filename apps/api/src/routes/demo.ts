@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { clearUserData, seedDemoData } from '@/data/job-store';
 import { clearUserReports, seedDemoReports } from '@/data/report-store';
 import { deleteUserProfile } from '@/data/profile-store';
+import { clearUserSavedSearches } from '@/data/saved-search-store';
 import { requireUser } from '@/lib/auth';
 
 export const demoRouter = Router();
@@ -27,6 +28,7 @@ demoRouter.post('/clear', async (request, response, next) => {
     await clearUserData(userId);
     await clearUserReports(userId);
     await deleteUserProfile(userId);
+    await clearUserSavedSearches(userId);
     response.json({ ok: true });
   } catch (error) {
     next(error);

@@ -122,6 +122,17 @@ export async function listUsersWithSavedSearches(): Promise<string[]> {
   return [...new Set(all.map((entry) => entry.userId).filter((id): id is string => Boolean(id)))];
 }
 
+export async function clearUserSavedSearches(userId: string): Promise<void> {
+  if (hasPostgresConnection()) {
+    return postgresStore.clearUserSavedSearches(userId);
+  }
+  return runExclusive(async () => {
+    const all = await ensureLoaded();
+    cache = all.filter((entry) => entry.userId !== userId);
+    await persist();
+  });
+}
+
 export function resetSavedSearchStoreForTests() {
   cache = null;
   loadPromise = null;
