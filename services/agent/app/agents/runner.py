@@ -10,7 +10,7 @@ from __future__ import annotations
 from langchain.agents import create_agent
 from langchain.agents.structured_output import ToolStrategy
 
-from app.agents.tools import web_search
+from app.agents.mcp_tools import load_research_tools
 from app.llm.provider import get_model
 from app.prompts import INTERVIEW_PREP_SYSTEM, RESEARCH_SYSTEM, SKILL_GAP_SYSTEM
 from app.safety.pii import maybe_redact
@@ -79,7 +79,7 @@ def run_research(req: ResearchRequest, config: dict | None = None) -> ResearchBr
     model, _ = get_model()
     agent = create_agent(
         model,
-        tools=[web_search],
+        tools=load_research_tools(),
         system_prompt=RESEARCH_SYSTEM,
         response_format=ToolStrategy(ResearchBrief),
     )
