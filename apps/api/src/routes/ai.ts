@@ -353,13 +353,18 @@ aiRouter.post('/assistant/resume', async (request, response, next) => {
   const userId = requireUser(request, response);
   if (!userId) return;
 
-  const body = request.body as { thread_id?: string; approved?: boolean };
+  const body = request.body as { thread_id?: string; approved?: unknown };
   if (!body.thread_id?.trim()) {
     return response.status(400).json({ error: 'thread_id is required' });
   }
+  // This is the human-approval gate — require a real boolean, never truthiness-coerce
+  // (e.g. the string "false" must not approve outreach).
+  if (typeof body.approved !== 'boolean') {
+    return response.status(400).json({ error: 'approved must be a boolean' });
+  }
 
   try {
-    const result = await resumeAssistant(body.thread_id, Boolean(body.approved));
+    const result = await resumeAssistant(body.thread_id, body.approved);
     return response.json(result);
   } catch (error) {
     if (error instanceof AgentDisabledError) {

@@ -73,3 +73,15 @@ test('POST /api/ai/assistant/resume requires thread_id', async () => {
     assert.equal(res.status, 400);
   });
 });
+
+test('POST /api/ai/assistant/resume rejects a non-boolean approved', async () => {
+  await withServer(async (baseUrl) => {
+    // "false" must NOT be truthiness-coerced to an approval at the human gate.
+    const res = await fetch(`${baseUrl}/api/ai/assistant/resume`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-User-Id': 'u1' },
+      body: JSON.stringify({ thread_id: 't1', approved: 'false' }),
+    });
+    assert.equal(res.status, 400);
+  });
+});
