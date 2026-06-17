@@ -9,8 +9,10 @@ from __future__ import annotations
 
 import logging
 import os
+import uuid
 
 from fastapi import FastAPI, HTTPException
+from langgraph.types import Command
 from pydantic import BaseModel, Field
 
 from app.agents.runner import run_interview_prep, run_research, run_skill_gap
@@ -19,6 +21,7 @@ from app.chains.parse_job import parse_job
 from app.chains.score_fit import score_fit
 from app.chains.weekly import weekly_recommendations
 from app.config import settings
+from app.graph.assistant import build_assistant_graph
 from app.llm.provider import LLMNotConfigured, llm_available, resolve_provider
 from app.obs import traced_config, traced_span
 from app.rag.store import ingest_document, rag_available, retrieve, retrieve_resume_evidence
@@ -200,6 +203,73 @@ def research_endpoint(req: ResearchRequest) -> ResearchBrief:
 def skill_gap_endpoint(req: SkillGapRequest) -> SkillGapPlan:
     _require_llm()
     return _run(run_skill_gap, req, traced_config("agent-skill-gap"))
+
+
+# --- Phase 3 application-assistant (LangGraph) ------------------------------
+
+
+class AssistantRunRequest(BaseModel):
+    description_text: str
+    resume_text: str = ""
+    profile_text: str = ""
+    user_id: str | None = None
+
+
+class AssistantResumeRequest(BaseModel):
+    thread_id: str
+    approved: bool
+
+
+_assistant_graph = None
+
+
+def _get_assistant_graph():
+    """Lazily build the checkpointed assistant graph (module-level singleton)."""
+    global _assistant_graph
+    if _assistant_graph is None:
+        _assistant_graph = build_assistant_graph()
+    return _assistant_graph
+
+
+def _assistant_response(thread_id: str, state: dict) -> dict:
+    """Shape the graph state for the API. `__interrupt__` means it paused for approval."""
+    awaiting = "__interrupt__" in state
+    return {
+        "thread_id": thread_id,
+        "status": "awaiting_approval" if awaiting else state.get("status"),
+        "parsed": state.get("parsed"),
+        "fit": state.get("fit"),
+        "research": state.get("research"),
+        "draft": state.get("draft"),
+    }
+
+
+@app.post("/assistant/run")
+def assistant_run_endpoint(req: AssistantRunRequest) -> dict:
+    _require_llm()
+    graph = _get_assistant_graph()
+    thread_id = str(uuid.uuid4())
+    config = {"configurable": {"thread_id": thread_id}}
+    state = _run(
+        graph.invoke,
+        {
+            "description_text": req.description_text,
+            "resume_text": req.resume_text,
+            "profile_text": req.profile_text,
+            "user_id": req.user_id,
+        },
+        config,
+    )
+    return _assistant_response(thread_id, state)
+
+
+@app.post("/assistant/resume")
+def assistant_resume_endpoint(req: AssistantResumeRequest) -> dict:
+    _require_llm()
+    graph = _get_assistant_graph()
+    config = {"configurable": {"thread_id": req.thread_id}}
+    state = _run(graph.invoke, Command(resume={"approved": req.approved}), config)
+    return _assistant_response(req.thread_id, state)
 
 
 # --- Phase 11 telemetry -----------------------------------------------------

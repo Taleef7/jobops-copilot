@@ -11,7 +11,9 @@ import {
   resolveFitScore,
   resolveOutreachDraft,
   resolveParsedJob,
+  resumeAssistant,
   runAgentTask,
+  runAssistant,
 } from '@/lib/agent-client';
 import { isSingleRecipientEmailAddress } from '@/lib/email';
 import { createGmailDraftIfEnabled } from '@/lib/gmail';
@@ -313,6 +315,56 @@ aiRouter.post('/agents/skill-gap', async (request, response, next) => {
       resume_text: body.resume_text ?? profile?.resumeText,
     });
 
+    return response.json(result);
+  } catch (error) {
+    if (error instanceof AgentDisabledError) {
+      return response.status(503).json({ error: AGENT_DISABLED_MESSAGE });
+    }
+    next(error);
+  }
+});
+
+aiRouter.post('/assistant/run', async (request, response, next) => {
+  const userId = requireUser(request, response);
+  if (!userId) return;
+
+  const body = request.body as { description_text?: string; resume_text?: string; profile_text?: string };
+  if (!body.description_text?.trim()) {
+    return response.status(400).json({ error: 'description_text is required' });
+  }
+
+  try {
+    const result = await runAssistant({
+      descriptionText: body.description_text,
+      resumeText: body.resume_text,
+      profileText: body.profile_text,
+      userId,
+    });
+    return response.json(result);
+  } catch (error) {
+    if (error instanceof AgentDisabledError) {
+      return response.status(503).json({ error: AGENT_DISABLED_MESSAGE });
+    }
+    next(error);
+  }
+});
+
+aiRouter.post('/assistant/resume', async (request, response, next) => {
+  const userId = requireUser(request, response);
+  if (!userId) return;
+
+  const body = request.body as { thread_id?: string; approved?: unknown };
+  if (!body.thread_id?.trim()) {
+    return response.status(400).json({ error: 'thread_id is required' });
+  }
+  // This is the human-approval gate — require a real boolean, never truthiness-coerce
+  // (e.g. the string "false" must not approve outreach).
+  if (typeof body.approved !== 'boolean') {
+    return response.status(400).json({ error: 'approved must be a boolean' });
+  }
+
+  try {
+    const result = await resumeAssistant(body.thread_id, body.approved);
     return response.json(result);
   } catch (error) {
     if (error instanceof AgentDisabledError) {

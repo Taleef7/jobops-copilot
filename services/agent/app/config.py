@@ -59,5 +59,9 @@ class Settings(BaseSettings):
     moderation_enabled: bool = True
     moderation_openai_api_key: str | None = None
 
+    # LangGraph application-assistant (Phase 3 · Workstream K). Strong-fit threshold:
+    # at/above it the assistant researches + drafts outreach; below it stops with a "pass".
+    assistant_fit_threshold: int = 60
+
 
 settings = Settings()
