@@ -21,12 +21,12 @@
 
 **Workstream G — API edge (Node)**
 - Create `db/migrations/006_ai_usage.sql` — `ai_usage(user_id, usage_date, cost_usd, calls)` keyed by `(user_id, usage_date)`.
-- Create `apps/api/src/data/usage-store.ts` + `usage-store.postgres.ts` — dual-mode `addUsage`/`getTodayUsage` + `resetUsageStoreForTests`.
+- Create `apps/api/src/data/usage-store.ts` + `usage-store.postgres.ts` — dual-mode **atomic** `reserveDailyBudget(userId, ceilingUsd, costUsd)` + `getTodayUsage` + `resetUsageStoreForTests`.
 - Create `apps/api/src/lib/cost.ts` — `estimateCallCostUsd(op)` (flat per-op estimate) + `AI_DAILY_BUDGET_USD` read.
 - Create `apps/api/src/lib/rate-limit.ts` — `strictLimiter` + `globalLimiter` (`express-rate-limit`, keyed by `req.userId`/IP).
-- Create `apps/api/src/lib/budget.ts` — `enforceDailyBudget` middleware (429 when over ceiling) + `recordAiUsage(userId, op)` helper.
-- Modify `apps/api/src/app.ts` — add `helmet`, mount `globalLimiter`, mount `strictLimiter` + `enforceDailyBudget` on `/api/ai` and `/api/discovery`.
-- Modify `apps/api/src/routes/ai.ts` — call `recordAiUsage` after a successful paid agent call.
+- Create `apps/api/src/lib/budget.ts` — `enforceDailyBudget` guard (reserve-before-work, 429 when over ceiling) + `reserveAiBudget(userId, op)` for non-middleware paths.
+- Modify `apps/api/src/app.ts` — add `helmet` + `trust proxy`, mount `globalLimiter`, mount `strictLimiter` on `/api/ai`+`/api/discovery` and `enforceDailyBudget` on `/api/ai` only.
+- Modify `apps/api/src/routes/n8n.ts` — `reserveAiBudget` before the job-intake parse/score calls (skip enrichment when over budget).
 - Modify `apps/api/package.json` — add `express-rate-limit`, `helmet`.
 - Modify `.env.example` — `RATE_LIMIT_WINDOW_MS`, `RATE_LIMIT_MAX`, `RATE_LIMIT_AI_MAX`, `AI_DAILY_BUDGET_USD`.
 
@@ -204,27 +204,38 @@ import type { NextFunction, Request, Response } from 'express';
 import { getTodayUsage, addUsage } from '@/data/usage-store';
 import { dailyBudgetUsd, estimateCallCostUsd } from '@/lib/cost';
 
-export async function enforceDailyBudget(request: Request, response: Response, next: NextFunction) {
-  const userId = request.userId;
-  if (!userId) return next(); // auth middleware handles missing identity
-  const { costUsd } = await getTodayUsage(userId);
-  if (costUsd >= dailyBudgetUsd()) {
-    return response.status(429).json({ error: 'Daily AI budget reached' });
-  }
-  next();
+// Reserve-before-work: a single atomic check-and-increment in the store, so several
+// concurrent AI requests from one user can't each read an under-budget value and all
+// proceed past the ceiling. Fails open.
+export function createDailyBudgetGuard(deps = { reserve: reserveDailyBudget }) {
+  return async function enforceDailyBudget(request: Request, response: Response, next: NextFunction) {
+    const userId = request.userId;
+    if (!userId) return next(); // auth middleware handles missing identity
+    try {
+      const { allowed } = await deps.reserve(userId, dailyBudgetUsd(), estimateCallCostUsd('default'));
+      if (!allowed) return response.status(429).json({ error: 'Daily AI budget reached' });
+    } catch {
+      /* fail open: a usage-store hiccup must not block AI calls */
+    }
+    next();
+  };
 }
+export const enforceDailyBudget = createDailyBudgetGuard();
 
-/** Record a paid AI call after success; never throws into the request path. */
-export async function recordAiUsage(userId: string, op: string): Promise<void> {
+/** Same reservation for paid calls that don't pass through the /api/ai middleware (n8n). */
+export async function reserveAiBudget(userId: string, op: string): Promise<boolean> {
   try {
-    await addUsage(userId, estimateCallCostUsd(op));
+    const { allowed } = await reserveDailyBudget(userId, dailyBudgetUsd(), estimateCallCostUsd(op));
+    return allowed;
   } catch {
-    /* usage accounting is best-effort; never fail the user's request over it */
+    return true; // fail open
   }
 }
 ```
 
-- [ ] **Step 4: Wire** — in `app.ts` mount on the expensive routers: `app.use('/api/ai', strictLimiter, enforceDailyBudget, aiRouter);` (discovery similarly). In `routes/ai.ts`, after a successful agent call, `await recordAiUsage(userId, 'score' /* or the route's op */);`.
+`reserveDailyBudget(userId, ceilingUsd, costUsd)` lives in the usage store and is atomic in both modes — file mode via the `runExclusive` queue; Postgres via a single conditional upsert keyed on `(now() at time zone 'utc')::date` (explicit UTC so a non-UTC DB session can't shift the window).
+
+- [ ] **Step 4: Wire** — in `app.ts` mount the budget guard on the AI routes **only**: `app.use('/api/ai', strictLimiter, enforceDailyBudget, aiRouter);` (discovery keeps `strictLimiter` but no AI budget — it hits Adzuna, not an LLM). The reservation in the guard *is* the charge, so the routes don't separately record usage. **Also cover the n8n LLM path** (`routes/n8n.ts` calls `resolveParsedJob`/`resolveFitScore` for `N8N_USER_ID`): `await reserveAiBudget(userId, 'parse')` before parsing and `await reserveAiBudget(userId, 'score')` before scoring; when over budget, still create the job but skip AI enrichment.
 - [ ] **Step 5: Run — expect PASS** + `npm run check`. **Commit** — `feat(api): per-user daily AI budget ceiling (429 when exceeded)`.
 
 ### Task G5: env + docs
@@ -419,17 +430,22 @@ def wrap_untrusted(text: str, label: str) -> str:
 ### Task I3: output moderation wrapper (TDD, mock + skip path)
 **Files:** Create `app/safety/moderation.py`; Modify `app/config.py`; Test `tests/test_moderation.py`
 
-- [ ] **Step 0: Confirm API** — via Context7, confirm how to call the provider moderation endpoint from the installed OpenAI client (`client.moderations.create(model="omni-moderation-latest", input=...)`) and the response shape (`results[0].flagged`, `.categories`).
-- [ ] **Step 1–2: Failing test** — `moderate_text` returns `allowed=True` when no provider key is configured (skip path, no network); and given a monkeypatched client returning `flagged=True`, returns `allowed=False` with categories.
+> **Provider-agnostic (review fix):** the agent runs on Anthropic / Azure OpenAI / OpenAI / Gemini, so moderation must NOT silently no-op just because `OPENAI_API_KEY` is unset while another provider is active. Two strategies: (1) if an OpenAI moderation key is present (`OPENAI_API_KEY` or a dedicated `MODERATION_OPENAI_API_KEY`), use OpenAI's free moderation endpoint; (2) otherwise fall back to a lightweight LLM **safety self-check via the active provider** (`get_model`). Skip (allow) only when moderation is disabled or **no provider is configured at all**.
+
+- [ ] **Step 0: Confirm API** — via Context7, confirm (a) the OpenAI moderations call `client.moderations.create(model="omni-moderation-latest", input=...)` → `results[0].flagged`/`.categories`, and (b) `get_model().with_structured_output(...)` for the fallback classifier (same pattern the chains already use).
+- [ ] **Step 1–2: Failing tests** — (a) `moderate_text` returns `allowed=True, skipped=True` when `moderation_enabled=False` **or** no provider is configured (no network); (b) with an OpenAI moderation key + a monkeypatched client returning `flagged=True` → `allowed=False` with categories; (c) with **no** OpenAI key but an active provider, a monkeypatched `get_model` classifier returning "unsafe" → `allowed=False` (proves non-OpenAI deployments are still moderated).
 - [ ] **Step 3: Implement** `app/safety/moderation.py`:
 
 ```python
-"""Provider moderation on generated text. Skips (allows) when no key is set, so the
-app degrades gracefully — consistent with the eval/runtime no-op pattern."""
+"""Output moderation for generated text, provider-agnostic so non-OpenAI deployments
+are still covered. Prefers OpenAI's moderation endpoint when an OpenAI moderation key
+exists; otherwise runs a lightweight LLM safety self-check via the active provider.
+Skips (allows) only when disabled or no provider is configured at all."""
 from __future__ import annotations
 import logging
 from dataclasses import dataclass, field
 from app.config import settings
+from app.llm.provider import llm_available  # True when ANY provider is credentialed
 
 logger = logging.getLogger("jobops.agent.safety")
 
@@ -439,29 +455,41 @@ class ModerationVerdict:
     categories: list[str] = field(default_factory=list)
     skipped: bool = False
 
+def _openai_moderation_key() -> str | None:
+    return settings.moderation_openai_api_key or settings.openai_api_key
+
 def moderate_text(text: str) -> ModerationVerdict:
-    if not settings.moderation_enabled or not settings.openai_api_key:
+    if not settings.moderation_enabled or not text.strip():
         return ModerationVerdict(allowed=True, skipped=True)
-    try:
-        from openai import OpenAI  # confirm client + model via Context7
-        client = OpenAI(api_key=settings.openai_api_key)
-        result = client.moderations.create(model="omni-moderation-latest", input=text).results[0]
-        cats = [k for k, v in result.categories.__dict__.items() if v] if result.flagged else []
-        return ModerationVerdict(allowed=not result.flagged, categories=cats)
-    except Exception:  # noqa: BLE001 - moderation is best-effort; fail open with a log
-        logger.warning("Moderation unavailable; allowing draft", exc_info=True)
-        return ModerationVerdict(allowed=True, skipped=True)
+    key = _openai_moderation_key()
+    if key:
+        try:
+            from openai import OpenAI  # confirm client + model via Context7
+            result = OpenAI(api_key=key).moderations.create(
+                model="omni-moderation-latest", input=text
+            ).results[0]
+            cats = [k for k, v in vars(result.categories).items() if v] if result.flagged else []
+            return ModerationVerdict(allowed=not result.flagged, categories=cats)
+        except Exception:  # noqa: BLE001 - best-effort; fall through to the provider self-check
+            logger.warning("OpenAI moderation unavailable; trying provider self-check", exc_info=True)
+    if llm_available():
+        return _provider_self_check(text)  # structured yes/no safety classify via get_model()
+    return ModerationVerdict(allowed=True, skipped=True)  # truly key-less → graceful skip
 ```
 
-Add `moderation_enabled: bool = True` to `Settings`.
+Implement `_provider_self_check(text)` with a small structured-output schema (`{"safe": bool, "reasons": list[str]}`) over `get_model()`, mirroring the existing chains; on any error, log and fail open. Add `moderation_enabled: bool = True` and `moderation_openai_api_key: str | None = None` to `Settings`.
 
-- [ ] **Step 4: Run — expect PASS. Commit** — `feat(agent): provider output-moderation wrapper (skips without key)`.
+- [ ] **Step 4: Run — expect PASS. Commit** — `feat(agent): provider-agnostic output moderation (OpenAI endpoint or active-provider self-check)`.
 
-### Task I4: moderate drafted outreach
-**Files:** Modify `app/chains/draft_outreach.py`; Test `tests/test_moderation.py`
-- [ ] **Step 1–2: Failing test** — fake model returns a draft; monkeypatch `moderate_text` to `allowed=False`; assert the response surfaces the block in `safety_notes` (and does not return the unmoderated body as-is). Confirm `OutreachDraftResponse`/`OutreachDraftLLM` fields (`safety_notes`) in `app/schemas.py`.
-- [ ] **Step 3: Implement** — after `structured.invoke(...)`, run `moderate_text` on the drafted message body; when `allowed is False`, append a clear note to `safety_notes` (e.g. `"BLOCKED by moderation: <categories>"`) and replace/withhold the body per the schema's contract. When skipped/allowed, return unchanged.
-- [ ] **Step 4–5: Run PASS; `pytest && ruff check`. Commit** — `feat(agent): moderate generated outreach before returning`. Add `INJECTION_ACTION`, `MODERATION_ENABLED` to `.env.example`.
+### Task I4: moderate + ground-check drafted outreach
+**Files:** Create `app/safety/groundedness.py`; Modify `app/chains/draft_outreach.py`; Test `tests/test_moderation.py`, `tests/test_groundedness.py`
+
+The spec (§6) requires **moderation _and_ a groundedness check** before a draft is returned — moderation catches unsafe content, groundedness catches *invented* claims (a fabricated achievement or company fact a moderation API would happily pass).
+
+- [ ] **Step 1: Groundedness check (TDD)** — `check_groundedness(draft_text, context)` in `app/safety/groundedness.py`: a structured LLM self-check (`{"grounded": bool, "unsupported_claims": list[str]}`) over `get_model()`, given the draft and the allowed source context (job context + resume summary/evidence). Skips (returns grounded=True) when no provider is configured; fails open on error. Test with a monkeypatched `get_model` for both grounded and ungrounded cases, plus the no-provider skip.
+- [ ] **Step 2: Moderation+groundedness failing test** — fake model returns a draft; (a) monkeypatch `moderate_text` → `allowed=False` ⇒ the response surfaces the block in `safety_notes` and does not return the unmoderated body as-is; (b) monkeypatch `check_groundedness` → `grounded=False` ⇒ the unsupported claims are surfaced in `safety_notes`. Confirm `OutreachDraftResponse`/`OutreachDraftLLM` fields (`safety_notes`) in `app/schemas.py`.
+- [ ] **Step 3: Implement** — in `draft_outreach`, after `structured.invoke(...)`: run `moderate_text` on the drafted body; then `check_groundedness(draft, job_context + resume_summary/evidence)`. When moderation `allowed is False`, withhold/replace the body and add `"BLOCKED by moderation: <categories>"` to `safety_notes`. When `grounded is False`, append `"UNVERIFIED claims: <claims>"` to `safety_notes` (the draft is human-reviewed before sending, so flag rather than withhold). When both pass/skip, return unchanged.
+- [ ] **Step 4–5: Run PASS; `pytest && ruff check`. Commit** — `feat(agent): moderate + groundedness-check generated outreach before returning`. Add `INJECTION_ACTION`, `MODERATION_ENABLED`, `MODERATION_OPENAI_API_KEY` to `.env.example`.
 
 ---
 
@@ -534,7 +562,7 @@ Seed `baseline.json` from the last known-good report (faithfulness 0.80, answer_
 ### Task J3: wire --gate into runner + CI
 **Files:** Modify `services/agent/evals/run.py`, `.github/workflows/evals.yml`; Test `tests/test_evals.py`
 - [ ] **Step 1–2: Failing test** — `run_mod.main(output_dir=tmp, gate=True)` on a report below threshold returns non-zero; a skipped (no-key) report with `gate=True` returns 0.
-- [ ] **Step 3: Implement** — add a `gate: bool = False` param (and `--gate` argv handling) to `main()`. After writing the report, when `gate` and `status == "ok"`: load `thresholds.json`/`baseline.json`, run `check_thresholds`/`check_regression`, print failures, and `return 1` if any. When `status != "ok"`, return 0 (the key-free PR gate already covers PRs). In `evals.yml`, change the push-to-main/dispatch run to `python -m evals.run --gate` (PRs still skip → no key → exit 0). Document, in the workflow header + `EVALS.md`, wiring the deploy as a gate (branch-protection required check on `main`, or a `workflow_run` guard on the deploy workflow).
+- [ ] **Step 3: Implement** — add a `gate: bool = False` param (and `--gate` argv handling) to `main()`. After writing the report, when `gate` and `status == "ok"`: load `thresholds.json`/`baseline.json`, run `check_thresholds`/`check_regression`, print failures, and `return 1` if any. When `status != "ok"`, return 0 (the key-free PR gate already covers PRs). In `evals.yml`, change the push-to-main/dispatch run to `python -m evals.run --gate` **and remove `continue-on-error: true` from that step** so a threshold/regression failure actually fails the job. ⚠️ The existing step is currently `continue-on-error: true` (report-only); leaving it would make `main()` return 1 but keep the workflow green — the gate would block nothing. (If a PR somehow runs the same step, guard the removal so only the gated push-to-main/dispatch run is hard-failing, e.g. drop `continue-on-error` only on the keyed path.) Document, in the workflow header + `EVALS.md`, wiring the deploy as a gate (branch-protection required check on `main`, or a `workflow_run` guard on the deploy workflow).
 - [ ] **Step 4–5: Run PASS; verify `python -m evals.run --gate` locally (skips → 0 without a key). Commit** — `ci(evals): gate main on quality thresholds + Ragas regression`.
 
 ### Task J4: full EVALS.md

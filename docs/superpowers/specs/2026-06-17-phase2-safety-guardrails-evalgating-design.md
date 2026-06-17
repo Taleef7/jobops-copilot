@@ -114,11 +114,17 @@ defend the LLM against untrusted input, and turn the report-only eval job into a
     signatures (instruction-override phrases, role markers, suspicious encoded blobs);
     on a hit, **flag the trace** and (configurable) sanitize or refuse. Structured-output
     schemas remain a final defense layer.
-- **Output moderation (`app/safety/moderation.py`):** run the provider **moderation
-  API** on drafted outreach (safety) plus a lightweight **groundedness self-check**
-  (the email cites only facts present in resume/JD) before returning. No provider key →
-  the moderation step **skips** (consistent degradation); groundedness can run with the
-  same judge model used by evals.
+- **Output moderation (`app/safety/moderation.py`):** before a draft is returned, run
+  **both** a safety **moderation** check and a **groundedness self-check** (the email
+  cites only facts present in the job context / resume). Moderation is
+  **provider-agnostic**: prefer OpenAI's moderation endpoint when an OpenAI moderation
+  key exists (`OPENAI_API_KEY` or a dedicated `MODERATION_OPENAI_API_KEY`), otherwise
+  fall back to a lightweight LLM safety self-check via the **active** provider
+  (`get_model`) — so Anthropic/Azure/Gemini deployments are still moderated, not silently
+  skipped. Both checks **skip** (allow) only when moderation is disabled or **no provider
+  is configured at all** (consistent graceful degradation); groundedness uses the active
+  provider. A blocked message is withheld with a `safety_notes` reason; unsupported claims
+  are flagged in `safety_notes` (the draft is human-reviewed before sending).
 - **Rejected alternative:** a full guardrails framework (e.g., NeMo Guardrails / Guardrails
   AI) — heavier dependency and config surface than this app needs; focused modules are
   more testable and read more clearly in the portfolio.
@@ -140,8 +146,11 @@ defend the LLM against untrusted input, and turn the report-only eval job into a
     eval and **fails the job** when a metric drops below the committed threshold in
     `evals/thresholds.json` (seeded from current baselines minus a tolerance, e.g.
     F1 ≥ 0.50 given the 0.59 baseline). Adds **Ragas regression detection** vs
-    `evals/baseline.json` (fail on a drop beyond tolerance). A red main gate is visible
-    and is **wired as a deploy gate** (the deploy job checks the latest gate, documented).
+    `evals/baseline.json` (fail on a drop beyond tolerance). The gated run must **drop
+    the existing `continue-on-error: true`** on the eval step (today it's report-only) —
+    otherwise `main()` returning non-zero would still leave the job green and gate
+    nothing. A red main gate is visible and is **wired as a deploy gate** (the deploy job
+    checks the latest gate, documented).
 - **`EVALS.md` (full):** methodology, datasets, the current metrics table, thresholds,
   how to run locally, the two-tier CI rationale, and the security note on why the judge
   key is injected only on push-to-main.
@@ -152,7 +161,8 @@ defend the LLM against untrusted input, and turn the report-only eval job into a
 ## 8. Cross-cutting
 
 - **Config/secrets (no real values in `.env.example`):** rate-limit window/limits,
-  `AI_DAILY_BUDGET_USD`, PII-redaction toggle, moderation toggle/judge model, gate
+  `AI_DAILY_BUDGET_USD`, PII-redaction toggle, moderation toggle + optional
+  `MODERATION_OPENAI_API_KEY` (falls back to the active provider when unset), gate
   thresholds path. Live values via App Service config (existing pattern); the eval CI
   key stays a push-only GitHub secret.
 - **Testing:** API unit tests for the rate-limit middleware and the usage-store (file
