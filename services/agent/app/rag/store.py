@@ -12,6 +12,7 @@ import logging
 import uuid
 
 from app.config import settings
+from app.obs import traced_span
 from app.rag.chunk import chunk_text
 from app.rag.embeddings import embed_query, embed_texts
 
@@ -86,30 +87,35 @@ def retrieve(
     user_id: str | None = None,
 ) -> list[str]:
     """Return the ``k`` most similar chunk texts (cosine distance)."""
-    query_literal = _vector_literal(embed_query(query))
+    with traced_span("rag.retrieve", query=query[:200], k=k, source_type=source_type) as span:
+        query_literal = _vector_literal(embed_query(query))
 
-    conditions: list[str] = []
-    params: list[object] = []
-    if source_type:
-        conditions.append("source_type = %s")
-        params.append(source_type)
-    if source_id:
-        conditions.append("source_id = %s")
-        params.append(source_id)
-    if user_id is not None:
-        conditions.append("user_id = %s")
-        params.append(user_id)
-    where_sql = ("where " + " and ".join(conditions)) if conditions else ""
+        conditions: list[str] = []
+        params: list[object] = []
+        if source_type:
+            conditions.append("source_type = %s")
+            params.append(source_type)
+        if source_id:
+            conditions.append("source_id = %s")
+            params.append(source_id)
+        if user_id is not None:
+            conditions.append("user_id = %s")
+            params.append(user_id)
+        where_sql = ("where " + " and ".join(conditions)) if conditions else ""
 
-    sql = (
-        f"select chunk_text from embeddings {where_sql} "
-        "order by embedding <=> %s::vector limit %s"
-    )
-    params.extend([query_literal, k])
+        sql = (
+            f"select chunk_text from embeddings {where_sql} "
+            "order by embedding <=> %s::vector limit %s"
+        )
+        params.extend([query_literal, k])
 
-    with _connect() as conn, conn.cursor() as cur:
-        cur.execute(sql, params)
-        return [row[0] for row in cur.fetchall()]
+        with _connect() as conn, conn.cursor() as cur:
+            cur.execute(sql, params)
+            chunks = [row[0] for row in cur.fetchall()]
+
+        if span is not None:
+            span.update(output={"chunk_count": len(chunks)})
+        return chunks
 
 
 def retrieve_resume_evidence(

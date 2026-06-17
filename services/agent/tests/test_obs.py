@@ -37,3 +37,10 @@ def test_enabled_includes_user_id(monkeypatch):
     config = lf.traced_config("score-fit", user_id="user_42")
     assert config["metadata"]["langfuse_user_id"] == "user_42"
     assert "langfuse_session_id" not in config["metadata"]
+
+
+def test_traced_span_is_noop_when_disabled(monkeypatch):
+    monkeypatch.setattr(settings, "langfuse_public_key", None)
+    monkeypatch.setattr(settings, "langfuse_secret_key", None)
+    with lf.traced_span("rag.retrieve", k=4) as span:
+        assert span is None
