@@ -24,6 +24,7 @@ import {
 
 const items = [
   { href: '/dashboard', label: 'Dashboard', icon: LayoutDashboard },
+  { href: '/assistant', label: 'Assistant', icon: Sparkles },
   { href: '/jobs', label: 'Jobs', icon: Briefcase },
   { href: '/outreach', label: 'Outreach', icon: Send },
   { href: '/reports', label: 'Reports', icon: FileBarChart },
