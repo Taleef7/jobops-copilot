@@ -47,5 +47,9 @@ class Settings(BaseSettings):
     langfuse_secret_key: str | None = None
     langfuse_host: str = "https://cloud.langfuse.com"
 
+    # PII handling (Phase 2 · Workstream H). Strip contact-PII before LLM calls and
+    # mask it in Langfuse traces. On by default; set PII_REDACTION_ENABLED=false to opt out.
+    pii_redaction_enabled: bool = True
+
 
 settings = Settings()

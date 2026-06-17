@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from app.llm.provider import get_model
 from app.prompts import OUTREACH_DRAFTER_SYSTEM
+from app.safety.pii import maybe_redact
 from app.schemas import DraftOutreachRequest, OutreachDraftLLM, OutreachDraftResponse
 
 
@@ -19,11 +20,12 @@ def draft_outreach(req: DraftOutreachRequest, config: dict | None = None) -> Out
     if req.company:
         parts.append(f"Company: {req.company}")
     if req.job_context:
-        parts.append(f"Job context:\n{req.job_context}")
+        parts.append(f"Job context:\n{maybe_redact(req.job_context)}")
     if req.resume_summary:
-        parts.append(f"Resume summary (only truthful claims allowed):\n{req.resume_summary}")
+        summary = maybe_redact(req.resume_summary)
+        parts.append(f"Resume summary (only truthful claims allowed):\n{summary}")
     if req.retrieved_context:
-        evidence = "\n".join(f"- {chunk}" for chunk in req.retrieved_context)
+        evidence = "\n".join(f"- {maybe_redact(chunk)}" for chunk in req.retrieved_context)
         parts.append("Relevant resume evidence to draw from:\n" + evidence)
 
     messages = [("system", OUTREACH_DRAFTER_SYSTEM), ("human", "\n\n".join(parts))]
