@@ -70,7 +70,12 @@ JD-as-question framing; it's a known baseline to improve, not a regression.
 
 ## CI
 
-`.github/workflows/evals.yml` runs on PRs touching `services/agent/**` or
-`prompts/**`, publishes the report to the run summary, and uploads
-`report.json` as an artifact. It **does not block merges**. It runs only when an
-`OPENAI_API_KEY` repository secret is set; otherwise it skips and stays green.
+`.github/workflows/evals.yml` runs on `services/agent/**` / `prompts/**` changes,
+publishes the report to the run summary, and uploads `report.json` as an
+artifact. It **does not block merges**.
+
+The `OPENAI_API_KEY` secret is injected **only on trusted events** — push to
+`main` (post-merge) and manual `workflow_dispatch` — so a keyed eval runs there.
+**Pull-request** runs deliberately get no key and skip, so PR-controlled code
+can never receive the provider secret. With no secret configured at all, every
+run skips and stays green.

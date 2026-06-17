@@ -6,6 +6,12 @@ name: Evals
 # set, the run skips cleanly (and stays green).
 
 on:
+  # Keyed (real) eval runs only on trusted events — see the secret guard below.
+  push:
+    branches: [main]
+    paths:
+      - "services/agent/**"
+      - "prompts/**"
   pull_request:
     branches: [main]
     paths:
@@ -49,8 +55,11 @@ jobs:
         id: run
         continue-on-error: true
         env:
-          # Absent secret -> empty -> the run resolves no provider and skips.
-          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          # Inject the key ONLY on trusted events (push to main / manual dispatch).
+          # On pull_request the value is empty, so the run skips — PR-controlled
+          # code never receives the provider secret and can't exfiltrate it.
+          # (Absent secret also -> empty -> the run resolves no provider and skips.)
+          OPENAI_API_KEY: ${{ github.event_name != 'pull_request' && secrets.OPENAI_API_KEY || '' }}
           OPENAI_MODEL: ${{ vars.JUDGE_MODEL || 'gpt-4o-mini' }}
         run: python -m evals.run
 
