@@ -22,10 +22,13 @@ def _enabled() -> bool:
 
 def _bridge_env() -> None:
     """The agent reads .env via pydantic-settings, which does not populate
-    os.environ; bridge the values so the env-based Langfuse SDK picks them up."""
+    os.environ; bridge the values so the env-based Langfuse SDK picks them up.
+    Both LANGFUSE_HOST and LANGFUSE_BASE_URL are set so self-hosted/region hosts
+    work regardless of which the installed SDK version reads."""
     os.environ["LANGFUSE_PUBLIC_KEY"] = settings.langfuse_public_key or ""
     os.environ["LANGFUSE_SECRET_KEY"] = settings.langfuse_secret_key or ""
     os.environ["LANGFUSE_HOST"] = settings.langfuse_host
+    os.environ["LANGFUSE_BASE_URL"] = settings.langfuse_host
 
 
 def _handler():
@@ -50,17 +53,24 @@ def traced_span(name: str, **input_attrs):
     if not _enabled():
         yield None
         return
+
+    # Set up the span. Only Langfuse *setup* failures degrade to a no-op here;
+    # exceptions from the wrapped body must propagate (catching them at `yield`
+    # would raise "generator didn't stop" and mask the real error).
     try:
         _bridge_env()
         from langfuse import get_client
 
-        with get_client().start_as_current_observation(
+        span_cm = get_client().start_as_current_observation(
             as_type="span", name=name, input=input_attrs or None
-        ) as span:
-            yield span
-    except Exception:  # noqa: BLE001 - tracing must never break the request path
-        logger.warning("Langfuse span failed; continuing without it", exc_info=True)
+        )
+    except Exception:  # noqa: BLE001 - tracing setup must never break the caller
+        logger.warning("Langfuse span setup failed; continuing without it", exc_info=True)
         yield None
+        return
+
+    with span_cm as span:
+        yield span
 
 
 def traced_config(name: str, session_id: str | None = None, user_id: str | None = None) -> dict:
