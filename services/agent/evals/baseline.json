@@ -1,0 +1,9 @@
+{
+  "skill_f1": 0.59,
+  "title_accuracy": 0.76,
+  "seniority_accuracy": 0.53,
+  "rank_correlation_spearman": 0.68,
+  "faithfulness": 0.80,
+  "context_recall": 0.51,
+  "answer_relevancy": 0.20
+}
