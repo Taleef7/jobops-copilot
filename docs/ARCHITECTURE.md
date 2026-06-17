@@ -178,6 +178,19 @@ Implemented in `services/agent/app/safety/pii.py`, applied across the parse/scor
 chains and the Langfuse `mask`, and toggled by `PII_REDACTION_ENABLED` (default on). Full
 details and retention stance: [`docs/PRIVACY.md`](PRIVACY.md).
 
+## LLM I/O guardrails
+
+Untrusted job-description text (ingested from Adzuna) is treated as data: the agent scans
+it for prompt-injection signatures, wraps it in BEGIN/END delimiters, and the system
+prompts instruct the model never to follow instructions inside those delimiters
+(`services/agent/app/safety/injection.py`). `INJECTION_ACTION` is `flag` (log + trace +
+delimit) by default, or `refuse` to block the call. Generated outreach passes two output
+guards before it is returned (`app/safety/moderation.py`, `app/safety/groundedness.py`): a
+**moderation** check (OpenAI's endpoint when a key is present, else an active-provider
+safety self-check) withholds unsafe drafts, and a **groundedness** self-check flags claims
+not supported by the job/resume context in `safety_notes`. Both skip gracefully when no
+provider is configured.
+
 ## Design Principles
 
 - Human-in-the-loop by default.
