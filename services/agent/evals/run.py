@@ -22,6 +22,7 @@ from app.config import settings
 from app.llm.provider import get_model, resolve_provider
 from app.rag.chunk import chunk_text
 from app.schemas import ScoreFitRequest
+from evals.gate import check_regression, check_thresholds, load_baseline, load_thresholds
 from evals.metrics.extraction import exact_match, skill_prf
 from evals.metrics.ragas_fit import fit_ragas_scores, mean, spearman
 
@@ -213,7 +214,7 @@ def render_markdown(report: dict) -> str:
     return "\n".join(lines) + "\n"
 
 
-def main(output_dir: Path | None = None) -> int:
+def main(output_dir: Path | None = None, gate: bool = False) -> int:
     logging.basicConfig(level=logging.INFO)
     output_dir = output_dir or Path(__file__).parent
     generated_at = datetime.now(UTC).isoformat(timespec="seconds")
@@ -242,8 +243,23 @@ def main(output_dir: Path | None = None) -> int:
     (output_dir / "report.json").write_text(json.dumps(report, indent=2) + "\n", encoding="utf-8")
     (output_dir / "report.md").write_text(render_markdown(report), encoding="utf-8")
     print(render_markdown(report))
+
+    # Gate (Phase 2 · J): only meaningful on a keyed run. A skipped report gates nothing,
+    # so PR runs (no key) stay green. Thresholds hard-fail; regressions are flagged.
+    if gate and report["status"] == "ok":
+        regressions = check_regression(report, load_baseline())
+        for line in regressions:
+            print(f"::warning::eval regression: {line}")
+        failures = check_thresholds(report, load_thresholds())
+        if failures:
+            for line in failures:
+                print(f"::error::eval gate failed: {line}")
+            return 1
+
     return 0
 
 
 if __name__ == "__main__":
-    raise SystemExit(main())
+    import sys
+
+    raise SystemExit(main(gate="--gate" in sys.argv))

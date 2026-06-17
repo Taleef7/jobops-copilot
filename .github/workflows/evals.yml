@@ -1,9 +1,12 @@
 name: Evals
 
-# Report-only LLM eval job (Phase 1 · Workstream A). Scores parse-job + score-fit
-# on a small real gold set and publishes the report to the run summary. It never
-# blocks a merge — gating is deferred to Phase 2. With no OPENAI_API_KEY secret
-# set, the run skips cleanly (and stays green).
+# Two-tier eval gate (Phase 2 · Workstream J). Scores parse-job + score-fit on a small
+# real gold set and publishes the report to the run summary. On push-to-main / manual
+# dispatch the provider key is injected and the run is GATED (`--gate`): it fails the job
+# when a metric drops below evals/thresholds.json (Ragas regressions are flagged as
+# warnings). On pull_request no key is injected, so the run skips and stays green — the
+# key-free PR gate lives in the `agent` pytest job (gold-set integrity + mock-model smoke).
+# With no OPENAI_API_KEY secret set at all, every run skips cleanly.
 
 on:
   # Keyed (real) eval runs only on trusted events — see the secret guard below.
@@ -51,9 +54,8 @@ jobs:
           pip install -r requirements-dev.txt
           pip install -r requirements-evals.txt
 
-      - name: Run evals (skips cleanly without a provider key)
+      - name: Run evals (gated on push-to-main; skips cleanly without a key)
         id: run
-        continue-on-error: true
         env:
           # Inject the key ONLY on trusted events (push to main / manual dispatch).
           # On pull_request the value is empty, so the run skips — PR-controlled
@@ -61,7 +63,9 @@ jobs:
           # (Absent secret also -> empty -> the run resolves no provider and skips.)
           OPENAI_API_KEY: ${{ github.event_name != 'pull_request' && secrets.OPENAI_API_KEY || '' }}
           OPENAI_MODEL: ${{ vars.JUDGE_MODEL || 'gpt-4o-mini' }}
-        run: python -m evals.run
+        # --gate fails the job when a keyed run drops below evals/thresholds.json.
+        # No continue-on-error: a skipped (no-key) run still exits 0, so PRs stay green.
+        run: python -m evals.run --gate
 
       - name: Publish report to job summary
         if: always()

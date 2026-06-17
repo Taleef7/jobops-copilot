@@ -150,3 +150,131 @@ def test_run_skips_without_provider_key(tmp_path, monkeypatch):
     assert report["status"] == "skipped"
     assert report["provider"] is None
     assert (tmp_path / "report.md").exists()
+
+
+# --- J1: key-free PR gate (gold-set integrity + mock-model smoke) ------------
+
+
+def test_gold_sets_are_well_formed():
+    import json
+
+    from evals import run
+
+    for name in ("parse_job.jsonl", "fit_score.jsonl"):
+        rows = [
+            json.loads(line)
+            for line in (run._DATA_DIR / name).read_text(encoding="utf-8").splitlines()
+            if line.strip()
+        ]
+        assert rows, f"{name} is empty"
+        for row in rows:
+            assert {"description_text", "expected"} <= set(row.keys())
+            assert row["description_text"].strip()
+    assert (run._DATA_DIR / "sample_resume.txt").read_text(encoding="utf-8").strip()
+
+
+def test_parse_job_eval_smoke_with_fake_model(monkeypatch):
+    """The runner pipeline executes end-to-end with a fake model — no key, no network."""
+    from app.schemas import ParsedJob
+    from evals import run
+
+    monkeypatch.setattr(
+        run, "parse_job", lambda text, config=None: ParsedJob(title="X", required_skills=["python"])
+    )
+    row = {
+        "description_text": "d",
+        "expected": {"required_skills": ["python"], "title": "X", "seniority": "mid"},
+    }
+    out = run.run_parse_job_eval([row])
+    assert out["n"] == 1 and out["errors"] == 0 and out["skill_f1"] == 1.0
+
+
+# --- J2: gate logic (pure) ---------------------------------------------------
+
+
+def test_check_thresholds_reports_failures():
+    from evals.gate import check_thresholds
+
+    report = {
+        "status": "ok",
+        "parse_job": {"skill_f1": 0.40, "title_accuracy": 0.9, "seniority_accuracy": 0.9},
+        "fit_score": {"rank_correlation_spearman": 0.7},
+    }
+    failures = check_thresholds(report, {"skill_f1": 0.50, "title_accuracy": 0.65})
+    assert any("skill_f1" in f for f in failures)
+    assert not any("title_accuracy" in f for f in failures)
+
+
+def test_check_thresholds_skips_when_report_skipped():
+    from evals.gate import check_thresholds
+
+    assert check_thresholds({"status": "skipped"}, {"skill_f1": 0.99}) == []
+
+
+def test_check_thresholds_fails_when_thresholded_metric_missing():
+    """A thresholded metric absent on an ok run (e.g. Spearman None) is a failure."""
+    from evals.gate import check_thresholds
+
+    report = {"status": "ok", "parse_job": {"skill_f1": 0.9}, "fit_score": {"ragas": {}}}
+    failures = check_thresholds(report, {"skill_f1": 0.5, "rank_correlation_spearman": 0.45})
+    assert any("rank_correlation_spearman" in f for f in failures)
+    assert not any("skill_f1" in f for f in failures)
+
+
+def test_check_regression_flags_drops():
+    from evals.gate import check_regression
+
+    report = {"status": "ok", "fit_score": {"ragas": {"faithfulness": 0.50}}}
+    assert check_regression(report, {"faithfulness": 0.80}, tol=0.1)
+    assert check_regression(report, {"faithfulness": 0.55}, tol=0.1) == []  # within tolerance
+
+
+# --- J3: --gate exit behavior ------------------------------------------------
+
+
+def _stub_keyed_run(monkeypatch, parse_metrics, fit_metrics):
+    from evals import run
+
+    monkeypatch.setattr(run, "_provider_ready", lambda: True)
+    monkeypatch.setattr(run, "get_model", lambda: (object(), "fake:model"))
+    monkeypatch.setattr(run, "_load_jsonl", lambda path: [{}])
+    monkeypatch.setattr(run, "run_parse_job_eval", lambda rows: parse_metrics)
+    monkeypatch.setattr(run, "run_fit_score_eval", lambda rows, resume: fit_metrics)
+    return run
+
+
+def _pj(score: float) -> dict:
+    return {
+        "n": 1,
+        "errors": 0,
+        "skill_precision": score,
+        "skill_recall": score,
+        "skill_f1": score,
+        "title_accuracy": score,
+        "seniority_accuracy": score,
+    }
+
+
+def test_main_gate_fails_below_threshold(tmp_path, monkeypatch):
+    run = _stub_keyed_run(
+        monkeypatch,
+        _pj(0.10),
+        {"n": 1, "errors": 0, "rank_correlation_spearman": 0.10, "ragas": {}},
+    )
+    assert run.main(output_dir=tmp_path, gate=True) == 1
+
+
+def test_main_gate_passes_above_threshold(tmp_path, monkeypatch):
+    run = _stub_keyed_run(
+        monkeypatch,
+        _pj(0.90),
+        {"n": 1, "errors": 0, "rank_correlation_spearman": 0.90, "ragas": {}},
+    )
+    assert run.main(output_dir=tmp_path, gate=True) == 0
+
+
+def test_main_gate_passes_on_skip(tmp_path, monkeypatch):
+    from evals import run
+
+    monkeypatch.setattr(run, "resolve_provider", lambda: None)
+    assert run.main(output_dir=tmp_path, gate=True) == 0
