@@ -20,6 +20,7 @@ out/
 apps/api/data/jobs.json
 apps/api/data/weekly-reports.json
 apps/api/data/saved-searches.json
+apps/api/data/ai-usage.json
 apps/api/data/report-exports/
 apps/api/data/*.tmp
 workflows/n8n/owner.env
