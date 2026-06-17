@@ -7,11 +7,13 @@ Node API can transparently fall back to its deterministic mock.
 
 from __future__ import annotations
 
+import json
 import logging
 import os
 import uuid
 
 from fastapi import FastAPI, HTTPException
+from fastapi.responses import StreamingResponse
 from langgraph.types import Command
 from pydantic import BaseModel, Field
 
@@ -270,6 +272,50 @@ def assistant_resume_endpoint(req: AssistantResumeRequest) -> dict:
     config = {"configurable": {"thread_id": req.thread_id}}
     state = _run(graph.invoke, Command(resume={"approved": req.approved}), config)
     return _assistant_response(req.thread_id, state)
+
+
+def _sse(event: str, data: dict) -> str:
+    return f"event: {event}\ndata: {json.dumps(data)}\n\n"
+
+
+async def _assistant_event_stream(payload: dict, config: dict):
+    """Stream the assistant run as SSE: one `status` event per node, an
+    `awaiting_approval` event at the HITL interrupt, else a final `result`."""
+    graph = _get_assistant_graph()
+    thread_id = config["configurable"]["thread_id"]
+    awaiting = False
+    try:
+        async for update in graph.astream(payload, config, stream_mode="updates"):
+            for node, delta in update.items():
+                if node == "__interrupt__":
+                    awaiting = True
+                    snapshot = _assistant_response(thread_id, graph.get_state(config).values)
+                    snapshot["status"] = "awaiting_approval"
+                    yield _sse("awaiting_approval", snapshot)
+                else:
+                    status = delta.get("status") if isinstance(delta, dict) else None
+                    yield _sse("status", {"node": node, "status": status})
+        if not awaiting:
+            yield _sse("result", _assistant_response(thread_id, graph.get_state(config).values))
+    except Exception as exc:  # noqa: BLE001 - surface streaming failures as an SSE error
+        logger.exception("assistant stream failed")
+        yield _sse("error", {"message": str(exc)})
+
+
+@app.post("/assistant/stream")
+async def assistant_stream_endpoint(req: AssistantRunRequest) -> StreamingResponse:
+    _require_llm()
+    thread_id = str(uuid.uuid4())
+    config = {"configurable": {"thread_id": thread_id}}
+    payload = {
+        "description_text": req.description_text,
+        "resume_text": req.resume_text,
+        "profile_text": req.profile_text,
+        "user_id": req.user_id,
+    }
+    return StreamingResponse(
+        _assistant_event_stream(payload, config), media_type="text/event-stream"
+    )
 
 
 # --- Phase 11 telemetry -----------------------------------------------------

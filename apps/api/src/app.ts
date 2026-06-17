@@ -5,6 +5,7 @@ import { attachUserId, clerkAuth } from '@/lib/auth';
 import { globalLimiter, strictLimiter } from '@/lib/rate-limit';
 import { enforceDailyBudget } from '@/lib/budget';
 import { aiRouter } from '@/routes/ai';
+import { assistantStreamRouter } from '@/routes/assistant';
 import { demoRouter } from '@/routes/demo';
 import { healthRouter } from '@/routes/health';
 import { jobsRouter } from '@/routes/jobs';
@@ -69,6 +70,9 @@ export function createApp() {
 
   app.use('/api', healthRouter);
   app.use('/api/jobs', jobsRouter);
+  // SSE assistant stream: mounted at the exact path (before the AI router) so it pipes
+  // unbuffered and doesn't double-apply the AI guards to /assistant/run|resume.
+  app.use('/api/ai/assistant/stream', strictLimiter, enforceDailyBudget, assistantStreamRouter);
   // Stricter per-user limit on the expensive AI + discovery routes; the AI routes
   // additionally enforce the per-user daily spend ceiling (discovery has no LLM cost).
   app.use('/api/ai', strictLimiter, enforceDailyBudget, aiRouter);
