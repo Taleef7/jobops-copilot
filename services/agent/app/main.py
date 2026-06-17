@@ -20,6 +20,7 @@ from app.chains.score_fit import score_fit
 from app.chains.weekly import weekly_recommendations
 from app.config import settings
 from app.llm.provider import LLMNotConfigured, llm_available, resolve_provider
+from app.obs import traced_config
 from app.rag.store import ingest_document, rag_available, retrieve, retrieve_resume_evidence
 from app.schemas import (
     DraftOutreachRequest,
@@ -129,7 +130,7 @@ def health() -> dict:
 @app.post("/parse-job", response_model=ParsedJob)
 def parse_job_endpoint(req: ParseJobRequest) -> ParsedJob:
     _require_llm()
-    return _run(parse_job, req.description_text)
+    return _run(parse_job, req.description_text, traced_config("parse-job"))
 
 
 @app.post("/score-fit", response_model=FitScoreResponse)
@@ -143,7 +144,7 @@ def score_fit_endpoint(req: ScoreFitRequest) -> FitScoreResponse:
         )
         if evidence:
             req.retrieved_context = evidence
-    return _run(score_fit, req)
+    return _run(score_fit, req, traced_config("score-fit", user_id=req.user_id))
 
 
 @app.post("/rag/ingest")
@@ -165,7 +166,7 @@ def rag_search_endpoint(req: SearchRequest) -> dict:
 @app.post("/draft-outreach", response_model=OutreachDraftResponse)
 def draft_outreach_endpoint(req: DraftOutreachRequest) -> OutreachDraftResponse:
     _require_llm()
-    return _run(draft_outreach, req)
+    return _run(draft_outreach, req, traced_config("draft-outreach"))
 
 
 @app.post("/weekly-recommendations", response_model=WeeklyRecommendationsLLM)
@@ -173,7 +174,7 @@ def weekly_recommendations_endpoint(
     req: WeeklyRecommendationsRequest,
 ) -> WeeklyRecommendationsLLM:
     _require_llm()
-    return _run(weekly_recommendations, req)
+    return _run(weekly_recommendations, req, traced_config("weekly-recommendations"))
 
 
 # --- Phase 8 agents ---------------------------------------------------------
@@ -182,19 +183,19 @@ def weekly_recommendations_endpoint(
 @app.post("/agents/interview-prep", response_model=InterviewPrep)
 def interview_prep_endpoint(req: InterviewPrepRequest) -> InterviewPrep:
     _require_llm()
-    return _run(run_interview_prep, req)
+    return _run(run_interview_prep, req, traced_config("agent-interview-prep"))
 
 
 @app.post("/agents/research", response_model=ResearchBrief)
 def research_endpoint(req: ResearchRequest) -> ResearchBrief:
     _require_llm()
-    return _run(run_research, req)
+    return _run(run_research, req, traced_config("agent-research"))
 
 
 @app.post("/agents/skill-gap", response_model=SkillGapPlan)
 def skill_gap_endpoint(req: SkillGapRequest) -> SkillGapPlan:
     _require_llm()
-    return _run(run_skill_gap, req)
+    return _run(run_skill_gap, req, traced_config("agent-skill-gap"))
 
 
 # --- Phase 11 telemetry -----------------------------------------------------

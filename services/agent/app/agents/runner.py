@@ -23,8 +23,10 @@ from app.schemas import (
 )
 
 
-def _final_structured(agent, prompt: str):
-    result = agent.invoke({"messages": [{"role": "user", "content": prompt}]})
+def _final_structured(agent, prompt: str, config: dict | None = None):
+    result = agent.invoke(
+        {"messages": [{"role": "user", "content": prompt}]}, config=config or None
+    )
     return result, result["structured_response"]
 
 
@@ -36,7 +38,7 @@ def _used_a_tool(result) -> bool:
     )
 
 
-def run_interview_prep(req: InterviewPrepRequest) -> InterviewPrep:
+def run_interview_prep(req: InterviewPrepRequest, config: dict | None = None) -> InterviewPrep:
     model, _ = get_model()
     agent = create_agent(
         model,
@@ -51,11 +53,11 @@ def run_interview_prep(req: InterviewPrepRequest) -> InterviewPrep:
         parts.append(f"Role: {req.role}")
     if req.resume_text:
         parts.append(f"Candidate resume (only truthful claims):\n{req.resume_text}")
-    _, brief = _final_structured(agent, "\n\n".join(parts))
+    _, brief = _final_structured(agent, "\n\n".join(parts), config)
     return brief
 
 
-def run_skill_gap(req: SkillGapRequest) -> SkillGapPlan:
+def run_skill_gap(req: SkillGapRequest, config: dict | None = None) -> SkillGapPlan:
     model, _ = get_model()
     agent = create_agent(
         model,
@@ -68,11 +70,11 @@ def run_skill_gap(req: SkillGapRequest) -> SkillGapPlan:
         parts.append(f"Job description:\n{req.job_description}")
     if req.resume_text:
         parts.append(f"Resume:\n{req.resume_text}")
-    _, plan = _final_structured(agent, "\n\n".join(parts))
+    _, plan = _final_structured(agent, "\n\n".join(parts), config)
     return plan
 
 
-def run_research(req: ResearchRequest) -> ResearchBrief:
+def run_research(req: ResearchRequest, config: dict | None = None) -> ResearchBrief:
     model, _ = get_model()
     agent = create_agent(
         model,
@@ -86,6 +88,6 @@ def run_research(req: ResearchRequest) -> ResearchBrief:
     if req.context:
         parts.append(f"Additional context:\n{req.context}")
     parts.append("Research this company and role for an upcoming interview.")
-    result, brief = _final_structured(agent, "\n\n".join(parts))
+    result, brief = _final_structured(agent, "\n\n".join(parts), config)
     brief.used_web_search = _used_a_tool(result)
     return brief

@@ -7,7 +7,9 @@ from app.prompts import WEEKLY_RECOMMENDATIONS_SYSTEM
 from app.schemas import WeeklyRecommendationsLLM, WeeklyRecommendationsRequest
 
 
-def weekly_recommendations(req: WeeklyRecommendationsRequest) -> WeeklyRecommendationsLLM:
+def weekly_recommendations(
+    req: WeeklyRecommendationsRequest, config: dict | None = None
+) -> WeeklyRecommendationsLLM:
     model, _ = get_model()
     structured = model.with_structured_output(WeeklyRecommendationsLLM)
 
@@ -18,4 +20,4 @@ def weekly_recommendations(req: WeeklyRecommendationsRequest) -> WeeklyRecommend
         f"Most common missing skills: {missing}"
     )
     messages = [("system", WEEKLY_RECOMMENDATIONS_SYSTEM), ("human", human)]
-    return structured.invoke(messages)
+    return structured.invoke(messages, config=config or None)

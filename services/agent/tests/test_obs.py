@@ -30,3 +30,10 @@ def test_enabled_without_session_omits_metadata(monkeypatch):
     config = lf.traced_config("weekly", None)
     assert "metadata" not in config
     assert config["run_name"] == "weekly"
+
+
+def test_enabled_includes_user_id(monkeypatch):
+    monkeypatch.setattr(lf, "_handler", lambda: object())
+    config = lf.traced_config("score-fit", user_id="user_42")
+    assert config["metadata"]["langfuse_user_id"] == "user_42"
+    assert "langfuse_session_id" not in config["metadata"]

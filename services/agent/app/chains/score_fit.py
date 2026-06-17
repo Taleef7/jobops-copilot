@@ -11,7 +11,7 @@ from app.prompts import FIT_SCORER_SYSTEM
 from app.schemas import FitScoreLLM, FitScoreResponse, ScoreFitRequest
 
 
-def score_fit(req: ScoreFitRequest) -> FitScoreResponse:
+def score_fit(req: ScoreFitRequest, config: dict | None = None) -> FitScoreResponse:
     model, label = get_model()
     structured = model.with_structured_output(FitScoreLLM)
 
@@ -32,5 +32,5 @@ def score_fit(req: ScoreFitRequest) -> FitScoreResponse:
         )
 
     messages = [("system", FIT_SCORER_SYSTEM), ("human", "\n\n".join(parts))]
-    result = structured.invoke(messages)
+    result = structured.invoke(messages, config=config or None)
     return FitScoreResponse(**result.model_dump(), model_used=label)

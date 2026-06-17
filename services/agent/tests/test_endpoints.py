@@ -27,7 +27,7 @@ def test_parse_job_happy_path(monkeypatch):
     monkeypatch.setattr(
         main,
         "parse_job",
-        lambda text: ParsedJob(
+        lambda text, config=None: ParsedJob(
             title="AI Software Engineer",
             required_skills=["Python", "LangChain"],
             seniority="junior",
@@ -46,7 +46,7 @@ def test_score_fit_happy_path(monkeypatch):
     monkeypatch.setattr(
         main,
         "score_fit",
-        lambda req: FitScoreResponse(
+        lambda req, config=None: FitScoreResponse(
             fit_score=88,
             matched_skills=["Python"],
             missing_skills=[],
@@ -77,7 +77,7 @@ def test_draft_outreach_happy_path(monkeypatch):
     monkeypatch.setattr(
         main,
         "draft_outreach",
-        lambda req: OutreachDraftResponse(
+        lambda req, config=None: OutreachDraftResponse(
             subject="Excited about the AI Software Engineer role",
             draft_text="Hi, ...",
             safety_notes="Verify the team name before sending.",
@@ -109,7 +109,7 @@ def test_score_fit_skips_rag_when_disabled(monkeypatch):
     monkeypatch.setattr(
         main,
         "score_fit",
-        lambda req: FitScoreResponse(
+        lambda req, config=None: FitScoreResponse(
             fit_score=70,
             fit_summary="ok",
             recommended_resume_angle="ok",

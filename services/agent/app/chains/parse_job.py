@@ -7,11 +7,11 @@ from app.prompts import JOB_PARSER_SYSTEM
 from app.schemas import ParsedJob
 
 
-def parse_job(description_text: str) -> ParsedJob:
+def parse_job(description_text: str, config: dict | None = None) -> ParsedJob:
     model, _ = get_model()
     structured = model.with_structured_output(ParsedJob)
     messages = [
         ("system", JOB_PARSER_SYSTEM),
         ("human", f"Job description:\n\n{description_text}"),
     ]
-    return structured.invoke(messages)
+    return structured.invoke(messages, config=config or None)
