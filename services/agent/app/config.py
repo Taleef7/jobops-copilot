@@ -63,5 +63,10 @@ class Settings(BaseSettings):
     # at/above it the assistant researches + drafts outreach; below it stops with a "pass".
     assistant_fit_threshold: int = 60
 
+    # Agent-as-MCP-client (Phase 3 · Workstream N). JSON map of external MCP servers to load
+    # research tools from, e.g. {"fetch": {"transport": "http", "url": "http://host/mcp"}}.
+    # Unset → the research agent uses the built-in Tavily web_search tool.
+    mcp_client_servers: str | None = None
+
 
 settings = Settings()
