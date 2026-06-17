@@ -149,7 +149,11 @@ def run_fit_score_eval(rows: list[dict], resume_text: str) -> dict:
                     + row["description_text"]
                 ),
                 "response": response.fit_summary,
-                "retrieved_contexts": contexts,
+                # Ground faithfulness in BOTH the resume and the JD: a fit summary
+                # legitimately cites role requirements/gaps, which live in the JD,
+                # not the resume — so resume-only contexts would mark those claims
+                # unfaithful and corrupt the score.
+                "retrieved_contexts": [*contexts, row["description_text"]],
                 "reference": expected["reference"],
             }
         )

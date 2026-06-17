@@ -57,16 +57,18 @@ point, not a contract. Phase 2 adds a tracked table and CI thresholds.
 
 | step | metric | score |
 | --- | --- | --- |
-| parse-job | skill F1 | 0.57 |
+| parse-job | skill F1 | 0.59 |
 | parse-job | title accuracy | 0.76 |
-| parse-job | seniority accuracy | 0.59 |
-| score-fit | fit-vs-label Spearman | 0.67 |
-| score-fit | faithfulness | 0.52 |
-| score-fit | context recall | 0.49 |
-| score-fit | answer relevance | 0.11 |
+| parse-job | seniority accuracy | 0.53 |
+| score-fit | fit-vs-label Spearman | 0.68 |
+| score-fit | faithfulness | 0.80 |
+| score-fit | context recall | 0.51 |
+| score-fit | answer relevance | 0.20 |
 
-The low answer-relevance reflects the lightweight MiniLM embeddings and the
-JD-as-question framing; it's a known baseline to improve, not a regression.
+Faithfulness grounds claims in both the resume and the JD (a fit summary
+legitimately cites role requirements). The low answer-relevance reflects the
+lightweight MiniLM embeddings and the JD-as-question framing — a known baseline
+to improve, not a regression.
 
 ## CI
 
