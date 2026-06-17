@@ -136,6 +136,18 @@ Jobs are the CRM source of truth. The list and detail pages read job records, an
 - GitHub Actions runs lint, typecheck, and build on push and pull request.
 - `main` is protected, so future changes should land through feature branches and PRs.
 
+## Observability
+
+LLM calls are traced with **Langfuse**. The agent attaches a Langfuse callback to
+every chain/agent `.invoke` (named per endpoint — e.g. `score-fit`,
+`agent-research` — with `langfuse_user_id` where available) and wraps RAG
+retrieval in a manual span, so each AI call appears as a trace with token usage,
+cost, latency, and the agent/tool steps. Tracing is **no-op when unconfigured**,
+so CI and key-less runs are unchanged. Enable it by setting `LANGFUSE_PUBLIC_KEY`
+/ `LANGFUSE_SECRET_KEY` / `LANGFUSE_HOST` — via Langfuse Cloud (free) or the local
+`docker-compose.langfuse.yml`. Azure Application Insights still covers
+infrastructure metrics; Langfuse adds the **LLM quality/cost** layer on top.
+
 ## Design Principles
 
 - Human-in-the-loop by default.
