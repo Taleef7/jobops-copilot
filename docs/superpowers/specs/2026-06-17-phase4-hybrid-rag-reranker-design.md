@@ -36,9 +36,11 @@ revisit later.
 1. With `RAG_RETRIEVAL_MODE=hybrid`, `retrieve()` fuses dense (cosine) + lexical (FTS)
    rankings via RRF and returns the top `k`; with `vector` it behaves as today. An
    un-migrated DB or an FTS error **falls back to vector-only** — retrieval never breaks.
-2. With `RAG_RERANK_ENABLED=true`, retrieval pulls a larger pool (`RAG_CANDIDATE_POOL`) and a
-   cross-encoder reranks it to the top `k`; any reranker load/inference error returns the
-   pre-rerank top-k. User-scoping and source filters hold throughout.
+2. With `RAG_RERANK_ENABLED=true` (opt-in; **default off** — see §5), retrieval pulls a
+   larger pool (`RAG_CANDIDATE_POOL`) and a cross-encoder reranks it to the top `k`. When
+   rerank is on, the **fusion/dense step returns the pool, not `k`** (so the reranker sees a
+   real pool); when off, retrieval returns the top `k` directly. Any reranker load/inference
+   error returns the pre-rerank top-k. User-scoping and source filters hold throughout.
 3. `python -m evals.run` (or a dedicated entrypoint) can run the fit-score eval across
    retrieval modes and emit a **per-mode comparison** (context-recall / faithfulness /
    answer-relevancy / fit-vs-label Spearman); it **skips** without a DB or provider.
@@ -58,8 +60,10 @@ revisit later.
   over the dense and lexical rank lists (`k0=60`), returning the top `k` by fused score. A
   pure function, unit-tested.
 - **`retrieve()` mode:** `RAG_RETRIEVAL_MODE` ∈ {`vector`, `hybrid`} (default `hybrid`).
-  Hybrid runs both queries (pull `candidate_pool` each), fuses, returns top `k`. On a missing
-  `tsvector` column or any FTS error, log + fall back to the vector path.
+  Hybrid runs both queries (pull `candidate_pool` each), fuses, and returns the top
+  **`fetch_k`** — which is `RAG_CANDIDATE_POOL` when rerank is enabled (the reranker then
+  narrows to `k`), else `k`. On a missing `tsvector` column or any FTS error, log + fall back
+  to the vector path (also honoring `fetch_k`).
 - **Rejected:** a BM25 extension / external search engine — Postgres FTS is built-in and
   reuses the existing table + connection.
 
@@ -69,9 +73,13 @@ revisit later.
   pairs with a **CPU cross-encoder** (`sentence-transformers` `CrossEncoder`, default
   `cross-encoder/ms-marco-MiniLM-L-6-v2`), returning the top `k`. The model is **lazy-loaded**
   and cached (mirrors `embeddings._get_model`).
-- **Wiring:** when `RAG_RERANK_ENABLED` (default true), `retrieve()` returns a pool of
-  `RAG_CANDIDATE_POOL` (default 16) candidates and reranks to `k`. Any error (no model, no
-  torch, inference failure) → return the pre-rerank top-`k`.
+- **Wiring:** when `RAG_RERANK_ENABLED` (**default false** — opt-in), `retrieve()` fetches a
+  pool of `RAG_CANDIDATE_POOL` (default 16) candidates (hybrid or vector) and reranks to `k`.
+  Default-off is deliberate: the scale-to-zero CPU container would otherwise download the
+  ~80 MB cross-encoder and run inference on the **first** score-fit after every cold start,
+  on the user's request path. Off by default keeps prod on vector/hybrid; rerank is the
+  opt-in quality lever (and the eval in §6 measures it regardless of the default). Any error
+  (no model, no torch, inference failure) → return the pre-rerank top-`k`.
 - **No new dep:** `CrossEncoder` is part of `sentence-transformers` (already in
   `requirements-rag.txt`); only a model download at runtime.
 - **Rejected:** LLM-as-reranker (slower, token cost, trips the budget guard).
@@ -81,8 +89,23 @@ revisit later.
 - **`evals/retrieval.py`** (+ a `--retrieval-modes` path in `run.py`): for each mode in
   `off` / `vector` / `hybrid` / `hybrid+rerank`, build each fit-score row's
   `retrieved_context` via the **real retriever** under that mode (ingest the sample resume →
-  retrieve per JD), run the existing fit-score scoring + Ragas, and collect
-  context-recall / faithfulness / answer-relevancy / fit-vs-label Spearman.
+  retrieve per JD), run the fit-score scoring + Ragas, and collect context-recall /
+  faithfulness / answer-relevancy / fit-vs-label Spearman.
+- **Seam (note):** today's `run_fit_score_eval` hard-codes `contexts = chunk_text(resume_text)`
+  (the *whole* chunked resume) and grounds Ragas faithfulness in `[*contexts, JD]`. Q must
+  refactor it to accept an injected `retrieved_context` (a `contexts` arg / context-builder)
+  so each mode supplies its own; the sweep is **not** a no-op reuse. List `run.py` as modified.
+- **Exact per-mode payload (avoid a context-volume artifact):** `off` = JD only, no resume
+  evidence (`retrieved_context=[]`); `vector`/`hybrid`/`hybrid+rerank` = the **top-k retrieved
+  chunks** (not the whole resume). Ragas `retrieved_contexts` per mode = the mode's
+  `retrieved_context` (+ the JD, as today). Because `off`/today's baseline dumps the whole
+  resume while the retrieval modes pass only top-k, context-recall may *drop* even as
+  precision/faithfulness rise — the report must show all four metrics per mode, not a single
+  headline, so the trade-off is visible.
+- **DB precondition:** `hybrid`/`hybrid+rerank` silently fall back to vector-only when the
+  `chunk_tsv` column is absent (§4). The sweep must **assert `chunk_tsv` / `embeddings_tsv_idx`
+  exist** before reporting hybrid numbers (else warn + mark the mode N/A), so a 003-but-not-007
+  DB can't produce a silently-bogus `hybrid ≈ vector` comparison in `EVALS.md`.
 - **Report:** a per-mode comparison table (markdown + JSON) showing the deltas; the numbers
   from a real keyed + DB run are recorded in `EVALS.md`.
 - **Skip:** needs a DB (pgvector + FTS) **and** a provider; absent either, it skips cleanly
@@ -92,9 +115,10 @@ revisit later.
 ## 7. Cross-cutting
 
 - **Config (`config.py` + `.env.example`, defaults shown):** `RAG_RETRIEVAL_MODE=hybrid`,
-  `RAG_RERANK_ENABLED=true`, `RAG_RERANK_MODEL=cross-encoder/ms-marco-MiniLM-L-6-v2`,
-  `RAG_CANDIDATE_POOL=16`. All optional; defaults give the improved pipeline, and each can be
-  turned off to fall back.
+  `RAG_RERANK_ENABLED=false`, `RAG_RERANK_MODEL=cross-encoder/ms-marco-MiniLM-L-6-v2`,
+  `RAG_CANDIDATE_POOL=16`. All optional; the default pipeline is **hybrid retrieval** (cheap,
+  pure-Postgres), with the reranker an opt-in lever (off by default to avoid cold-start CPU
+  latency on the request path — see §5).
 - **Testing:** O — RRF fusion (pure) + the hybrid `retrieve` path with a fake DB cursor;
   P — `rerank` with a fake CrossEncoder (ordering) + the graceful-skip path; Q — the
   mode-sweep aggregation with a fake retriever + fake scorer. All key-free / DB-free via

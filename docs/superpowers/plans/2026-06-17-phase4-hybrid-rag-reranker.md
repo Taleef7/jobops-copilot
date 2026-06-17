@@ -56,7 +56,7 @@ alter table embeddings
 create index if not exists embeddings_tsv_idx on embeddings using gin (chunk_tsv);
 ```
 
-- [ ] **Step 2: Apply locally** — `npm run db:init --workspace @jobops/api` (or apply manually) against a dev `DATABASE_URL`. Expected: `\d embeddings` shows `chunk_tsv` + the GIN index.
+- [ ] **Step 2: Apply locally** — `npm run db:init --workspace @jobops/api` (or apply manually) against a dev `DATABASE_URL`. Expected: `\d embeddings` shows `chunk_tsv` + the GIN index. (`db:init` re-runs every migration each invocation and 007 sorts after 006; the `if not exists` guards keep re-runs safe. The GIN build briefly locks the table for writes — fine at portfolio scale, same as 003's HNSW index. Step 0 already confirms PG ≥12 for `GENERATED ... STORED`.)
 - [ ] **Step 3: Config** — add to `Settings`:
 
 ```python
@@ -76,14 +76,20 @@ create index if not exists embeddings_tsv_idx on embeddings using gin (chunk_tsv
 from app.rag.fusion import reciprocal_rank_fusion
 
 def test_rrf_rewards_agreement_across_rankings():
-    dense = ["a", "b", "c"]
+    # "b" is rank-0 in BOTH lists, so it wins unambiguously (no exact tie to depend on
+    # insertion order). "a" appears in both but lower; "c"/"d" appear once.
+    dense = ["b", "a", "c"]
     lexical = ["b", "a", "d"]
-    # b is high in both -> should rank first; top_k caps the result
-    assert reciprocal_rank_fusion([dense, lexical], top_k=3) == ["b", "a", "c"]
+    result = reciprocal_rank_fusion([dense, lexical], top_k=3)
+    assert result[0] == "b"
+    assert set(result) == {"b", "a", "c"} or set(result) == {"b", "a", "d"}
+    assert result.index("a") < result.index(result[-1])  # "a" beats the single-list tail
 
 def test_rrf_handles_empty_and_dedup():
     assert reciprocal_rank_fusion([[], ["x", "x"]], top_k=2) == ["x"]
 ```
+
+(The two single-occurrence tails `c`/`d` score identically, so don't assert which of them appears — only that `b` then `a` lead.)
 
 - [ ] **Step 2: Run — expect FAIL** — `pytest tests/test_fusion.py -v`.
 - [ ] **Step 3: Implement** `app/rag/fusion.py`:
@@ -114,10 +120,12 @@ def reciprocal_rank_fusion(rankings: Sequence[Sequence[str]], k0: int = 60, top_
 **Files:** Modify `app/rag/store.py`; Test `tests/test_rag.py`
 
 - [ ] **Step 1–2: Failing test** — with a fake `_connect` cursor returning canned `(id, chunk_text)` rows for the dense and lexical SQL, `retrieve(query, k=2, mode="hybrid")` returns the RRF-fused top-2 texts; and when the lexical query raises (simulating a missing `chunk_tsv`), it falls back to the dense top-2. (Patch `store._connect` with a fake context manager; assert SQL routing via the cursor's recorded queries.)
-- [ ] **Step 3: Implement** — split the current query into `_dense_candidates(cur, query_literal, pool, where, params)` (order by `embedding <=> %s::vector`) and `_lexical_candidates(cur, query, pool, where, params)` (`where chunk_tsv @@ websearch_to_tsquery('english', %s) order by ts_rank_cd(chunk_tsv, websearch_to_tsquery('english', %s)) desc`), each selecting `id, chunk_text`. `retrieve()` reads `mode = (mode or settings.rag_retrieval_mode)`:
-  - `vector`: dense top-k (today's behavior).
-  - `hybrid`: pull `rag_candidate_pool` from each side; `texts = {id: chunk_text}`; `fused = reciprocal_rank_fusion([dense_ids, lexical_ids], top_k=k)`; return `[texts[i] for i in fused]`. Wrap the lexical query in try/except → on error, log and return dense top-k.
-  - Keep the `traced_span` + user/source filters on both sides.
+- [ ] **Step 3: Implement** — split the current query into `_dense_candidates(cur, query_literal, n, where, params)` (order by `embedding <=> %s::vector` limit `n`) and `_lexical_candidates(cur, query, n, where, params)` (`where chunk_tsv @@ websearch_to_tsquery('english', %s) order by ts_rank_cd(chunk_tsv, websearch_to_tsquery('english', %s)) desc` limit `n`), each selecting `id, chunk_text`. `retrieve()` reads `mode = (mode or settings.rag_retrieval_mode)` and a **`fetch_k` = how many to return** (defaults to `k` in O3; **P2 sets it to `rag_candidate_pool` when rerank is on** so the reranker sees a real pool):
+  - `vector`: dense top-`fetch_k` (today's behavior when `fetch_k==k`).
+  - `hybrid`: pull `rag_candidate_pool` from each side; `texts = {id: chunk_text}`;
+    `fused = reciprocal_rank_fusion([dense_ids, lexical_ids], top_k=fetch_k)`;
+    return `[texts[i] for i in fused]`. Wrap the lexical query in try/except → on error, log and return dense top-`fetch_k`.
+  - Keep the `traced_span` + user/source filters on both sides. (O3 always passes `fetch_k=k` — rerank doesn't exist yet; P2 generalizes it.)
 - [ ] **Step 4–5: Run PASS; `pytest tests/test_rag.py && ruff`. Commit** — `feat(rag): hybrid retrieval (dense + FTS via RRF) with vector fallback`.
 
 ---
@@ -158,15 +166,15 @@ def rerank(query: str, chunks: list[str], k: int) -> list[str]:
         return chunks[:k]
 ```
 
-Add to `Settings`: `rag_rerank_enabled: bool = True` and `rag_rerank_model: str = "cross-encoder/ms-marco-MiniLM-L-6-v2"`.
+Add to `Settings`: `rag_rerank_enabled: bool = False` (opt-in — off by default to avoid a cold-start cross-encoder download + CPU inference on the first score-fit request; see spec §5) and `rag_rerank_model: str = "cross-encoder/ms-marco-MiniLM-L-6-v2"`.
 
 - [ ] **Step 4–5: Run PASS; `ruff`. Commit** — `feat(rag): CPU cross-encoder reranker (graceful)`.
 
 ### Task P2: wire rerank into retrieve
 **Files:** Modify `app/rag/store.py`; Test `tests/test_rag.py`
 
-- [ ] **Step 1–2: Failing test** — with hybrid stubbed to return a known pool and `rag_rerank_enabled=True`, `retrieve(query, k=2)` calls `rerank` (monkeypatched to reverse the pool) and returns its top-2; with `rag_rerank_enabled=False`, the pool's first 2 are returned unchanged.
-- [ ] **Step 3: Implement** — in `retrieve()`, when `settings.rag_rerank_enabled`, retrieve `max(k, rag_candidate_pool)` candidates (hybrid or vector), then `from app.rag.rerank import rerank; return rerank(query, pool, k)`. When disabled, return the pool's top-k as before. Import `rerank` lazily inside the function so CI without torch is unaffected.
+- [ ] **Step 1–2: Failing test** — with `rag_rerank_enabled=True`, assert `retrieve(query, k=2)` fetches a **pool** (`fetch_k == max(k, rag_candidate_pool)`, not `k`) from the dense/hybrid path (assert via the recorded SQL `limit` or a stubbed fetch capturing `fetch_k`) and then calls `rerank` (monkeypatched to reverse the pool) returning its top-2; with `rag_rerank_enabled=False`, `fetch_k == k` and the top-2 are returned unchanged. This pins the **pool-not-`k`** behavior so hybrid's benefit isn't collapsed before reranking.
+- [ ] **Step 3: Implement** — in `retrieve()`, set `fetch_k = max(k, settings.rag_candidate_pool) if settings.rag_rerank_enabled else k`, fetch that many via the vector/hybrid path (O3 already returns `fetch_k`), then: when rerank enabled, `from app.rag.rerank import rerank; return rerank(query, pool, k)`; when disabled, return the top-`k` directly. Import `rerank` lazily inside the function so CI without torch is unaffected.
 - [ ] **Step 4–5: Run PASS; `pytest && ruff check app tests`. Commit** — `feat(rag): rerank the candidate pool in retrieve()`.
 
 ---
@@ -177,8 +185,35 @@ Add to `Settings`: `rag_rerank_enabled: bool = True` and `rag_rerank_model: str 
 **Files:** Create `evals/retrieval.py`; Modify `evals/run.py`, `EVALS.md`, `.env.example`, `docs/ARCHITECTURE.md`; Test `tests/test_retrieval_eval.py`
 
 - [ ] **Step 1–2: Failing test** — `run_retrieval_modes(rows, resume_text, modes, deps)` with injected fake `retrieve`/`score_fit`/`ragas` returns a dict keyed by mode, each with `rank_correlation_spearman` + `ragas` metrics; assert it runs every requested mode and aggregates per mode. (No DB/LLM — inject the retriever + scorer.)
-- [ ] **Step 3: Implement** `evals/retrieval.py` — for each mode (`off`/`vector`/`hybrid`/`hybrid+rerank`): build each row's `retrieved_context` via the retriever under that mode (`off` → `[]`; others → `retrieve_resume_evidence` with the matching `RAG_RETRIEVAL_MODE`/`RAG_RERANK_ENABLED` toggled), run the existing `run_fit_score_eval` machinery, and collect the metrics. `evals/run.py` gains a `--retrieval-modes` flag that, when a DB + provider are present, runs the sweep and prints/writes a per-mode comparison table (else prints a skip line). Document the modes + a real results table in `EVALS.md`; add `RAG_*` vars to `.env.example` and a RAG paragraph to `ARCHITECTURE.md`.
-- [ ] **Step 4–5: Run PASS; `pytest && ruff`; (optionally) a real `python -m evals.run --retrieval-modes` against a keyed dev DB to fill the EVALS.md numbers. Commit** — `feat(evals): retrieval-mode comparison (off/vector/hybrid/+rerank)`.
+- [ ] **Step 3a: Refactor the scoring seam** — `run_fit_score_eval` currently hard-codes
+  `contexts = chunk_text(resume_text)` and grounds Ragas in `[*contexts, JD]` (`run.py:122,157`).
+  Add a parameter so the caller injects per-row `retrieved_context` (e.g.
+  `run_fit_score_eval(rows, resume_text, contexts_for=lambda row: [...])`, defaulting to the
+  current whole-resume behavior for the existing `python -m evals.run`). List `run.py` as
+  **Modified** for this signature change. This is the seam the sweep needs — it is **not** a
+  no-op reuse.
+- [ ] **Step 3b: Implement `evals/retrieval.py`** — for each mode build each row's
+  `retrieved_context` and pass it through the refactored scorer:
+  - `off` → `[]` (JD only, **no** resume evidence) — the true no-retrieval baseline.
+  - `vector` / `hybrid` / `hybrid+rerank` → the **top-k retrieved chunks** via
+    `retrieve_resume_evidence` with `RAG_RETRIEVAL_MODE` / `RAG_RERANK_ENABLED` toggled per mode.
+  Ragas `retrieved_contexts` per mode = that mode's `retrieved_context` (+ the JD, as today).
+  Collect context-recall / faithfulness / answer-relevancy / fit-vs-label Spearman per mode.
+  **Note in the report** that `off`/today's baseline dumps the whole resume while retrieval
+  modes pass only top-k, so context-recall may fall even as faithfulness/precision rise — show
+  all four metrics, not one headline.
+- [ ] **Step 3c: DB precondition** — before reporting `hybrid`/`hybrid+rerank`, assert the
+  `chunk_tsv` column + `embeddings_tsv_idx` exist (query `information_schema`/`pg_indexes`);
+  if absent, **mark those modes N/A and warn** rather than silently reporting `hybrid ≈ vector`
+  (which the O3 fallback would otherwise produce).
+- [ ] **Step 3d: Entrypoint + docs** — `evals/run.py` gains `--retrieval-modes`: with a DB +
+  provider it runs the sweep and writes a per-mode table (JSON + markdown); else prints a skip
+  line. Add `RAG_*` to `.env.example` (incl. `RAG_RERANK_ENABLED=false`) + a RAG paragraph to
+  `ARCHITECTURE.md`.
+- [ ] **Step 4–5: Run PASS; `pytest && ruff`.** For the EVALS.md numbers, run
+  `python -m evals.run --retrieval-modes` against a keyed dev DB **and commit the exact command
+  + the captured `evals/retrieval_report.json`** alongside `EVALS.md` so the comparison is
+  reproducible/auditable, not just pasted. **Commit** — `feat(evals): retrieval-mode comparison (off/vector/hybrid/+rerank)`.
 
 ---
 
