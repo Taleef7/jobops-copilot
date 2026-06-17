@@ -103,6 +103,42 @@ def test_rag_ingest_returns_503_when_disabled(monkeypatch):
     assert res.status_code == 503
 
 
+def test_assistant_run_returns_503_without_provider(monkeypatch):
+    monkeypatch.setattr(main, "llm_available", lambda: False)
+    res = client.post("/assistant/run", json={"description_text": "Build AI agents."})
+    assert res.status_code == 503
+
+
+def test_assistant_run_pauses_for_approval(monkeypatch):
+    monkeypatch.setattr(main, "llm_available", lambda: True)
+
+    class _FakeGraph:
+        def invoke(self, payload, config=None):
+            return {"__interrupt__": [object()], "fit": {"fit_score": 80},
+                    "research": {"company_summary": "ok"}}
+
+    monkeypatch.setattr(main, "_get_assistant_graph", lambda: _FakeGraph())
+    res = client.post("/assistant/run", json={"description_text": "d", "resume_text": "r"})
+    assert res.status_code == 200
+    data = res.json()
+    assert data["status"] == "awaiting_approval"
+    assert data["thread_id"]
+    assert data["fit"]["fit_score"] == 80
+
+
+def test_assistant_resume_returns_draft(monkeypatch):
+    monkeypatch.setattr(main, "llm_available", lambda: True)
+
+    class _FakeGraph:
+        def invoke(self, payload, config=None):
+            return {"status": "drafted", "draft": {"draft_text": "hi there"}}
+
+    monkeypatch.setattr(main, "_get_assistant_graph", lambda: _FakeGraph())
+    res = client.post("/assistant/resume", json={"thread_id": "t1", "approved": True})
+    assert res.status_code == 200
+    assert res.json()["draft"]["draft_text"] == "hi there"
+
+
 def test_score_fit_skips_rag_when_disabled(monkeypatch):
     monkeypatch.setattr(main, "llm_available", lambda: True)
     monkeypatch.setattr(main, "rag_available", lambda: False)
