@@ -1,0 +1,14 @@
+# Eval-only dependencies (Phase 1 · Workstream A).
+#
+# Deliberately separate from requirements-rag.txt: the runtime image's Dockerfile
+# installs requirements.txt + requirements-rag.txt, so anything here is kept OUT
+# of production builds. Ragas and its judge/eval stack are needed only by
+# `python -m evals.run` and the report-only evals CI job — never at runtime.
+#
+# Pulls in the RAG deps too because the eval run reuses the agent's
+# sentence-transformers embeddings (for Ragas answer-relevance) and chunker.
+-r requirements-rag.txt
+
+# evals/_ragas_compat.py shims a VertexAI import Ragas still performs against the
+# langchain-community 0.4.x that the agent's langchain 1.x stack pulls in.
+ragas>=0.4,<0.5
