@@ -22,7 +22,7 @@ def test_interview_prep_endpoint(monkeypatch):
     monkeypatch.setattr(
         main,
         "run_interview_prep",
-        lambda req: InterviewPrep(
+        lambda req, config=None: InterviewPrep(
             likely_questions=["Tell me about an AI agent you built."],
             talking_points=["Built LangChain agents."],
             gaps_to_address=["Limited PyTorch production experience."],
@@ -42,7 +42,7 @@ def test_research_endpoint(monkeypatch):
     monkeypatch.setattr(
         main,
         "run_research",
-        lambda req: ResearchBrief(
+        lambda req, config=None: ResearchBrief(
             company_summary="Pebble builds electric RV trailers.",
             recent_signals=["Launched a new trailer model."],
             role_context="AI for vehicle telemetry.",
@@ -61,7 +61,7 @@ def test_skill_gap_endpoint(monkeypatch):
     monkeypatch.setattr(
         main,
         "run_skill_gap",
-        lambda req: SkillGapPlan(
+        lambda req, config=None: SkillGapPlan(
             summary="Focus on PyTorch first.",
             prioritized_skills=[
                 SkillGapItem(

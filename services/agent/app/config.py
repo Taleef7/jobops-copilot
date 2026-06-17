@@ -42,5 +42,10 @@ class Settings(BaseSettings):
     # Optional web-search tool for the research agent (Phase 8)
     tavily_api_key: str | None = None
 
+    # Langfuse tracing/observability (Phase 1 LLMOps). No-op when unset.
+    langfuse_public_key: str | None = None
+    langfuse_secret_key: str | None = None
+    langfuse_host: str = "https://cloud.langfuse.com"
+
 
 settings = Settings()

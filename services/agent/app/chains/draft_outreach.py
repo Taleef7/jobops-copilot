@@ -7,7 +7,7 @@ from app.prompts import OUTREACH_DRAFTER_SYSTEM
 from app.schemas import DraftOutreachRequest, OutreachDraftLLM, OutreachDraftResponse
 
 
-def draft_outreach(req: DraftOutreachRequest) -> OutreachDraftResponse:
+def draft_outreach(req: DraftOutreachRequest, config: dict | None = None) -> OutreachDraftResponse:
     model, label = get_model()
     structured = model.with_structured_output(OutreachDraftLLM)
 
@@ -27,5 +27,5 @@ def draft_outreach(req: DraftOutreachRequest) -> OutreachDraftResponse:
         parts.append("Relevant resume evidence to draw from:\n" + evidence)
 
     messages = [("system", OUTREACH_DRAFTER_SYSTEM), ("human", "\n\n".join(parts))]
-    result = structured.invoke(messages)
+    result = structured.invoke(messages, config=config or None)
     return OutreachDraftResponse(**result.model_dump(), model_used=label)
