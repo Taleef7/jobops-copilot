@@ -76,5 +76,11 @@ class Settings(BaseSettings):
     rag_retrieval_mode: Literal["vector", "hybrid"] = "hybrid"
     rag_candidate_pool: int = 16  # candidates pulled per side before fusion / rerank
 
+    # CPU cross-encoder reranker (Phase 4 · P). Opt-in: off by default to avoid a cold-start
+    # model download + CPU inference on the first score-fit request. When on, retrieve() reranks
+    # the candidate pool down to k. CrossEncoder ships with sentence-transformers (no new dep).
+    rag_rerank_enabled: bool = False
+    rag_rerank_model: str = "cross-encoder/ms-marco-MiniLM-L-6-v2"
+
 
 settings = Settings()
