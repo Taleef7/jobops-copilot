@@ -41,6 +41,11 @@ CRM and orchestration; a Python service owns the real AI.
   wraps the composite job source so identical searches within `JOB_SEARCH_CACHE_TTL_MS`
   (default 5 min) skip the rate-limited Adzuna call. Only successful results are cached, so
   the Remotive fallback still fires on upstream errors; `TTL=0` disables it.
+- **Tested infrastructure (Phase 5).** Infra is codified as Bicep (`infra/`, `what-if`-verified
+  against the live subscription), load-tested with k6 (`load/`), and the web's public surface is
+  smoke-tested with Playwright (`apps/web/e2e/`). CI runs the repo checks **plus** the API
+  `node:test` suite, `az bicep build` validation, and a Clerk-secret-gated e2e job, alongside the
+  agent/MCP `pytest`.
 
 The sections below document the original CRM/data layer, which still underpins
 the system.

@@ -143,11 +143,19 @@ complete:
 | 7 | Zapier/Make companion flows | ✅ |
 
 On top of the original plan, a **production-grade AI program** (epic #43) hardens the
-system for real operation — **Phase 1** (real Adzuna ingestion, Langfuse tracing, eval
-harness) and **Phase 2** (rate-limiting + cost ceiling, PII redaction, two-tier eval
-gating, prompt-injection + output-moderation guardrails) are complete; Phases 3–5
-(LangGraph/MCP/streaming, hybrid RAG/reranker, IaC/e2e/load) are deferred. Full
-breakdown in [docs/ROADMAP.md](docs/ROADMAP.md).
+system for real operation and is now **fully complete (Phases 1–5)**:
+
+| Phase | Scope | Status |
+| --- | --- | --- |
+| 1 | Real Adzuna ingestion, Langfuse tracing, eval harness (#43) | ✅ |
+| 2 | Rate-limiting + cost ceiling, PII redaction, two-tier eval gating, injection + moderation guardrails (#51) | ✅ |
+| 3 | LangGraph application-assistant + MCP (server + client) + end-to-end SSE streaming (#61) | ✅ |
+| 4 | Hybrid retrieval (pgvector + Postgres FTS via RRF) + CPU cross-encoder reranker + retrieval-mode eval (#70) | ✅ |
+| 5 | Hardening: job-search caching, Bicep IaC, k6 load test, Playwright e2e (#76) | ✅ |
+
+CI now runs the repo checks **plus the API test suite, Bicep validation, and a (secret-gated)
+web e2e job** alongside the agent/MCP pytest. Phase 4's measured retrieval gains are in
+[EVALS.md](EVALS.md); the full breakdown is in [docs/ROADMAP.md](docs/ROADMAP.md).
 
 Phase 6 hosting and data layer are fully live and verified end to end: web, API,
 and the Python agent are deployed, and the cloud Postgres carries the complete
