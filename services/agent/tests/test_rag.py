@@ -55,11 +55,13 @@ class _FakeCursor:
         self._lexical = lexical_rows
         self._lexical_error = lexical_error
         self.queries: list[str] = []
+        self.calls: list[tuple[str, list]] = []  # (sql, params) for binding assertions
         self._last: list[tuple[str, str]] = []
         self._limit: int | None = None
 
     def execute(self, sql, params=None):
         self.queries.append(sql)
+        self.calls.append((sql, list(params) if params else []))
         self._limit = params[-1] if params else None  # the trailing `limit %s`
         if "websearch_to_tsquery" in sql:
             if self._lexical_error:
@@ -126,3 +128,26 @@ def test_vector_mode_skips_lexical(monkeypatch):
     _patch_store(monkeypatch, cursor)
     assert store.retrieve("python backend", k=2, mode="vector") == ["dense-a", "shared-b"]
     assert not any("websearch_to_tsquery" in q for q in cursor.queries)  # lexical skipped
+
+
+def test_hybrid_scoping_flows_into_lexical_query(monkeypatch):
+    # Highest-stakes guarantee: tenant/source filters must reach the LEXICAL side too,
+    # or one user could retrieve another's chunks via full-text search.
+    cursor = _FakeCursor(DENSE_ROWS, LEXICAL_ROWS)
+    _patch_store(monkeypatch, cursor)
+    store.retrieve(
+        "python backend",
+        k=2,
+        mode="hybrid",
+        source_type="resume",
+        source_id="resume-x",
+        user_id="u1",
+    )
+    lexical_sql, lexical_params = next(
+        (sql, params) for sql, params in cursor.calls if "websearch_to_tsquery" in sql
+    )
+    assert "user_id = %s" in lexical_sql
+    # Scoping binds precede the two tsquery binds, which precede the limit.
+    assert lexical_params[:3] == ["resume", "resume-x", "u1"]
+    assert lexical_params[3] == "python backend" and lexical_params[4] == "python backend"
+    assert lexical_params[-1] == store.settings.rag_candidate_pool  # pool, then RRF to k

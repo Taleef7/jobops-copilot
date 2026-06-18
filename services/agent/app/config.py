@@ -7,6 +7,8 @@ reads ``LLM_PROVIDER``. Mirrors the names already used in the repo root
 
 from __future__ import annotations
 
+from typing import Literal
+
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -69,7 +71,9 @@ class Settings(BaseSettings):
     mcp_client_servers: str | None = None
 
     # RAG retrieval (Phase 4 · O). mode: "vector" (dense only) or "hybrid" (dense + FTS via RRF).
-    rag_retrieval_mode: str = "hybrid"
+    # Literal so a typo (e.g. RAG_RETRIEVAL_MODE=hibrid) fails loud at startup rather than
+    # silently falling through to vector-only.
+    rag_retrieval_mode: Literal["vector", "hybrid"] = "hybrid"
     rag_candidate_pool: int = 16  # candidates pulled per side before fusion / rerank
 
 
