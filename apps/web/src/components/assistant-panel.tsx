@@ -73,12 +73,18 @@ export function AssistantPanel() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ description_text: description, resume_text: resume }),
       });
-      if (res.status === 503) {
-        toast.error('The AI agent service is not available right now.');
-        return;
-      }
       if (!res.ok || !res.body) {
-        toast.error('Assistant run failed.');
+        // Surface the upstream reason when present (e.g. "Assistant stream unavailable")
+        // instead of a generic message, so a failed run isn't a confusing no-op.
+        let message =
+          res.status === 503 ? 'The AI agent service is not available right now.' : 'Assistant run failed.';
+        try {
+          const data = (await res.json()) as { error?: string };
+          if (data?.error) message = data.error;
+        } catch {
+          // non-JSON body — keep the default message
+        }
+        toast.error(message);
         return;
       }
       const reader = res.body.getReader();
