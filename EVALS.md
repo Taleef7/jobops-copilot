@@ -47,12 +47,36 @@ Needs **both** a `DATABASE_URL` (with the `chunk_tsv` column + `embeddings_tsv_i
 from migration `007_fts.sql`) **and** a provider key; otherwise it writes a skipped
 report and exits 0. Hybrid modes are marked **N/A** (not silently reported as ≈vector)
 when the FTS column/index are absent, so a missing migration can't masquerade as "no
-gain". Because `off`/the default baseline feed the whole resume while retrieval modes
-feed only top-k chunks, **context-recall can fall even as faithfulness/precision rise**
-— read all four columns, not one headline.
+gain". Note the sweep's `off` mode feeds the JD only (no resume evidence at all) — it is
+the no-retrieval floor, distinct from the *main* eval's default baseline (`python -m
+evals.run`), which feeds the whole resume. Because the retrieval modes feed only top-k
+chunks, **context-recall can fall even as faithfulness/precision rise** — read all four
+columns, not one headline.
 
-> Numbers are produced by a keyed run against the dev DB and committed alongside this
-> file as `services/agent/evals/retrieval_report.json` for auditability.
+### Results (gpt-4o-mini judge, dev DB, 2026-06)
+
+Captured by `python -m evals.run --retrieval-modes`; the raw artifact is committed at
+`services/agent/evals/retrieval_report.json` for auditability. n = 16, 0 errors per mode.
+
+| mode | fit-vs-label Spearman | faithfulness | answer relevancy | context recall |
+| --- | --- | --- | --- | --- |
+| off (JD only) | 0.705 | 0.251 | 0.237 | 0.333 |
+| vector | 0.701 | **0.827** | 0.154 | **0.479** |
+| hybrid | 0.687 | 0.813 | 0.214 | 0.365 |
+| hybrid+rerank | 0.688 | 0.804 | 0.222 | 0.417 |
+
+**What the numbers say (honestly).** The headline win is **retrieval vs. no retrieval**:
+grounding the fit summary in retrieved resume evidence lifts **faithfulness from 0.25 →
+~0.80–0.83** — a ~3× gain — because the model stops inventing un-grounded claims. Fit-vs-label
+**Spearman is flat (~0.69–0.70)** across all modes: retrieval mode doesn't change how the
+model *ranks* candidates on this set. On this **16-row** gold set the **hybrid and reranker
+upgrades do not beat plain vector** — vector edges them on faithfulness and context-recall,
+and the hybrid/rerank differences sit within judge variance. That's a legitimate,
+evidence-based result: the infrastructure degrades gracefully and is measured, and at this
+gold-set size the lexical+rerank refinements aren't yet justified over dense-only for *this*
+resume/JD mix. A larger, more lexically diverse gold set (deferred — see the epic) is where
+hybrid/rerank would be expected to pull ahead. Answer-relevancy stays low for the same reason
+as the main eval (lightweight MiniLM embeddings + JD-as-question framing).
 
 ## Gold set
 
