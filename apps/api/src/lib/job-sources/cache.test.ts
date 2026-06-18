@@ -32,7 +32,8 @@ test('identical searches within the TTL hit the source once', async () => {
   const a = await cached.search('python', {});
   const b = await cached.search('python', {});
   assert.equal(source.calls, 1);
-  assert.deepEqual(a, b); // same cached array
+  assert.deepEqual(a, b); // equal results...
+  assert.notEqual(a, b); // ...but a fresh copy each time (callers can't poison the cache)
 });
 
 test('different queries / options are cached separately', async () => {

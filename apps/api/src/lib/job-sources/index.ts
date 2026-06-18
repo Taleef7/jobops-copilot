@@ -59,10 +59,13 @@ export function withCachedSearch(
     get name() {
       return source.name;
     },
-    search(query, opts = {}) {
-      return cache.getOrCompute(jobSearchCacheKey(query, opts, country()), () =>
+    async search(query, opts = {}) {
+      const results = await cache.getOrCompute(jobSearchCacheKey(query, opts, country()), () =>
         source.search(query, opts),
       );
+      // Copy so a caller mutating results in place can't poison the shared
+      // cached array (the cache is a process-local singleton across requests).
+      return results.slice();
     },
   };
 }
@@ -71,8 +74,9 @@ export function withCachedSearch(
  * The active job source. When Adzuna is configured it is preferred, but any
  * failure (rate limit, 5xx, timeout) transparently falls back to Remotive — the
  * no-key source — so discovery never hard-fails on a transient upstream error.
- * `name` reflects the source actually used by the most recent `search`. Results
- * are cached per query for `JOB_SEARCH_CACHE_TTL_MS`.
+ * Results are cached per query for `JOB_SEARCH_CACHE_TTL_MS`. `name` reflects the
+ * source used by the most recent *uncached* search (a cache hit doesn't re-run the
+ * source); the authoritative per-job provider is each job's `source` field.
  */
 export function getJobSource(): JobSource {
   const base = adzunaConfigured() ? createComposite() : createRemotiveSource();

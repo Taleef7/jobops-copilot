@@ -84,6 +84,17 @@ test('evicts the oldest entry past maxEntries', () => {
   assert.equal(cache.size, 2);
 });
 
+test('re-setting a key refreshes its eviction position (FIFO by last write)', () => {
+  const cache = new TtlCache<number>({ ttlMs: 1000, maxEntries: 2 });
+  cache.set('a', 1);
+  cache.set('b', 2);
+  cache.set('a', 11); // 'a' is now the most-recently written, 'b' the oldest
+  cache.set('c', 3); // evicts 'b', not 'a'
+  assert.equal(cache.get('a'), 11);
+  assert.equal(cache.get('b'), undefined);
+  assert.equal(cache.get('c'), 3);
+});
+
 test('clear empties the cache', () => {
   const cache = new TtlCache<number>({ ttlMs: 1000 });
   cache.set('a', 1);
