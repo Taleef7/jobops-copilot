@@ -47,9 +47,11 @@ Needs **both** a `DATABASE_URL` (with the `chunk_tsv` column + `embeddings_tsv_i
 from migration `007_fts.sql`) **and** a provider key; otherwise it writes a skipped
 report and exits 0. Hybrid modes are marked **N/A** (not silently reported as ≈vector)
 when the FTS column/index are absent, so a missing migration can't masquerade as "no
-gain". Because `off`/the default baseline feed the whole resume while retrieval modes
-feed only top-k chunks, **context-recall can fall even as faithfulness/precision rise**
-— read all four columns, not one headline.
+gain". Note the sweep's `off` mode feeds the JD only (no resume evidence at all) — it is
+the no-retrieval floor, distinct from the *main* eval's default baseline (`python -m
+evals.run`), which feeds the whole resume. Because the retrieval modes feed only top-k
+chunks, **context-recall can fall even as faithfulness/precision rise** — read all four
+columns, not one headline.
 
 ### Results (gpt-4o-mini judge, dev DB, 2026-06)
 
