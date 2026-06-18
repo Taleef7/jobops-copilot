@@ -247,7 +247,9 @@ def render_retrieval_markdown(report: dict) -> str:
     for mode in report["modes_order"]:
         metrics = report["modes"].get(mode, {})
         if metrics.get("status") == "n/a":
-            lines.append(f"| {mode} | _n/a — {metrics.get('reason')}_ |  |  |  |  |")
+            lines.append(
+                f"| {mode} | _n/a_ | _n/a_ | _n/a_ | _n/a_ | _{metrics.get('reason')}_ |"
+            )
             continue
         ragas = metrics.get("ragas", {})
         lines.append(

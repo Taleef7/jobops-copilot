@@ -1,5 +1,7 @@
 """Retrieval-mode sweep tests — no DB/LLM (the retriever + scorer are injected)."""
 
+import pytest
+
 from app.config import settings
 from evals import retrieval
 
@@ -133,3 +135,48 @@ def test_run_retrieval_modes_restores_settings():
         fts_ready=lambda: True,
     )
     assert (settings.rag_retrieval_mode, settings.rag_rerank_enabled) == before
+
+
+def test_run_retrieval_modes_restores_settings_after_exception():
+    before = (settings.rag_retrieval_mode, settings.rag_rerank_enabled)
+
+    def boom(rows, resume_text, contexts_for):
+        raise RuntimeError("scorer blew up mid-sweep")
+
+    with pytest.raises(RuntimeError):
+        retrieval.run_retrieval_modes(
+            _rows(),
+            "resume text",
+            modes=("hybrid+rerank",),
+            retrieve_evidence=lambda *a, **k: ["c"],
+            score_eval=boom,
+            fts_ready=lambda: True,
+        )
+    # The finally must restore settings even when the sweep raises.
+    assert (settings.rag_retrieval_mode, settings.rag_rerank_enabled) == before
+
+
+def test_default_contexts_for_chunks_whole_resume(monkeypatch):
+    # The default seam (no contexts_for) must still feed the whole resume chunked.
+    from app.rag.chunk import chunk_text
+    from evals import run
+
+    resume = "Para one.\n\nPara two."
+    captured = {}
+
+    def fake_score_fit(request):
+        captured["contexts"] = list(request.retrieved_context)
+
+        class _Resp:
+            fit_score = 50
+            fit_summary = "ok"
+
+        return _Resp()
+
+    monkeypatch.setattr(run, "score_fit", fake_score_fit)
+    # Keep it hermetic/fast: don't touch the real Ragas judge or provider.
+    monkeypatch.setattr(run, "get_model", lambda: (object(), "fake:model"))
+    monkeypatch.setattr(run, "fit_ragas_scores", lambda *a, **k: {})
+    rows = [{"description_text": "jd", "expected": {"fit_label": 50, "reference": "r"}}]
+    run.run_fit_score_eval(rows, resume)  # no contexts_for -> default path
+    assert captured["contexts"] == chunk_text(resume)

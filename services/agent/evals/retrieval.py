@@ -71,7 +71,9 @@ def _make_contexts_for(
     retrieval_mode, rerank = _MODE_TOGGLES[mode]
 
     def contexts_for(row: dict) -> list[str]:
-        # retrieve() reads its mode/rerank from settings; toggle per mode.
+        # retrieve() takes mode= but rerank is read from settings, so we toggle both
+        # here. Safe only because this eval is single-process / non-concurrent (a CLI
+        # run); run_retrieval_modes restores the original settings in its finally.
         settings.rag_retrieval_mode = retrieval_mode
         settings.rag_rerank_enabled = rerank
         return retrieve_evidence(resume_text, row["description_text"], k=k)
