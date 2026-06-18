@@ -1,0 +1,41 @@
+# On-demand k6 load test (Phase 5 · S) — addresses the "k6 not in CI" follow-up.
+#
+# Manual only (workflow_dispatch): k6 needs a running target, so this isn't on the
+# per-PR path. Targets the public health probes (no secrets), and the script's own
+# thresholds (req_failed<1%, p95<800ms, checks>99%) fail the run on a regression.
+name: Load test (k6)
+
+on:
+  workflow_dispatch:
+    inputs:
+      base_url:
+        description: Target API base URL
+        required: true
+        default: https://jobops-api.azurewebsites.net
+      profile:
+        description: k6 profile (smoke = 1 VU/10s, load = ramp to 10 VUs)
+        type: choice
+        options:
+          - smoke
+          - load
+        default: smoke
+
+permissions:
+  contents: read
+
+jobs:
+  loadtest:
+    name: k6 (${{ inputs.profile }})
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Install k6
+        uses: grafana/setup-k6-action@v1
+
+      - name: Run k6
+        env:
+          BASE_URL: ${{ inputs.base_url }}
+          PROFILE: ${{ inputs.profile }}
+        run: k6 run load/api-read-path.js
