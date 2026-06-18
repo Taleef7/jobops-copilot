@@ -17,7 +17,7 @@ locations are split across `appLocation` (default `mexicocentral`) and `platform
 | `jobops-api` | mexicocentral | Express API (`NODE\|22-lts`), `WEBSITE_RUN_FROM_PACKAGE=1` |
 | `jobops-agent` + `jobops-agent-env` | eastus | **Container App** (port 8000, external, scale 0–3) on a Container Apps managed environment — `agentImage` points at the ACR tag the container pipeline pushes |
 | Log Analytics + Application Insights | eastus | Workspace-based; wired into web/api/agent via `APPLICATIONINSIGHTS_CONNECTION_STRING` |
-| Key Vault (`jobops-kv`) | eastus | RBAC-authorized; for Key Vault-referenced secrets |
+| Key Vault (`jobops-kv`) | eastus | RBAC-authorized, provisioned for future Key Vault-referenced secrets (not yet wired as a secret source — apps still take plaintext settings today) |
 | Postgres Flexible Server (v16) | mexicocentral | `azure.extensions=vector` (pgvector) + Allow-Azure-Services firewall. **Opt-in** via `createPostgres` (default `false`) — see below |
 
 Outputs: the web/api/agent URLs and (when created) the Postgres FQDN.
@@ -34,6 +34,11 @@ production server** (`jobops`) — its admin password, SKU, and storage would ot
 rewritten. The default deploy provisions the App Service + observability tier only and
 leaves the live database untouched. Set `createPostgres=true` (and supply
 `postgresAdminPassword`) for a greenfield environment.
+
+> **Greenfield note:** a Container Apps managed environment is slow to provision; on a
+> first `create` the `jobops-agent` container app depends on `jobops-agent-env` reaching a
+> ready state. ARM handles the ordering via the implicit dependency, but expect the
+> environment step to take several minutes.
 
 The App Service apps set `ftpsState: Disabled` / `minTlsVersion: 1.2` as hardening; the
 deploy workflows publish over SCM/zip (not FTP), so this doesn't affect them.

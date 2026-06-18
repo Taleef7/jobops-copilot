@@ -61,7 +61,7 @@ param postgresAdminPassword string = ''
 param databaseUrl string = ''
 
 @description('Agent LLM provider: anthropic | openai | azure_openai | google_genai.')
-param llmProvider string = ''
+param llmProvider string = 'openai'
 
 @secure()
 param anthropicApiKey string = ''
@@ -118,7 +118,7 @@ resource keyVault 'Microsoft.KeyVault/vaults@2023-07-01' = {
     }
     tenantId: subscription().tenantId
     enableRbacAuthorization: true
-    enableSoftDelete: true
+    // soft delete is on-by-default and non-disableable for this API version.
   }
 }
 
