@@ -12,7 +12,7 @@ for (const route of publicRoutes) {
 
     expect(response?.status(), `HTTP status for ${route}`).toBeLessThan(400);
     await expect(page.locator('body')).toBeVisible();
-    expect(await page.title(), `non-empty <title> for ${route}`).not.toEqual('');
+    expect((await page.title()).trim(), `non-empty <title> for ${route}`).not.toEqual('');
     expect(pageErrors, `uncaught page errors on ${route}`).toEqual([]);
   });
 }
