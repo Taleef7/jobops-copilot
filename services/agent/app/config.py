@@ -7,6 +7,8 @@ reads ``LLM_PROVIDER``. Mirrors the names already used in the repo root
 
 from __future__ import annotations
 
+from typing import Literal
+
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -67,6 +69,12 @@ class Settings(BaseSettings):
     # research tools from, e.g. {"fetch": {"transport": "http", "url": "http://host/mcp"}}.
     # Unset → the research agent uses the built-in Tavily web_search tool.
     mcp_client_servers: str | None = None
+
+    # RAG retrieval (Phase 4 · O). mode: "vector" (dense only) or "hybrid" (dense + FTS via RRF).
+    # Literal so a typo (e.g. RAG_RETRIEVAL_MODE=hibrid) fails loud at startup rather than
+    # silently falling through to vector-only.
+    rag_retrieval_mode: Literal["vector", "hybrid"] = "hybrid"
+    rag_candidate_pool: int = 16  # candidates pulled per side before fusion / rerank
 
 
 settings = Settings()

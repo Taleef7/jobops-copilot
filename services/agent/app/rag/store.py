@@ -15,6 +15,7 @@ from app.config import settings
 from app.obs import traced_span
 from app.rag.chunk import chunk_text
 from app.rag.embeddings import embed_query, embed_texts
+from app.rag.fusion import reciprocal_rank_fusion
 
 logger = logging.getLogger("jobops.agent.rag")
 
@@ -79,15 +80,58 @@ def ingest_document(
     return len(chunks)
 
 
+def _dense_candidates(
+    cur, query_literal: str, n: int, where_sql: str, where_params: list[object]
+) -> list[tuple[str, str]]:
+    """Top-``n`` (id, chunk_text) by cosine distance (the pgvector dense side)."""
+    sql = (
+        f"select id, chunk_text from embeddings {where_sql} "
+        "order by embedding <=> %s::vector limit %s"
+    )
+    cur.execute(sql, [*where_params, query_literal, n])
+    return cur.fetchall()
+
+
+def _lexical_candidates(
+    cur, query: str, n: int, where_sql: str, where_params: list[object]
+) -> list[tuple[str, str]]:
+    """Top-``n`` (id, chunk_text) by full-text rank (the Postgres FTS lexical side).
+
+    Raises if the ``chunk_tsv`` column is absent (caller falls back to dense). An
+    all-stopword / unparseable query yields an *empty* tsquery that matches zero
+    rows **without** raising -- that is expected, and RRF simply degrades to the
+    dense ranking; only real errors trigger the vector fallback.
+    """
+    fts_match = "chunk_tsv @@ websearch_to_tsquery('english', %s)"
+    where = (where_sql + " and " + fts_match) if where_sql else ("where " + fts_match)
+    sql = (
+        f"select id, chunk_text from embeddings {where} "
+        "order by ts_rank_cd(chunk_tsv, websearch_to_tsquery('english', %s)) desc limit %s"
+    )
+    cur.execute(sql, [*where_params, query, query, n])
+    return cur.fetchall()
+
+
 def retrieve(
     query: str,
     k: int = 4,
     source_type: str | None = None,
     source_id: str | None = None,
     user_id: str | None = None,
+    mode: str | None = None,
 ) -> list[str]:
-    """Return the ``k`` most similar chunk texts (cosine distance)."""
-    with traced_span("rag.retrieve", query=query[:200], k=k, source_type=source_type) as span:
+    """Return the ``k`` chunk texts most relevant to ``query``.
+
+    ``mode`` (default ``settings.rag_retrieval_mode``): ``"vector"`` uses dense
+    cosine similarity only; ``"hybrid"`` pulls a candidate pool from the dense and
+    lexical (FTS) sides and fuses them with Reciprocal Rank Fusion, falling back to
+    vector-only if the lexical query fails (e.g. the ``chunk_tsv`` column is absent).
+    """
+    mode = mode or settings.rag_retrieval_mode
+    fetch_k = k  # how many to return; P2 raises this to a pool when reranking is on
+    with traced_span(
+        "rag.retrieve", query=query[:200], k=k, mode=mode, source_type=source_type
+    ) as span:
         query_literal = _vector_literal(embed_query(query))
 
         conditions: list[str] = []
@@ -103,15 +147,29 @@ def retrieve(
             params.append(user_id)
         where_sql = ("where " + " and ".join(conditions)) if conditions else ""
 
-        sql = (
-            f"select chunk_text from embeddings {where_sql} "
-            "order by embedding <=> %s::vector limit %s"
-        )
-        params.extend([query_literal, k])
-
         with _connect() as conn, conn.cursor() as cur:
-            cur.execute(sql, params)
-            chunks = [row[0] for row in cur.fetchall()]
+            if mode == "hybrid":
+                pool = settings.rag_candidate_pool
+                dense = _dense_candidates(cur, query_literal, pool, where_sql, params)
+                texts = {row[0]: row[1] for row in dense}
+                try:
+                    lexical = _lexical_candidates(cur, query, pool, where_sql, params)
+                    for row in lexical:
+                        texts.setdefault(row[0], row[1])
+                    fused = reciprocal_rank_fusion(
+                        [[row[0] for row in dense], [row[0] for row in lexical]],
+                        top_k=fetch_k,
+                    )
+                    chunks = [texts[doc_id] for doc_id in fused]
+                except Exception:  # noqa: BLE001 - lexical side is best-effort
+                    logger.warning(
+                        "Lexical retrieval unavailable; falling back to vector-only",
+                        exc_info=True,
+                    )
+                    chunks = [row[1] for row in dense[:fetch_k]]
+            else:
+                dense = _dense_candidates(cur, query_literal, fetch_k, where_sql, params)
+                chunks = [row[1] for row in dense]
 
         if span is not None:
             span.update(output={"chunk_count": len(chunks)})
