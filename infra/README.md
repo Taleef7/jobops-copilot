@@ -17,7 +17,7 @@ locations are split across `appLocation` (default `mexicocentral`) and `platform
 | `jobops-api` | mexicocentral | Express API (`NODE\|22-lts`), `WEBSITE_RUN_FROM_PACKAGE=1` |
 | `jobops-agent` + `jobops-agent-env` | eastus | **Container App** (port 8000, external, scale 0–3) on a Container Apps managed environment — `agentImage` points at the ACR tag the container pipeline pushes |
 | Log Analytics + Application Insights | eastus | Workspace-based; wired into web/api/agent via `APPLICATIONINSIGHTS_CONNECTION_STRING` |
-| Key Vault (`jobops-kv`) | eastus | RBAC-authorized, provisioned for future Key Vault-referenced secrets (not yet wired as a secret source — apps still take plaintext settings today) |
+| Key Vault (`jobops-kv`) | eastus | RBAC-authorized. The **live** web/api resolve `DATABASE_URL` / `CLERK_SECRET_KEY` via `@Microsoft.KeyVault(...)` references (set up by [`scripts/azure/provision-keyvault.sh`](../scripts/azure/provision-keyvault.sh) with managed identity). This template provisions the vault and injects app settings **directly** as a simplification — full KV-reference wiring (identities + role assignments) is a documented enhancement |
 | Postgres Flexible Server (v16) | mexicocentral | `azure.extensions=vector` (pgvector) + Allow-Azure-Services firewall. **Opt-in** via `createPostgres` (default `false`) — see below |
 
 Outputs: the web/api/agent URLs and (when created) the Postgres FQDN.
@@ -79,9 +79,11 @@ deletes — with the ACR and existing Postgres correctly under *Ignore*.
 ### Secrets
 
 `postgresAdminPassword`, `databaseUrl`, and the provider keys are `@secure()` params with
-blank defaults. Supply them at deploy time via CLI `-p` overrides (above) or, preferably,
+blank defaults. Supply them at deploy time via CLI `-p` overrides (above). The live
+deployment goes further and resolves the app secrets via
 [Key Vault references](https://learn.microsoft.com/azure/app-service/app-service-key-vault-references)
-so the App Service reads them from a vault rather than plaintext app settings.
+(`jobops-kv`, wired by `scripts/azure/provision-keyvault.sh`) rather than plaintext app
+settings — replicating that wiring in this template is the documented enhancement noted above.
 
 ## Relationship to the deploy workflows
 
