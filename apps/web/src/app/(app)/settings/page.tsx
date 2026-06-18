@@ -29,7 +29,22 @@ export default async function SettingsPage() {
   ]);
 
   const provider = status?.agent.provider ?? null;
-  const providerLabel = provider ? (PROVIDER_LABELS[provider] ?? provider) : 'Not configured';
+  // The agent is a scale-to-zero Container App: when it's asleep, /api/status can't
+  // reach it within the health-check timeout, so provider/model come back empty even
+  // though a real LLM-backed agent IS configured. Distinguish "configured but idle"
+  // from "no agent / deterministic mock" so the card doesn't mislabel a sleeping agent.
+  const agentEnabled = Boolean(status?.agent.enabled);
+  const agentReachable = Boolean(status?.agent.reachable);
+  const providerLabel = provider
+    ? (PROVIDER_LABELS[provider] ?? provider)
+    : agentEnabled
+      ? 'AI agent service'
+      : 'Not configured';
+  const providerDetail = status?.agent.model
+    ? String(status.agent.model)
+    : agentEnabled
+      ? 'Idle — the agent scales to zero and wakes on the first request'
+      : 'Deterministic mock (no LLM provider attached)';
   const initial = (profile?.displayName ?? 'You').slice(0, 1).toUpperCase();
 
   const integrations = [
@@ -80,17 +95,15 @@ export default async function SettingsPage() {
       </SectionCard>
 
       <SectionCard title="AI provider" description="Configured on the server — shown here for transparency.">
-        <Card className={cn('gap-1 p-4', provider ? 'border-primary/50 bg-primary/5' : '')}>
+        <Card className={cn('gap-1 p-4', provider || agentEnabled ? 'border-primary/50 bg-primary/5' : '')}>
           <div className="flex items-center justify-between gap-2">
             <p className="text-sm font-medium">{providerLabel}</p>
             <Badge variant="secondary" className="gap-1">
-              <StatusDot on={Boolean(status?.agent.reachable && status.agent.llm_configured !== false)} />
-              {status?.agent.reachable ? 'Connected' : status?.agent.enabled ? 'Idle' : 'Mock fallback'}
+              <StatusDot on={Boolean(agentReachable && status?.agent.llm_configured !== false)} />
+              {agentReachable ? 'Connected' : agentEnabled ? 'Idle' : 'Mock fallback'}
             </Badge>
           </div>
-          <p className="text-muted-foreground text-xs">
-            {status?.agent.model ?? 'Deterministic mock (no LLM provider attached)'}
-          </p>
+          <p className="text-muted-foreground text-xs">{providerDetail}</p>
         </Card>
       </SectionCard>
 
