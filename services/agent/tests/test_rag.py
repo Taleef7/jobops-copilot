@@ -195,3 +195,41 @@ def test_rerank_disabled_fetches_k_and_skips_rerank(monkeypatch):
     result = store.retrieve("python backend", k=2, mode="vector")
     assert cursor.calls[0][1][-1] == 2  # fetch_k == k
     assert result == ["dense-a", "shared-b"]
+
+
+def test_rerank_in_hybrid_mode_reranks_the_fused_pool(monkeypatch):
+    import app.rag.rerank as rerank_mod
+
+    cursor = _FakeCursor(DENSE_ROWS, LEXICAL_ROWS)
+    _patch_store(monkeypatch, cursor)
+    monkeypatch.setattr(store.settings, "rag_rerank_enabled", True)
+    monkeypatch.setattr(store.settings, "rag_candidate_pool", 16)
+
+    captured = {}
+
+    def fake_rerank(query, chunks, k):
+        captured["pool"] = list(chunks)
+        return list(reversed(chunks))[:k]
+
+    monkeypatch.setattr(rerank_mod, "rerank", fake_rerank)
+
+    result = store.retrieve("python backend", k=2, mode="hybrid")
+    # Both sides pulled with limit == pool (16), then RRF fuses to fetch_k (also 16),
+    # so the reranker sees the *fused* candidates, not a dense-only or k-collapsed set.
+    assert all(call[1][-1] == 16 for call in cursor.calls)
+    assert set(captured["pool"]) == {"dense-a", "shared-b", "shared-c", "lex-d"}
+    assert result == list(reversed(captured["pool"]))[:2]
+
+
+def test_rerank_with_k_larger_than_pool(monkeypatch):
+    import app.rag.rerank as rerank_mod
+
+    cursor = _FakeCursor(DENSE_ROWS, LEXICAL_ROWS)
+    _patch_store(monkeypatch, cursor)
+    monkeypatch.setattr(store.settings, "rag_rerank_enabled", True)
+    monkeypatch.setattr(store.settings, "rag_candidate_pool", 4)
+    monkeypatch.setattr(rerank_mod, "rerank", lambda _q, chunks, k: chunks[:k])
+
+    # max(k, pool) guard: k=10 > pool=4 -> fetch_k == 10, never below k.
+    store.retrieve("python backend", k=10, mode="vector")
+    assert cursor.calls[0][1][-1] == 10
