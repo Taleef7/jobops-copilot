@@ -101,3 +101,17 @@ jobs:
 
       - name: Test (pytest)
         run: pytest
+
+  infra:
+    name: Infra (Bicep)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      # Compile the Bicep to ARM — fails on any template error. No Azure login
+      # needed (az + Bicep ship on the GitHub-hosted runner).
+      - name: Validate Bicep
+        run: |
+          az bicep build --file infra/main.bicep --stdout > /dev/null
+          az bicep build-params --file infra/main.bicepparam --outfile /dev/null
