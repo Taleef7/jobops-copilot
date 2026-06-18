@@ -23,6 +23,14 @@ CRM and orchestration; a Python service owns the real AI.
 - **RAG on existing infra.** Embeddings live in the same Postgres via `pgvector`
   (`vector(384)`, HNSW cosine). HF `all-MiniLM-L6-v2` (PyTorch) embeds resume/JD
   text; fit scoring is grounded in retrieved resume evidence.
+- **Hybrid retrieval + reranker (Phase 4).** `app/rag/store.py:retrieve()` is the
+  single seam: it fuses the dense pgvector ranking with a Postgres full-text
+  (`tsvector`/`websearch_to_tsquery`) ranking via **Reciprocal Rank Fusion**
+  (`RAG_RETRIEVAL_MODE=hybrid`), then optionally reranks the candidate pool with a
+  CPU cross-encoder (`RAG_RERANK_ENABLED`, off by default). Every stage degrades
+  gracefully — missing FTS column → vector-only, no reranker model → pre-rerank
+  order — so retrieval never breaks the request path. The downstream quality delta
+  across modes is measured in [EVALS.md](../EVALS.md).
 - **Telemetry as a transferable pattern.** One pandas analyzer (trend, moving
   average, z-score anomalies, forecast) powers both the pipeline view and the
   synthetic EV battery-health demo — showing the approach generalizes to vehicle

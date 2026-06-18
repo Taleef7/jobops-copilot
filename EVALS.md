@@ -26,6 +26,34 @@ quality measured and gated here.
   Ragas uses an LLM judge plus the agent's existing sentence-transformers embeddings (no
   extra provider needed).
 
+## Retrieval-mode comparison (Phase 4)
+
+Hybrid retrieval (dense pgvector + Postgres FTS via RRF) and the CPU cross-encoder
+reranker are **measured, not assumed**. `evals/retrieval.py` runs the *same*
+fit-score eval under each retrieval mode — only the retrieved evidence changes — so
+the table is a true **downstream delta**:
+
+- **off** — no resume evidence (JD only); the no-retrieval baseline.
+- **vector** — dense pgvector only.
+- **hybrid** — dense + FTS fused via Reciprocal Rank Fusion.
+- **hybrid+rerank** — the hybrid pool reranked by `cross-encoder/ms-marco-MiniLM-L-6-v2`.
+
+```bash
+cd services/agent
+python -m evals.run --retrieval-modes   # writes evals/retrieval_report.{json,md}
+```
+
+Needs **both** a `DATABASE_URL` (with the `chunk_tsv` column + `embeddings_tsv_idx`
+from migration `007_fts.sql`) **and** a provider key; otherwise it writes a skipped
+report and exits 0. Hybrid modes are marked **N/A** (not silently reported as ≈vector)
+when the FTS column/index are absent, so a missing migration can't masquerade as "no
+gain". Because `off`/the default baseline feed the whole resume while retrieval modes
+feed only top-k chunks, **context-recall can fall even as faithfulness/precision rise**
+— read all four columns, not one headline.
+
+> Numbers are produced by a keyed run against the dev DB and committed alongside this
+> file as `services/agent/evals/retrieval_report.json` for auditability.
+
 ## Gold set
 
 - `evals/data/parse_job.jsonl` — 17 real JDs with expected skills / title / seniority.
@@ -61,8 +89,9 @@ and the JD-as-question framing — a known baseline to improve, not a regression
 ```bash
 cd services/agent
 pip install -r requirements-dev.txt -r requirements-evals.txt
-python -m evals.run          # writes evals/report.json + evals/report.md
-python -m evals.run --gate   # also fails (exit 1) if a metric is below threshold
+python -m evals.run               # writes evals/report.json + evals/report.md
+python -m evals.run --gate        # also fails (exit 1) if a metric is below threshold
+python -m evals.run --retrieval-modes  # per-mode retrieval comparison (needs DB + key)
 ```
 
 (`requirements-evals.txt` carries Ragas; it is intentionally **not** in the runtime
