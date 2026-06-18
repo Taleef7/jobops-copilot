@@ -1,6 +1,10 @@
 import assert from 'node:assert/strict';
-import test from 'node:test';
-import { getJobSource } from './index';
+import test, { beforeEach } from 'node:test';
+import { clearJobSearchCache, getJobSource } from './index';
+
+// The job-search cache is a process-local singleton; reset it so each test sees
+// a clean slate (several tests reuse the same query under different upstreams).
+beforeEach(() => clearJobSearchCache());
 
 type StubResult = { ok: boolean; status?: number; body: unknown };
 

@@ -1,6 +1,8 @@
+import { TtlCache } from '../cache';
 import { createAdzunaSource } from './adzuna';
 import { createRemotiveSource } from './remotive';
-import type { JobSource } from './types';
+import type { SourcedJob } from './normalize';
+import type { JobSearchOptions, JobSource } from './types';
 
 export type { JobSource, JobSearchOptions } from './types';
 export type { SourcedJob } from './normalize';
@@ -10,16 +12,78 @@ function adzunaConfigured(): boolean {
 }
 
 /**
+ * Job-search cache TTL in ms (Phase 5 · R). `JOB_SEARCH_CACHE_TTL_MS`; default 5 min.
+ * Set to `0` to disable caching (every search hits the upstream). Read once at module
+ * load — the cache is a process-local singleton shared across requests.
+ */
+function jobSearchCacheTtlMs(): number {
+  const raw = process.env.JOB_SEARCH_CACHE_TTL_MS;
+  if (raw === undefined) return 300_000;
+  const parsed = Number(raw);
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
+const jobSearchCache = new TtlCache<SourcedJob[]>({ ttlMs: jobSearchCacheTtlMs() });
+
+/** Clear the shared job-search cache (used in tests; safe to call anytime). */
+export function clearJobSearchCache(): void {
+  jobSearchCache.clear();
+}
+
+/** Stable cache key for a search. Country matters because Adzuna is region-scoped. */
+export function jobSearchCacheKey(
+  query: string,
+  opts: JobSearchOptions,
+  country: string,
+): string {
+  return JSON.stringify({
+    q: query.trim().toLowerCase(),
+    country,
+    remoteOnly: Boolean(opts.remoteOnly),
+    location: opts.location?.trim().toLowerCase() ?? null,
+    limit: opts.limit ?? null,
+  });
+}
+
+/**
+ * Wrap a source so identical searches within the TTL are served from `cache`,
+ * cutting redundant upstream calls. Only successful results are cached (errors
+ * propagate and retry), so the composite source's Remotive fallback is unaffected.
+ */
+export function withCachedSearch(
+  source: JobSource,
+  cache: TtlCache<SourcedJob[]>,
+  country: () => string,
+): JobSource {
+  return {
+    get name() {
+      return source.name;
+    },
+    search(query, opts = {}) {
+      return cache.getOrCompute(jobSearchCacheKey(query, opts, country()), () =>
+        source.search(query, opts),
+      );
+    },
+  };
+}
+
+/**
  * The active job source. When Adzuna is configured it is preferred, but any
  * failure (rate limit, 5xx, timeout) transparently falls back to Remotive — the
  * no-key source — so discovery never hard-fails on a transient upstream error.
- * `name` reflects the source actually used by the most recent `search`.
+ * `name` reflects the source actually used by the most recent `search`. Results
+ * are cached per query for `JOB_SEARCH_CACHE_TTL_MS`.
  */
 export function getJobSource(): JobSource {
-  if (!adzunaConfigured()) {
-    return createRemotiveSource();
-  }
+  const base = adzunaConfigured() ? createComposite() : createRemotiveSource();
+  return withCachedSearch(
+    base,
+    jobSearchCache,
+    () => process.env.ADZUNA_COUNTRY?.trim() || 'us',
+  );
+}
 
+function createComposite(): JobSource {
   const adzuna = createAdzunaSource();
   const remotive = createRemotiveSource();
   let used = adzuna.name;

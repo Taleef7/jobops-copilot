@@ -37,6 +37,10 @@ CRM and orchestration; a Python service owns the real AI.
   sensor data.
 - **Lean CI, full runtime.** Heavy deps (torch) are in `requirements-rag.txt` and
   imported lazily, so CI stays fast; the Docker image installs everything.
+- **Job-search caching (Phase 5).** A process-local TTL cache (`apps/api/src/lib/cache.ts`)
+  wraps the composite job source so identical searches within `JOB_SEARCH_CACHE_TTL_MS`
+  (default 5 min) skip the rate-limited Adzuna call. Only successful results are cached, so
+  the Remotive fallback still fires on upstream errors; `TTL=0` disables it.
 
 The sections below document the original CRM/data layer, which still underpins
 the system.
