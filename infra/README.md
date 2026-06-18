@@ -16,9 +16,20 @@ environment is reviewable, diffable, and reproducible.
 | `jobops-agent` | Python agent (`PYTHON\|3.12`) — code-deploy path; use the container for full RAG/torch |
 | Log Analytics workspace | Backs workspace-based App Insights |
 | Application Insights | Wired into every app via `APPLICATIONINSIGHTS_CONNECTION_STRING` |
-| Postgres Flexible Server (v16) | `azure.extensions=VECTOR` for pgvector + an Allow-Azure-Services firewall rule |
+| Postgres Flexible Server (v16) | `azure.extensions=vector` for pgvector + an Allow-Azure-Services firewall rule. **Opt-in** via `createPostgres` (default `false`) — see below |
 
-Outputs: the three app URLs and the Postgres FQDN.
+Outputs: the three app URLs and (when created) the Postgres FQDN.
+
+### Postgres is opt-in
+
+`createPostgres` defaults to **`false`** so a deploy never reconciles the **existing
+production server** (`jobops`) — its admin password, SKU, and storage would otherwise be
+rewritten. The default deploy provisions the App Service + observability tier only and
+leaves the live database untouched. Set `createPostgres=true` (and supply
+`postgresAdminPassword`) for a greenfield environment.
+
+The App Service apps set `ftpsState: Disabled` / `minTlsVersion: 1.2` as hardening; the
+deploy workflows publish over SCM/zip (not FTP), so this doesn't affect them.
 
 ## Prerequisites
 

@@ -4,6 +4,9 @@ using './main.bicep'
 param location = 'eastus'
 param namePrefix = 'jobops'
 param planSku = 'B1'
+// Default false: never reconcile the existing production `jobops` Postgres server.
+// Set true (and supply postgresAdminPassword) only for a greenfield environment.
+param createPostgres = false
 param postgresSkuName = 'Standard_B1ms'
 param postgresTier = 'Burstable'
 param postgresAdminUser = 'jobopsadmin'

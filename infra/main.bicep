@@ -21,6 +21,11 @@ param namePrefix string = 'jobops'
 @description('Linux App Service plan SKU. B1 ~1.75GB RAM; bump for RAG/torch on the agent.')
 param planSku string = 'B1'
 
+@description('''Create the Postgres Flexible Server. Default false so a deploy never
+reconciles the EXISTING production server (`jobops`) — its admin password/SKU/storage
+would otherwise be rewritten. Set true only for a greenfield environment.''')
+param createPostgres bool = false
+
 @description('Postgres Flexible Server compute SKU.')
 param postgresSkuName string = 'Standard_B1ms'
 
@@ -110,6 +115,8 @@ resource webApp 'Microsoft.Web/sites@2023-12-01' = {
       linuxFxVersion: 'NODE|20-lts'
       ftpsState: 'Disabled'
       minTlsVersion: '1.2'
+      // Next.js standalone deploy (deploy-web.yml) runs the platform start command,
+      // so we deliberately do NOT set WEBSITE_RUN_FROM_PACKAGE here (unlike the api).
       appSettings: [
         {
           name: 'NEXT_PUBLIC_API_BASE_URL'
@@ -118,14 +125,6 @@ resource webApp 'Microsoft.Web/sites@2023-12-01' = {
         {
           name: 'APPLICATIONINSIGHTS_CONNECTION_STRING'
           value: appInsights.properties.ConnectionString
-        }
-        {
-          name: 'WEBSITE_RUN_FROM_PACKAGE'
-          value: '1'
-        }
-        {
-          name: 'SCM_DO_BUILD_DURING_DEPLOYMENT'
-          value: 'false'
         }
       ]
     }
@@ -220,7 +219,7 @@ resource agentApp 'Microsoft.Web/sites@2023-12-01' = {
   }
 }
 
-resource postgres 'Microsoft.DBforPostgreSQL/flexibleServers@2023-12-01-preview' = {
+resource postgres 'Microsoft.DBforPostgreSQL/flexibleServers@2023-12-01-preview' = if (createPostgres) {
   name: postgresName
   location: location
   sku: {
@@ -244,18 +243,19 @@ resource postgres 'Microsoft.DBforPostgreSQL/flexibleServers@2023-12-01-preview'
   }
 }
 
-// Allow-list the pgvector extension (RAG vector store, migration 003).
-resource postgresVector 'Microsoft.DBforPostgreSQL/flexibleServers/configurations@2023-12-01-preview' = {
+// Allow-list the pgvector extension (RAG vector store, migration 003). Lowercase
+// `vector` to match scripts/azure/provision.sh and the Azure extension name.
+resource postgresVector 'Microsoft.DBforPostgreSQL/flexibleServers/configurations@2023-12-01-preview' = if (createPostgres) {
   parent: postgres
   name: 'azure.extensions'
   properties: {
-    value: 'VECTOR'
+    value: 'vector'
     source: 'user-override'
   }
 }
 
 // Let Azure-hosted services (the App Service apps) reach Postgres.
-resource postgresAllowAzure 'Microsoft.DBforPostgreSQL/flexibleServers/firewallRules@2023-12-01-preview' = {
+resource postgresAllowAzure 'Microsoft.DBforPostgreSQL/flexibleServers/firewallRules@2023-12-01-preview' = if (createPostgres) {
   parent: postgres
   name: 'AllowAzureServices'
   properties: {
@@ -267,4 +267,4 @@ resource postgresAllowAzure 'Microsoft.DBforPostgreSQL/flexibleServers/firewallR
 output webUrl string = webHost
 output apiUrl string = apiHost
 output agentUrl string = agentHost
-output postgresFqdn string = postgres.properties.fullyQualifiedDomainName
+output postgresFqdn string = postgres.?properties.fullyQualifiedDomainName ?? ''
