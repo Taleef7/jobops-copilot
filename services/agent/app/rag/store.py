@@ -126,9 +126,14 @@ def retrieve(
     cosine similarity only; ``"hybrid"`` pulls a candidate pool from the dense and
     lexical (FTS) sides and fuses them with Reciprocal Rank Fusion, falling back to
     vector-only if the lexical query fails (e.g. the ``chunk_tsv`` column is absent).
+
+    When ``settings.rag_rerank_enabled`` is set, a larger pool is fetched and a CPU
+    cross-encoder reranks it down to ``k`` (best-effort; pre-rerank order on failure).
     """
     mode = mode or settings.rag_retrieval_mode
-    fetch_k = k  # how many to return; P2 raises this to a pool when reranking is on
+    # When reranking, fetch a real pool so the reranker has candidates to reorder;
+    # otherwise return exactly k. (max() guards a pool smaller than k.)
+    fetch_k = max(k, settings.rag_candidate_pool) if settings.rag_rerank_enabled else k
     with traced_span(
         "rag.retrieve", query=query[:200], k=k, mode=mode, source_type=source_type
     ) as span:
@@ -170,6 +175,11 @@ def retrieve(
             else:
                 dense = _dense_candidates(cur, query_literal, fetch_k, where_sql, params)
                 chunks = [row[1] for row in dense]
+
+        if settings.rag_rerank_enabled:
+            from app.rag.rerank import rerank  # lazy: keeps torch out of the import path
+
+            chunks = rerank(query, chunks, k)
 
         if span is not None:
             span.update(output={"chunk_count": len(chunks)})
