@@ -16,6 +16,12 @@ Phase 6 is complete — the whole stack is live on Azure:
 - **Azure Key Vault** (`jobops-kv`, RBAC) serving the App Service secrets as
   managed-identity references
 
+This footprint is now codified as **Bicep infrastructure-as-code** in [`infra/`](../infra/)
+(Phase 5 · T) — `what-if`-verified against the live `projects` resource group and validated in
+CI (`az bicep build`). See [`infra/README.md`](../infra/README.md) for the topology,
+`what-if`/deploy steps, and the Postgres opt-in flag. The imperative `scripts/azure/provision*.sh`
+scripts remain as the break-glass / historical reference.
+
 The provisioning steps below are retained as the repeatable record of how the stack
 was stood up.
 

@@ -45,6 +45,19 @@ intelligence.
   (#54); two-tier eval gate (key-free PR checks + main thresholds/regression) + full
   `EVALS.md` (#55); prompt-injection defense + provider-agnostic output moderation +
   groundedness (#56).
+- **Phase 3 — LangGraph + MCP + streaming (epic #61):** stateful application-assistant graph
+  (#63); end-to-end SSE streaming to the dashboard (#64); JobOps MCP server (FastMCP REST
+  bridge, #65); agent-as-MCP-client consuming external tools (#66).
+- **Phase 4 — hybrid retrieval, reranker & eval (epic #70):** hybrid retrieval (pgvector +
+  Postgres FTS via RRF, #67); CPU cross-encoder reranker (opt-in, graceful, #68); retrieval-mode
+  eval with the per-mode comparison committed to `EVALS.md` (#69). Measured: retrieval grounding
+  ≈3× faithfulness; hybrid/rerank within judge variance vs vector on the 16-row gold set.
+  Fine-tuning dropped (CPU-only infra).
+- **Phase 5 — operational hardening (epic #76):** job-search TTL cache + the API `node:test`
+  suite wired into CI (#77); Bicep IaC of the live Azure topology, CI-validated + `what-if`-verified
+  (#78); k6 load test verified against the live API (#79); Playwright e2e verified locally and
+  against the deployed web (#80). End-to-end verified 2026-06-18 (live API `db:ok`, k6 thresholds
+  pass, e2e 5/5).
 - Numbered independently of the original phases; design/plans in `docs/superpowers/`.
 
 ## What Is Live Now
@@ -98,9 +111,12 @@ intelligence.
 - Nothing blocking. All planned phases (0–11) plus the optional Phase 6
   hardening (App Insights, Key Vault) are complete. The agent Container App
   keeps its native secret store by design (Key Vault covers App Service only).
-- The **production-grade AI program** (epic #43) is complete through its Phase 1 and
-  Phase 2; its Phases 3–5 (LangGraph/MCP/streaming, hybrid RAG/reranker, IaC/e2e/load)
-  are intentionally deferred.
+- The **production-grade AI program** (epic #43) is **fully complete** — Phases 1–5
+  (LLMOps backbone, safety/guardrails, LangGraph+MCP+streaming, hybrid retrieval+reranker+eval,
+  operational hardening; epics #43/#51/#61/#70/#76) all landed and were verified end to end.
+- **Owner-gated optional follow-ups** (by design, not gaps; see `docs/ROADMAP.md`): applying the
+  Bicep to a live/greenfield RG, running k6 in CI, and activating the gated e2e CI job (needs
+  Clerk repo secrets). Fine-tuning and a larger retrieval gold set remain deferred.
 
 ## How To Verify The Live Stack
 
