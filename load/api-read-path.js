@@ -54,9 +54,13 @@ export default function () {
   });
 
   group('readiness', () => {
-    const res = http.get(`${BASE_URL}/api/health/ready`);
-    // 200 (ready) or 503 (db unreachable) are both valid, well-formed responses;
-    // a 5xx/timeout outside those, or a missing status field, is a real failure.
+    // 200 (ready) or 503 (db unreachable) are both valid, well-formed responses.
+    // Widen the per-request expected-status classifier so a 503 does NOT inflate
+    // http_req_failed (k6's default treats >=400 as failed); liveness stays strict.
+    const res = http.get(`${BASE_URL}/api/health/ready`, {
+      responseCallback: http.expectedStatuses(200, 503),
+    });
+    // A 5xx/timeout outside those, or a missing status field, is a real failure.
     check(res, {
       'ready 200 or 503': (r) => r.status === 200 || r.status === 503,
       'ready has status field': (r) => typeof r.json('status') === 'string',

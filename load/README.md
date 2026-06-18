@@ -42,7 +42,12 @@ The run **fails** (non-zero exit) if any threshold is breached:
 - `checks` > 99% — status codes and JSON shape as expected
 
 `readiness` accepts **200 (ready) or 503 (db unreachable)** as valid, well-formed responses
-— only a 5xx/timeout outside those, or a malformed body, counts as a failure.
+— the script widens the per-request status classifier to 200|503 so a 503 doesn't inflate
+`http_req_failed`; only a 5xx/timeout outside those, or a malformed body, counts as a failure.
+
+> A cold Azure B1 instance (or a cold DB connection on the first `/health/ready`) can spike
+> latency past the p95 budget on the opening requests of a ramp — run twice, or warm the app
+> first, when measuring steady-state.
 
 ## CI note
 
