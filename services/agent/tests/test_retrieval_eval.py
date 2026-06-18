@@ -59,6 +59,66 @@ def test_run_retrieval_modes_marks_hybrid_na_without_fts():
     assert result["hybrid+rerank"]["status"] == "n/a"
 
 
+def test_retrieval_main_skips_without_provider(tmp_path, monkeypatch):
+    import json
+
+    from evals import run
+
+    monkeypatch.setattr(run, "_provider_ready", lambda: False)
+    code = run.retrieval_main(output_dir=tmp_path)
+    assert code == 0
+    report = json.loads((tmp_path / "retrieval_report.json").read_text(encoding="utf-8"))
+    assert report["status"] == "skipped"
+    assert report["provider"] is None
+    assert (tmp_path / "retrieval_report.md").exists()
+
+
+def test_retrieval_main_skips_without_database(tmp_path, monkeypatch):
+    import json
+
+    from evals import run
+
+    monkeypatch.setattr(run, "_provider_ready", lambda: True)
+    monkeypatch.setattr("app.rag.store.rag_available", lambda: False)
+    code = run.retrieval_main(output_dir=tmp_path)
+    assert code == 0
+    report = json.loads((tmp_path / "retrieval_report.json").read_text(encoding="utf-8"))
+    assert report["status"] == "skipped"
+    assert "database" in report["skipped_reason"]
+
+
+def test_render_retrieval_markdown_shows_modes_and_na():
+    from evals.run import render_retrieval_markdown
+
+    report = {
+        "generated_at": "2026-06-18T00:00:00+00:00",
+        "status": "ok",
+        "provider": "openai:gpt-4o-mini",
+        "modes_order": ["off", "vector", "hybrid"],
+        "modes": {
+            "off": {
+                "status": "ok",
+                "n": 2,
+                "errors": 0,
+                "rank_correlation_spearman": 0.5,
+                "ragas": {"faithfulness": 0.8, "answer_relevancy": 0.2, "context_recall": 0.4},
+            },
+            "vector": {
+                "status": "ok",
+                "n": 2,
+                "errors": 0,
+                "rank_correlation_spearman": 0.6,
+                "ragas": {},
+            },
+            "hybrid": {"status": "n/a", "reason": "chunk_tsv / embeddings_tsv_idx absent"},
+        },
+    }
+    md = render_retrieval_markdown(report)
+    assert "| off |" in md and "0.5" in md
+    assert "| vector |" in md and "0.6" in md
+    assert "n/a" in md  # hybrid row marked unavailable
+
+
 def test_run_retrieval_modes_restores_settings():
     before = (settings.rag_retrieval_mode, settings.rag_rerank_enabled)
     retrieval.run_retrieval_modes(

@@ -226,6 +226,81 @@ def render_markdown(report: dict) -> str:
     return "\n".join(lines) + "\n"
 
 
+def render_retrieval_markdown(report: dict) -> str:
+    lines = ["# JobOps Copilot — Retrieval-Mode Comparison", ""]
+    lines.append(f"- Generated: `{report['generated_at']}`")
+    lines.append(f"- Judge / model: `{report.get('provider') or 'n/a'}`")
+    if report["status"] != "ok":
+        lines += ["", f"> Skipped: {report.get('skipped_reason')}"]
+        return "\n".join(lines) + "\n"
+
+    lines += [
+        "",
+        "Same gold set + scorer; only the retrieved evidence changes (downstream delta).",
+        "`off` feeds **no** resume evidence (JD only); retrieval modes feed only top-k chunks,",
+        "so context-recall can fall even as faithfulness rises — read all four columns.",
+        "",
+        "| mode | fit-vs-label Spearman | faithfulness | answer relevancy | context recall "
+        "| n (errors) |",
+        "| --- | --- | --- | --- | --- | --- |",
+    ]
+    for mode in report["modes_order"]:
+        metrics = report["modes"].get(mode, {})
+        if metrics.get("status") == "n/a":
+            lines.append(f"| {mode} | _n/a — {metrics.get('reason')}_ |  |  |  |  |")
+            continue
+        ragas = metrics.get("ragas", {})
+        lines.append(
+            f"| {mode} | {metrics['rank_correlation_spearman']} "
+            f"| {ragas.get('faithfulness')} | {ragas.get('answer_relevancy')} "
+            f"| {ragas.get('context_recall')} | {metrics['n']} ({metrics['errors']}) |"
+        )
+    return "\n".join(lines) + "\n"
+
+
+def retrieval_main(output_dir: Path | None = None) -> int:
+    """Entry for ``python -m evals.run --retrieval-modes``: sweep retrieval modes
+    and write a per-mode comparison. Needs both a provider key and a database;
+    otherwise writes a skipped report and exits 0 (CI / key-less runs stay green)."""
+    logging.basicConfig(level=logging.INFO)
+    output_dir = output_dir or Path(__file__).parent
+    generated_at = datetime.now(UTC).isoformat(timespec="seconds")
+
+    from app.rag.store import rag_available
+
+    if not _provider_ready() or not rag_available():
+        reason = "no provider key configured" if not _provider_ready() else "no database configured"
+        report = {
+            "generated_at": generated_at,
+            "status": "skipped",
+            "skipped_reason": reason,
+            "provider": None,
+        }
+    else:
+        from evals.retrieval import RETRIEVAL_MODES, run_retrieval_modes
+
+        _, provider_label = get_model()
+        rows = _load_jsonl(_DATA_DIR / "fit_score.jsonl")
+        resume = (_DATA_DIR / "sample_resume.txt").read_text(encoding="utf-8")
+        report = {
+            "generated_at": generated_at,
+            "status": "ok",
+            "provider": provider_label,
+            "modes_order": list(RETRIEVAL_MODES),
+            "modes": run_retrieval_modes(rows, resume),
+        }
+
+    output_dir.mkdir(parents=True, exist_ok=True)
+    (output_dir / "retrieval_report.json").write_text(
+        json.dumps(report, indent=2) + "\n", encoding="utf-8"
+    )
+    (output_dir / "retrieval_report.md").write_text(
+        render_retrieval_markdown(report), encoding="utf-8"
+    )
+    print(render_retrieval_markdown(report))
+    return 0
+
+
 def main(output_dir: Path | None = None, gate: bool = False) -> int:
     logging.basicConfig(level=logging.INFO)
     output_dir = output_dir or Path(__file__).parent
@@ -274,4 +349,6 @@ def main(output_dir: Path | None = None, gate: bool = False) -> int:
 if __name__ == "__main__":
     import sys
 
+    if "--retrieval-modes" in sys.argv:
+        raise SystemExit(retrieval_main())
     raise SystemExit(main(gate="--gate" in sys.argv))
