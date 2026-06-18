@@ -45,3 +45,9 @@ services/agent/evals/report.md
 # NOTE: retrieval_report.{json,md} are intentionally TRACKED (not ignored): they can
 # only be produced by a keyed run against a DB with migration 007 — not by CI — so
 # they're committed for auditability. Don't add them here.
+
+# Playwright e2e artifacts
+apps/web/test-results/
+apps/web/playwright-report/
+apps/web/blob-report/
+apps/web/.cache/
