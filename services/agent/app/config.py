@@ -68,5 +68,9 @@ class Settings(BaseSettings):
     # Unset → the research agent uses the built-in Tavily web_search tool.
     mcp_client_servers: str | None = None
 
+    # RAG retrieval (Phase 4 · O). mode: "vector" (dense only) or "hybrid" (dense + FTS via RRF).
+    rag_retrieval_mode: str = "hybrid"
+    rag_candidate_pool: int = 16  # candidates pulled per side before fusion / rerank
+
 
 settings = Settings()
