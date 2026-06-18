@@ -115,3 +115,48 @@ jobs:
         run: |
           az bicep build --file infra/main.bicep --stdout > /dev/null
           az bicep build-params --file infra/main.bicepparam --outfile /dev/null
+
+  e2e:
+    name: Web e2e (Playwright)
+    runs-on: ubuntu-latest
+    # The Next.js app needs Clerk keys to boot, so this runs only when they're
+    # configured as secrets; otherwise it skips (the job still succeeds — no gate
+    # failure for a fork/PR without secrets). Mirrors the evals key-gating.
+    env:
+      NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: ${{ secrets.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY }}
+      CLERK_SECRET_KEY: ${{ secrets.CLERK_SECRET_KEY }}
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Gate on Clerk secrets
+        id: gate
+        run: |
+          if [ -n "$NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY" ] && [ -n "$CLERK_SECRET_KEY" ]; then
+            echo "ready=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "ready=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::Clerk secrets not configured — skipping web e2e."
+          fi
+
+      - name: Set up Node.js
+        if: steps.gate.outputs.ready == 'true'
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22.x
+          cache: npm
+
+      - name: Install dependencies
+        if: steps.gate.outputs.ready == 'true'
+        run: npm ci
+
+      - name: Install Playwright browser
+        if: steps.gate.outputs.ready == 'true'
+        run: npx playwright install --with-deps chromium
+        working-directory: apps/web
+
+      - name: Run e2e
+        if: steps.gate.outputs.ready == 'true'
+        env:
+          CI: true
+        run: npm run test:e2e

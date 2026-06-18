@@ -20,6 +20,7 @@
     "typecheck": "npm run typecheck:web && npm run typecheck:api",
     "test:api": "npm run test --workspace @jobops/api",
     "test": "npm run test:api",
+    "test:e2e": "npm run test:e2e --workspace @jobops/web",
     "loadtest": "k6 run load/api-read-path.js",
     "check": "npm run lint && npm run typecheck && npm run build"
   }
