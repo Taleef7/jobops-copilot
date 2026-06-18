@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import json
 import logging
+from collections.abc import Callable
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -118,13 +119,24 @@ def run_parse_job_eval(rows: list[dict]) -> dict:
     }
 
 
-def run_fit_score_eval(rows: list[dict], resume_text: str) -> dict:
-    """Score-fit rank correlation + Ragas faithfulness/relevance/context-recall."""
-    contexts = chunk_text(resume_text)
+def run_fit_score_eval(
+    rows: list[dict],
+    resume_text: str,
+    contexts_for: Callable[[dict], list[str]] | None = None,
+) -> dict:
+    """Score-fit rank correlation + Ragas faithfulness/relevance/context-recall.
+
+    ``contexts_for`` injects the retrieved evidence per row; it defaults to the
+    whole resume chunked (today's behavior). The retrieval-mode sweep
+    (``evals.retrieval``) passes a function that returns each mode's top-k chunks
+    so the same scorer measures every retrieval mode.
+    """
+    contexts_for = contexts_for or (lambda _row: chunk_text(resume_text))
     predicted_scores, gold_labels, ragas_samples = [], [], []
     errors = 0
     for row in rows:
         expected = row["expected"]
+        contexts = contexts_for(row)
         try:
             request = ScoreFitRequest(
                 description_text=row["description_text"],
