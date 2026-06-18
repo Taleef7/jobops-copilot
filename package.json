@@ -18,6 +18,8 @@
     "typecheck:web": "npm run typecheck --workspace @jobops/web",
     "typecheck:api": "npm run typecheck --workspace @jobops/api",
     "typecheck": "npm run typecheck:web && npm run typecheck:api",
+    "test:api": "npm run test --workspace @jobops/api",
+    "test": "npm run test:api",
     "check": "npm run lint && npm run typecheck && npm run build"
   }
 }

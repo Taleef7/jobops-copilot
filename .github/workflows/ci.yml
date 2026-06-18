@@ -45,6 +45,11 @@ jobs:
           CI: true
         run: npm run check
 
+      - name: Run tests
+        env:
+          CI: true
+        run: npm test
+
   agent:
     name: Agent service (Python)
     runs-on: ubuntu-latest
