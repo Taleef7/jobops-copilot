@@ -39,3 +39,90 @@ def test_vector_literal_formats_pgvector():
 def test_rag_unavailable_without_database(monkeypatch):
     monkeypatch.setattr(store.settings, "database_url", None)
     assert store.rag_available() is False
+
+
+# --- hybrid retrieval (Phase 4 · O3) -------------------------------------------------
+
+DENSE_ROWS = [("1", "dense-a"), ("2", "shared-b"), ("3", "shared-c")]
+LEXICAL_ROWS = [("2", "shared-b"), ("3", "shared-c"), ("4", "lex-d")]
+
+
+class _FakeCursor:
+    """Records executed SQL and returns canned rows for the dense vs lexical query."""
+
+    def __init__(self, dense_rows, lexical_rows, lexical_error=False):
+        self._dense = dense_rows
+        self._lexical = lexical_rows
+        self._lexical_error = lexical_error
+        self.queries: list[str] = []
+        self._last: list[tuple[str, str]] = []
+        self._limit: int | None = None
+
+    def execute(self, sql, params=None):
+        self.queries.append(sql)
+        self._limit = params[-1] if params else None  # the trailing `limit %s`
+        if "websearch_to_tsquery" in sql:
+            if self._lexical_error:
+                raise RuntimeError("column chunk_tsv does not exist")
+            self._last = self._lexical
+        else:
+            self._last = self._dense
+
+    def fetchall(self):
+        return self._last[: self._limit] if self._limit is not None else self._last
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc):
+        return False
+
+
+class _FakeConn:
+    def __init__(self, cursor):
+        self._cursor = cursor
+
+    def cursor(self):
+        return self._cursor
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc):
+        return False
+
+
+def _patch_store(monkeypatch, cursor):
+    monkeypatch.setattr(store, "embed_query", lambda _q: [0.0, 0.0, 0.0])
+    monkeypatch.setattr(store, "_connect", lambda: _FakeConn(cursor))
+
+
+def test_hybrid_retrieve_fuses_dense_and_lexical(monkeypatch):
+    cursor = _FakeCursor(DENSE_ROWS, LEXICAL_ROWS)
+    _patch_store(monkeypatch, cursor)
+    # "2"/"3" rank highly in both lists, so RRF surfaces them above the singletons.
+    assert store.retrieve("python backend", k=2, mode="hybrid") == ["shared-b", "shared-c"]
+    assert any("websearch_to_tsquery" in q for q in cursor.queries)  # lexical side ran
+
+
+def test_hybrid_falls_back_to_vector_when_lexical_errors(monkeypatch):
+    cursor = _FakeCursor(DENSE_ROWS, LEXICAL_ROWS, lexical_error=True)
+    _patch_store(monkeypatch, cursor)
+    # Missing chunk_tsv column -> lexical raises -> dense top-k returned, no crash.
+    assert store.retrieve("python backend", k=2, mode="hybrid") == ["dense-a", "shared-b"]
+
+
+def test_hybrid_empty_lexical_degrades_to_dense(monkeypatch):
+    # Refinement #2: an all-stopword query yields an empty tsquery matching zero rows
+    # WITHOUT raising; RRF then degrades to the dense ranking (not the error path).
+    cursor = _FakeCursor(DENSE_ROWS, [])
+    _patch_store(monkeypatch, cursor)
+    assert store.retrieve("the a of", k=2, mode="hybrid") == ["dense-a", "shared-b"]
+    assert any("websearch_to_tsquery" in q for q in cursor.queries)  # it ran, didn't error
+
+
+def test_vector_mode_skips_lexical(monkeypatch):
+    cursor = _FakeCursor(DENSE_ROWS, LEXICAL_ROWS)
+    _patch_store(monkeypatch, cursor)
+    assert store.retrieve("python backend", k=2, mode="vector") == ["dense-a", "shared-b"]
+    assert not any("websearch_to_tsquery" in q for q in cursor.queries)  # lexical skipped
