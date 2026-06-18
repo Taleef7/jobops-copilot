@@ -35,6 +35,8 @@ export default async function SettingsPage() {
   // from "no agent / deterministic mock" so the card doesn't mislabel a sleeping agent.
   const agentEnabled = Boolean(status?.agent.enabled);
   const agentReachable = Boolean(status?.agent.reachable);
+  // Reachable AND a usable LLM key — drives both the dot and the badge text so they agree.
+  const agentConnected = agentReachable && status?.agent.llm_configured !== false;
   const providerLabel = provider
     ? (PROVIDER_LABELS[provider] ?? provider)
     : agentEnabled
@@ -99,8 +101,8 @@ export default async function SettingsPage() {
           <div className="flex items-center justify-between gap-2">
             <p className="text-sm font-medium">{providerLabel}</p>
             <Badge variant="secondary" className="gap-1">
-              <StatusDot on={Boolean(agentReachable && status?.agent.llm_configured !== false)} />
-              {agentReachable ? 'Connected' : agentEnabled ? 'Idle' : 'Mock fallback'}
+              <StatusDot on={agentConnected} />
+              {agentConnected ? 'Connected' : agentEnabled ? 'Idle' : 'Mock fallback'}
             </Badge>
           </div>
           <p className="text-muted-foreground text-xs">{providerDetail}</p>
