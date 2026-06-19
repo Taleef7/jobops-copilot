@@ -17,6 +17,7 @@ export default function robots(): MetadataRoute.Robots {
         '/outreach',
         '/reports',
         '/assistant',
+        '/settings',
         '/onboarding',
       ],
     },
