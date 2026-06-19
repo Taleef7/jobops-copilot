@@ -31,6 +31,12 @@ export default async function JobDetailPage({ params }: JobDetailParams) {
   const { job, source } = await loadJob(jobId);
   if (!job) notFound();
 
+  // `mock-fit-scorer-v1` is the one unambiguous "the fit-score agent was unavailable
+  // (often a scale-to-zero cold start) and this score is a rule-based heuristic" marker.
+  // (`mock-analysis-v1` is reused for real-agent parses and the new-job placeholder, so
+  // it is NOT a reliable fallback signal.) Surface the heuristic plainly (QA·B).
+  const isHeuristicAnalysis = job.analysis.modelUsed === 'mock-fit-scorer-v1';
+
   return (
     <div className="space-y-6">
       <Button render={<Link href="/jobs" />} variant="ghost" size="sm" className="-ml-2 gap-1.5">
@@ -81,10 +87,23 @@ export default async function JobDetailPage({ params }: JobDetailParams) {
             </TabsList>
 
             <TabsContent value="analysis" className="space-y-4">
+              {isHeuristicAnalysis ? (
+                <Card className="border-amber-500/30 bg-amber-500/5 gap-1 p-4">
+                  <p className="text-sm font-medium text-amber-700 dark:text-amber-400">
+                    Heuristic estimate — not a full AI assessment
+                  </p>
+                  <p className="text-muted-foreground text-sm">
+                    The AI model wasn&apos;t available (it may have been warming up), so this is a
+                    rule-based fallback. Re-run the analysis in a moment for a real model review.
+                  </p>
+                </Card>
+              ) : null}
               <Card className="gap-4 p-5">
                 <div className="flex flex-wrap gap-2">
                   <Badge variant="secondary">Confidence {job.analysis.confidenceScore}</Badge>
-                  <Badge variant="secondary">Model: {job.analysis.modelUsed}</Badge>
+                  <Badge variant={isHeuristicAnalysis ? 'outline' : 'secondary'}>
+                    {isHeuristicAnalysis ? 'Heuristic fallback' : `Model: ${job.analysis.modelUsed}`}
+                  </Badge>
                 </div>
                 <div>
                   <p className="text-muted-foreground mb-1 text-xs font-medium tracking-wide uppercase">

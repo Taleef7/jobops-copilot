@@ -24,6 +24,10 @@ const AGENT_URL = process.env.AGENT_SERVICE_URL?.trim().replace(/\/$/, '');
 const AGENT_TIMEOUT_MS = Number(process.env.AGENT_TIMEOUT_MS ?? 60_000);
 // Tool-using agents (Phase 8) can take longer than the single-shot chains.
 const AGENT_TASK_TIMEOUT_MS = Number(process.env.AGENT_TASK_TIMEOUT_MS ?? 120_000);
+// The cold-start retry (QA·B) uses a shorter budget: the first attempt already spent
+// AGENT_TIMEOUT_MS waking the scale-to-zero container, so the retry caps total parse/score
+// time (and keeps the n8n parse+score chain under the Container Apps ~240s ingress limit).
+const AGENT_RETRY_TIMEOUT_MS = Math.round(AGENT_TIMEOUT_MS / 2);
 
 /**
  * Build request headers for an agent call, attaching the server-to-server shared
@@ -65,6 +69,34 @@ async function callAgent<T>(path: string, payload: unknown, timeoutMs = AGENT_TI
   }
 
   return (await response.json()) as T;
+}
+
+/**
+ * A timeout/abort error from `AbortSignal.timeout` — the signature of the agent
+ * Container App cold-starting (scale-to-zero) rather than being genuinely down. The
+ * first request wakes the container; by the time it times out the container is usually
+ * warming, so a single retry tends to land a real result instead of a mock (QA·B).
+ * Connection-refused / other errors (TypeError) are NOT cold starts and skip the retry.
+ */
+export function isColdStartError(error: unknown): boolean {
+  return error instanceof Error && (error.name === 'TimeoutError' || error.name === 'AbortError');
+}
+
+/**
+ * Run an agent op, retrying once if the first attempt times out on a cold start (QA·B).
+ * `op` receives the attempt number (1 or 2) so callers can give the retry a shorter
+ * timeout budget — the container is already warming by then.
+ */
+export async function withColdStartRetry<T>(op: (attempt: number) => Promise<T>): Promise<T> {
+  try {
+    return await op(1);
+  } catch (error) {
+    if (isColdStartError(error)) {
+      console.warn('agent call timed out (cold start?); retrying once before mock fallback');
+      return op(2);
+    }
+    throw error;
+  }
 }
 
 /**
@@ -165,9 +197,13 @@ export interface OutreachDraftResult {
 export async function resolveParsedJob(descriptionText: string): Promise<ParsedJobOutput> {
   if (isAgentEnabled()) {
     try {
-      const parsed = await callAgent<ParsedJobOutput>('/parse-job', {
-        description_text: descriptionText,
-      });
+      const parsed = await withColdStartRetry((attempt) =>
+        callAgent<ParsedJobOutput>(
+          '/parse-job',
+          { description_text: descriptionText },
+          attempt === 1 ? AGENT_TIMEOUT_MS : AGENT_RETRY_TIMEOUT_MS,
+        ),
+      );
       if (validateParsedJobOutput(parsed)) {
         return parsed;
       }
@@ -183,16 +219,22 @@ export async function resolveParsedJob(descriptionText: string): Promise<ParsedJ
 export async function resolveFitScore(input: ScoreFitInput): Promise<FitScoreOutput> {
   if (isAgentEnabled()) {
     try {
-      const scored = await callAgent<FitScoreOutput>('/score-fit', {
-        user_id: input.userId,
-        description_text: input.descriptionText,
-        resume_text: input.resumeText,
-        profile_text: input.profileText,
-        required_skills: input.requiredSkills,
-        preferred_skills: input.preferredSkills,
-        ats_keywords: input.atsKeywords,
-        retrieved_context: input.retrievedContext,
-      });
+      const scored = await withColdStartRetry((attempt) =>
+        callAgent<FitScoreOutput>(
+          '/score-fit',
+          {
+            user_id: input.userId,
+            description_text: input.descriptionText,
+            resume_text: input.resumeText,
+            profile_text: input.profileText,
+            required_skills: input.requiredSkills,
+            preferred_skills: input.preferredSkills,
+            ats_keywords: input.atsKeywords,
+            retrieved_context: input.retrievedContext,
+          },
+          attempt === 1 ? AGENT_TIMEOUT_MS : AGENT_RETRY_TIMEOUT_MS,
+        ),
+      );
       if (validateFitScoreOutput(scored)) {
         return scored;
       }
