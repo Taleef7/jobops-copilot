@@ -77,8 +77,9 @@ def test_degrades_when_durable_build_fails(monkeypatch):
 def test_build_closes_pool_when_setup_fails(monkeypatch):
     """If the pool opens but setup() fails, the build must close the pool
     itself — the caller never receives it, so it can't be torn down later."""
-    import langgraph.checkpoint.postgres.aio as pg_aio
-    import psycopg_pool
+    # Skip on the light CI job, which omits requirements-rag.txt (no PG deps).
+    pg_aio = pytest.importorskip("langgraph.checkpoint.postgres.aio")
+    psycopg_pool = pytest.importorskip("psycopg_pool")
 
     closed = {"value": False}
 
@@ -111,8 +112,9 @@ def test_build_closes_pool_when_setup_fails(monkeypatch):
 def test_build_uses_strict_msgpack_serializer(monkeypatch):
     """The durable saver must be built with a strict (allowlisted) serializer,
     so tampered checkpoint rows can't trigger code execution on resume."""
-    import langgraph.checkpoint.postgres.aio as pg_aio
-    import psycopg_pool
+    # Skip on the light CI job, which omits requirements-rag.txt (no PG deps).
+    pg_aio = pytest.importorskip("langgraph.checkpoint.postgres.aio")
+    psycopg_pool = pytest.importorskip("psycopg_pool")
     from langgraph.checkpoint.serde.jsonplus import JsonPlusSerializer
 
     captured = {}
