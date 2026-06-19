@@ -51,3 +51,8 @@ apps/web/test-results/
 apps/web/playwright-report/
 apps/web/blob-report/
 apps/web/.cache/
+
+# Playwright MCP / local browser artifacts
+.playwright-mcp/
+assistant-hitl-smoke.png
+*.playwright-mcp.png
