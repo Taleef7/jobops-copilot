@@ -28,3 +28,15 @@ export function startAppInsights(): boolean {
     return false;
   }
 }
+
+/**
+ * Best-effort flush of buffered telemetry, e.g. on graceful shutdown so the last items
+ * before a deploy aren't lost. No-op when telemetry isn't active; never throws.
+ */
+export async function flushAppInsights(): Promise<void> {
+  try {
+    await appInsights.defaultClient?.flush();
+  } catch {
+    // Telemetry must never block or crash shutdown.
+  }
+}
