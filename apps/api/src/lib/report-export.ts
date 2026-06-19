@@ -24,12 +24,26 @@ export function buildWeeklyReportExportUrl(report: WeeklyReportRecord, publicBas
   return new URL(`/api/reports/${report.id}/export`, normalizeBaseUrl(publicBaseUrl)).href;
 }
 
-async function writeLocalExport(report: WeeklyReportRecord, markdown: string) {
-  const localPath = buildLocalWeeklyReportExportPath(report);
-  await mkdir(join(process.cwd(), 'data', 'report-exports'), { recursive: true });
-  await writeFile(localPath, markdown, 'utf8');
-
-  return localPath;
+/**
+ * Best-effort local cache of the export markdown. Never throws: the prod App Service
+ * filesystem is read-only (WEBSITE_RUN_FROM_PACKAGE=1), and the download route
+ * (`/api/reports/:id/export`) regenerates from the DB-stored markdown when this file
+ * is absent — so a failed write must not break report generation (QA·C). Returns the
+ * written path, or null when the write was skipped/failed.
+ */
+async function writeLocalExport(report: WeeklyReportRecord, markdown: string): Promise<string | null> {
+  try {
+    const localPath = buildLocalWeeklyReportExportPath(report);
+    await mkdir(join(process.cwd(), 'data', 'report-exports'), { recursive: true });
+    await writeFile(localPath, markdown, 'utf8');
+    return localPath;
+  } catch (error) {
+    console.warn(
+      'Local weekly-report export write failed (read-only filesystem?); the download route will fall back to the stored markdown.',
+      error,
+    );
+    return null;
+  }
 }
 
 export async function exportWeeklyReportMarkdown(
@@ -43,10 +57,11 @@ export async function exportWeeklyReportMarkdown(
     process.env.AZURE_BLOB_REPORTS_CONTAINER?.trim();
   const publicBaseUrl =
     options.publicBaseUrl?.trim() ?? process.env.API_PUBLIC_BASE_URL?.trim() ?? 'http://127.0.0.1:4000';
+  const apiExportUrl = buildWeeklyReportExportUrl(report, publicBaseUrl);
 
   if (!connectionString || !containerName) {
     await writeLocalExport(report, markdown);
-    return buildWeeklyReportExportUrl(report, publicBaseUrl);
+    return apiExportUrl;
   }
 
   try {
@@ -67,8 +82,8 @@ export async function exportWeeklyReportMarkdown(
     await writeLocalExport(report, markdown);
     return blobClient.url;
   } catch (error) {
-    console.warn('Azure Blob export failed; falling back to local file export.', error);
+    console.warn('Azure Blob export failed; returning the API export URL (DB-backed).', error);
     await writeLocalExport(report, markdown);
-    return buildWeeklyReportExportUrl(report, publicBaseUrl);
+    return apiExportUrl;
   }
 }
