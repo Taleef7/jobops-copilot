@@ -125,9 +125,13 @@ Deploy workflows (canonical):
   deploys it, and gates on a `/api/health` check returning `"mode":"postgres"`.
 - **Web** — `.github/workflows/deploy-web.yml` runs on push to `main` under
   `apps/web/**` (and on manual dispatch), deploying the Next.js standalone bundle.
-- **Agent** — containerized: build `services/agent/Dockerfile`, push to ACR, then
-  `az containerapp update`. The `azure-app-service.yml` agent target is a code-deploy
-  fallback for a no-RAG agent only.
+- **Agent** — containerized. Run **`bash scripts/azure/deploy-agent.sh`** (one command:
+  build `linux/amd64` → push to ACR → `az containerapp update` → verify). CI
+  (`.github/workflows/deploy-agent.yml`) auto-builds + pushes the image on every
+  `services/agent/**` change, but **can't activate it** — the Azure-for-Students tenant
+  blocks the service principal CI would need for ARM — so it reminds you to run
+  `scripts/azure/deploy-agent.sh --activate <sha>` (skips the slow local rebuild). The
+  `azure-app-service.yml` agent target is a code-deploy fallback for a no-RAG agent only.
 
 ## Recommended Phase 6 Order
 
