@@ -11,8 +11,12 @@ export const dynamic = 'force-dynamic';
 
 export const metadata: Metadata = { title: 'Jobs' };
 
-export default async function JobsPage() {
-  const { jobs, source } = await loadJobs();
+export default async function JobsPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ q?: string }>;
+}) {
+  const [{ jobs, source }, { q }] = await Promise.all([loadJobs(), searchParams]);
 
   return (
     <div className="space-y-6">
@@ -41,7 +45,7 @@ export default async function JobsPage() {
         title="Job pipeline"
         description="Filter by status or priority to find your next action fast."
       >
-        <JobsTable jobs={jobs} />
+        <JobsTable jobs={jobs} initialQuery={q ?? ''} />
       </SectionCard>
     </div>
   );
