@@ -64,21 +64,29 @@ test('runGracefulShutdown exits 1 when draining throws', async () => {
 
 test('runGracefulShutdown force-exits 1 when the drain hangs past the timeout', async () => {
   let exitCode: number | undefined;
-  const exited = new Promise<void>((resolve) => {
-    void runGracefulShutdown({
-      closeServer: () => new Promise<void>(() => {}), // never resolves (stuck connection)
-      closePool: async () => {},
-      onExit: (code) => {
-        exitCode = code;
-        resolve();
-      },
-      timeoutMs: 20,
-      log: noop,
-    });
+  // A stuck connection: closeServer doesn't resolve until we release it. The force-exit
+  // timer must fire first (exit 1); we release afterwards so the promise still settles
+  // cleanly (in production process.exit ends it, but the test must not dangle).
+  let releaseServer = () => {};
+  const serverStuck = new Promise<void>((resolve) => {
+    releaseServer = resolve;
   });
 
-  await exited;
-  assert.equal(exitCode, 1);
+  const run = runGracefulShutdown({
+    closeServer: () => serverStuck,
+    closePool: async () => {},
+    onExit: (code) => {
+      exitCode ??= code;
+    },
+    timeoutMs: 20,
+    log: noop,
+  });
+
+  await new Promise((resolve) => setTimeout(resolve, 60));
+  assert.equal(exitCode, 1); // force-exit fired while the server was still draining
+
+  releaseServer();
+  await run; // settles without a dangling promise; the late exit(0) is a no-op (settled)
 });
 
 test('runGracefulShutdown calls onExit at most once', async () => {
