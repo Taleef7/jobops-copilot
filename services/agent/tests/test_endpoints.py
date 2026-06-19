@@ -113,7 +113,7 @@ def test_assistant_run_pauses_for_approval(monkeypatch):
     monkeypatch.setattr(main, "llm_available", lambda: True)
 
     class _FakeGraph:
-        def invoke(self, payload, config=None):
+        async def ainvoke(self, payload, config=None):
             return {"__interrupt__": [object()], "fit": {"fit_score": 80},
                     "research": {"company_summary": "ok"}}
 
@@ -130,7 +130,7 @@ def test_assistant_resume_returns_draft(monkeypatch):
     monkeypatch.setattr(main, "llm_available", lambda: True)
 
     class _FakeGraph:
-        def invoke(self, payload, config=None):
+        async def ainvoke(self, payload, config=None):
             return {"status": "drafted", "draft": {"draft_text": "hi there"}}
 
     monkeypatch.setattr(main, "_get_assistant_graph", lambda: _FakeGraph())

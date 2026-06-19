@@ -25,7 +25,7 @@ class _FakeGraph:
         else:
             yield {"pass": {"status": "passed"}}
 
-    def get_state(self, config):
+    async def aget_state(self, config):
         return _FakeState({"fit": {"fit_score": 80}, "research": {"company_summary": "ok"}})
 
 
