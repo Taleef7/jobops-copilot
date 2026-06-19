@@ -56,6 +56,14 @@ export function createApp() {
   // the real client, which the rate limiter keys on for unauthenticated requests.
   app.set('trust proxy', 1);
   app.use(helmet());
+  // Surface the localhost-only CORS fallback in prod — otherwise a missing
+  // CORS_ALLOWED_ORIGINS silently rejects the real web origin (opaque browser error).
+  if (process.env.NODE_ENV === 'production' && !process.env.CORS_ALLOWED_ORIGINS?.trim()) {
+    console.warn(
+      'CORS_ALLOWED_ORIGINS is unset in production; falling back to localhost dev origins. ' +
+        'Set it to your web origin or browser calls from it will be blocked.',
+    );
+  }
   app.use(cors(corsOptions()));
   app.use(requireSharedApiKey);
   app.use(express.json({ limit: '5mb' }));

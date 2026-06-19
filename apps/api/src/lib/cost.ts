@@ -26,8 +26,10 @@ export function dailyBudgetUsd(): number {
   if (raw === undefined || raw.trim() === '') return DEFAULT_DAILY_BUDGET_USD;
   const parsed = Number(raw);
   // Fail safe to the default on a malformed value. A NaN ceiling would make every
-  // budget check pass (`total > NaN` is always false), silently disabling the cap —
+  // budget check pass (`current >= NaN` is always false), silently disabling the cap —
   // the exact "graceful degradation that becomes silently wrong" this audit targets.
-  if (!Number.isFinite(parsed) || parsed <= 0) return DEFAULT_DAILY_BUDGET_USD;
+  // A deliberate 0 is preserved as a block-all kill-switch (the store denies on
+  // `current >= 0`); only negative/non-finite/blank fall back to the default.
+  if (!Number.isFinite(parsed) || parsed < 0) return DEFAULT_DAILY_BUDGET_USD;
   return parsed;
 }

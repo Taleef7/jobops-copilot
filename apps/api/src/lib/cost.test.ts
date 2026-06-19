@@ -28,10 +28,21 @@ test('uses a valid configured value', () => {
 
 test('fails safe to the default on malformed values (no fail-open)', () => {
   try {
-    for (const bad of ['', '   ', 'abc', 'NaN', '0', '-1']) {
+    for (const bad of ['', '   ', 'abc', 'NaN', 'Infinity', '-1']) {
       process.env.AI_DAILY_BUDGET_USD = bad;
       assert.equal(dailyBudgetUsd(), 1.0, `expected default for ${JSON.stringify(bad)}`);
     }
+  } finally {
+    restore();
+  }
+});
+
+test('preserves a deliberate 0 as a block-all kill-switch', () => {
+  process.env.AI_DAILY_BUDGET_USD = '0';
+  try {
+    // 0 is a valid operational state: the store denies on `current >= 0`, so the
+    // first call of the day is blocked. It must NOT silently revert to the default cap.
+    assert.equal(dailyBudgetUsd(), 0);
   } finally {
     restore();
   }
