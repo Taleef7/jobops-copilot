@@ -16,7 +16,7 @@ function lastBody(fetchMock: ReturnType<typeof vi.fn>) {
 
 afterEach(() => {
   vi.unstubAllGlobals();
-  vi.restoreAllMocks();
+  vi.clearAllMocks();
 });
 
 describe('request mappers map camelCase payloads to the API snake_case shape', () => {

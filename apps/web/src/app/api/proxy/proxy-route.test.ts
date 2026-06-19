@@ -8,17 +8,28 @@ vi.mock('@clerk/nextjs/server', () => ({
 
 afterEach(() => {
   vi.unstubAllGlobals();
+  vi.unstubAllEnvs();
   vi.resetModules();
 });
 
 it('injects the Clerk bearer token + shared secret and forwards to the API, never to the browser', async () => {
-  process.env.API_SHARED_SECRET = 'sh4red-secret';
-  process.env.NEXT_PUBLIC_API_BASE_URL = 'http://api.internal:4000';
+  // stubEnv (not raw process.env writes) so unstubAllEnvs restores them after the test.
+  vi.stubEnv('API_SHARED_SECRET', 'sh4red-secret');
+  vi.stubEnv('NEXT_PUBLIC_API_BASE_URL', 'http://api.internal:4000');
   vi.resetModules(); // re-import so the route re-reads the env above at module load
 
-  const fetchMock = vi
-    .fn()
-    .mockResolvedValue(new Response('{"ok":true}', { status: 200, headers: { 'content-type': 'application/json' } }));
+  // The upstream returns hostile headers; the handler must only pass content-type/
+  // content-disposition through, never the secret or a Set-Cookie back to the browser.
+  const fetchMock = vi.fn().mockResolvedValue(
+    new Response('{"ok":true}', {
+      status: 200,
+      headers: {
+        'content-type': 'application/json',
+        'x-api-key': 'leaked-secret',
+        'set-cookie': 'session=abc',
+      },
+    }),
+  );
   vi.stubGlobal('fetch', fetchMock);
 
   const { POST } = await import('./[...path]/route');
@@ -39,7 +50,9 @@ it('injects the Clerk bearer token + shared secret and forwards to the API, neve
   expect(headers.get('authorization')).toBe('Bearer session-token');
   expect(headers.get('x-api-key')).toBe('sh4red-secret');
 
-  // The secret must not leak back to the browser in the proxied response.
+  // The hostile upstream headers are stripped (only content-type/-disposition pass through),
+  // so no secret or Set-Cookie reaches the browser.
   expect(response.headers.get('x-api-key')).toBeNull();
-  expect(response.headers.get('authorization')).toBeNull();
+  expect(response.headers.get('set-cookie')).toBeNull();
+  expect(response.headers.get('content-type')).toBe('application/json');
 });
