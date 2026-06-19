@@ -12,6 +12,7 @@
 
 import type { NextFunction, Request, RequestHandler, Response } from 'express';
 import { clerkMiddleware, getAuth } from '@clerk/express';
+import { safeEqual } from '@/lib/safe-equal';
 
 const DEV_USER_ID = process.env.DEV_USER_ID?.trim() || 'user_local_dev';
 
@@ -38,7 +39,7 @@ export function attachUserId(request: Request, _response: Response, next: NextFu
   // can't (the X-User-Id below it is honored only in dev where Clerk is off).
   const sharedSecret = process.env.API_SHARED_SECRET?.trim();
   const onBehalfOf = request.header('X-User-Id')?.trim();
-  if (sharedSecret && request.header('X-API-Key')?.trim() === sharedSecret && onBehalfOf) {
+  if (sharedSecret && safeEqual(request.header('X-API-Key')?.trim(), sharedSecret) && onBehalfOf) {
     request.userId = onBehalfOf;
     return next();
   }

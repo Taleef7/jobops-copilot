@@ -2,6 +2,8 @@ import cors from 'cors';
 import express from 'express';
 import helmet from 'helmet';
 import { attachUserId, clerkAuth } from '@/lib/auth';
+import { corsOptions } from '@/lib/cors';
+import { safeEqual } from '@/lib/safe-equal';
 import { globalLimiter, strictLimiter } from '@/lib/rate-limit';
 import { enforceDailyBudget } from '@/lib/budget';
 import { aiRouter } from '@/routes/ai';
@@ -38,7 +40,7 @@ function requireSharedApiKey(
 
   const providedKey = request.header('X-API-Key')?.trim();
 
-  if (providedKey !== sharedSecret) {
+  if (!safeEqual(providedKey, sharedSecret)) {
     response.status(401).json({ error: 'Missing or invalid API key' });
     return;
   }
@@ -54,12 +56,15 @@ export function createApp() {
   // the real client, which the rate limiter keys on for unauthenticated requests.
   app.set('trust proxy', 1);
   app.use(helmet());
-  app.use(
-    cors({
-      origin: true,
-      allowedHeaders: ['Content-Type', 'X-API-Key', 'Authorization', 'X-N8N-Webhook-Secret'],
-    }),
-  );
+  // Surface the localhost-only CORS fallback in prod — otherwise a missing
+  // CORS_ALLOWED_ORIGINS silently rejects the real web origin (opaque browser error).
+  if (process.env.NODE_ENV === 'production' && !process.env.CORS_ALLOWED_ORIGINS?.trim()) {
+    console.warn(
+      'CORS_ALLOWED_ORIGINS is unset in production; falling back to localhost dev origins. ' +
+        'Set it to your web origin or browser calls from it will be blocked.',
+    );
+  }
+  app.use(cors(corsOptions()));
   app.use(requireSharedApiKey);
   app.use(express.json({ limit: '5mb' }));
   app.use(clerkAuth);

@@ -179,6 +179,34 @@ agent — redeploy something that rolls a revision (or `revision restart`) for i
 Verify afterwards: an unauthenticated `POST /rag/search` to the agent FQDN must return
 `401`, while the app's AI features (job analyze, score-fit, assistant) still work.
 
+## API edge hardening (QA·F)
+
+Three production settings on the API App Service, plus one trust-boundary note.
+
+```bash
+az webapp config appsettings set -g projects -n jobops-api --settings \
+  CORS_ALLOWED_ORIGINS="https://<your-web-app>.azurewebsites.net" \
+  AI_DAILY_BUDGET_USD="1.00"
+```
+
+- **`CORS_ALLOWED_ORIGINS`** — comma-separated browser origins allowed to call the API.
+  Unset, the API falls back to the local dev origins (`http://localhost:3000`,
+  `http://127.0.0.1:3000`), so a prod deploy that omits it will reject the real web
+  origin. Set it to your deployed web origin(s). The API never reflects an arbitrary
+  `Origin` anymore — only allowlisted origins get CORS headers. Requests with no `Origin`
+  (server-to-server, curl) are unaffected; CORS is a browser-only control.
+- **`AI_DAILY_BUDGET_USD`** — per-user daily AI spend ceiling (USD). The `/api/ai` routes
+  return `429` once a user reaches it. It **fails safe**: unset or malformed → the `1.00`
+  default cap, never "off". Raise/lower per environment.
+
+**Trust boundary — `API_SHARED_SECRET` + `X-User-Id` grants impersonation.** Any caller
+that presents the shared secret (`X-API-Key`) may set `X-User-Id` to act as *any* user
+(`apps/api/src/lib/auth.ts`). This is the deliberate service-principal path for the MCP
+server and n8n. Treat the secret as a high-value credential: it is **server-to-server
+only**, must never be shipped to the browser, and rotating it revokes all delegated
+access. The secret comparison is constant-time (`crypto.timingSafeEqual`) to deny key
+guessing via response timing.
+
 ## Recommended Phase 6 Order
 
 1. Deploy the Next.js dashboard to Azure Static Web Apps or another Azure web host.
