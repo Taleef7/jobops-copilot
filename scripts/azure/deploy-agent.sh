@@ -56,7 +56,15 @@ done
 stream="$(curl -s "https://$fqdn/openapi.json" --max-time 50 | grep -c '/assistant/stream' || true)"
 
 echo ""
-echo "==> Done."
 echo "    health           : $health"
 echo "    /assistant/stream: $([ "${stream:-0}" -gt 0 ] && echo 'present ✓' || echo 'MISSING ✗')"
 echo "    agent            : https://$fqdn"
+
+# Hard-fail on a bad activation so a broken deploy can't go unnoticed (the whole
+# point of this tool is to make stale/broken agents impossible to miss).
+if [ "$health" = "200" ] && [ "${stream:-0}" -gt 0 ]; then
+  echo "==> Done ✓"
+else
+  echo "==> Verify FAILED — agent unhealthy or /assistant/stream missing" >&2
+  exit 1
+fi

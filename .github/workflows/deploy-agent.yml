@@ -59,3 +59,7 @@ jobs:
             echo ""
             echo "Image: \`${IMAGE}:${GITHUB_SHA}\` (also tagged \`:latest\`)."
           } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Log out of ACR
+        if: always()
+        run: docker logout "${ACR}.azurecr.io"
