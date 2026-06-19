@@ -229,6 +229,9 @@ def health() -> dict:
         "model": _active_model(provider),
         "rag_enabled": rag_available(),
         "tavily_configured": bool(settings.tavily_api_key),
+        # The git SHA baked into the image at build time (Dockerfile ARG GIT_SHA).
+        # The agent-drift-check workflow compares this to the latest agent commit.
+        "build_sha": os.getenv("AGENT_BUILD_SHA") or "unknown",
     }
 
 

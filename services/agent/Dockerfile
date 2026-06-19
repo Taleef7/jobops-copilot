@@ -15,6 +15,12 @@ RUN pip install --upgrade pip \
     && pip install --index-url https://download.pytorch.org/whl/cpu torch \
     && pip install -r requirements-rag.txt
 
+# Stamp the build commit into the image so /health can report it and the
+# agent-drift-check workflow can detect a stale (un-activated) deployment.
+# Placed after the pip layers so a new SHA never busts the expensive install cache.
+ARG GIT_SHA=unknown
+ENV AGENT_BUILD_SHA=$GIT_SHA
+
 COPY app ./app
 
 EXPOSE 8000
