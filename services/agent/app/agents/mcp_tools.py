@@ -46,7 +46,13 @@ def _load_external_mcp_tools() -> list | None:
 
 
 def load_research_tools() -> list:
-    """Tools for the research agent: external MCP tools when available, else Tavily."""
+    """Tools for the research agent: external MCP tools when available, else Tavily.
+
+    NOTE (QA·G): only the built-in Tavily ``web_search`` delimits/scans its output
+    (``app.agents.tools``). Output from external MCP tools reaches the model unguarded,
+    so configure ``MCP_CLIENT_SERVERS`` only with trusted servers. MCP is opt-in
+    (defaults off), so the guarded Tavily path is the default.
+    """
     global _cache
     if _cache is not None:
         return _cache
