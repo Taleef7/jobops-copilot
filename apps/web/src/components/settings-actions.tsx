@@ -61,6 +61,7 @@ export function ExportDataButton() {
 export function DemoDataActions() {
   const router = useRouter();
   const [busy, setBusy] = useState<'seed' | 'clear' | null>(null);
+  const [confirmingClear, setConfirmingClear] = useState(false);
 
   async function run(action: 'seed' | 'clear') {
     setBusy(action);
@@ -77,6 +78,7 @@ export function DemoDataActions() {
       toast.error('Action failed. Please try again.');
     } finally {
       setBusy(null);
+      setConfirmingClear(false);
     }
   }
 
@@ -93,10 +95,43 @@ export function DemoDataActions() {
         {busy === 'seed' ? <Loader2 className="size-4 animate-spin" /> : null}
         Load sample data
       </Button>
-      <Button variant="ghost" size="sm" disabled={busy !== null} onClick={() => run('clear')}>
-        {busy === 'clear' ? <Loader2 className="size-4 animate-spin" /> : null}
-        Clear my data
-      </Button>
+      {confirmingClear ? (
+        <div
+          role="group"
+          aria-label="Confirm clearing all data"
+          className="flex flex-wrap items-center gap-2"
+        >
+          <p className="text-muted-foreground text-xs">
+            Permanently delete all jobs, outreach &amp; your resume?
+          </p>
+          <Button
+            variant="ghost"
+            size="sm"
+            disabled={busy !== null}
+            onClick={() => setConfirmingClear(false)}
+          >
+            Cancel
+          </Button>
+          <Button
+            variant="destructive"
+            size="sm"
+            disabled={busy !== null}
+            onClick={() => run('clear')}
+          >
+            {busy === 'clear' ? <Loader2 className="size-4 animate-spin" /> : null}
+            Yes, delete everything
+          </Button>
+        </div>
+      ) : (
+        <Button
+          variant="ghost"
+          size="sm"
+          disabled={busy !== null}
+          onClick={() => setConfirmingClear(true)}
+        >
+          Clear my data
+        </Button>
+      )}
     </div>
   );
 }
