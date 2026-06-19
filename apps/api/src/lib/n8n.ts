@@ -1,4 +1,5 @@
 import type { NextFunction, Request, Response } from 'express';
+import { safeEqual } from '@/lib/safe-equal';
 import type { JobRecord, JobStatus } from '@/types';
 
 export const N8N_WEBHOOK_SECRET_HEADER = 'X-N8N-Webhook-Secret';
@@ -36,7 +37,7 @@ export function requireN8nWebhookSecret(
 
   const providedSecret = request.header(N8N_WEBHOOK_SECRET_HEADER)?.trim();
 
-  if (providedSecret !== expectedSecret) {
+  if (!safeEqual(providedSecret, expectedSecret)) {
     response.status(401).json({ error: 'Missing or invalid n8n webhook secret' });
     return;
   }
