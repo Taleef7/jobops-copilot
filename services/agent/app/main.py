@@ -11,6 +11,7 @@ import json
 import logging
 import os
 import uuid
+from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import JSONResponse, StreamingResponse
@@ -70,10 +71,91 @@ def _configure_app_insights() -> bool:
 
 _configure_app_insights()
 
+
+# --- Assistant graph + durable HITL checkpointer (QA·D) ---------------------
+# The assistant graph is checkpointed so a run can pause at the human-review
+# interrupt and resume later — possibly on a different instance or after a
+# restart. With DATABASE_URL set we persist those checkpoints in Postgres
+# (durable); otherwise we fall back to an in-memory saver (lost on restart).
+# The Postgres saver is async-only, so the assistant run/resume/stream paths
+# all drive the graph through its async API (ainvoke/astream/aget_state).
+_assistant_graph = None
+_checkpointer_pool = None
+
+
+async def _build_durable_assistant_graph():
+    """Build the assistant graph backed by a Postgres checkpointer.
+
+    Returns ``(graph, pool)``; the caller owns closing ``pool`` on shutdown.
+    Postgres deps are imported lazily so the light CI test job (which runs
+    without DATABASE_URL and omits requirements-rag.txt) never imports them.
+    Raises on any connection/setup failure so callers can fall back to memory.
+    """
+    from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
+    from langgraph.checkpoint.serde.jsonplus import JsonPlusSerializer
+    from psycopg.rows import dict_row
+    from psycopg_pool import AsyncConnectionPool
+
+    # The saver requires autocommit + dict rows + no server-side prepared
+    # statements (the latter keeps it pgbouncer-safe). open=False so we can
+    # await .open() explicitly and surface connection errors here.
+    pool = AsyncConnectionPool(
+        conninfo=settings.database_url,
+        max_size=10,
+        open=False,
+        kwargs={"autocommit": True, "prepare_threshold": 0, "row_factory": dict_row},
+    )
+    await pool.open()
+    # If setup() fails after a successful open() (e.g. the role can't CREATE
+    # TABLE), close the pool here — the caller never receives it, so its
+    # `finally` can't, and the open connections would otherwise leak.
+    try:
+        # Strict msgpack: restrict checkpoint deserialization to a built-in
+        # allowlist of safe types. The default is permissive, which lets anyone
+        # who can write checkpoint rows trigger code execution on resume. Our
+        # graph only persists JSON-native state plus langgraph control types
+        # (Interrupt/Command/…), all of which are in the safe allowlist.
+        serde = JsonPlusSerializer(allowed_msgpack_modules=None)
+        saver = AsyncPostgresSaver(pool, serde=serde)
+        await saver.setup()  # idempotent: creates the checkpoint tables if absent
+        return build_assistant_graph(checkpointer=saver), pool
+    except Exception:
+        await pool.close()
+        raise
+
+
+@asynccontextmanager
+async def _lifespan(_app: FastAPI):
+    """Upgrade the assistant graph to the durable Postgres checkpointer on
+    startup when DATABASE_URL is set; degrade to the in-memory saver on any
+    failure so a checkpointer outage never blocks the service from starting."""
+    global _assistant_graph, _checkpointer_pool
+    if settings.database_url:
+        try:
+            _assistant_graph, _checkpointer_pool = await _build_durable_assistant_graph()
+            logger.info("assistant HITL checkpointer: durable (Postgres)")
+        except Exception:  # noqa: BLE001 - degrade gracefully, never block startup
+            logger.warning(
+                "durable HITL checkpointer unavailable; using in-memory saver "
+                "(in-flight runs will not survive a restart)",
+                exc_info=True,
+            )
+    try:
+        yield
+    finally:
+        if _checkpointer_pool is not None:
+            try:
+                await _checkpointer_pool.close()
+            except Exception:  # noqa: BLE001 - never let teardown raise on shutdown
+                logger.warning("error closing HITL checkpointer pool", exc_info=True)
+            _checkpointer_pool = None
+
+
 app = FastAPI(
     title="JobOps Copilot Agent Service",
     version="0.1.0",
     summary="Real-LLM analysis and agent orchestration for JobOps Copilot.",
+    lifespan=_lifespan,
 )
 
 
@@ -240,15 +322,27 @@ class AssistantResumeRequest(BaseModel):
     approved: bool
 
 
-_assistant_graph = None
-
-
 def _get_assistant_graph():
-    """Lazily build the checkpointed assistant graph (module-level singleton)."""
+    """Return the assistant graph singleton.
+
+    Built durably (Postgres) by the lifespan handler when DATABASE_URL is set;
+    otherwise lazily built here with the in-memory saver as a fallback.
+    """
     global _assistant_graph
     if _assistant_graph is None:
         _assistant_graph = build_assistant_graph()
     return _assistant_graph
+
+
+async def _arun(coro_fn, *args):
+    """Await an async graph call, translating provider errors into HTTP errors."""
+    try:
+        return await coro_fn(*args)
+    except LLMNotConfigured as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    except Exception as exc:  # noqa: BLE001 - surface upstream model/network failures
+        logger.exception("agent chain failed")
+        raise HTTPException(status_code=502, detail=f"Agent chain failed: {exc}") from exc
 
 
 def _assistant_response(thread_id: str, state: dict) -> dict:
@@ -265,13 +359,13 @@ def _assistant_response(thread_id: str, state: dict) -> dict:
 
 
 @app.post("/assistant/run")
-def assistant_run_endpoint(req: AssistantRunRequest) -> dict:
+async def assistant_run_endpoint(req: AssistantRunRequest) -> dict:
     _require_llm()
     graph = _get_assistant_graph()
     thread_id = str(uuid.uuid4())
     config = {"configurable": {"thread_id": thread_id}}
-    state = _run(
-        graph.invoke,
+    state = await _arun(
+        graph.ainvoke,
         {
             "description_text": req.description_text,
             "resume_text": req.resume_text,
@@ -284,11 +378,11 @@ def assistant_run_endpoint(req: AssistantRunRequest) -> dict:
 
 
 @app.post("/assistant/resume")
-def assistant_resume_endpoint(req: AssistantResumeRequest) -> dict:
+async def assistant_resume_endpoint(req: AssistantResumeRequest) -> dict:
     _require_llm()
     graph = _get_assistant_graph()
     config = {"configurable": {"thread_id": req.thread_id}}
-    state = _run(graph.invoke, Command(resume={"approved": req.approved}), config)
+    state = await _arun(graph.ainvoke, Command(resume={"approved": req.approved}), config)
     return _assistant_response(req.thread_id, state)
 
 
@@ -307,14 +401,16 @@ async def _assistant_event_stream(payload: dict, config: dict):
             for node, delta in update.items():
                 if node == "__interrupt__":
                     awaiting = True
-                    snapshot = _assistant_response(thread_id, graph.get_state(config).values)
+                    state = (await graph.aget_state(config)).values
+                    snapshot = _assistant_response(thread_id, state)
                     snapshot["status"] = "awaiting_approval"
                     yield _sse("awaiting_approval", snapshot)
                 else:
                     status = delta.get("status") if isinstance(delta, dict) else None
                     yield _sse("status", {"node": node, "status": status})
         if not awaiting:
-            yield _sse("result", _assistant_response(thread_id, graph.get_state(config).values))
+            final = (await graph.aget_state(config)).values
+            yield _sse("result", _assistant_response(thread_id, final))
     except Exception as exc:  # noqa: BLE001 - surface streaming failures as an SSE error
         logger.exception("assistant stream failed")
         yield _sse("error", {"message": str(exc)})
