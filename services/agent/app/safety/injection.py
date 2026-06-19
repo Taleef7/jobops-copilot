@@ -69,18 +69,37 @@ def annotate_trace(config: dict | None, verdict: InjectionVerdict) -> None:
     metadata["injection_patterns"] = verdict.patterns
 
 
-def guard_job_description(text: str) -> tuple[str, InjectionVerdict]:
-    """Turn untrusted JD text into a safe prompt block.
+def guard_untrusted(text: str, label: str) -> tuple[str, InjectionVerdict]:
+    """Turn any untrusted free text into a safe prompt block.
 
     Scans for injection (logging a warning on a hit), redacts contact-PII, and wraps the
-    result in BEGIN/END delimiters. Returns the prompt block and the verdict so the caller
-    can annotate the trace and apply the configured ``injection_action``.
+    result in BEGIN/END delimiters labelled ``label``. Returns the prompt block and the
+    verdict so the caller can annotate the trace and apply the configured ``injection_action``.
     """
     verdict = scan_for_injection(text)
     if verdict.flagged:
-        logger.warning("Possible prompt injection in job description; patterns=%s", verdict.patterns)  # noqa: E501
-    block = wrap_untrusted(maybe_redact(text) or "", "JOB DESCRIPTION")
+        logger.warning(
+            "Possible prompt injection in %s; patterns=%s", label.lower(), verdict.patterns
+        )
+    block = wrap_untrusted(maybe_redact(text) or "", label)
     return block, verdict
+
+
+def guard_job_description(text: str) -> tuple[str, InjectionVerdict]:
+    """Guard untrusted job-description text. Thin wrapper over :func:`guard_untrusted`."""
+    return guard_untrusted(text, "JOB DESCRIPTION")
+
+
+def guard_tool_content(text: str, label: str) -> str:
+    """Delimit untrusted tool-returned content (e.g. web search results) so the model
+    treats it as data, not instructions. Logs a warning on an injection hit. Returns just
+    the wrapped block — tools run mid-agent and have no request config to annotate."""
+    verdict = scan_for_injection(text)
+    if verdict.flagged:
+        logger.warning(
+            "Possible prompt injection in %s; patterns=%s", label.lower(), verdict.patterns
+        )
+    return wrap_untrusted(text, label)
 
 
 def injection_refused(verdict: InjectionVerdict) -> bool:
