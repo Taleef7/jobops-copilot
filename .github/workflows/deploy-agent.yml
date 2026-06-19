@@ -1,0 +1,65 @@
+# Build + push the agent image to ACR on any agent change.
+#
+# Why only build+push (not a full deploy): the Azure tenant blocks the service principal
+# GitHub Actions would need to call ARM, so CI can't run `az containerapp update`. Instead
+# CI keeps a freshly-built image in ACR and loudly reminds you to activate it locally with
+# `scripts/azure/deploy-agent.sh --activate <sha>` (uses your interactive `az login`).
+# This removes the slow local Torch build from the activation step and makes a stale agent
+# impossible to forget (every agent change produces a run + a reminder).
+name: Build agent image (ACR)
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'services/agent/**'
+      - '.github/workflows/deploy-agent.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: deploy-agent
+  cancel-in-progress: false
+
+jobs:
+  build-push:
+    name: Build + push agent image
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      ACR: ca9ee6437892acr
+      IMAGE: ca9ee6437892acr.azurecr.io/jobops-agent
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Log in to ACR
+        run: echo "${{ secrets.ACR_PASSWORD }}" | docker login "${ACR}.azurecr.io" -u "${{ secrets.ACR_USERNAME }}" --password-stdin
+
+      - name: Build (linux/amd64) + push
+        run: |
+          docker build --platform linux/amd64 -t "${IMAGE}:${GITHUB_SHA}" -t "${IMAGE}:latest" services/agent
+          docker push "${IMAGE}:${GITHUB_SHA}"
+          docker push "${IMAGE}:latest"
+
+      - name: Activation reminder
+        run: |
+          {
+            echo "## ⚠️ Agent image built & pushed — NOT yet activated"
+            echo ""
+            echo "CI cannot update the Container App (the Azure-for-Students tenant blocks the service"
+            echo "principal needed to call ARM). **Activate the new image locally:**"
+            echo ""
+            echo '```bash'
+            echo "az login   # if your token is stale"
+            echo "bash scripts/azure/deploy-agent.sh --activate ${GITHUB_SHA}"
+            echo '```'
+            echo ""
+            echo "Image: \`${IMAGE}:${GITHUB_SHA}\` (also tagged \`:latest\`)."
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Log out of ACR
+        if: always()
+        run: docker logout "${ACR}.azurecr.io"
