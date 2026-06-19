@@ -18,8 +18,13 @@ FQDN="${AGENT_FQDN:?Set AGENT_FQDN to the agent Container App hostname}"
 emit() { [ -n "${GITHUB_OUTPUT:-}" ] && printf '%s=%s\n' "$1" "$2" >>"$GITHUB_OUTPUT" || true; }
 summary() { cat >>"${GITHUB_STEP_SUMMARY:-/dev/stderr}"; }
 
-# The build trigger is `services/agent/**` + the workflow file, so the newest
-# commit touching either is the SHA the latest image was (or should be) built from.
+# Compare agent *content*, not the raw commit SHA. The image is stamped with the
+# build's commit (GITHUB_SHA / local HEAD), which can differ from the latest
+# agent-touching commit — e.g. a workflow_dispatch rebuild or a local build at a
+# non-agent HEAD stamps a newer commit with an identical agent tree. Comparing the
+# `services/agent` tree object treats those as current (same code) instead of drift.
+EXPECTED_TREE="$(git rev-parse HEAD:services/agent)"
+# The commit whose ACR-tagged image carries the current agent code, for the hint.
 EXPECTED="$(git log -1 --format=%H -- services/agent .github/workflows/deploy-agent.yml)"
 emit expected "$EXPECTED"
 
@@ -31,7 +36,7 @@ BODY="$(printf '%s' "$RESP" | sed '$d')"
 LIVE="$(printf '%s' "$BODY" | sed -n 's/.*"build_sha"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p')"
 emit live "$LIVE"
 
-echo "expected (latest agent build commit): ${EXPECTED}"
+echo "expected agent tree (HEAD:services/agent): ${EXPECTED_TREE}"
 echo "live agent: HTTP ${HTTP:-000}, build_sha ${LIVE:-<none>}"
 
 # Distinguish an outage from a stale-but-healthy agent so the alert is actionable.
@@ -46,9 +51,14 @@ MD
   exit 1
 fi
 
-if [ -n "$LIVE" ] && [ "$LIVE" = "$EXPECTED" ]; then
+# Resolve the agent tree at the live commit. An empty/unknown build_sha, or a
+# commit not in history, leaves LIVE_TREE empty -> treated as drift (fail safe).
+LIVE_TREE=""
+[ -n "$LIVE" ] && LIVE_TREE="$(git rev-parse "${LIVE}:services/agent" 2>/dev/null || true)"
+
+if [ -n "$LIVE_TREE" ] && [ "$LIVE_TREE" = "$EXPECTED_TREE" ]; then
   emit reason ok
-  echo "✓ Deployed agent is current."
+  echo "✓ Deployed agent is current (agent tree matches)."
   exit 0
 fi
 
