@@ -39,7 +39,7 @@ test('exportWeeklyReportMarkdown returns a URL (no throw) when the local write f
     delete process.env.AZURE_STORAGE_CONTAINER_NAME;
     process.chdir(tempDir);
     // Block `data/report-exports` by planting a FILE where the dir must be created,
-    // so mkdir(recursive) fails with ENOTDIR/EEXIST — a stand-in for the read-only FS.
+    // so mkdir(recursive) fails with EEXIST — a stand-in for the read-only prod FS.
     await mkdir(join(tempDir, 'data'));
     await writeFile(join(tempDir, 'data', 'report-exports'), 'not a directory');
 
