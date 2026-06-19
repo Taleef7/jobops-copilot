@@ -60,6 +60,12 @@ param postgresAdminPassword string = ''
 @description('Full DATABASE_URL connection string injected into the API + agent.')
 param databaseUrl string = ''
 
+@secure()
+@description('''Server-to-server shared secret authenticating the API->agent hop (QA·A).
+Set on the API as AGENT_API_KEY and on the agent as a container secret; when blank the
+agent leaves auth disabled. Generate with e.g. `openssl rand -hex 32`.''')
+param agentApiKey string = ''
+
 @description('Agent LLM provider: anthropic | openai | azure_openai | google_genai.')
 param llmProvider string = 'openai'
 
@@ -176,6 +182,14 @@ resource apiApp 'Microsoft.Web/sites@2023-12-01' = {
           value: 'https://${agentApp.properties.configuration.ingress.fqdn}'
         }
         {
+          // Plain app setting from a @secure() param (App Service encrypts settings at
+          // rest), matching how databaseUrl is injected below. The agent side uses a
+          // proper Container App secret (configuration.secrets). Promote to a Key Vault
+          // reference if the API control-plane threat model warrants it.
+          name: 'AGENT_API_KEY'
+          value: agentApiKey
+        }
+        {
           name: 'API_PUBLIC_BASE_URL'
           value: apiHost
         }
@@ -229,6 +243,17 @@ resource agentApp 'Microsoft.App/containerApps@2024-03-01' = {
         targetPort: 8000
         transport: 'auto'
       }
+      // Server-to-server shared secret (QA·A): the agent is internet-facing (the API
+      // reaches it across regions over this FQDN), so every request must carry it.
+      // NOTE: Container Apps secrets are app-scoped and a value change does NOT auto-roll
+      // running revisions — after rotating `agentApiKey`, restart/roll a revision so the
+      // agent reloads it (see docs/AZURE_DEPLOYMENT.md "Rotating the key later").
+      secrets: [
+        {
+          name: 'agent-api-key'
+          value: agentApiKey
+        }
+      ]
       // ACR pull auth (registries/identity) is configured by the container pipeline.
     }
     template: {
@@ -241,6 +266,10 @@ resource agentApp 'Microsoft.App/containerApps@2024-03-01' = {
             memory: '1Gi'
           }
           env: [
+            {
+              name: 'AGENT_API_KEY'
+              secretRef: 'agent-api-key'
+            }
             {
               name: 'LLM_PROVIDER'
               value: llmProvider

@@ -186,6 +186,20 @@ The Express API protects the expensive AI paths (Phase 2 · Workstream G):
 All guards degrade gracefully: the usage store falls back to in-memory without a
 database, and budget accounting fails open so a store hiccup never blocks AI calls.
 
+## Service-to-service auth (API to agent)
+
+The Python agent runs as a public Container App and is called by the Node API over its
+internet-facing FQDN (the two live in different regions, so network isolation isn't an
+option). Every API to agent request therefore carries a shared secret in
+`Authorization: Bearer <AGENT_API_KEY>`; the agent's middleware
+(`services/agent/app/auth.py`) rejects anything else with `401`. The liveness probe
+(`/health`) and the OpenAPI/docs surface stay open so health probes and the
+`deploy-agent.sh` verify keep working without the secret. When `AGENT_API_KEY` is unset
+the agent leaves auth disabled (local dev / before the secret is provisioned), so set the
+**same** value on the API app and the agent container in any internet-reachable
+environment. See [`docs/AZURE_DEPLOYMENT.md`](AZURE_DEPLOYMENT.md) for the provisioning
+steps.
+
 ## Privacy & PII
 
 The agent strips high-precision **contact-PII** (email / phone / URL / SSN) from

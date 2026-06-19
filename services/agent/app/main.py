@@ -12,12 +12,13 @@ import logging
 import os
 import uuid
 
-from fastapi import FastAPI, HTTPException
-from fastapi.responses import StreamingResponse
+from fastapi import FastAPI, HTTPException, Request
+from fastapi.responses import JSONResponse, StreamingResponse
 from langgraph.types import Command
 from pydantic import BaseModel, Field
 
 from app.agents.runner import run_interview_prep, run_research, run_skill_gap
+from app.auth import is_authorized
 from app.chains.draft_outreach import draft_outreach
 from app.chains.parse_job import parse_job
 from app.chains.score_fit import score_fit
@@ -74,6 +75,23 @@ app = FastAPI(
     version="0.1.0",
     summary="Real-LLM analysis and agent orchestration for JobOps Copilot.",
 )
+
+
+@app.middleware("http")
+async def _enforce_agent_key(request: Request, call_next):
+    """Reject any request lacking the server-to-server shared secret (QA·A).
+
+    No-op when AGENT_API_KEY is unset; /health + /openapi.json are always exempt.
+    """
+    if not is_authorized(request.url.path, request.headers):
+        # Log the rejection (never the attempted key) so scanning is visible in
+        # App Insights — the absence of this trace would hide the very attack this guards.
+        client = request.client.host if request.client else "unknown"
+        logger.warning(
+            "agent auth rejected: %s %s from %s", request.method, request.url.path, client
+        )
+        return JSONResponse(status_code=401, content={"detail": "Unauthorized"})
+    return await call_next(request)
 
 
 def _require_llm() -> None:

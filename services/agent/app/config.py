@@ -41,6 +41,13 @@ class Settings(BaseSettings):
     request_timeout: int = 60
     llm_temperature: float = 0.2
 
+    # Server-to-server auth (QA·A). The agent is reached over its public Container App
+    # FQDN by the Node API (separate compute/region), so it can't rely on network
+    # isolation. When set, every request must carry this secret in the
+    # `Authorization: Bearer <key>` (or `X-Agent-Key`) header. Unset → auth disabled
+    # (local dev / before the secret is provisioned). Health + docs stay open.
+    agent_api_key: str | None = None
+
     # Optional web-search tool for the research agent (Phase 8)
     tavily_api_key: str | None = None
 
