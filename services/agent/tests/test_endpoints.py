@@ -14,6 +14,9 @@ def test_health_reports_llm_state(monkeypatch):
     body = client.get("/health").json()
     assert body["status"] == "ok"
     assert body["llm_configured"] is False
+    # Build SHA is always reported (defaults to "unknown" when unset) so the
+    # drift-check workflow can detect a stale deployment.
+    assert "build_sha" in body
 
 
 def test_parse_job_returns_503_without_provider(monkeypatch):

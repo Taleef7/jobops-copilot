@@ -40,7 +40,8 @@ jobs:
 
       - name: Build (linux/amd64) + push
         run: |
-          docker build --platform linux/amd64 -t "${IMAGE}:${GITHUB_SHA}" -t "${IMAGE}:latest" services/agent
+          docker build --platform linux/amd64 --build-arg GIT_SHA="${GITHUB_SHA}" \
+            -t "${IMAGE}:${GITHUB_SHA}" -t "${IMAGE}:latest" services/agent
           docker push "${IMAGE}:${GITHUB_SHA}"
           docker push "${IMAGE}:latest"
 

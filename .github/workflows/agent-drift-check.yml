@@ -1,0 +1,68 @@
+# Scheduled guard against a stale agent deployment.
+#
+# Why this exists: a green "Build agent image (ACR)" run does NOT mean the agent
+# is updated — CI only pushes to ACR; activating the image on the Container App is
+# a manual local step (the tenant blocks the SP that ARM needs). That gap once left
+# the live agent days stale with no signal. This job compares the running image's
+# baked-in SHA (/health -> build_sha) against the latest agent commit and fails +
+# files an issue on drift. It uses only a public HTTP GET, so it needs no ARM access.
+name: Agent image drift check
+
+on:
+  schedule:
+    - cron: '0 13 * * *' # daily, 13:00 UTC
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+concurrency:
+  group: agent-drift-check
+  cancel-in-progress: true
+
+jobs:
+  drift:
+    name: Check deployed agent vs latest build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # full history so `git log -- services/agent` is accurate
+
+      - name: Compare deployed agent SHA to latest build
+        id: check
+        env:
+          AGENT_FQDN: ${{ vars.AGENT_FQDN }}
+        run: |
+          if [ -z "${AGENT_FQDN}" ]; then
+            echo "::error::Repo variable AGENT_FQDN is not set; cannot check the live agent." >&2
+            exit 1
+          fi
+          bash scripts/azure/check-agent-drift.sh
+
+      - name: Open or refresh the drift issue
+        if: failure()
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          TITLE="🔴 Deployed agent is stale (image drift)"
+          EXPECTED="$(git log -1 --format=%H -- services/agent .github/workflows/deploy-agent.yml)"
+          BODY="$(printf '%s\n' \
+            "The scheduled drift check found the live agent does not match the latest agent build (\`${EXPECTED}\`)." \
+            "" \
+            "Activate the current image locally (needs your \`az login\`):" \
+            '```bash' \
+            "bash scripts/azure/deploy-agent.sh --activate ${EXPECTED}" \
+            '```' \
+            "" \
+            "Run: ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}")"
+          EXISTING="$(gh issue list --state open --limit 100 --json number,title \
+            --jq "[.[] | select(.title==\"${TITLE}\")][0].number // empty")"
+          if [ -n "${EXISTING}" ]; then
+            gh issue comment "${EXISTING}" --body "${BODY}"
+          else
+            gh issue create --title "${TITLE}" --body "${BODY}"
+          fi

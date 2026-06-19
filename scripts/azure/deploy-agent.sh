@@ -31,8 +31,10 @@ fi
 
 if [ -z "$activate_tag" ]; then
   TAG="${TAG:-$(date +%Y%m%d%H%M)}"
+  GIT_SHA="$(git rev-parse HEAD 2>/dev/null || echo unknown)"
   echo "==> Building $IMAGE:$TAG (linux/amd64, CPU torch — a few minutes)"
-  docker build --platform linux/amd64 -t "$IMAGE:$TAG" -t "$IMAGE:latest" services/agent
+  docker build --platform linux/amd64 --build-arg GIT_SHA="$GIT_SHA" \
+    -t "$IMAGE:$TAG" -t "$IMAGE:latest" services/agent
   echo "==> Logging in to ACR + pushing"
   az acr login -n "$ACR"
   docker push "$IMAGE:$TAG"
