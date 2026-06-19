@@ -160,7 +160,8 @@ export default async function JobDetailPage({ params }: JobDetailParams) {
               </Card>
               {job.outreach.length ? (
                 <Card className="gap-3 p-5">
-                  <h3 className="font-heading text-sm font-semibold">Existing drafts</h3>
+                  {/* h2 (not h3) so the document heading order doesn't skip a level (a11y). */}
+                  <h2 className="font-heading text-sm font-semibold">Existing drafts</h2>
                   {job.outreach.map((draft) => (
                     <div key={draft.id} className="bg-muted/40 space-y-2 rounded-lg p-3">
                       <div className="flex items-center justify-between gap-2">

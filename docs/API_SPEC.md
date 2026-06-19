@@ -2,6 +2,13 @@
 
 The API exposes jobs and AI endpoints backed by either the local file store or PostgreSQL, depending on whether `DATABASE_URL` is configured. In the default local setup the file store keeps the CRM state persistent between API restarts. When `DATABASE_URL` is present, the API switches to the Postgres-backed store and reports that in `/api/health`.
 
+### Field casing
+
+The casing is intentionally split by layer, and the examples below reflect the real payloads:
+
+- **CRM resources are `camelCase`** — the jobs routes (`/api/jobs`), the stored `analysis` object, saved reports (`GET /api/reports`), and outreach records. These are the API's own persisted shapes.
+- **The AI and n8n endpoints are `snake_case`** — `/api/ai/parse-job`, `/api/ai/score-fit`, `/api/ai/draft-outreach`, `/api/ai/generate-weekly-report`, and `/api/n8n/*` return (and accept) the Python agent service's payload as a passthrough, which is `snake_case` end to end (e.g. `fit_score`, `required_skills`). The web app reads the `camelCase` stored `analysis` for display rather than these raw responses.
+
 ## Health
 
 ### `GET /api/health`
@@ -139,6 +146,8 @@ Validation rules:
 - `priority` must be `high`, `medium`, or `low`.
 - `fitScore` must be a number between 0 and 100.
 - `nextActionDue` must be a valid date if provided.
+
+> **No `DELETE` for jobs.** Jobs are never hard-deleted — they are archived by `PATCH`-ing `status` to `archived`, which preserves history and analytics. The only resource with a `DELETE` endpoint is saved searches (`DELETE /api/saved-searches/:id`).
 
 ## AI
 
