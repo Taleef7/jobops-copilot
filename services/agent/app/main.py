@@ -105,9 +105,16 @@ async def _build_durable_assistant_graph():
         kwargs={"autocommit": True, "prepare_threshold": 0, "row_factory": dict_row},
     )
     await pool.open()
-    saver = AsyncPostgresSaver(pool)
-    await saver.setup()  # idempotent: creates the checkpoint tables if absent
-    return build_assistant_graph(checkpointer=saver), pool
+    # If setup() fails after a successful open() (e.g. the role can't CREATE
+    # TABLE), close the pool here — the caller never receives it, so its
+    # `finally` can't, and the open connections would otherwise leak.
+    try:
+        saver = AsyncPostgresSaver(pool)
+        await saver.setup()  # idempotent: creates the checkpoint tables if absent
+        return build_assistant_graph(checkpointer=saver), pool
+    except Exception:
+        await pool.close()
+        raise
 
 
 @asynccontextmanager
@@ -130,7 +137,10 @@ async def _lifespan(_app: FastAPI):
         yield
     finally:
         if _checkpointer_pool is not None:
-            await _checkpointer_pool.close()
+            try:
+                await _checkpointer_pool.close()
+            except Exception:  # noqa: BLE001 - never let teardown raise on shutdown
+                logger.warning("error closing HITL checkpointer pool", exc_info=True)
             _checkpointer_pool = None
 
 

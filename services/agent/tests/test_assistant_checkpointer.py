@@ -5,6 +5,8 @@ logic around it: durable when DATABASE_URL + build succeed, in-memory fallback
 when it's unset or the build fails, and the pool always closed on shutdown.
 """
 
+import asyncio
+
 import pytest
 from fastapi.testclient import TestClient
 
@@ -70,3 +72,37 @@ def test_degrades_when_durable_build_fails(monkeypatch):
         # No durable graph -> lazy in-memory fallback applies.
         assert main._assistant_graph is None
         assert main._checkpointer_pool is None
+
+
+def test_build_closes_pool_when_setup_fails(monkeypatch):
+    """If the pool opens but setup() fails, the build must close the pool
+    itself — the caller never receives it, so it can't be torn down later."""
+    import langgraph.checkpoint.postgres.aio as pg_aio
+    import psycopg_pool
+
+    closed = {"value": False}
+
+    class _FakePool:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        async def open(self):
+            pass
+
+        async def close(self):
+            closed["value"] = True
+
+    class _FakeSaver:
+        def __init__(self, pool):
+            pass
+
+        async def setup(self):
+            raise RuntimeError("role cannot CREATE TABLE")
+
+    monkeypatch.setattr(main.settings, "database_url", "postgresql://x/db")
+    monkeypatch.setattr(psycopg_pool, "AsyncConnectionPool", _FakePool)
+    monkeypatch.setattr(pg_aio, "AsyncPostgresSaver", _FakeSaver)
+
+    with pytest.raises(RuntimeError):
+        asyncio.run(main._build_durable_assistant_graph())
+    assert closed["value"] is True
