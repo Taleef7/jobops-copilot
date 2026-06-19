@@ -92,6 +92,7 @@ async def _build_durable_assistant_graph():
     Raises on any connection/setup failure so callers can fall back to memory.
     """
     from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
+    from langgraph.checkpoint.serde.jsonplus import JsonPlusSerializer
     from psycopg.rows import dict_row
     from psycopg_pool import AsyncConnectionPool
 
@@ -109,7 +110,13 @@ async def _build_durable_assistant_graph():
     # TABLE), close the pool here — the caller never receives it, so its
     # `finally` can't, and the open connections would otherwise leak.
     try:
-        saver = AsyncPostgresSaver(pool)
+        # Strict msgpack: restrict checkpoint deserialization to a built-in
+        # allowlist of safe types. The default is permissive, which lets anyone
+        # who can write checkpoint rows trigger code execution on resume. Our
+        # graph only persists JSON-native state plus langgraph control types
+        # (Interrupt/Command/…), all of which are in the safe allowlist.
+        serde = JsonPlusSerializer(allowed_msgpack_modules=None)
+        saver = AsyncPostgresSaver(pool, serde=serde)
         await saver.setup()  # idempotent: creates the checkpoint tables if absent
         return build_assistant_graph(checkpointer=saver), pool
     except Exception:

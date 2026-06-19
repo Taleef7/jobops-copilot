@@ -93,7 +93,7 @@ def test_build_closes_pool_when_setup_fails(monkeypatch):
             closed["value"] = True
 
     class _FakeSaver:
-        def __init__(self, pool):
+        def __init__(self, pool, serde=None):
             pass
 
         async def setup(self):
@@ -106,3 +106,45 @@ def test_build_closes_pool_when_setup_fails(monkeypatch):
     with pytest.raises(RuntimeError):
         asyncio.run(main._build_durable_assistant_graph())
     assert closed["value"] is True
+
+
+def test_build_uses_strict_msgpack_serializer(monkeypatch):
+    """The durable saver must be built with a strict (allowlisted) serializer,
+    so tampered checkpoint rows can't trigger code execution on resume."""
+    import langgraph.checkpoint.postgres.aio as pg_aio
+    import psycopg_pool
+    from langgraph.checkpoint.serde.jsonplus import JsonPlusSerializer
+
+    captured = {}
+
+    class _FakePool:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        async def open(self):
+            pass
+
+        async def close(self):
+            pass
+
+    class _FakeSaver:
+        def __init__(self, pool, serde=None):
+            captured["serde"] = serde
+
+        async def setup(self):
+            pass
+
+    monkeypatch.setattr(main.settings, "database_url", "postgresql://x/db")
+    monkeypatch.setattr(psycopg_pool, "AsyncConnectionPool", _FakePool)
+    monkeypatch.setattr(pg_aio, "AsyncPostgresSaver", _FakeSaver)
+    # Bypass compile-time checkpointer validation (our fake saver isn't a real
+    # BaseCheckpointSaver); the serde is already captured at saver construction.
+    monkeypatch.setattr(main, "build_assistant_graph", lambda checkpointer=None: object())
+
+    asyncio.run(main._build_durable_assistant_graph())
+
+    serde = captured["serde"]
+    assert isinstance(serde, JsonPlusSerializer)
+    # Permissive (default, unsafe) mode keeps the marker `True`; strict mode
+    # narrows it to a built-in allowlist (here, None == SAFE_MSGPACK_TYPES only).
+    assert serde._allowed_msgpack_modules is not True
