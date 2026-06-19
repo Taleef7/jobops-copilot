@@ -57,11 +57,12 @@ export async function exportWeeklyReportMarkdown(
     process.env.AZURE_BLOB_REPORTS_CONTAINER?.trim();
   const publicBaseUrl =
     options.publicBaseUrl?.trim() ?? process.env.API_PUBLIC_BASE_URL?.trim() ?? 'http://127.0.0.1:4000';
-  const apiExportUrl = buildWeeklyReportExportUrl(report, publicBaseUrl);
 
   if (!connectionString || !containerName) {
     await writeLocalExport(report, markdown);
-    return apiExportUrl;
+    // Built only on the fallback paths: the blob-success branch returns blobClient.url
+    // and must not depend on (or throw on) a malformed request-derived base URL.
+    return buildWeeklyReportExportUrl(report, publicBaseUrl);
   }
 
   try {
@@ -84,6 +85,6 @@ export async function exportWeeklyReportMarkdown(
   } catch (error) {
     console.warn('Azure Blob export failed; returning the API export URL (DB-backed).', error);
     await writeLocalExport(report, markdown);
-    return apiExportUrl;
+    return buildWeeklyReportExportUrl(report, publicBaseUrl);
   }
 }
