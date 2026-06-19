@@ -49,14 +49,15 @@ test('isColdStartError is true only for timeout/abort errors', () => {
 });
 
 test('withColdStartRetry retries once after a timeout, then succeeds', async () => {
-  let calls = 0;
-  const result = await withColdStartRetry(async () => {
-    calls += 1;
-    if (calls === 1) throw timeoutError();
+  const attempts: number[] = [];
+  const result = await withColdStartRetry(async (attempt) => {
+    attempts.push(attempt);
+    if (attempt === 1) throw timeoutError();
     return 'real-result';
   });
   assert.equal(result, 'real-result');
-  assert.equal(calls, 2);
+  // op is invoked with attempt 1 then 2 (so the caller can shorten the retry budget).
+  assert.deepEqual(attempts, [1, 2]);
 });
 
 test('withColdStartRetry does not retry a non-cold-start error', async () => {

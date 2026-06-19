@@ -31,10 +31,11 @@ export default async function JobDetailPage({ params }: JobDetailParams) {
   const { job, source } = await loadJob(jobId);
   if (!job) notFound();
 
-  // A `mock-*` model means the AI agent was unavailable (often a scale-to-zero cold
-  // start) and this is a rule-based heuristic, not a real model assessment — surface
-  // that plainly instead of disguising it as a model result (QA·B).
-  const isHeuristicAnalysis = job.analysis.modelUsed?.startsWith('mock-') ?? false;
+  // `mock-fit-scorer-v1` is the one unambiguous "the fit-score agent was unavailable
+  // (often a scale-to-zero cold start) and this score is a rule-based heuristic" marker.
+  // (`mock-analysis-v1` is reused for real-agent parses and the new-job placeholder, so
+  // it is NOT a reliable fallback signal.) Surface the heuristic plainly (QA·B).
+  const isHeuristicAnalysis = job.analysis.modelUsed === 'mock-fit-scorer-v1';
 
   return (
     <div className="space-y-6">
