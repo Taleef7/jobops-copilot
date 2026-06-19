@@ -16,16 +16,22 @@ export default function OnboardingPage() {
   const [fileName, setFileName] = useState<string | null>(null);
   const [pendingFile, setPendingFile] = useState<File | null>(null);
   const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   async function finish() {
     setSaving(true);
+    setError(null);
     try {
       if (pendingFile) {
         await uploadResumeFile(pendingFile);
       } else if (resumeText.trim()) {
         await saveResumeText(resumeText.trim());
       } else {
-        toast.error('Add your resume to continue — upload a PDF or paste the text.');
+        // Surface the validation failure inline (a toast alone is easy to miss and
+        // disappears) in addition to the toast.
+        const message = 'Add your resume to continue — upload a PDF or paste the text.';
+        setError(message);
+        toast.error(message);
         return;
       }
       toast.success('You’re all set. Welcome to JobOps Copilot.');
@@ -89,6 +95,7 @@ export default function OnboardingPage() {
                     const file = event.target.files?.[0] ?? null;
                     setPendingFile(file);
                     setFileName(file?.name ?? null);
+                    if (file) setError(null);
                   }}
                 />
               </label>
@@ -97,12 +104,21 @@ export default function OnboardingPage() {
             <TabsContent value="paste" className="pt-4">
               <Textarea
                 value={resumeText}
-                onChange={(event) => setResumeText(event.target.value)}
+                onChange={(event) => {
+                  setResumeText(event.target.value);
+                  if (event.target.value.trim()) setError(null);
+                }}
                 placeholder="Paste your resume text here…"
                 className="min-h-48"
               />
             </TabsContent>
           </Tabs>
+
+          {error ? (
+            <p role="alert" className="text-destructive text-sm font-medium">
+              {error}
+            </p>
+          ) : null}
 
           <Button onClick={finish} disabled={saving} className="w-full">
             {saving ? <Loader2 className="size-4 animate-spin" /> : null}
