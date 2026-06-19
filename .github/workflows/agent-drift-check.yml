@@ -19,7 +19,8 @@ permissions:
 
 concurrency:
   group: agent-drift-check
-  cancel-in-progress: true
+  # Don't cancel an in-flight run — it could drop the issue-filing step mid-way.
+  cancel-in-progress: false
 
 jobs:
   drift:
@@ -46,23 +47,42 @@ jobs:
         if: failure()
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REASON: ${{ steps.check.outputs.reason }}
+          EXPECTED: ${{ steps.check.outputs.expected }}
+          LIVE: ${{ steps.check.outputs.live }}
         run: |
           set -euo pipefail
-          TITLE="🔴 Deployed agent is stale (image drift)"
-          EXPECTED="$(git log -1 --format=%H -- services/agent .github/workflows/deploy-agent.yml)"
-          BODY="$(printf '%s\n' \
-            "The scheduled drift check found the live agent does not match the latest agent build (\`${EXPECTED}\`)." \
-            "" \
-            "Activate the current image locally (needs your \`az login\`):" \
-            '```bash' \
-            "bash scripts/azure/deploy-agent.sh --activate ${EXPECTED}" \
-            '```' \
-            "" \
-            "Run: ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}")"
-          EXISTING="$(gh issue list --state open --limit 100 --json number,title \
+          # No reason means the step failed before the check ran (e.g. AGENT_FQDN
+          # unset) — a workflow misconfig, not a real drift/outage. Don't file an issue.
+          if [ -z "${REASON:-}" ]; then
+            echo "::warning::drift check failed before producing a result; not filing an issue"
+            exit 0
+          fi
+          TITLE="🔴 Agent deployment check failed"
+          RUN="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
+          if [ "${REASON}" = "unreachable" ]; then
+            DETAIL="The agent \`/health\` did not return 200 — it may be down, mid-deploy, or slow to scale from zero."
+          else
+            DETAIL="$(printf 'The live agent is stale (running `%s`); the latest agent build is `%s`.\n\nActivate locally (needs your `az login`):\n```bash\nbash scripts/azure/deploy-agent.sh --activate %s\n```' "${LIVE:-unknown}" "${EXPECTED}" "${EXPECTED}")"
+          fi
+          BODY="$(printf '%s\n\nRun: %s' "${DETAIL}" "${RUN}")"
+          NUM="$(gh issue list --state open --limit 100 --json number,title \
             --jq "[.[] | select(.title==\"${TITLE}\")][0].number // empty")"
-          if [ -n "${EXISTING}" ]; then
-            gh issue comment "${EXISTING}" --body "${BODY}"
+          if [ -n "${NUM}" ]; then
+            gh issue comment "${NUM}" --body "${BODY}"
           else
             gh issue create --title "${TITLE}" --body "${BODY}"
+          fi
+
+      - name: Close the drift issue on recovery
+        if: success()
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          TITLE="🔴 Agent deployment check failed"
+          NUM="$(gh issue list --state open --limit 100 --json number,title \
+            --jq "[.[] | select(.title==\"${TITLE}\")][0].number // empty")"
+          if [ -n "${NUM}" ]; then
+            gh issue close "${NUM}" --comment "✓ Agent deployment is current again — closed automatically."
           fi
