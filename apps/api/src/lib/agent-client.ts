@@ -25,6 +25,21 @@ const AGENT_TIMEOUT_MS = Number(process.env.AGENT_TIMEOUT_MS ?? 60_000);
 // Tool-using agents (Phase 8) can take longer than the single-shot chains.
 const AGENT_TASK_TIMEOUT_MS = Number(process.env.AGENT_TASK_TIMEOUT_MS ?? 120_000);
 
+/**
+ * Build request headers for an agent call, attaching the server-to-server shared
+ * secret (QA·A) when AGENT_API_KEY is configured. The agent is reached over its
+ * public FQDN, so this Bearer token is what authenticates the API→agent hop.
+ * Read lazily (not at module load) so the env reflects the current process state.
+ */
+export function agentHeaders(extra?: Record<string, string>): Record<string, string> {
+  const headers: Record<string, string> = { ...extra };
+  const key = process.env.AGENT_API_KEY?.trim();
+  if (key) {
+    headers.Authorization = `Bearer ${key}`;
+  }
+  return headers;
+}
+
 /** Thrown when an agent task is requested but the service is not configured. */
 export class AgentDisabledError extends Error {
   constructor() {
@@ -40,7 +55,7 @@ export function isAgentEnabled(): boolean {
 async function callAgent<T>(path: string, payload: unknown, timeoutMs = AGENT_TIMEOUT_MS): Promise<T> {
   const response = await fetch(`${AGENT_URL}${path}`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: agentHeaders({ 'Content-Type': 'application/json' }),
     body: JSON.stringify(payload),
     signal: AbortSignal.timeout(timeoutMs),
   });
@@ -103,7 +118,7 @@ export async function streamAssistantUpstream(payload: unknown): Promise<Respons
   }
   return fetch(`${AGENT_URL}/assistant/stream`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: agentHeaders({ 'Content-Type': 'application/json' }),
     body: JSON.stringify(payload),
     signal: AbortSignal.timeout(AGENT_TASK_TIMEOUT_MS),
   });
@@ -120,6 +135,7 @@ export async function fetchEvDemoViaAgent(): Promise<TelemetryInsights> {
     throw new AgentDisabledError();
   }
   const response = await fetch(`${AGENT_URL}/telemetry/ev-demo`, {
+    headers: agentHeaders(),
     signal: AbortSignal.timeout(AGENT_TASK_TIMEOUT_MS),
   });
   if (!response.ok) {

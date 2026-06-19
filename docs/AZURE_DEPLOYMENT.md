@@ -133,6 +133,34 @@ Deploy workflows (canonical):
   `scripts/azure/deploy-agent.sh --activate <sha>` (skips the slow local rebuild). The
   `azure-app-service.yml` agent target is a code-deploy fallback for a no-RAG agent only.
 
+## Agent service-to-service auth (AGENT_API_KEY)
+
+The agent Container App is internet-facing (the API reaches it across regions over its
+public FQDN), so it authenticates every request with a shared secret. Provision the
+**same** value on both sides once per environment:
+
+```bash
+KEY="$(openssl rand -hex 32)"
+
+# Agent (Container App): store as a secret + reference it from the AGENT_API_KEY env var
+az containerapp secret set -g projects -n jobops-agent --secrets agent-api-key="$KEY"
+az containerapp update    -g projects -n jobops-agent \
+  --set-env-vars AGENT_API_KEY=secretref:agent-api-key
+
+# API (App Service): same value as a plain app setting
+az webapp config appsettings set -g projects -n jobops-api \
+  --settings AGENT_API_KEY="$KEY"
+```
+
+For zero downtime, set the **API** value first and the **agent** secret last: the agent
+starts enforcing the moment its secret exists, while the API harmlessly sends the Bearer
+header even before the agent enforces. The Bicep template (`infra/main.bicep`) models both
+via the `agentApiKey` secure param. `/health` + `/openapi.json` stay open, so
+`scripts/azure/deploy-agent.sh` verify is unaffected.
+
+Verify afterwards: an unauthenticated `POST /rag/search` to the agent FQDN must return
+`401`, while the app's AI features (job analyze, score-fit, assistant) still work.
+
 ## Recommended Phase 6 Order
 
 1. Deploy the Next.js dashboard to Azure Static Web Apps or another Azure web host.
