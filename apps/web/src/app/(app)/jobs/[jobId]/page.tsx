@@ -13,6 +13,7 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { isHeuristicAnalysis } from '@/lib/analysis-display';
 import { formatDate } from '@/lib/format';
 import { loadJob } from '@/lib/job-data';
 
@@ -31,11 +32,8 @@ export default async function JobDetailPage({ params }: JobDetailParams) {
   const { job, source } = await loadJob(jobId);
   if (!job) notFound();
 
-  // `mock-fit-scorer-v1` is the one unambiguous "the fit-score agent was unavailable
-  // (often a scale-to-zero cold start) and this score is a rule-based heuristic" marker.
-  // (`mock-analysis-v1` is reused for real-agent parses and the new-job placeholder, so
-  // it is NOT a reliable fallback signal.) Surface the heuristic plainly (QA·B).
-  const isHeuristicAnalysis = job.analysis.modelUsed === 'mock-fit-scorer-v1';
+  // Surface a rule-based heuristic score plainly (QA·B); see isHeuristicAnalysis.
+  const heuristic = isHeuristicAnalysis(job.analysis.modelUsed);
 
   return (
     <div className="space-y-6">
@@ -87,7 +85,7 @@ export default async function JobDetailPage({ params }: JobDetailParams) {
             </TabsList>
 
             <TabsContent value="analysis" className="space-y-4">
-              {isHeuristicAnalysis ? (
+              {heuristic ? (
                 <Card className="border-amber-500/30 bg-amber-500/5 gap-1 p-4">
                   <p className="text-sm font-medium text-amber-700 dark:text-amber-400">
                     Heuristic estimate — not a full AI assessment
@@ -101,8 +99,8 @@ export default async function JobDetailPage({ params }: JobDetailParams) {
               <Card className="gap-4 p-5">
                 <div className="flex flex-wrap gap-2">
                   <Badge variant="secondary">Confidence {job.analysis.confidenceScore}</Badge>
-                  <Badge variant={isHeuristicAnalysis ? 'outline' : 'secondary'}>
-                    {isHeuristicAnalysis ? 'Heuristic fallback' : `Model: ${job.analysis.modelUsed}`}
+                  <Badge variant={heuristic ? 'outline' : 'secondary'}>
+                    {heuristic ? 'Heuristic fallback' : `Model: ${job.analysis.modelUsed}`}
                   </Badge>
                 </div>
                 <div>
