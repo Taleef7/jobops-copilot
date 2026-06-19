@@ -25,6 +25,26 @@ test('runGracefulShutdown drains the server then the pool, then exits 0', async 
   assert.equal(exitCode, 0);
 });
 
+test('runGracefulShutdown flushes telemetry after the server drains, before the pool', async () => {
+  const order: string[] = [];
+
+  await runGracefulShutdown({
+    closeServer: async () => {
+      order.push('server');
+    },
+    flushTelemetry: async () => {
+      order.push('flush');
+    },
+    closePool: async () => {
+      order.push('pool');
+    },
+    onExit: noop,
+    log: noop,
+  });
+
+  assert.deepEqual(order, ['server', 'flush', 'pool']);
+});
+
 test('runGracefulShutdown exits 1 when draining throws', async () => {
   let exitCode: number | undefined;
 
