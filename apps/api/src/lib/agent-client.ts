@@ -68,6 +68,30 @@ async function callAgent<T>(path: string, payload: unknown, timeoutMs = AGENT_TI
 }
 
 /**
+ * A timeout/abort error from `AbortSignal.timeout` — the signature of the agent
+ * Container App cold-starting (scale-to-zero) rather than being genuinely down. The
+ * first request wakes the container; by the time it times out the container is usually
+ * warming, so a single retry tends to land a real result instead of a mock (QA·B).
+ * Connection-refused / other errors (TypeError) are NOT cold starts and skip the retry.
+ */
+export function isColdStartError(error: unknown): boolean {
+  return error instanceof Error && (error.name === 'TimeoutError' || error.name === 'AbortError');
+}
+
+/** Run an agent op, retrying once if the first attempt times out on a cold start (QA·B). */
+export async function withColdStartRetry<T>(op: () => Promise<T>): Promise<T> {
+  try {
+    return await op();
+  } catch (error) {
+    if (isColdStartError(error)) {
+      console.warn('agent call timed out (cold start?); retrying once before mock fallback');
+      return op();
+    }
+    throw error;
+  }
+}
+
+/**
  * Run a Phase 8 agent task (interview-prep, research, skill-gap). Unlike the
  * analysis resolvers, these have no mock fallback — they are net-new
  * capabilities — so this throws AgentDisabledError when the service is unset.
@@ -165,9 +189,11 @@ export interface OutreachDraftResult {
 export async function resolveParsedJob(descriptionText: string): Promise<ParsedJobOutput> {
   if (isAgentEnabled()) {
     try {
-      const parsed = await callAgent<ParsedJobOutput>('/parse-job', {
-        description_text: descriptionText,
-      });
+      const parsed = await withColdStartRetry(() =>
+        callAgent<ParsedJobOutput>('/parse-job', {
+          description_text: descriptionText,
+        }),
+      );
       if (validateParsedJobOutput(parsed)) {
         return parsed;
       }
@@ -183,16 +209,18 @@ export async function resolveParsedJob(descriptionText: string): Promise<ParsedJ
 export async function resolveFitScore(input: ScoreFitInput): Promise<FitScoreOutput> {
   if (isAgentEnabled()) {
     try {
-      const scored = await callAgent<FitScoreOutput>('/score-fit', {
-        user_id: input.userId,
-        description_text: input.descriptionText,
-        resume_text: input.resumeText,
-        profile_text: input.profileText,
-        required_skills: input.requiredSkills,
-        preferred_skills: input.preferredSkills,
-        ats_keywords: input.atsKeywords,
-        retrieved_context: input.retrievedContext,
-      });
+      const scored = await withColdStartRetry(() =>
+        callAgent<FitScoreOutput>('/score-fit', {
+          user_id: input.userId,
+          description_text: input.descriptionText,
+          resume_text: input.resumeText,
+          profile_text: input.profileText,
+          required_skills: input.requiredSkills,
+          preferred_skills: input.preferredSkills,
+          ats_keywords: input.atsKeywords,
+          retrieved_context: input.retrievedContext,
+        }),
+      );
       if (validateFitScoreOutput(scored)) {
         return scored;
       }
