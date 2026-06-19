@@ -81,9 +81,15 @@ app = FastAPI(
 async def _enforce_agent_key(request: Request, call_next):
     """Reject any request lacking the server-to-server shared secret (QA·A).
 
-    No-op when AGENT_API_KEY is unset; health + docs are always exempt.
+    No-op when AGENT_API_KEY is unset; /health + /openapi.json are always exempt.
     """
     if not is_authorized(request.url.path, request.headers):
+        # Log the rejection (never the attempted key) so scanning is visible in
+        # App Insights — the absence of this trace would hide the very attack this guards.
+        client = request.client.host if request.client else "unknown"
+        logger.warning(
+            "agent auth rejected: %s %s from %s", request.method, request.url.path, client
+        )
         return JSONResponse(status_code=401, content={"detail": "Unauthorized"})
     return await call_next(request)
 

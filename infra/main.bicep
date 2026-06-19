@@ -182,6 +182,10 @@ resource apiApp 'Microsoft.Web/sites@2023-12-01' = {
           value: 'https://${agentApp.properties.configuration.ingress.fqdn}'
         }
         {
+          // Plain app setting from a @secure() param (App Service encrypts settings at
+          // rest), matching how databaseUrl is injected below. The agent side uses a
+          // proper Container App secret (configuration.secrets). Promote to a Key Vault
+          // reference if the API control-plane threat model warrants it.
           name: 'AGENT_API_KEY'
           value: agentApiKey
         }

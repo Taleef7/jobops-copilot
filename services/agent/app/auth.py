@@ -18,18 +18,22 @@ from collections.abc import Mapping
 
 from app.config import settings
 
-# Reachable without the shared secret: container liveness probe + the API schema
-# /docs (used by health probes and the deploy-agent.sh `/openapi.json` verify).
-PUBLIC_PATHS: frozenset[str] = frozenset(
-    {"/health", "/openapi.json", "/docs", "/docs/oauth2-redirect", "/redoc"}
-)
+# Reachable without the shared secret, kept minimal on purpose:
+#   /health       -> container liveness probe + the API's agent-status check
+#   /openapi.json -> the scripts/azure/deploy-agent.sh verify greps it for routes
+# The rendered doc explorers (/docs, /redoc) are deliberately NOT exempt so an
+# unauthenticated caller can't browse the full route map on an internet-facing service.
+PUBLIC_PATHS: frozenset[str] = frozenset({"/health", "/openapi.json"})
 
 
 def extract_key(headers: Mapping[str, str]) -> str | None:
     """Pull the shared secret from the Authorization (Bearer) or X-Agent-Key header."""
     authorization = headers.get("authorization")
-    if authorization and authorization[:7].lower() == "bearer ":
-        return authorization[7:].strip()
+    if authorization:
+        # Tolerant of multiple spaces/tabs between scheme and token (RFC 7235).
+        parts = authorization.split(None, 1)
+        if len(parts) == 2 and parts[0].lower() == "bearer":
+            return parts[1].strip()
     return headers.get("x-agent-key")
 
 

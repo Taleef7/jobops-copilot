@@ -67,12 +67,31 @@ def test_openapi_exempt_without_key(monkeypatch):
     assert client.get("/openapi.json").status_code == 200
 
 
+def test_docs_explorer_not_exempt(monkeypatch):
+    # The rendered doc UI must NOT be browsable unauthenticated (attack-surface).
+    monkeypatch.setattr(settings, "agent_api_key", KEY)
+    assert client.get("/docs").status_code == 401
+    assert client.get("/redoc").status_code == 401
+
+
+def test_unknown_path_fails_closed(monkeypatch):
+    # Any path outside the route table AND the public allowlist must be denied.
+    monkeypatch.setattr(settings, "agent_api_key", KEY)
+    assert auth.is_authorized("/some/unmapped/route", {}) is False
+
+
+def test_extract_key_tolerates_extra_whitespace():
+    assert auth.extract_key({"authorization": f"Bearer  {KEY}"}) == KEY  # two spaces
+    assert auth.extract_key({"authorization": f"bearer {KEY}"}) == KEY  # lowercase scheme
+
+
 def test_is_authorized_unit(monkeypatch):
     monkeypatch.setattr(settings, "agent_api_key", KEY)
     assert auth.is_authorized("/rag/search", {"authorization": f"Bearer {KEY}"}) is True
     assert auth.is_authorized("/rag/search", {"authorization": "Bearer wrong"}) is False
     assert auth.is_authorized("/rag/search", {}) is False  # length mismatch handled
     assert auth.is_authorized("/health", {}) is True  # exempt
+    assert auth.is_authorized("/docs", {}) is False  # doc UI not exempt
     monkeypatch.setattr(settings, "agent_api_key", None)
     assert auth.is_authorized("/rag/search", {}) is True  # disabled
 
