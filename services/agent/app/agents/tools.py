@@ -13,6 +13,7 @@ import httpx
 from langchain.tools import tool
 
 from app.config import settings
+from app.safety.injection import guard_tool_content
 
 logger = logging.getLogger("jobops.agent.tools")
 
@@ -38,10 +39,13 @@ def web_search(query: str) -> str:
         results = response.json().get("results", [])
         if not results:
             return "No web results found."
-        return "\n\n".join(
+        # Web content is untrusted: a malicious page could carry an indirect prompt
+        # injection. Delimit + scan it so the model treats it as data, not instructions.
+        body = "\n\n".join(
             f"- {item.get('title')}: {item.get('content', '')[:300]} ({item.get('url')})"
             for item in results
         )
+        return guard_tool_content(body, "WEB SEARCH RESULTS")
     except Exception as exc:  # noqa: BLE001 - tool failures must not crash the agent
         logger.warning("web_search failed: %s", exc)
         return f"Web search failed ({exc}). Proceed from available context and flag what to verify."
