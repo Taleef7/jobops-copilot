@@ -245,6 +245,9 @@ resource agentApp 'Microsoft.App/containerApps@2024-03-01' = {
       }
       // Server-to-server shared secret (QA·A): the agent is internet-facing (the API
       // reaches it across regions over this FQDN), so every request must carry it.
+      // NOTE: Container Apps secrets are app-scoped and a value change does NOT auto-roll
+      // running revisions — after rotating `agentApiKey`, restart/roll a revision so the
+      // agent reloads it (see docs/AZURE_DEPLOYMENT.md "Rotating the key later").
       secrets: [
         {
           name: 'agent-api-key'

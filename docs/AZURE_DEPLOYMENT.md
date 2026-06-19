@@ -139,24 +139,42 @@ The agent Container App is internet-facing (the API reaches it across regions ov
 public FQDN), so it authenticates every request with a shared secret. Provision the
 **same** value on both sides once per environment:
 
+Run the steps **in this order** — the API must be sending the Bearer header before the
+agent starts enforcing, or there's a window where authenticated agent calls get 401s:
+
 ```bash
 KEY="$(openssl rand -hex 32)"
 
-# Agent (Container App): store as a secret + reference it from the AGENT_API_KEY env var
-az containerapp secret set -g projects -n jobops-agent --secrets agent-api-key="$KEY"
-az containerapp update    -g projects -n jobops-agent \
-  --set-env-vars AGENT_API_KEY=secretref:agent-api-key
-
-# API (App Service): same value as a plain app setting
+# 1. API (App Service) FIRST: same value as a plain app setting, so the API starts
+#    sending the Bearer header. Harmless while the agent isn't enforcing yet.
 az webapp config appsettings set -g projects -n jobops-api \
   --settings AGENT_API_KEY="$KEY"
+
+# 2. Agent (Container App) LAST: store the secret, then point AGENT_API_KEY at it.
+#    The `update --set-env-vars` rolls a NEW revision, which is when enforcement begins.
+az containerapp secret set -g projects -n jobops-agent --secrets agent-api-key="$KEY"
+az containerapp update     -g projects -n jobops-agent \
+  --set-env-vars AGENT_API_KEY=secretref:agent-api-key
 ```
 
-For zero downtime, set the **API** value first and the **agent** secret last: the agent
-starts enforcing the moment its secret exists, while the API harmlessly sends the Bearer
-header even before the agent enforces. The Bicep template (`infra/main.bicep`) models both
-via the `agentApiKey` secure param. `/health` + `/openapi.json` stay open, so
-`scripts/azure/deploy-agent.sh` verify is unaffected.
+The agent enforces the moment its revision picks up the secret; doing the API first means
+it's already sending the header by then (zero downtime). The Bicep template
+(`infra/main.bicep`) models both via the `agentApiKey` secure param. `/health` +
+`/openapi.json` stay open, so `scripts/azure/deploy-agent.sh` verify is unaffected.
+
+**Rotating the key later:** Container Apps secrets are app-scoped and a secret-value change
+does **not** automatically roll running replicas. Update the API setting first, then
+`az containerapp secret set` **and force a new revision** so the agent actually reloads it:
+
+```bash
+az containerapp secret set -g projects -n jobops-agent --secrets agent-api-key="$NEW_KEY"
+az containerapp revision restart -g projects -n jobops-agent \
+  --revision "$(az containerapp show -g projects -n jobops-agent \
+    --query properties.latestRevisionName -o tsv)"
+```
+
+The same caveat applies to the Bicep path: changing `agentApiKey` alone won't restart the
+agent — redeploy something that rolls a revision (or `revision restart`) for it to take effect.
 
 Verify afterwards: an unauthenticated `POST /rag/search` to the agent FQDN must return
 `401`, while the app's AI features (job analyze, score-fit, assistant) still work.
