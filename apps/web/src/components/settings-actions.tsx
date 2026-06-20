@@ -1,6 +1,6 @@
 'use client';
 
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { Database, Download, Loader2, Upload } from 'lucide-react';
 import { toast } from 'sonner';
@@ -62,6 +62,21 @@ export function DemoDataActions() {
   const router = useRouter();
   const [busy, setBusy] = useState<'seed' | 'clear' | null>(null);
   const [confirmingClear, setConfirmingClear] = useState(false);
+  const cancelRef = useRef<HTMLButtonElement>(null);
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  const wasConfirming = useRef(false);
+
+  // Move focus into the confirmation when it opens and back to the trigger when
+  // it closes (cancel or completion), so keyboard/SR users keep their place.
+  useEffect(() => {
+    if (confirmingClear) {
+      cancelRef.current?.focus();
+      wasConfirming.current = true;
+    } else if (wasConfirming.current) {
+      wasConfirming.current = false;
+      triggerRef.current?.focus();
+    }
+  }, [confirmingClear]);
 
   async function run(action: 'seed' | 'clear') {
     setBusy(action);
@@ -97,14 +112,19 @@ export function DemoDataActions() {
       </Button>
       {confirmingClear ? (
         <div
-          role="group"
+          role="alertdialog"
           aria-label="Confirm clearing all data"
+          aria-describedby="clear-data-prompt"
           className="flex flex-wrap items-center gap-2"
+          onKeyDown={(event) => {
+            if (event.key === 'Escape' && busy === null) setConfirmingClear(false);
+          }}
         >
-          <p className="text-muted-foreground text-xs">
+          <p id="clear-data-prompt" className="text-muted-foreground text-xs">
             Permanently delete all jobs, outreach &amp; your resume?
           </p>
           <Button
+            ref={cancelRef}
             variant="ghost"
             size="sm"
             disabled={busy !== null}
@@ -124,6 +144,7 @@ export function DemoDataActions() {
         </div>
       ) : (
         <Button
+          ref={triggerRef}
           variant="ghost"
           size="sm"
           disabled={busy !== null}
