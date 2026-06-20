@@ -2,7 +2,8 @@
 
 import { UserButton } from '@clerk/nextjs';
 import { Search } from 'lucide-react';
-import { usePathname } from 'next/navigation';
+import { usePathname, useRouter, useSearchParams } from 'next/navigation';
+import { type FormEvent, useState } from 'react';
 import { ModeToggle } from '@/components/mode-toggle';
 import { Input } from '@/components/ui/input';
 import { Separator } from '@/components/ui/separator';
@@ -27,7 +28,29 @@ function deriveTitle(pathname: string): string {
 
 export function AppHeader() {
   const pathname = usePathname();
+  const router = useRouter();
+  const searchParams = useSearchParams();
   const title = deriveTitle(pathname);
+
+  // Keep the box in sync with the active jobs query so it reflects deep links
+  // and reads back what the user is currently filtering by. Adjusting state
+  // during render (vs. an effect) is the React-recommended way to reset on a
+  // changing input. https://react.dev/learn/you-might-not-need-an-effect
+  const activeQuery = pathname === '/jobs' ? (searchParams.get('q') ?? '') : '';
+  const [query, setQuery] = useState(activeQuery);
+  const [syncedQuery, setSyncedQuery] = useState(activeQuery);
+  if (activeQuery !== syncedQuery) {
+    setSyncedQuery(activeQuery);
+    setQuery(activeQuery);
+  }
+
+  function handleSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const trimmed = query.trim();
+    if (!trimmed) return;
+    const params = new URLSearchParams({ q: trimmed });
+    router.push(`/jobs?${params.toString()}`);
+  }
 
   return (
     <header className="bg-background/80 sticky top-0 z-30 flex h-16 items-center gap-2 border-b px-3 backdrop-blur-md sm:px-4">
@@ -36,15 +59,19 @@ export function AppHeader() {
       <h1 className="font-heading truncate text-base font-semibold sm:text-lg">{title}</h1>
 
       <div className="ml-auto flex items-center gap-1.5 sm:gap-2">
-        <div className="relative hidden sm:block">
+        <form onSubmit={handleSubmit} role="search" className="relative hidden sm:block">
           <Search className="text-muted-foreground pointer-events-none absolute top-1/2 left-2.5 size-4 -translate-y-1/2" />
           <Input
             type="search"
-            placeholder="Search jobs, skills…"
-            aria-label="Search"
+            name="q"
+            enterKeyHint="search"
+            value={query}
+            onChange={(event) => setQuery(event.target.value)}
+            placeholder="Search jobs…"
+            aria-label="Search jobs"
             className="bg-card w-44 pl-8 lg:w-64"
           />
-        </div>
+        </form>
         <ModeToggle />
         <UserButton />
       </div>

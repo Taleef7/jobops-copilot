@@ -46,10 +46,19 @@ const priorityTone: Record<JobPriority, string> = {
 const selectClass =
   'border-input bg-card h-9 rounded-md border px-2.5 text-sm capitalize shadow-xs focus-visible:border-ring focus-visible:ring-ring/50 focus-visible:ring-[3px] outline-none';
 
-export function JobsTable({ jobs }: { jobs: Job[] }) {
-  const [query, setQuery] = useState('');
+export function JobsTable({ jobs, initialQuery = '' }: { jobs: Job[]; initialQuery?: string }) {
+  const [query, setQuery] = useState(initialQuery);
   const [status, setStatus] = useState<JobStatus | 'all'>('all');
   const [priority, setPriority] = useState<JobPriority | 'all'>('all');
+
+  // Re-seed when the URL query changes (e.g. a fresh search from the global
+  // header lands on /jobs?q=… while this table is already mounted). Adjusting
+  // state during render is preferred over an effect for prop-driven resets.
+  const [syncedQuery, setSyncedQuery] = useState(initialQuery);
+  if (initialQuery !== syncedQuery) {
+    setSyncedQuery(initialQuery);
+    setQuery(initialQuery);
+  }
 
   const hasJobs = jobs.length > 0;
   const normalizedQuery = query.trim().toLowerCase();

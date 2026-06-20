@@ -11,8 +11,15 @@ export const dynamic = 'force-dynamic';
 
 export const metadata: Metadata = { title: 'Jobs' };
 
-export default async function JobsPage() {
-  const { jobs, source } = await loadJobs();
+export default async function JobsPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ q?: string | string[] }>;
+}) {
+  const [{ jobs, source }, { q }] = await Promise.all([loadJobs(), searchParams]);
+  // A repeated key (/jobs?q=a&q=b) makes Next hand back q as string[]; take the
+  // first value so JobsTable always receives a string (query.trim() would throw).
+  const initialQuery = Array.isArray(q) ? (q[0] ?? '') : (q ?? '');
 
   return (
     <div className="space-y-6">
@@ -41,7 +48,7 @@ export default async function JobsPage() {
         title="Job pipeline"
         description="Filter by status or priority to find your next action fast."
       >
-        <JobsTable jobs={jobs} />
+        <JobsTable jobs={jobs} initialQuery={initialQuery} />
       </SectionCard>
     </div>
   );
