@@ -1,6 +1,6 @@
 'use client';
 
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { Database, Download, Loader2, Upload } from 'lucide-react';
 import { toast } from 'sonner';
@@ -61,6 +61,22 @@ export function ExportDataButton() {
 export function DemoDataActions() {
   const router = useRouter();
   const [busy, setBusy] = useState<'seed' | 'clear' | null>(null);
+  const [confirmingClear, setConfirmingClear] = useState(false);
+  const cancelRef = useRef<HTMLButtonElement>(null);
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  const wasConfirming = useRef(false);
+
+  // Move focus into the confirmation when it opens and back to the trigger when
+  // it closes (cancel or completion), so keyboard/SR users keep their place.
+  useEffect(() => {
+    if (confirmingClear) {
+      cancelRef.current?.focus();
+      wasConfirming.current = true;
+    } else if (wasConfirming.current) {
+      wasConfirming.current = false;
+      triggerRef.current?.focus();
+    }
+  }, [confirmingClear]);
 
   async function run(action: 'seed' | 'clear') {
     setBusy(action);
@@ -77,6 +93,7 @@ export function DemoDataActions() {
       toast.error('Action failed. Please try again.');
     } finally {
       setBusy(null);
+      setConfirmingClear(false);
     }
   }
 
@@ -93,10 +110,49 @@ export function DemoDataActions() {
         {busy === 'seed' ? <Loader2 className="size-4 animate-spin" /> : null}
         Load sample data
       </Button>
-      <Button variant="ghost" size="sm" disabled={busy !== null} onClick={() => run('clear')}>
-        {busy === 'clear' ? <Loader2 className="size-4 animate-spin" /> : null}
-        Clear my data
-      </Button>
+      {confirmingClear ? (
+        <div
+          role="alertdialog"
+          aria-label="Confirm clearing all data"
+          aria-describedby="clear-data-prompt"
+          className="flex flex-wrap items-center gap-2"
+          onKeyDown={(event) => {
+            if (event.key === 'Escape' && busy === null) setConfirmingClear(false);
+          }}
+        >
+          <p id="clear-data-prompt" className="text-muted-foreground text-xs">
+            Permanently delete all jobs, outreach &amp; your resume?
+          </p>
+          <Button
+            ref={cancelRef}
+            variant="ghost"
+            size="sm"
+            disabled={busy !== null}
+            onClick={() => setConfirmingClear(false)}
+          >
+            Cancel
+          </Button>
+          <Button
+            variant="destructive"
+            size="sm"
+            disabled={busy !== null}
+            onClick={() => run('clear')}
+          >
+            {busy === 'clear' ? <Loader2 className="size-4 animate-spin" /> : null}
+            Yes, delete everything
+          </Button>
+        </div>
+      ) : (
+        <Button
+          ref={triggerRef}
+          variant="ghost"
+          size="sm"
+          disabled={busy !== null}
+          onClick={() => setConfirmingClear(true)}
+        >
+          Clear my data
+        </Button>
+      )}
     </div>
   );
 }
