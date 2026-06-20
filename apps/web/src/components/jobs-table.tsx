@@ -60,7 +60,14 @@ export function JobsTable({ jobs, initialQuery = '' }: { jobs: Job[]; initialQue
     setQuery(initialQuery);
   }
 
+  const hasJobs = jobs.length > 0;
   const normalizedQuery = query.trim().toLowerCase();
+
+  function clearFilters() {
+    setQuery('');
+    setStatus('all');
+    setPriority('all');
+  }
 
   const filteredJobs = jobs.filter((job) => {
     const matchesQuery =
@@ -76,50 +83,60 @@ export function JobsTable({ jobs, initialQuery = '' }: { jobs: Job[]; initialQue
 
   return (
     <div className="space-y-4">
-      <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
-        <div className="relative flex-1">
-          <Search className="text-muted-foreground pointer-events-none absolute top-1/2 left-2.5 size-4 -translate-y-1/2" />
-          <Input
-            type="search"
-            value={query}
-            onChange={(event) => setQuery(event.target.value)}
-            placeholder="Search company, title, location…"
-            aria-label="Search jobs"
-            className="bg-card pl-8"
-          />
+      {/* No filter controls when there is nothing to filter. */}
+      {hasJobs ? (
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+          <div className="relative flex-1">
+            <Search className="text-muted-foreground pointer-events-none absolute top-1/2 left-2.5 size-4 -translate-y-1/2" />
+            <Input
+              type="search"
+              value={query}
+              onChange={(event) => setQuery(event.target.value)}
+              placeholder="Search company, title, location…"
+              aria-label="Search jobs"
+              className="bg-card pl-8"
+            />
+          </div>
+          <select
+            aria-label="Filter by status"
+            className={selectClass}
+            value={status}
+            onChange={(event) => setStatus(event.target.value as JobStatus | 'all')}
+          >
+            {statusOptions.map((option) => (
+              <option key={option} value={option}>
+                {option === 'all' ? 'All statuses' : option.replaceAll('_', ' ')}
+              </option>
+            ))}
+          </select>
+          <select
+            aria-label="Filter by priority"
+            className={selectClass}
+            value={priority}
+            onChange={(event) => setPriority(event.target.value as JobPriority | 'all')}
+          >
+            {priorityOptions.map((option) => (
+              <option key={option} value={option}>
+                {option === 'all' ? 'All priorities' : option}
+              </option>
+            ))}
+          </select>
         </div>
-        <select
-          aria-label="Filter by status"
-          className={selectClass}
-          value={status}
-          onChange={(event) => setStatus(event.target.value as JobStatus | 'all')}
-        >
-          {statusOptions.map((option) => (
-            <option key={option} value={option}>
-              {option === 'all' ? 'All statuses' : option.replaceAll('_', ' ')}
-            </option>
-          ))}
-        </select>
-        <select
-          aria-label="Filter by priority"
-          className={selectClass}
-          value={priority}
-          onChange={(event) => setPriority(event.target.value as JobPriority | 'all')}
-        >
-          {priorityOptions.map((option) => (
-            <option key={option} value={option}>
-              {option === 'all' ? 'All priorities' : option}
-            </option>
-          ))}
-        </select>
-      </div>
+      ) : null}
 
-      {filteredJobs.length === 0 ? (
+      {!hasJobs ? (
+        <EmptyState
+          title="No jobs yet"
+          description="Add a job (paste its description) and the AI will parse it, score your fit, and draft outreach. You can also load sample data from Settings to explore first."
+          actionLabel="Add your first job"
+          actionHref="/jobs/new"
+        />
+      ) : filteredJobs.length === 0 ? (
         <EmptyState
           title="No matching jobs"
-          description="Try a different company, title, status, or priority filter."
-          actionLabel="Add a job"
-          actionHref="/jobs/new"
+          description="No jobs match your current search and filters. Try clearing them to see everything again."
+          actionLabel="Clear filters"
+          onAction={clearFilters}
         />
       ) : (
         <div className="overflow-x-auto">
@@ -180,9 +197,11 @@ export function JobsTable({ jobs, initialQuery = '' }: { jobs: Job[]; initialQue
         </div>
       )}
 
-      <p className="text-muted-foreground text-xs">
-        Showing {filteredJobs.length} of {jobs.length} jobs
-      </p>
+      {hasJobs ? (
+        <p role="status" aria-live="polite" className="text-muted-foreground text-xs">
+          Showing {filteredJobs.length} of {jobs.length} jobs
+        </p>
+      ) : null}
     </div>
   );
 }
