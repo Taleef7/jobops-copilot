@@ -1,6 +1,7 @@
 import { ImageResponse } from 'next/og';
 
-// Branded social-share card, used as both og:image and twitter:image.
+// Branded social-share card. Re-exported by app/twitter-image.tsx so the same
+// artwork backs both og:image and twitter:image.
 export const alt = 'JobOps Copilot — AI Job Search Platform';
 export const size = { width: 1200, height: 630 };
 export const contentType = 'image/png';
@@ -31,10 +32,12 @@ export default function OpengraphImage() {
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center',
-              fontSize: 38,
             }}
           >
-            ⚡
+            {/* Inline SVG bolt — Satori does not reliably render emoji glyphs. */}
+            <svg width="34" height="34" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+              <path d="M13 2 4.5 13.5H11l-1 8.5L19.5 10H13l1-8Z" fill="#f8fafc" />
+            </svg>
           </div>
           <div style={{ fontSize: 30, fontWeight: 700 }}>JobOps Copilot</div>
         </div>
