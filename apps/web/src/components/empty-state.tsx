@@ -7,11 +7,15 @@ export function EmptyState({
   description,
   actionLabel,
   actionHref,
+  onAction,
 }: {
   title: string;
   description: string;
   actionLabel?: string;
+  /** Render the action as a link. Ignored when `onAction` is provided. */
   actionHref?: string;
+  /** Render the action as a button that runs this handler (e.g. reset filters). */
+  onAction?: () => void;
 }) {
   return (
     <div className="flex flex-col items-center justify-center rounded-xl border border-dashed py-12 text-center">
@@ -20,7 +24,11 @@ export function EmptyState({
       </span>
       <h3 className="font-heading text-base font-semibold">{title}</h3>
       <p className="text-muted-foreground mt-1 max-w-sm text-sm">{description}</p>
-      {actionLabel && actionHref ? (
+      {actionLabel && onAction ? (
+        <Button onClick={onAction} variant="outline" size="sm" className="mt-4">
+          {actionLabel}
+        </Button>
+      ) : actionLabel && actionHref ? (
         <Button
           render={<Link href={actionHref}>{actionLabel}</Link>}
           variant="outline"

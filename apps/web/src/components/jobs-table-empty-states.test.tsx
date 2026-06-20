@@ -57,3 +57,25 @@ it('shows the "No matching jobs" filter hint when jobs exist but none match the 
   expect(screen.getByText('No matching jobs')).toBeInTheDocument();
   expect(screen.queryByText('No jobs yet')).not.toBeInTheDocument();
 });
+
+it('reaches "No matching jobs" via the status filter, not only via search', async () => {
+  const user = userEvent.setup();
+  render(<JobsTable jobs={[makeJob({ company: 'Northwind', status: 'discovered' })]} />);
+
+  await user.selectOptions(screen.getByRole('combobox', { name: /filter by status/i }), 'offer');
+
+  expect(screen.getByText('No matching jobs')).toBeInTheDocument();
+});
+
+it('the "Clear filters" action restores the full table', async () => {
+  const user = userEvent.setup();
+  render(<JobsTable jobs={[makeJob({ company: 'Northwind' })]} />);
+
+  await user.type(screen.getByRole('searchbox', { name: /search jobs/i }), 'zzz-no-match');
+  expect(screen.getByText('No matching jobs')).toBeInTheDocument();
+
+  await user.click(screen.getByRole('button', { name: /clear filters/i }));
+
+  expect(screen.queryByText('No matching jobs')).not.toBeInTheDocument();
+  expect(screen.getByText(/Northwind/)).toBeInTheDocument();
+});

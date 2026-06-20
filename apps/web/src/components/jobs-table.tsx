@@ -54,6 +54,12 @@ export function JobsTable({ jobs }: { jobs: Job[] }) {
   const hasJobs = jobs.length > 0;
   const normalizedQuery = query.trim().toLowerCase();
 
+  function clearFilters() {
+    setQuery('');
+    setStatus('all');
+    setPriority('all');
+  }
+
   const filteredJobs = jobs.filter((job) => {
     const matchesQuery =
       !normalizedQuery ||
@@ -119,9 +125,9 @@ export function JobsTable({ jobs }: { jobs: Job[] }) {
       ) : filteredJobs.length === 0 ? (
         <EmptyState
           title="No matching jobs"
-          description="Try a different company, title, status, or priority filter."
-          actionLabel="Add a job"
-          actionHref="/jobs/new"
+          description="No jobs match your current search and filters. Try clearing them to see everything again."
+          actionLabel="Clear filters"
+          onAction={clearFilters}
         />
       ) : (
         <div className="overflow-x-auto">
@@ -183,7 +189,7 @@ export function JobsTable({ jobs }: { jobs: Job[] }) {
       )}
 
       {hasJobs ? (
-        <p className="text-muted-foreground text-xs">
+        <p role="status" aria-live="polite" className="text-muted-foreground text-xs">
           Showing {filteredJobs.length} of {jobs.length} jobs
         </p>
       ) : null}
