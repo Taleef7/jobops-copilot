@@ -200,7 +200,16 @@ export function JobOutreachActions({
             </div>
           </div>
           <p className="text-sm whitespace-pre-wrap">{result.draftText}</p>
-          <p className="text-muted-foreground border-t pt-2 text-xs">{result.safetyNotes}</p>
+          {result.safetyNotes.trim() ? (
+            <details className="border-t pt-2">
+              <summary className="text-muted-foreground cursor-pointer text-xs select-none">
+                Review notes
+              </summary>
+              <p className="text-muted-foreground mt-1.5 text-xs whitespace-pre-wrap">
+                {result.safetyNotes}
+              </p>
+            </details>
+          ) : null}
         </Card>
       ) : null}
     </form>

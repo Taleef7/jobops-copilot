@@ -423,6 +423,9 @@ export async function appendOutreachDraft(
       return undefined;
     }
 
+    // Keep only the latest draft per job (replace, don't accumulate).
+    await client.query('delete from outreach where job_id::text = $1', [jobId]);
+
     const { rows } = await client.query<OutreachRow>(
       `
         insert into outreach (
