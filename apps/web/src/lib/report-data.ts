@@ -1,5 +1,4 @@
-import { ApiRequestError, fetchWeeklyReports } from '@/lib/api';
-import { mockWeeklyReports } from '@/lib/mock-data';
+import { fetchWeeklyReports } from '@/lib/api';
 import type { WeeklyReport } from '@/types/job';
 
 export interface WeeklyReportDataResult {
@@ -7,27 +6,15 @@ export interface WeeklyReportDataResult {
   source: 'api' | 'seed';
 }
 
+/**
+ * Loads the user's persisted weekly reports for the history list. Returns an
+ * empty list when there are none or the API is unreachable — never fabricated
+ * demo reports (that was the source of the phantom 14/2/1/1 on new accounts).
+ */
 export async function loadWeeklyReports(): Promise<WeeklyReportDataResult> {
   try {
-    const reports = await fetchWeeklyReports();
-
-    if (reports.length > 0) {
-      return {
-        reports,
-        source: 'api',
-      };
-    }
-  } catch (error) {
-    if (!(error instanceof ApiRequestError)) {
-      return {
-        reports: mockWeeklyReports,
-        source: 'seed',
-      };
-    }
+    return { reports: await fetchWeeklyReports(), source: 'api' };
+  } catch {
+    return { reports: [], source: 'seed' };
   }
-
-  return {
-    reports: mockWeeklyReports,
-    source: 'seed',
-  };
 }
