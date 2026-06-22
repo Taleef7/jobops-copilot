@@ -227,7 +227,7 @@ export async function createJob(userId: string, body: CreateJobBody): Promise<Jo
   const client = await pool.connect();
   const jobId = randomUUID();
   const timestamp = new Date().toISOString();
-  const nextAction = 'Run AI parsing and fit scoring after the record is saved.';
+  const nextAction = 'Run fit scoring to analyze this role.';
 
   try {
     await client.query('begin');
