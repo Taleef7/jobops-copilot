@@ -28,7 +28,10 @@ export default async function ReportsPage() {
   const [{ jobs, source }, { reports }] = await Promise.all([loadJobs(), loadWeeklyReports()]);
   const snapshot = getReportSnapshot(jobs);
 
-  if (jobs.length === 0) {
+  // Only the pure empty state when there's nothing at all. If saved reports
+  // exist (they can be generated even with zero jobs), keep rendering the page
+  // so the history/export section below stays reachable.
+  if (jobs.length === 0 && reports.length === 0) {
     return (
       <EmptyState
         title="No report yet"
