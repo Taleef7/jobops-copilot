@@ -113,12 +113,14 @@ export function JobCreateForm() {
             <Sparkles className="size-3.5 text-indigo-500" /> AI extracts skills &amp; scores fit
           </span>
         </div>
+        {/* Cap the height so a long paste scrolls internally instead of pushing the
+            rest of the form off-screen (the Textarea uses field-sizing-content). */}
         <Textarea
           id="description"
           value={form.descriptionText}
           onChange={(event) => updateField('descriptionText', event.target.value)}
           placeholder="Paste the full job posting here…"
-          className="min-h-40"
+          className="max-h-80 min-h-40 overflow-y-auto"
           required
         />
         {errors.descriptionText ? (
