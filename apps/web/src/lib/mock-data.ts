@@ -1,4 +1,4 @@
-import type { Job, JobPriority, JobStatus, WeeklyReport } from '@/types/job';
+import type { Job, JobPriority, JobStatus } from '@/types/job';
 
 export const jobStatusOrder: JobStatus[] = [
   'discovered',
@@ -217,30 +217,6 @@ export const mockJobs: Job[] = [
       modelUsed: 'mock-analysis-v1',
     },
     outreach: [],
-  },
-];
-
-export const mockWeeklyReports: WeeklyReport[] = [
-  {
-    id: 'report-01',
-    weekStart: '2026-05-11',
-    weekEnd: '2026-05-17',
-    jobsDiscovered: 14,
-    jobsShortlisted: 5,
-    jobsApplied: 2,
-    outreachDrafted: 4,
-    outreachSent: 1,
-    responsesReceived: 1,
-    interviews: 1,
-    commonMissingSkills: ['Azure Functions', 'n8n', 'HR tech', 'Program management'],
-    recommendations: [
-      'Tailor the headline toward operations automation and workflow systems.',
-      'Prioritize jobs that combine process ownership with hands-on technical delivery.',
-      'Schedule follow-ups for all drafted outreach within seven days.',
-    ],
-    reportMarkdown:
-      'This week focused on operational roles that reward workflow thinking. The strongest opportunities were the automation engineer and recruiting operations roles.',
-    createdAt: '2026-05-17T18:00:00.000Z',
   },
 ];
 
