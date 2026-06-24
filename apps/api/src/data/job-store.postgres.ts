@@ -227,7 +227,7 @@ export async function createJob(userId: string, body: CreateJobBody): Promise<Jo
   const client = await pool.connect();
   const jobId = randomUUID();
   const timestamp = new Date().toISOString();
-  const nextAction = 'Run AI parsing and fit scoring after the record is saved.';
+  const nextAction = 'Run fit scoring to analyze this role.';
 
   try {
     await client.query('begin');
@@ -422,6 +422,10 @@ export async function appendOutreachDraft(
       await client.query('rollback');
       return undefined;
     }
+
+    // Replace only the superseded unsent draft; preserve approved/sent/skipped
+    // rows, which carry real outreach history and dashboard/reporting state.
+    await client.query("delete from outreach where job_id::text = $1 and status = 'drafted'", [jobId]);
 
     const { rows } = await client.query<OutreachRow>(
       `

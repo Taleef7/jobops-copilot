@@ -78,7 +78,8 @@ export function JobOutreachActions({
       setResult({
         subject: draft.subject,
         draftText: draft.draft_text,
-        safetyNotes: draft.safety_notes,
+        // The live agent can omit safety_notes; default to '' so .trim() never crashes.
+        safetyNotes: draft.safety_notes ?? '',
         gmailDraftStatus: draft.gmail_draft_status,
       });
       toast.success('Draft created — review it in the inbox before sending.');
@@ -200,7 +201,16 @@ export function JobOutreachActions({
             </div>
           </div>
           <p className="text-sm whitespace-pre-wrap">{result.draftText}</p>
-          <p className="text-muted-foreground border-t pt-2 text-xs">{result.safetyNotes}</p>
+          {result.safetyNotes.trim() ? (
+            <details className="border-t pt-2">
+              <summary className="text-muted-foreground cursor-pointer text-xs select-none">
+                Review notes
+              </summary>
+              <p className="text-muted-foreground mt-1.5 text-xs whitespace-pre-wrap">
+                {result.safetyNotes}
+              </p>
+            </details>
+          ) : null}
         </Card>
       ) : null}
     </form>

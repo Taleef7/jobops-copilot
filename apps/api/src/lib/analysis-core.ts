@@ -125,6 +125,33 @@ export function analysisFromParsed(parsed: ParsedJobOutput): JobAnalysis {
 }
 
 /**
+ * Resolve the structured-skill grounding for fit scoring. Prefers a fresh parse
+ * (the LLM job parser is richer than the keyword extractor) and only falls back
+ * to the job's stored analysis when the parse is missing/invalid. This is what
+ * folds the old standalone "Parse job" step into "Score fit" so a job's parsed
+ * skills can't stay empty/incomplete behind a successful score.
+ */
+export function groundingFromParsed(
+  parsed: ParsedJobOutput | null,
+  fallback: Pick<JobAnalysis, 'requiredSkills' | 'preferredSkills' | 'atsKeywords'>,
+): { requiredSkills: string[]; preferredSkills: string[]; atsKeywords: string[] } {
+  if (!parsed || !validateParsedJobOutput(parsed)) {
+    return {
+      requiredSkills: fallback.requiredSkills,
+      preferredSkills: fallback.preferredSkills,
+      atsKeywords: fallback.atsKeywords,
+    };
+  }
+
+  const analysis = analysisFromParsed(parsed);
+  return {
+    requiredSkills: analysis.requiredSkills,
+    preferredSkills: analysis.preferredSkills,
+    atsKeywords: analysis.atsKeywords,
+  };
+}
+
+/**
  * Map a fit-score result (mock OR real LLM agent) into a persisted JobAnalysis.
  * Pure function: keeps the score route and n8n route in agreement.
  */

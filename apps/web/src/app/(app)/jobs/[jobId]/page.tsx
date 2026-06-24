@@ -61,7 +61,7 @@ export default async function JobDetailPage({ params }: JobDetailParams) {
           </div>
         </div>
         <div className="border-t pt-4">
-          <JobAnalysisActions jobId={job.id} descriptionText={job.descriptionText} />
+          <JobAnalysisActions jobId={job.id} />
         </div>
       </Card>
 
@@ -159,8 +159,9 @@ export default async function JobDetailPage({ params }: JobDetailParams) {
               {job.outreach.length ? (
                 <Card className="gap-3 p-5">
                   {/* h2 (not h3) so the document heading order doesn't skip a level (a11y). */}
-                  <h2 className="font-heading text-sm font-semibold">Existing drafts</h2>
-                  {job.outreach.map((draft) => (
+                  <h2 className="font-heading text-sm font-semibold">Saved draft</h2>
+                  {/* Only the latest draft is kept; slice defends against any legacy rows. */}
+                  {job.outreach.slice(-1).map((draft) => (
                     <div key={draft.id} className="bg-muted/40 space-y-2 rounded-lg p-3">
                       <div className="flex items-center justify-between gap-2">
                         <p className="text-sm font-medium">
