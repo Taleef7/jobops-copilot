@@ -8,6 +8,11 @@ export interface ExtractedJob {
   location?: string;
   descriptionText?: string;
   workplaceType?: WorkplaceType;
+  /**
+   * Highest-priority tier that contributed at least one field (jsonld >
+   * opengraph > heuristic), or 'none'. Individual fields may come from lower
+   * tiers — `source` reflects the best signal seen, not every field's origin.
+   */
   source: 'jsonld' | 'opengraph' | 'heuristic' | 'none';
 }
 
@@ -36,6 +41,8 @@ function collectJsonLd(root: HTMLElement): Record<string, unknown>[] {
     for (const item of items) {
       if (item && typeof item === 'object') {
         out.push(item as Record<string, unknown>);
+        // One @graph level is expanded; nested graphs are vanishingly rare in
+        // job postings and not worth the recursion.
         const graph = (item as { '@graph'?: unknown })['@graph'];
         if (Array.isArray(graph)) {
           for (const g of graph) if (g && typeof g === 'object') out.push(g as Record<string, unknown>);
@@ -73,7 +80,9 @@ function locationFrom(loc: unknown): string | undefined {
 function fromJsonLd(root: HTMLElement): Partial<ExtractedJob> {
   const job = collectJsonLd(root).find(hasJobPostingType);
   if (!job) return {};
-  const desc = clean(job.description);
+  // Cap before the second parse() in htmlToText: a hostile page can embed a huge
+  // description string inside the (already 2 MB-capped) HTML.
+  const desc = clean(job.description)?.slice(0, 20_000);
   const locationType = typeof job.jobLocationType === 'string' ? job.jobLocationType.toUpperCase() : '';
   return {
     title: clean(job.title),

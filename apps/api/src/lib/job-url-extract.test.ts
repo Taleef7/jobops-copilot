@@ -57,7 +57,7 @@ test('reads a JobPosting nested in an @graph with an array @type', () => {
   assert.equal(result.company, 'StringCo');
 });
 
-test('joins the first jobLocation when it is given as an array', () => {
+test('uses the first jobLocation when it is given as an array', () => {
   const html = `<html><head><script type="application/ld+json">
     {"@type":"JobPosting","title":"Multi","jobLocation":[
       {"@type":"Place","address":{"addressLocality":"Austin","addressRegion":"TX"}},
