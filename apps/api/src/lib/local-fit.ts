@@ -37,9 +37,18 @@ export function prerankAnalysis(
 ): { fitScore: number; analysis: JobAnalysis } {
   const { score, matchedSkills } = computeLocalFit(descriptionText, resumeText);
   const base = analysisFromParsed(parseJobDescription(descriptionText));
+  const matched = new Set(matchedSkills);
 
   return {
     fitScore: score,
-    analysis: { ...base, matchedSkills, modelUsed: PRERANK_MODEL },
+    analysis: {
+      ...base,
+      matchedSkills,
+      // Recompute missing from required minus matched so the same skill never
+      // shows as both matched and missing in the estimate (analysisFromParsed
+      // seeds missingSkills from the required list, before we know matches).
+      missingSkills: base.requiredSkills.filter((skill) => !matched.has(skill)),
+      modelUsed: PRERANK_MODEL,
+    },
   };
 }

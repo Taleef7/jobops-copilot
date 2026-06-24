@@ -46,4 +46,7 @@ test('prerankAnalysis builds an estimated analysis tagged local-prerank', () => 
   // … and the sentinel that marks it estimated (so the UI can upgrade on open).
   assert.equal(analysis.modelUsed, PRERANK_MODEL);
   assert.equal(PRERANK_MODEL, 'local-prerank');
+  // A matched skill must never also appear as missing.
+  const overlap = analysis.missingSkills.filter((skill) => analysis.matchedSkills.includes(skill));
+  assert.deepEqual(overlap, []);
 });
