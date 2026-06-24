@@ -8,6 +8,7 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { Switch } from '@/components/ui/switch';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Textarea } from '@/components/ui/textarea';
 import { saveResumeText, uploadResumeFile, createSavedSearch, runDiscovery } from '@/lib/api';
@@ -202,15 +203,12 @@ export default function OnboardingPage() {
                 placeholder="Optional · e.g. Remote, San Francisco"
               />
             </div>
-            <label className="flex items-center gap-2 text-sm">
-              <input
-                type="checkbox"
-                checked={remoteOnly}
-                onChange={(event) => setRemoteOnly(event.target.checked)}
-                className="size-4"
-              />
-              Remote roles only
-            </label>
+            <div className="flex items-center gap-2">
+              <Switch id="remote" checked={remoteOnly} onCheckedChange={setRemoteOnly} />
+              <Label htmlFor="remote" className="text-sm font-normal">
+                Remote roles only
+              </Label>
+            </div>
 
             {error ? (
               <p role="alert" className="text-destructive text-sm font-medium">

@@ -66,3 +66,18 @@ it('requires a role/keyword before discovering on step 2', async () => {
   expect(await screen.findByRole('alert')).toHaveTextContent(/add at least one role or keyword/i);
   expect(createSavedSearch).not.toHaveBeenCalled();
 });
+
+it('lets the user skip discovery and go to the dashboard', async () => {
+  const user = userEvent.setup();
+  render(<OnboardingPage />);
+
+  await user.click(screen.getByRole('tab', { name: /paste text/i }));
+  await user.type(screen.getByPlaceholderText(/paste your resume text/i), 'Engineer.');
+  await user.click(screen.getByRole('button', { name: /continue/i }));
+
+  await screen.findByLabelText(/role or keywords/i);
+  await user.click(screen.getByRole('button', { name: /skip for now/i }));
+
+  expect(createSavedSearch).not.toHaveBeenCalled();
+  await waitFor(() => expect(push).toHaveBeenCalledWith('/dashboard'));
+});
