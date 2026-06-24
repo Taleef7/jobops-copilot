@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { computeLocalFit } from './local-fit';
+import { PRERANK_MODEL, computeLocalFit, prerankAnalysis } from './local-fit';
 
 test('scores the overlap of resume skills against job skills', () => {
   // Description mentions TypeScript, React, Node.js (3 catalog skills).
@@ -30,8 +30,6 @@ test('scores 100 when the resume covers every job skill', () => {
   const result = computeLocalFit('TypeScript and React.', 'TypeScript, React, and more.');
   assert.equal(result.score, 100);
 });
-
-import { PRERANK_MODEL, prerankAnalysis } from './local-fit';
 
 test('prerankAnalysis builds an estimated analysis tagged local-prerank', () => {
   const { fitScore, analysis } = prerankAnalysis(
