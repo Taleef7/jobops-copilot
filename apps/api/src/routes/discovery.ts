@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { requireUser } from '@/lib/auth';
-import { createJob, listJobs } from '@/data/job-store';
+import { createJob, listJobs, saveJobAnalysis } from '@/data/job-store';
+import { getUserProfile } from '@/data/profile-store';
 import { listSavedSearches, listUsersWithSavedSearches } from '@/data/saved-search-store';
 import { getJobSource } from '@/lib/job-sources';
 import { requireN8nWebhookSecret } from '@/lib/n8n';
@@ -13,7 +14,14 @@ export interface DiscoveryRouterDeps {
 
 const defaultDeps: DiscoveryRouterDeps = {
   runDiscovery: (userId) =>
-    runDiscoveryForUser(userId, { source: getJobSource(), listJobs, createJob, listSavedSearches }),
+    runDiscoveryForUser(userId, {
+      source: getJobSource(),
+      listJobs,
+      createJob,
+      listSavedSearches,
+      getResume: async (uid) => (await getUserProfile(uid))?.resumeText ?? '',
+      saveAnalysis: saveJobAnalysis,
+    }),
   listUsersWithSavedSearches,
 };
 

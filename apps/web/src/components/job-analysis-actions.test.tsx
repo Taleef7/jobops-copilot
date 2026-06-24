@@ -1,5 +1,5 @@
 import '@testing-library/jest-dom/vitest';
-import { render, screen } from '@testing-library/react';
+import { render, screen, waitFor } from '@testing-library/react';
 import { afterEach, expect, it, vi } from 'vitest';
 
 const { scoreFit } = vi.hoisted(() => ({
@@ -21,9 +21,33 @@ afterEach(() => {
 it('offers a single "Score fit" action and no separate "Parse job" button', () => {
   render(<JobAnalysisActions jobId="job-1" />);
 
-  // Score fit is the one analysis action (it parses + scores in one step).
   expect(screen.getByRole('button', { name: /score fit/i })).toBeInTheDocument();
-  // "Parse job" is gone — it used to overwrite the scored analysis with a
-  // fit-less heuristic, which is the bug this removes.
   expect(screen.queryByRole('button', { name: /parse job/i })).not.toBeInTheDocument();
+});
+
+it('does not auto-score by default', () => {
+  render(<JobAnalysisActions jobId="job-1" />);
+  expect(scoreFit).not.toHaveBeenCalled();
+});
+
+it('auto-scores once on mount when the analysis is an estimate', async () => {
+  render(<JobAnalysisActions jobId="job-1" autoScore />);
+  await waitFor(() => expect(scoreFit).toHaveBeenCalledTimes(1));
+  expect(scoreFit).toHaveBeenCalledWith({ jobId: 'job-1' });
+});
+
+it('does not auto-score again if it re-renders with autoScore still set', async () => {
+  const { rerender } = render(<JobAnalysisActions jobId="job-1" autoScore />);
+  await waitFor(() => expect(scoreFit).toHaveBeenCalledTimes(1));
+  rerender(<JobAnalysisActions jobId="job-1" autoScore />);
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  expect(scoreFit).toHaveBeenCalledTimes(1);
+});
+
+it('auto-scores again when the same instance is reused for a different job', async () => {
+  const { rerender } = render(<JobAnalysisActions jobId="job-1" autoScore />);
+  await waitFor(() => expect(scoreFit).toHaveBeenCalledTimes(1));
+  rerender(<JobAnalysisActions jobId="job-2" autoScore />);
+  await waitFor(() => expect(scoreFit).toHaveBeenCalledTimes(2));
+  expect(scoreFit).toHaveBeenLastCalledWith({ jobId: 'job-2' });
 });

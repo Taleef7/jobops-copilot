@@ -16,18 +16,31 @@ const SEARCH: SavedSearch = {
 function makeDeps(
   found: SourcedJob[],
   existing: Partial<JobRecord>[],
-): { deps: DiscoveryDeps; created: CreateJobBody[] } {
+  resume = 'TypeScript and React engineer.',
+): {
+  deps: DiscoveryDeps;
+  created: CreateJobBody[];
+  analyses: Array<{ jobId: string; fitScore?: number | null; modelUsed: string }>;
+} {
   const created: CreateJobBody[] = [];
+  const analyses: Array<{ jobId: string; fitScore?: number | null; modelUsed: string }> = [];
+  let n = 0;
   const deps: DiscoveryDeps = {
     source: { name: 'adzuna', search: async () => found },
     listJobs: async () => existing as unknown as JobRecord[],
     createJob: async (_userId, body) => {
       created.push(body);
-      return body as unknown as JobRecord;
+      n += 1;
+      return { ...(body as object), id: `job-${n}` } as unknown as JobRecord;
     },
     listSavedSearches: async () => [SEARCH],
+    getResume: async () => resume,
+    saveAnalysis: async (_userId, jobId, analysis, fitScore) => {
+      analyses.push({ jobId, fitScore, modelUsed: analysis.modelUsed });
+      return undefined;
+    },
   };
-  return { deps, created };
+  return { deps, created, analyses };
 }
 
 function sourced(url: string, overrides: Partial<SourcedJob> = {}): SourcedJob {
@@ -100,9 +113,11 @@ test('counts a concurrent duplicate insert (Postgres 23505) as skipped', async (
         throw Object.assign(new Error('duplicate key value violates unique constraint'), { code: '23505' });
       }
       created.push(body);
-      return body as unknown as JobRecord;
+      return { ...(body as object), id: 'job-x' } as unknown as JobRecord;
     },
     listSavedSearches: async () => [SEARCH],
+    getResume: async () => 'resume',
+    saveAnalysis: async () => undefined,
   };
 
   const result = await runDiscoveryForUser('u', deps);
@@ -121,7 +136,48 @@ test('propagates non-duplicate insert errors', async () => {
       throw new Error('db down');
     },
     listSavedSearches: async () => [SEARCH],
+    getResume: async () => 'resume',
+    saveAnalysis: async () => undefined,
   };
 
   await assert.rejects(runDiscoveryForUser('u', deps), /db down/);
+});
+
+test('pre-ranks each inserted job with a local-prerank analysis', async () => {
+  const { deps, analyses } = makeDeps(
+    [sourced('https://x/1', { descriptionText: 'We use TypeScript and React.' })],
+    [],
+  );
+
+  const result = await runDiscoveryForUser('u', deps);
+
+  assert.equal(result.inserted, 1);
+  assert.equal(analyses.length, 1);
+  assert.equal(analyses[0]?.jobId, 'job-1');
+  assert.equal(analyses[0]?.modelUsed, 'local-prerank');
+  assert.equal(typeof analyses[0]?.fitScore, 'number');
+});
+
+test('still counts an inserted job when pre-rank persistence fails (best-effort)', async () => {
+  // saveAnalysis is opportunistic: the job is already inserted, so a transient
+  // failure persisting the estimated fit must not abort the discovery run.
+  const created: CreateJobBody[] = [];
+  const deps: DiscoveryDeps = {
+    source: { name: 'adzuna', search: async () => [sourced('https://x/1')] },
+    listJobs: async () => [],
+    createJob: async (_userId, body) => {
+      created.push(body);
+      return { ...(body as object), id: 'job-1' } as unknown as JobRecord;
+    },
+    listSavedSearches: async () => [SEARCH],
+    getResume: async () => 'resume',
+    saveAnalysis: async () => {
+      throw new Error('analysis store unavailable');
+    },
+  };
+
+  const result = await runDiscoveryForUser('u', deps);
+
+  assert.equal(result.inserted, 1);
+  assert.equal(created.length, 1);
 });
