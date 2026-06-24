@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { extractJobFromUrl, fetchJobPage } from './job-url-fetch';
+import { anyAddressBlocked, extractJobFromUrl, fetchJobPage } from './job-url-fetch';
 
 const okSafe = async (raw: string) => ({ ok: true as const, url: new URL(raw) });
 
@@ -92,6 +92,27 @@ test('fetchJobPage stops after too many redirects', async () => {
     },
   });
   assert.equal(page.blocked, 'Too many redirects.');
+});
+
+test('anyAddressBlocked guards the connect-time resolution', () => {
+  // The connect-time SSRF check: block if no address, or any resolved address is private.
+  assert.equal(anyAddressBlocked([]), true);
+  assert.equal(anyAddressBlocked([{ address: '93.184.216.34' }]), false);
+  assert.equal(anyAddressBlocked([{ address: '93.184.216.34' }, { address: '169.254.169.254' }]), true);
+});
+
+test('fetchJobPage blocks (does not throw) when the body stream errors mid-read', async () => {
+  const erroring = new ReadableStream<Uint8Array>({
+    pull(controller) {
+      controller.error(new Error('socket reset'));
+    },
+  });
+  const page = await fetchJobPage('https://example.com/job', {
+    assertSafe: okSafe,
+    fetchImpl: async () => new Response(erroring, { status: 200, headers: { 'content-type': 'text/html' } }),
+  });
+  assert.equal(page.blocked, 'Could not finish reading that page.');
+  assert.equal(page.html, undefined);
 });
 
 test('extractJobFromUrl maps a fetched page', async () => {

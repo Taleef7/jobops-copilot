@@ -1,9 +1,40 @@
-import { assertUrlSafe } from '@/lib/url-safety';
+import { lookup as dnsLookup, type LookupAddress } from 'node:dns';
+import type { LookupFunction } from 'node:net';
+import { Agent } from 'undici';
+import { assertUrlSafe, isBlockedAddress } from '@/lib/url-safety';
 import { extractJobFromHtml, type ExtractedJob } from '@/lib/job-url-extract';
 
 const MAX_BYTES = 2_000_000;
 const TIMEOUT_MS = 8_000;
 const MAX_REDIRECTS = 3;
+
+/** A pre-fetch SSRF check is point-in-time; the OS re-resolves the host when
+ *  `fetch` connects, so a hostile host can rebind DNS to a private IP between
+ *  the two. This connect-time guard re-checks the address actually being
+ *  connected to (and undici connects to exactly that address), closing the gap. */
+export function anyAddressBlocked(addresses: ReadonlyArray<{ address: string }>): boolean {
+  return addresses.length === 0 || addresses.some((a) => isBlockedAddress(a.address));
+}
+
+const safeLookup = (
+  hostname: string,
+  options: { all?: boolean } & Record<string, unknown>,
+  callback: (err: NodeJS.ErrnoException | null, address: string | LookupAddress[], family?: number) => void,
+): void => {
+  dnsLookup(hostname, { ...options, all: true }, (err, addresses) => {
+    if (err) return callback(err, []);
+    const list = addresses as LookupAddress[];
+    if (anyAddressBlocked(list)) {
+      return callback(Object.assign(new Error('Blocked address'), { code: 'EAI_FAIL' }), []);
+    }
+    if (options.all) return callback(null, list);
+    return callback(null, list[0]!.address, list[0]!.family);
+  });
+};
+
+// Reused dispatcher: every connection it makes is vetted at connect time.
+// (Cast bridges Node's overloaded LookupFunction signature to our handler.)
+const safeDispatcher = new Agent({ connect: { lookup: safeLookup as unknown as LookupFunction } });
 
 export interface FetchedPage {
   html?: string;
@@ -54,7 +85,11 @@ export async function fetchJobPage(rawUrl: string, deps: FetchDeps = {}): Promis
         redirect: 'manual',
         signal: AbortSignal.timeout(TIMEOUT_MS),
         headers: { 'User-Agent': 'JobOpsCopilot/1.0 (+job-autofill)', Accept: 'text/html' },
-      });
+        // undici reads `dispatcher`; the connect-time guard pins a vetted IP.
+        // Cast via unknown: `dispatcher` isn't in the DOM RequestInit type, and
+        // undici/undici-types versions differ structurally.
+        dispatcher: safeDispatcher,
+      } as unknown as RequestInit);
     } catch {
       return { blocked: 'Could not reach that page.' };
     }
@@ -73,7 +108,14 @@ export async function fetchJobPage(rawUrl: string, deps: FetchDeps = {}): Promis
       return { blocked: 'That URL is not an HTML page.' };
     }
 
-    const html = await readCapped(response, MAX_BYTES);
+    // Body read can still fail after headers arrive (timeout mid-stream, socket
+    // reset); keep the "never throws" contract by turning it into a block.
+    let html: string | null;
+    try {
+      html = await readCapped(response, MAX_BYTES);
+    } catch {
+      return { blocked: 'Could not finish reading that page.' };
+    }
     if (html === null) return { blocked: 'That page is too large to read.' };
     return { html };
   }
