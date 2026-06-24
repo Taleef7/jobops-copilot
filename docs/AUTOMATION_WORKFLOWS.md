@@ -14,8 +14,29 @@ The workflows build on the endpoints that already exist:
 - `POST /api/ai/generate-weekly-report` for weekly summaries
 - `GET /api/reports` and `GET /api/reports/latest` for saved weekly report history
 - `POST /api/n8n/job-intake` for webhook-driven job creation, parsing, and optional fit scoring
+- `POST /api/n8n/discover` to sweep every saved-search user, pull new postings, and pre-rank them against each resume
 - `POST /api/n8n/follow-up-reminders` for scheduled reminder queues
 - `POST /api/n8n/weekly-report` for weekly digest drafts
+
+## Scheduled discovery (built-in)
+
+The Jobs feed's background auto-refresh ships in-repo as a GitHub Actions cron —
+no external orchestrator required. `.github/workflows/discover.yml` runs every 6
+hours (and on manual `workflow_dispatch`) and POSTs `/api/n8n/discover`, which
+runs each user's saved searches, inserts new postings, and pre-ranks them
+against their resume (the real LLM fit score then runs when a job is opened).
+
+It's **inert until configured** — the job skips cleanly unless both are set in
+the repo's Actions settings:
+
+- Variable `NEXT_PUBLIC_API_BASE_URL` — the API origin (already set for the web
+  deploy), e.g. `https://jobops-api.azurewebsites.net`.
+- Secret `N8N_WEBHOOK_SECRET` — must match the API's `N8N_WEBHOOK_SECRET` env so
+  the `X-N8N-Webhook-Secret` header is accepted.
+
+Swap to an external scheduler (n8n, Make, Azure scheduled task) any time by
+pointing it at the same endpoint with the same header; the workflow is just the
+clock.
 
 ## n8n
 
