@@ -83,7 +83,7 @@ function createBaseJob(body: CreateJobBody): JobRecord {
     priority: 'medium',
     fitScore: null,
     notes: undefined,
-    nextAction: 'Run AI parsing and fit scoring after the record is saved.',
+    nextAction: 'Run fit scoring to analyze this role.',
     nextActionDue: undefined,
     analysis: defaultAnalysis(body.descriptionText),
     outreach: [],
