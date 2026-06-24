@@ -14,6 +14,30 @@ test('isBlockedAddress allows public addresses', () => {
   }
 });
 
+test('isBlockedAddress closes IPv6 SSRF bypasses', () => {
+  for (const ip of [
+    'fe81::1', // fe80::/10 — a string-prefix "fe80" check would miss this
+    'febf::1',
+    'fc00::1', // unique-local fc half
+    '::ffff:169.254.169.254', // IPv4-mapped metadata (most common vector)
+    '::ffff:7f00:1', // IPv4-mapped loopback, hex-word form
+    '::169.254.169.254', // deprecated IPv4-compatible
+    '2002:a9fe:a9fe::1', // 6to4 embedding 169.254.169.254
+    '2001:0:1234::1', // Teredo
+    '100.64.0.1', // CGNAT
+    '100.127.255.255',
+  ]) {
+    assert.equal(isBlockedAddress(ip), true, `${ip} should be blocked`);
+  }
+});
+
+test('assertUrlSafe blocks a decimal-encoded IPv4 host (WHATWG normalizes it)', async () => {
+  // http://2130706433/ === 127.0.0.1; the URL parser normalizes the hostname,
+  // so the injected resolver receives the dotted form and isBlockedAddress catches it.
+  const result = await assertUrlSafe('http://2130706433/', async (host) => [{ address: host }]);
+  assert.equal(result.ok, false);
+});
+
 test('assertUrlSafe rejects non-http(s) schemes without resolving', async () => {
   for (const url of ['file:///etc/passwd', 'ftp://example.com', 'gopher://x']) {
     const result = await assertUrlSafe(url, async () => [{ address: '93.184.216.34' }]);
