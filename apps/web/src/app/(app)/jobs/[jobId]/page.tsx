@@ -13,7 +13,7 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { isHeuristicAnalysis } from '@/lib/analysis-display';
+import { isHeuristicAnalysis, isPrerankAnalysis } from '@/lib/analysis-display';
 import { formatDate } from '@/lib/format';
 import { loadJob } from '@/lib/job-data';
 
@@ -34,6 +34,8 @@ export default async function JobDetailPage({ params }: JobDetailParams) {
 
   // Surface a rule-based heuristic score plainly (QA·B); see isHeuristicAnalysis.
   const heuristic = isHeuristicAnalysis(job.analysis.modelUsed);
+  // An estimated (local-prerank) analysis upgrades to a real LLM score on open.
+  const estimated = isPrerankAnalysis(job.analysis.modelUsed);
 
   return (
     <div className="space-y-6">
@@ -61,7 +63,7 @@ export default async function JobDetailPage({ params }: JobDetailParams) {
           </div>
         </div>
         <div className="border-t pt-4">
-          <JobAnalysisActions jobId={job.id} />
+          <JobAnalysisActions jobId={job.id} autoScore={estimated} />
         </div>
       </Card>
 
