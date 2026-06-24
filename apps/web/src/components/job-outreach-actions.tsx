@@ -78,7 +78,8 @@ export function JobOutreachActions({
       setResult({
         subject: draft.subject,
         draftText: draft.draft_text,
-        safetyNotes: draft.safety_notes,
+        // The live agent can omit safety_notes; default to '' so .trim() never crashes.
+        safetyNotes: draft.safety_notes ?? '',
         gmailDraftStatus: draft.gmail_draft_status,
       });
       toast.success('Draft created — review it in the inbox before sending.');

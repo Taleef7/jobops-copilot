@@ -264,8 +264,10 @@ export async function appendOutreachDraft(
       ...draft,
       jobId,
     });
-    // Keep only the latest draft per job (replace, don't accumulate).
-    job.outreach = [clonedDraft];
+    // Replace only the superseded unsent draft; preserve approved/sent/skipped
+    // rows, which carry real outreach history and dashboard/reporting state.
+    const preserved = job.outreach.filter((entry) => entry.status !== 'drafted');
+    job.outreach = [...preserved, clonedDraft];
     const jobUpdate = deriveOutreachJobUpdate(job.status, job.outreach);
 
     if (jobUpdate) {
