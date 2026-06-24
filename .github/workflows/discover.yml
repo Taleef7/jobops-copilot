@@ -1,0 +1,67 @@
+# Scheduled jobs-feed discovery sweep.
+#
+# Drives the "background auto-refresh" half of the Jobs feed (Phase 2): every few
+# hours it POSTs the service-to-service sweep endpoint, which runs every user's
+# saved searches against the job sources, inserts new postings, and pre-ranks
+# them against each user's resume. The endpoint itself lives in the API
+# (`POST /api/n8n/discover`, guarded by the n8n webhook secret); this workflow is
+# just the clock.
+#
+# Inert until configured: it skips cleanly unless BOTH the `NEXT_PUBLIC_API_BASE_URL`
+# repo variable (the API origin — already set for the web deploy) and the
+# `N8N_WEBHOOK_SECRET` repo secret (matching the API's env) are present.
+name: Discover jobs (scheduled sweep)
+
+on:
+  schedule:
+    - cron: '0 */6 * * *' # every 6 hours
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: discover-sweep
+  # Let an in-flight sweep finish rather than cancelling it mid-insert.
+  cancel-in-progress: false
+
+jobs:
+  discover:
+    name: Sweep saved searches for new postings
+    runs-on: ubuntu-latest
+    steps:
+      - name: Trigger the discovery sweep
+        env:
+          API_BASE_URL: ${{ vars.NEXT_PUBLIC_API_BASE_URL }}
+          N8N_WEBHOOK_SECRET: ${{ secrets.N8N_WEBHOOK_SECRET }}
+        run: |
+          set -euo pipefail
+
+          if [ -z "${API_BASE_URL:-}" ] || [ -z "${N8N_WEBHOOK_SECRET:-}" ]; then
+            echo "::notice::Skipping — set the NEXT_PUBLIC_API_BASE_URL variable and the N8N_WEBHOOK_SECRET secret to activate the scheduled jobs feed."
+            exit 0
+          fi
+
+          url="${API_BASE_URL%/}/api/n8n/discover"
+          echo "POST ${url}"
+
+          # -w appends the status code on its own line; split body vs code below.
+          # The secret only travels in a request header (never echoed); Actions
+          # also masks registered secrets in logs.
+          response="$(curl -sS -X POST "${url}" \
+            -H 'Content-Type: application/json' \
+            -H "X-N8N-Webhook-Secret: ${N8N_WEBHOOK_SECRET}" \
+            --retry 3 --retry-delay 5 --max-time 120 \
+            -w '\n%{http_code}' \
+            -d '{}')"
+
+          body="$(printf '%s' "${response}" | sed '$d')"
+          code="$(printf '%s' "${response}" | tail -n1)"
+
+          echo "HTTP ${code}"
+          echo "${body}"
+
+          if [ "${code}" -lt 200 ] || [ "${code}" -ge 300 ]; then
+            echo "::error::Discovery sweep failed (HTTP ${code})." >&2
+            exit 1
+          fi
