@@ -1,12 +1,18 @@
 import '@testing-library/jest-dom/vitest';
-import { render, screen } from '@testing-library/react';
+import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, expect, it, vi } from 'vitest';
 
-const { toastError } = vi.hoisted(() => ({ toastError: vi.fn() }));
-vi.mock('sonner', () => ({ toast: { error: toastError, success: vi.fn() } }));
-vi.mock('next/navigation', () => ({ useRouter: () => ({ push: vi.fn(), refresh: vi.fn() }) }));
-vi.mock('@/lib/api', () => ({ saveResumeText: vi.fn(), uploadResumeFile: vi.fn() }));
+const { push, refresh } = vi.hoisted(() => ({ push: vi.fn(), refresh: vi.fn() }));
+const { saveResumeText, uploadResumeFile, createSavedSearch, runDiscovery } = vi.hoisted(() => ({
+  saveResumeText: vi.fn(() => Promise.resolve(null)),
+  uploadResumeFile: vi.fn(() => Promise.resolve(null)),
+  createSavedSearch: vi.fn(() => Promise.resolve({ id: 's1' })),
+  runDiscovery: vi.fn(() => Promise.resolve({ inserted: 3, skipped: 0, source: 'adzuna' })),
+}));
+vi.mock('sonner', () => ({ toast: { error: vi.fn(), success: vi.fn() } }));
+vi.mock('next/navigation', () => ({ useRouter: () => ({ push, refresh }) }));
+vi.mock('@/lib/api', () => ({ saveResumeText, uploadResumeFile, createSavedSearch, runDiscovery }));
 
 import OnboardingPage from './page';
 
@@ -18,13 +24,45 @@ it('shows an inline alert (in addition to the toast) when continuing with no res
   const user = userEvent.setup();
   render(<OnboardingPage />);
 
-  // No alert before the user submits.
   expect(screen.queryByRole('alert')).toBeNull();
-
-  await user.click(screen.getByRole('button', { name: /continue to dashboard/i }));
+  await user.click(screen.getByRole('button', { name: /continue/i }));
 
   const alert = await screen.findByRole('alert');
   expect(alert).toHaveTextContent(/add your resume to continue/i);
-  // The toast still fires too — inline is "in addition to", not a replacement.
-  expect(toastError).toHaveBeenCalledOnce();
+});
+
+it('advances to the target-roles step after a resume is saved, then discovers and routes to jobs', async () => {
+  const user = userEvent.setup();
+  render(<OnboardingPage />);
+
+  await user.click(screen.getByRole('tab', { name: /paste text/i }));
+  await user.type(screen.getByPlaceholderText(/paste your resume text/i), 'Senior TypeScript engineer.');
+  await user.click(screen.getByRole('button', { name: /continue/i }));
+
+  const roleInput = await screen.findByLabelText(/role or keywords/i);
+  await user.type(roleInput, 'AI Engineer');
+  await user.click(screen.getByRole('button', { name: /find matching jobs/i }));
+
+  await waitFor(() => expect(createSavedSearch).toHaveBeenCalledWith({
+    query: 'AI Engineer',
+    location: undefined,
+    remoteOnly: false,
+  }));
+  expect(runDiscovery).toHaveBeenCalledOnce();
+  await waitFor(() => expect(push).toHaveBeenCalledWith('/jobs'));
+});
+
+it('requires a role/keyword before discovering on step 2', async () => {
+  const user = userEvent.setup();
+  render(<OnboardingPage />);
+
+  await user.click(screen.getByRole('tab', { name: /paste text/i }));
+  await user.type(screen.getByPlaceholderText(/paste your resume text/i), 'Engineer.');
+  await user.click(screen.getByRole('button', { name: /continue/i }));
+
+  await screen.findByLabelText(/role or keywords/i);
+  await user.click(screen.getByRole('button', { name: /find matching jobs/i }));
+
+  expect(await screen.findByRole('alert')).toHaveTextContent(/add at least one role or keyword/i);
+  expect(createSavedSearch).not.toHaveBeenCalled();
 });
