@@ -35,3 +35,11 @@ it('auto-scores once on mount when the analysis is an estimate', async () => {
   await waitFor(() => expect(scoreFit).toHaveBeenCalledTimes(1));
   expect(scoreFit).toHaveBeenCalledWith({ jobId: 'job-1' });
 });
+
+it('does not auto-score again if it re-renders with autoScore still set', async () => {
+  const { rerender } = render(<JobAnalysisActions jobId="job-1" autoScore />);
+  await waitFor(() => expect(scoreFit).toHaveBeenCalledTimes(1));
+  rerender(<JobAnalysisActions jobId="job-1" autoScore />);
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  expect(scoreFit).toHaveBeenCalledTimes(1);
+});

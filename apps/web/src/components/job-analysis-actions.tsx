@@ -27,12 +27,17 @@ export function JobAnalysisActions({ jobId, autoScore = false }: JobAnalysisActi
     try {
       const scored = await scoreFit({ jobId });
       if (!silent) toast.success(`Fit score saved: ${scored.fit_score}/100`);
+      // Always refresh so the upgraded score is reflected in the UI, even silently.
       router.refresh();
     } catch (error) {
-      // The automatic upgrade stays quiet on failure (e.g. daily budget reached):
-      // the estimate remains and the manual button is the fallback.
+      // The automatic upgrade stays quiet on expected failures (e.g. daily budget
+      // reached): the estimate remains and the manual button is the fallback.
       if (!silent) {
         toast.error(error instanceof ApiRequestError ? error.message : 'Failed to score the fit.');
+      } else if (!(error instanceof ApiRequestError)) {
+        // Surface unexpected failures (network/parse/bugs) to the console even in
+        // silent mode so they aren't swallowed entirely.
+        console.error('[JobAnalysisActions] auto-score failed unexpectedly', error);
       }
     } finally {
       setIsScoring(false);
@@ -44,8 +49,9 @@ export function JobAnalysisActions({ jobId, autoScore = false }: JobAnalysisActi
       autoFired.current = true;
       void handleScore({ silent: true });
     }
-    // Fire at most once per mount for an estimated job; jobId/autoScore are stable
-    // for the lifetime of the detail page.
+    // Listing handleScore (defined inline, not memoised) would re-fire the effect
+    // on every render; the autoFired ref is the real once-per-mount guard. The
+    // effect only reads jobId/autoScore, so those are the deps we declare.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [autoScore, jobId]);
 
