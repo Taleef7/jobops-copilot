@@ -10,6 +10,7 @@ import { aiRouter } from '@/routes/ai';
 import { assistantStreamRouter } from '@/routes/assistant';
 import { demoRouter } from '@/routes/demo';
 import { healthRouter } from '@/routes/health';
+import { jobExtractRouter } from '@/routes/job-extract';
 import { jobsRouter } from '@/routes/jobs';
 import { n8nRouter } from '@/routes/n8n';
 import { profileRouter } from '@/routes/profile';
@@ -74,6 +75,7 @@ export function createApp() {
   app.use(globalLimiter);
 
   app.use('/api', healthRouter);
+  app.use('/api/jobs', jobExtractRouter);
   app.use('/api/jobs', jobsRouter);
   // SSE assistant stream: mounted at the exact path (before the AI router) so it pipes
   // unbuffered and doesn't double-apply the AI guards to /assistant/run|resume.
