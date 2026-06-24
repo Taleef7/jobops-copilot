@@ -67,6 +67,27 @@ it('requires a role/keyword before discovering on step 2', async () => {
   expect(createSavedSearch).not.toHaveBeenCalled();
 });
 
+it('treats a "Remote" location as remote-only (the source ignores it as a place)', async () => {
+  const user = userEvent.setup();
+  render(<OnboardingPage />);
+
+  await user.click(screen.getByRole('tab', { name: /paste text/i }));
+  await user.type(screen.getByPlaceholderText(/paste your resume text/i), 'Engineer.');
+  await user.click(screen.getByRole('button', { name: /continue/i }));
+
+  await user.type(await screen.findByLabelText(/role or keywords/i), 'AI Engineer');
+  await user.type(screen.getByLabelText(/^location$/i), 'Remote');
+  await user.click(screen.getByRole('button', { name: /find matching jobs/i }));
+
+  await waitFor(() =>
+    expect(createSavedSearch).toHaveBeenCalledWith({
+      query: 'AI Engineer',
+      location: undefined,
+      remoteOnly: true,
+    }),
+  );
+});
+
 it('lets the user skip discovery and go to the dashboard', async () => {
   const user = userEvent.setup();
   render(<OnboardingPage />);

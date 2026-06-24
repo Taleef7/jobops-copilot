@@ -13,6 +13,10 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Textarea } from '@/components/ui/textarea';
 import { saveResumeText, uploadResumeFile, createSavedSearch, runDiscovery } from '@/lib/api';
 
+// Mirrors the Adzuna source: these "locations" aren't geographic, so they're
+// ignored as a `where` filter — we treat them as a remote-only signal instead.
+const NON_GEOGRAPHIC_LOCATIONS = new Set(['remote', 'anywhere', 'worldwide', 'global']);
+
 export default function OnboardingPage() {
   const router = useRouter();
 
@@ -62,10 +66,15 @@ export default function OnboardingPage() {
     setSaving(true);
     setError(null);
     try {
+      // A non-geographic "location" (e.g. "Remote") is dropped by the Adzuna
+      // source and does nothing; it's the remoteOnly flag that biases toward
+      // remote roles. Normalize so a user who types one still gets a remote feed.
+      const trimmedLocation = location.trim();
+      const isRemoteLocation = NON_GEOGRAPHIC_LOCATIONS.has(trimmedLocation.toLowerCase());
       await createSavedSearch({
         query: trimmed,
-        location: location.trim() || undefined,
-        remoteOnly,
+        location: isRemoteLocation ? undefined : trimmedLocation || undefined,
+        remoteOnly: remoteOnly || isRemoteLocation,
       });
       try {
         const result = await runDiscovery();
@@ -200,7 +209,7 @@ export default function OnboardingPage() {
                 id="loc"
                 value={location}
                 onChange={(event) => setLocation(event.target.value)}
-                placeholder="Optional · e.g. Remote, San Francisco"
+                placeholder="Optional · e.g. San Francisco (use the toggle for remote)"
               />
             </div>
             <div className="flex items-center gap-2">
