@@ -21,6 +21,7 @@
     "express-rate-limit": "^8.5.2",
     "helmet": "^8.2.0",
     "multer": "^2.0.1",
+    "node-html-parser": "^7.1.0",
     "pdf-parse": "^1.1.1",
     "pg": "^8.20.0"
   },
