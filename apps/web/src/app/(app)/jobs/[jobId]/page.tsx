@@ -61,7 +61,7 @@ export default async function JobDetailPage({ params }: JobDetailParams) {
           </div>
         </div>
         <div className="border-t pt-4">
-          <JobAnalysisActions jobId={job.id} descriptionText={job.descriptionText} />
+          <JobAnalysisActions jobId={job.id} />
         </div>
       </Card>
 

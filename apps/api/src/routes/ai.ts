@@ -3,6 +3,7 @@ import { Router } from 'express';
 import {
   analysisFromFit,
   analysisFromParsed,
+  groundingFromParsed,
   validateFitScoreOutput,
   validateParsedJobOutput,
 } from '@/lib/analysis-core';
@@ -17,6 +18,7 @@ import {
 } from '@/lib/agent-client';
 import { isSingleRecipientEmailAddress } from '@/lib/email';
 import { createGmailDraftIfEnabled } from '@/lib/gmail';
+import { reserveAiBudget } from '@/lib/budget';
 import {
   appendOutreachDraft,
   getJobById,
@@ -97,14 +99,30 @@ aiRouter.post('/score-fit', async (request, response, next) => {
         .json({ error: 'No resume on file. Add your resume in onboarding or settings first.' });
     }
 
+    // Fold the former standalone "Parse job" step in: parse the description so
+    // the scorer is grounded on real structured skills and the saved analysis
+    // carries them. The Parse button is gone, so this is the only path — a job's
+    // parsed skills must not stay empty/incomplete behind a successful score.
+    //
+    // This adds a second paid agent call (parse) on top of the score, but the
+    // /api/ai budget middleware only reserves one. Reserve the extra parse op so
+    // a user near the daily cap can't overspend — mirrors the n8n path, which
+    // reserves both parse and score.
+    if (!(await reserveAiBudget(userId, 'parse'))) {
+      return response.status(429).json({ error: 'Daily AI budget reached' });
+    }
+
+    const parsed = await resolveParsedJob(job.descriptionText);
+    const grounding = groundingFromParsed(parsed, job.analysis);
+
     const scored = await resolveFitScore({
       userId,
       descriptionText: job.descriptionText,
       resumeText,
       profileText,
-      requiredSkills: job.analysis.requiredSkills,
-      preferredSkills: job.analysis.preferredSkills,
-      atsKeywords: job.analysis.atsKeywords,
+      requiredSkills: grounding.requiredSkills,
+      preferredSkills: grounding.preferredSkills,
+      atsKeywords: grounding.atsKeywords,
     });
 
     if (!validateFitScoreOutput(scored)) {
@@ -112,8 +130,8 @@ aiRouter.post('/score-fit', async (request, response, next) => {
     }
 
     const analysis = analysisFromFit(scored, {
-      requiredSkills: job.analysis.requiredSkills,
-      preferredSkills: job.analysis.preferredSkills,
+      requiredSkills: grounding.requiredSkills,
+      preferredSkills: grounding.preferredSkills,
     });
 
     await saveJobAnalysis(userId, body.job_id, analysis, scored.fit_score);
