@@ -157,3 +157,27 @@ test('pre-ranks each inserted job with a local-prerank analysis', async () => {
   assert.equal(analyses[0]?.modelUsed, 'local-prerank');
   assert.equal(typeof analyses[0]?.fitScore, 'number');
 });
+
+test('still counts an inserted job when pre-rank persistence fails (best-effort)', async () => {
+  // saveAnalysis is opportunistic: the job is already inserted, so a transient
+  // failure persisting the estimated fit must not abort the discovery run.
+  const created: CreateJobBody[] = [];
+  const deps: DiscoveryDeps = {
+    source: { name: 'adzuna', search: async () => [sourced('https://x/1')] },
+    listJobs: async () => [],
+    createJob: async (_userId, body) => {
+      created.push(body);
+      return { ...(body as object), id: 'job-1' } as unknown as JobRecord;
+    },
+    listSavedSearches: async () => [SEARCH],
+    getResume: async () => 'resume',
+    saveAnalysis: async () => {
+      throw new Error('analysis store unavailable');
+    },
+  };
+
+  const result = await runDiscoveryForUser('u', deps);
+
+  assert.equal(result.inserted, 1);
+  assert.equal(created.length, 1);
+});

@@ -85,10 +85,16 @@ export async function runDiscoveryForUser(userId: string, deps: DiscoveryDeps): 
       try {
         const createdJob = await deps.createJob(userId, job);
         inserted += 1;
-        // Pre-rank: store a free estimated fit so the feed is ranked immediately;
-        // the real LLM score runs lazily when the user first opens the job.
-        const { fitScore, analysis } = prerankAnalysis(job.descriptionText ?? '', resume);
-        await deps.saveAnalysis(userId, createdJob.id, analysis, fitScore);
+        // Pre-rank is best-effort: the job is already inserted and counted, so a
+        // transient failure persisting the estimated fit must not abort the whole
+        // sweep. The real LLM score still runs when the user first opens the job;
+        // until then an unranked job simply sorts as having no score.
+        try {
+          const { fitScore, analysis } = prerankAnalysis(job.descriptionText ?? '', resume);
+          await deps.saveAnalysis(userId, createdJob.id, analysis, fitScore);
+        } catch {
+          // Leave the job unranked rather than failing the discovery run.
+        }
       } catch (error) {
         // A concurrent discovery run (manual click + n8n sweep, or two API
         // instances) can insert the same posting between building `seen` and
