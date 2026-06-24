@@ -1,5 +1,10 @@
-import { createJob as createJobStore, listJobs as listJobsStore } from '@/data/job-store';
+import {
+  createJob as createJobStore,
+  listJobs as listJobsStore,
+  saveJobAnalysis as saveJobAnalysisStore,
+} from '@/data/job-store';
 import { listSavedSearches as listSavedSearchesStore } from '@/data/saved-search-store';
+import { prerankAnalysis } from '@/lib/local-fit';
 import type { JobSource } from '@/lib/job-sources';
 import { dedupKey, fingerprintKey } from '@/lib/job-sources/normalize';
 
@@ -14,6 +19,8 @@ export interface DiscoveryDeps {
   listJobs: typeof listJobsStore;
   createJob: typeof createJobStore;
   listSavedSearches: typeof listSavedSearchesStore;
+  getResume: (userId: string) => Promise<string>;
+  saveAnalysis: typeof saveJobAnalysisStore;
 }
 
 /**
@@ -49,6 +56,7 @@ function isDuplicateKeyError(error: unknown): boolean {
 export async function runDiscoveryForUser(userId: string, deps: DiscoveryDeps): Promise<DiscoveryResult> {
   const searches = await deps.listSavedSearches(userId);
   const seen = new Set((await deps.listJobs(userId)).flatMap(keysFor));
+  const resume = await deps.getResume(userId);
 
   let inserted = 0;
   let skipped = 0;
@@ -75,8 +83,12 @@ export async function runDiscoveryForUser(userId: string, deps: DiscoveryDeps): 
       // copy in the same run is recognised as a duplicate.
       for (const k of keysFor(job)) seen.add(k);
       try {
-        await deps.createJob(userId, job);
+        const createdJob = await deps.createJob(userId, job);
         inserted += 1;
+        // Pre-rank: store a free estimated fit so the feed is ranked immediately;
+        // the real LLM score runs lazily when the user first opens the job.
+        const { fitScore, analysis } = prerankAnalysis(job.descriptionText ?? '', resume);
+        await deps.saveAnalysis(userId, createdJob.id, analysis, fitScore);
       } catch (error) {
         // A concurrent discovery run (manual click + n8n sweep, or two API
         // instances) can insert the same posting between building `seen` and
