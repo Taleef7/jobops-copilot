@@ -18,6 +18,8 @@ export interface FetchDeps {
 async function readCapped(response: Response, maxBytes: number): Promise<string | null> {
   const reader = response.body?.getReader();
   if (!reader) {
+    // Body-less Response — only test doubles hit this; Node's fetch always
+    // streams, so the streamed path below is what bounds memory in production.
     const text = await response.text();
     return Buffer.byteLength(text) > maxBytes ? null : text;
   }
@@ -64,7 +66,8 @@ export async function fetchJobPage(rawUrl: string, deps: FetchDeps = {}): Promis
       continue;
     }
     if (!response.ok) return { blocked: `The page returned HTTP ${response.status}.` };
-    if (!(response.headers.get('content-type') ?? '').includes('text/html')) {
+    const contentType = (response.headers.get('content-type') ?? '').split(';')[0]?.trim().toLowerCase();
+    if (contentType !== 'text/html') {
       return { blocked: 'That URL is not an HTML page.' };
     }
 
