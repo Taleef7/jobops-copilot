@@ -66,8 +66,10 @@ export async function fetchJobPage(rawUrl: string, deps: FetchDeps = {}): Promis
       continue;
     }
     if (!response.ok) return { blocked: `The page returned HTTP ${response.status}.` };
+    // Reject an explicit non-HTML type, but allow a missing content-type: some
+    // job boards omit it, and the extractor degrades to source:'none' on junk.
     const contentType = (response.headers.get('content-type') ?? '').split(';')[0]?.trim().toLowerCase();
-    if (contentType !== 'text/html') {
+    if (contentType && contentType !== 'text/html') {
       return { blocked: 'That URL is not an HTML page.' };
     }
 

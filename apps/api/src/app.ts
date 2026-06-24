@@ -75,7 +75,9 @@ export function createApp() {
   app.use(globalLimiter);
 
   app.use('/api', healthRouter);
-  app.use('/api/jobs', jobExtractRouter);
+  // The extract endpoint makes an outbound fetch per call, so it gets the strict
+  // limiter (like AI/discovery) — scoped to /extract only, not the jobs CRUD.
+  app.use('/api/jobs/extract', strictLimiter, jobExtractRouter);
   app.use('/api/jobs', jobsRouter);
   // SSE assistant stream: mounted at the exact path (before the AI router) so it pipes
   // unbuffered and doesn't double-apply the AI guards to /assistant/run|resume.

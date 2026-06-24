@@ -17,6 +17,18 @@ test('fetchJobPage returns html for a safe, html, 200 page', async () => {
   assert.match(page.html ?? '', /hi/);
 });
 
+test('fetchJobPage allows a response with no content-type header', async () => {
+  // A Uint8Array body does not get an auto content-type (unlike a string body),
+  // so this exercises the missing-header path.
+  const page = await fetchJobPage('https://example.com/job', {
+    assertSafe: okSafe,
+    fetchImpl: async () =>
+      new Response(new TextEncoder().encode('<html><body>ok</body></html>'), { status: 200 }),
+  });
+  assert.equal(page.blocked, undefined);
+  assert.match(page.html ?? '', /ok/);
+});
+
 test('fetchJobPage blocks a non-html response', async () => {
   const page = await fetchJobPage('https://example.com/x.pdf', {
     assertSafe: okSafe,

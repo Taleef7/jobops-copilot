@@ -8,11 +8,13 @@ export interface JobExtractDeps {
 
 const defaultDeps: JobExtractDeps = { extract: (url) => extractJobFromUrl(url) };
 
-/** `POST /api/jobs/extract` — fetch a job URL and return autofill fields. */
+/** `POST /api/jobs/extract` — fetch a job URL and return autofill fields.
+ *  Mounted at `/api/jobs/extract` (with the strict rate limiter), so the route
+ *  path registered here is `/`. */
 export function createJobExtractRouter(deps: JobExtractDeps = defaultDeps) {
   const router = Router();
 
-  router.post('/extract', async (request, response, next) => {
+  router.post('/', async (request, response, next) => {
     const userId = requireUser(request, response);
     if (!userId) return;
 

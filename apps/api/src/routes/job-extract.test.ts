@@ -32,7 +32,7 @@ async function withServer(
 }
 
 function mountExtract(extract: (url: string) => Promise<ExtractResult>) {
-  return (app: express.Express) => app.use('/api/jobs', createJobExtractRouter({ extract }));
+  return (app: express.Express) => app.use('/api/jobs/extract', createJobExtractRouter({ extract }));
 }
 
 test('POST /api/jobs/extract requires a signed-in user', async () => {
