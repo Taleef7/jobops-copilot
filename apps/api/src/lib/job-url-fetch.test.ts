@@ -115,6 +115,15 @@ test('fetchJobPage blocks (does not throw) when the body stream errors mid-read'
   assert.equal(page.html, undefined);
 });
 
+test('fetchJobPage blocks (does not throw) on a malformed redirect location', async () => {
+  const page = await fetchJobPage('https://example.com/start', {
+    assertSafe: okSafe,
+    fetchImpl: async () => new Response(null, { status: 302, headers: { location: 'http://[' } }),
+  });
+  assert.equal(page.blocked, 'That page redirected to an invalid URL.');
+  assert.equal(page.html, undefined);
+});
+
 test('extractJobFromUrl maps a fetched page', async () => {
   const result = await extractJobFromUrl('https://example.com/job', {
     fetchPage: async () => ({

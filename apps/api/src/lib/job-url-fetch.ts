@@ -1,6 +1,6 @@
 import { lookup as dnsLookup, type LookupAddress } from 'node:dns';
 import type { LookupFunction } from 'node:net';
-import { Agent } from 'undici';
+import { Agent, fetch as undiciFetch } from 'undici';
 import { assertUrlSafe, isBlockedAddress } from '@/lib/url-safety';
 import { extractJobFromHtml, type ExtractedJob } from '@/lib/job-url-extract';
 
@@ -72,7 +72,9 @@ async function readCapped(response: Response, maxBytes: number): Promise<string 
 /** Fetch a user URL behind the SSRF guard; never throws — returns `{ blocked }` on any failure. */
 export async function fetchJobPage(rawUrl: string, deps: FetchDeps = {}): Promise<FetchedPage> {
   const assertSafe = deps.assertSafe ?? assertUrlSafe;
-  const fetchImpl = deps.fetchImpl ?? fetch;
+  // Default to undici's own fetch (same package as the Agent above) so the
+  // `dispatcher` is honored — a global-fetch dispatcher is a cross-instance type.
+  const fetchImpl = deps.fetchImpl ?? (undiciFetch as unknown as typeof fetch);
 
   let target = rawUrl;
   for (let hop = 0; hop <= MAX_REDIRECTS; hop += 1) {
@@ -97,7 +99,11 @@ export async function fetchJobPage(rawUrl: string, deps: FetchDeps = {}): Promis
     if (response.status >= 300 && response.status < 400) {
       const location = response.headers.get('location');
       if (!location) return { blocked: 'Redirect without a destination.' };
-      target = new URL(location, safe.url).toString();
+      try {
+        target = new URL(location, safe.url).toString();
+      } catch {
+        return { blocked: 'That page redirected to an invalid URL.' };
+      }
       continue;
     }
     if (!response.ok) return { blocked: `The page returned HTTP ${response.status}.` };
