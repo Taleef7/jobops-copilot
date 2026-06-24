@@ -20,7 +20,10 @@ type JobAnalysisActionsProps = {
 export function JobAnalysisActions({ jobId, autoScore = false }: JobAnalysisActionsProps) {
   const router = useRouter();
   const [isScoring, setIsScoring] = useState(false);
-  const autoFired = useRef(false);
+  // Track which job we auto-scored, not just whether we did, so a reused
+  // component instance (client-side nav to a different job) still upgrades the
+  // new estimate exactly once.
+  const autoScoredJobId = useRef<string | null>(null);
 
   async function handleScore({ silent = false }: { silent?: boolean } = {}) {
     setIsScoring(true);
@@ -45,12 +48,12 @@ export function JobAnalysisActions({ jobId, autoScore = false }: JobAnalysisActi
   }
 
   useEffect(() => {
-    if (autoScore && !autoFired.current) {
-      autoFired.current = true;
+    if (autoScore && autoScoredJobId.current !== jobId) {
+      autoScoredJobId.current = jobId;
       void handleScore({ silent: true });
     }
     // Listing handleScore (defined inline, not memoised) would re-fire the effect
-    // on every render; the autoFired ref is the real once-per-mount guard. The
+    // on every render; the autoScoredJobId ref is the real once-per-job guard. The
     // effect only reads jobId/autoScore, so those are the deps we declare.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [autoScore, jobId]);

@@ -13,6 +13,7 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { fetchProfile } from '@/lib/api';
 import { isHeuristicAnalysis, isPrerankAnalysis } from '@/lib/analysis-display';
 import { formatDate } from '@/lib/format';
 import { loadJob } from '@/lib/job-data';
@@ -29,13 +30,21 @@ export async function generateMetadata({ params }: JobDetailParams): Promise<Met
 
 export default async function JobDetailPage({ params }: JobDetailParams) {
   const { jobId } = await params;
-  const { job, source } = await loadJob(jobId);
+  // Fetch the profile alongside the job so we can decide whether auto-scoring is
+  // even possible; a profile failure must not break the page.
+  const [{ job, source }, profile] = await Promise.all([
+    loadJob(jobId),
+    fetchProfile().catch(() => null),
+  ]);
   if (!job) notFound();
 
   // Surface a rule-based heuristic score plainly (QA·B); see isHeuristicAnalysis.
   const heuristic = isHeuristicAnalysis(job.analysis.modelUsed);
-  // An estimated (local-prerank) analysis upgrades to a real LLM score on open.
+  // Only auto-upgrade an estimated (local-prerank) job when a resume is on file:
+  // without one, /score-fit returns 400 *after* the budget guard reserves cost,
+  // so auto-firing on every open would silently drain the daily AI budget.
   const estimated = isPrerankAnalysis(job.analysis.modelUsed);
+  const autoScore = estimated && profile?.hasResume === true;
 
   return (
     <div className="space-y-6">
@@ -63,7 +72,7 @@ export default async function JobDetailPage({ params }: JobDetailParams) {
           </div>
         </div>
         <div className="border-t pt-4">
-          <JobAnalysisActions jobId={job.id} autoScore={estimated} />
+          <JobAnalysisActions jobId={job.id} autoScore={autoScore} />
         </div>
       </Card>
 

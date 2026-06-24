@@ -43,3 +43,11 @@ it('does not auto-score again if it re-renders with autoScore still set', async 
   await new Promise((resolve) => setTimeout(resolve, 0));
   expect(scoreFit).toHaveBeenCalledTimes(1);
 });
+
+it('auto-scores again when the same instance is reused for a different job', async () => {
+  const { rerender } = render(<JobAnalysisActions jobId="job-1" autoScore />);
+  await waitFor(() => expect(scoreFit).toHaveBeenCalledTimes(1));
+  rerender(<JobAnalysisActions jobId="job-2" autoScore />);
+  await waitFor(() => expect(scoreFit).toHaveBeenCalledTimes(2));
+  expect(scoreFit).toHaveBeenLastCalledWith({ jobId: 'job-2' });
+});
