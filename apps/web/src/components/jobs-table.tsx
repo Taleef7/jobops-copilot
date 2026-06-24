@@ -73,8 +73,9 @@ export function JobsTable({ jobs, initialQuery = '' }: { jobs: Job[]; initialQue
     setRecency('all');
   }
 
-  // eslint-disable-next-line react-hooks/purity -- Date.now() is intentional here: the recency filter must compare against the current time at each render
-  const nowMs = Date.now();
+  // Freeze 'now' at mount (lazy init keeps Date.now() out of render purity rules
+  // and avoids the recency window shifting mid-session).
+  const [nowMs] = useState(() => Date.now());
   const filteredJobs = jobs.filter((job) => {
     const matchesQuery =
       !normalizedQuery ||
