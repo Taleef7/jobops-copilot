@@ -108,6 +108,10 @@ function fromHeuristic(root: HTMLElement): Partial<ExtractedJob> {
 
 export function extractJobFromHtml(html: string): ExtractedJob {
   const root = parse(html);
+  // Evaluated eagerly left-to-right: fromJsonLd/fromMeta must read the tree
+  // BEFORE fromHeuristic mutates it (it strips script/style/etc.). Keep this
+  // order and don't wrap a tier in a lazy thunk, or the heuristic's mutation
+  // would race the earlier readers.
   const tiers: Array<[ExtractedJob['source'], Partial<ExtractedJob>]> = [
     ['jsonld', fromJsonLd(root)],
     ['opengraph', fromMeta(root)],

@@ -41,7 +41,38 @@ test('uses a heuristic when there is no structured data', () => {
   const result = extractJobFromHtml(html);
   assert.equal(result.title, 'Data Scientist');
   assert.match(result.descriptionText ?? '', /pandas and SQL/);
-  assert.ok(result.source === 'heuristic' || result.source === 'opengraph');
+  assert.equal(result.source, 'heuristic');
+});
+
+test('reads a JobPosting nested in an @graph with an array @type', () => {
+  const html = `<html><head><script type="application/ld+json">
+    {"@context":"https://schema.org","@graph":[
+      {"@type":"Organization","name":"Ignored"},
+      {"@type":["JobPosting","Thing"],"title":"Graph Role","hiringOrganization":"StringCo"}
+    ]}</script></head><body></body></html>`;
+  const result = extractJobFromHtml(html);
+  assert.equal(result.source, 'jsonld');
+  assert.equal(result.title, 'Graph Role');
+  // hiringOrganization given as a bare string maps to company.
+  assert.equal(result.company, 'StringCo');
+});
+
+test('joins the first jobLocation when it is given as an array', () => {
+  const html = `<html><head><script type="application/ld+json">
+    {"@type":"JobPosting","title":"Multi","jobLocation":[
+      {"@type":"Place","address":{"addressLocality":"Austin","addressRegion":"TX"}},
+      {"@type":"Place","address":{"addressLocality":"Denver"}}
+    ]}</script></head><body></body></html>`;
+  const result = extractJobFromHtml(html);
+  assert.equal(result.location, 'Austin, TX');
+});
+
+test('falls back to <title> in the heuristic tier when there is no h1', () => {
+  const html = `<html><head><title>Lone Title Role</title></head><body>
+    <p>Some role description text here.</p></body></html>`;
+  const result = extractJobFromHtml(html);
+  assert.equal(result.title, 'Lone Title Role');
+  assert.equal(result.source, 'heuristic');
 });
 
 test('skips malformed JSON-LD without throwing', () => {
