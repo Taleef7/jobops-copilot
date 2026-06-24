@@ -30,3 +30,22 @@ test('scores 100 when the resume covers every job skill', () => {
   const result = computeLocalFit('TypeScript and React.', 'TypeScript, React, and more.');
   assert.equal(result.score, 100);
 });
+
+import { PRERANK_MODEL, prerankAnalysis } from './local-fit';
+
+test('prerankAnalysis builds an estimated analysis tagged local-prerank', () => {
+  const { fitScore, analysis } = prerankAnalysis(
+    'We use TypeScript, React, and Node.js daily.',
+    'Senior engineer fluent in TypeScript and React.',
+  );
+
+  // Carries the local-fit score …
+  assert.equal(fitScore, 67);
+  // … the matched skills from the overlap …
+  assert.deepEqual(analysis.matchedSkills.sort(), ['React', 'TypeScript']);
+  // … parsed required/preferred skills from the description …
+  assert.ok(analysis.requiredSkills.length > 0);
+  // … and the sentinel that marks it estimated (so the UI can upgrade on open).
+  assert.equal(analysis.modelUsed, PRERANK_MODEL);
+  assert.equal(PRERANK_MODEL, 'local-prerank');
+});
