@@ -2,6 +2,7 @@ import type { Metadata } from 'next';
 import { Plus } from 'lucide-react';
 import Link from 'next/link';
 import { JobsTable } from '@/components/jobs-table';
+import { SavedSearchesManager } from '@/components/saved-searches';
 import { SectionCard } from '@/components/section-card';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
@@ -43,6 +44,13 @@ export default async function JobsPage({
           </p>
         </Card>
       ) : null}
+
+      <SectionCard
+        title="Find new jobs"
+        description="Save target searches, then pull real postings into your pipeline — already scored against your resume."
+      >
+        <SavedSearchesManager />
+      </SectionCard>
 
       <SectionCard
         title="Job pipeline"

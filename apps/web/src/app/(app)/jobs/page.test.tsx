@@ -14,6 +14,12 @@ vi.mock('@/components/jobs-table', () => ({
   ),
 }));
 
+// The discovery panel is an interactive client component (router + API calls);
+// stub it so this test stays focused on query-param normalization.
+vi.mock('@/components/saved-searches', () => ({
+  SavedSearchesManager: () => <div data-testid="saved-searches" />,
+}));
+
 it('normalizes a repeated q param (string[]) to its first value', async () => {
   const ui = await JobsPage({ searchParams: Promise.resolve({ q: ['backend', 'remote'] }) });
   render(ui);
