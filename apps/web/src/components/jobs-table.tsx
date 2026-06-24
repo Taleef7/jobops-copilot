@@ -16,7 +16,9 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
+import { isPrerankAnalysis } from '@/lib/analysis-display';
 import { formatDate } from '@/lib/format';
+import { isWithinRecency, RECENCY_OPTIONS, recencyDate, type RecencyWindow } from '@/lib/job-recency';
 import { cn } from '@/lib/utils';
 import type { Job, JobPriority, JobStatus } from '@/types/job';
 
@@ -50,6 +52,7 @@ export function JobsTable({ jobs, initialQuery = '' }: { jobs: Job[]; initialQue
   const [query, setQuery] = useState(initialQuery);
   const [status, setStatus] = useState<JobStatus | 'all'>('all');
   const [priority, setPriority] = useState<JobPriority | 'all'>('all');
+  const [recency, setRecency] = useState<RecencyWindow>('all');
 
   // Re-seed when the URL query changes (e.g. a fresh search from the global
   // header lands on /jobs?q=… while this table is already mounted). Adjusting
@@ -67,8 +70,12 @@ export function JobsTable({ jobs, initialQuery = '' }: { jobs: Job[]; initialQue
     setQuery('');
     setStatus('all');
     setPriority('all');
+    setRecency('all');
   }
 
+  // Freeze 'now' at mount (lazy init keeps Date.now() out of render purity rules
+  // and avoids the recency window shifting mid-session).
+  const [nowMs] = useState(() => Date.now());
   const filteredJobs = jobs.filter((job) => {
     const matchesQuery =
       !normalizedQuery ||
@@ -78,7 +85,8 @@ export function JobsTable({ jobs, initialQuery = '' }: { jobs: Job[]; initialQue
         .includes(normalizedQuery);
     const matchesStatus = status === 'all' || job.status === status;
     const matchesPriority = priority === 'all' || job.priority === priority;
-    return matchesQuery && matchesStatus && matchesPriority;
+    const matchesRecency = isWithinRecency(job, recency, nowMs);
+    return matchesQuery && matchesStatus && matchesPriority && matchesRecency;
   });
 
   return (
@@ -118,6 +126,18 @@ export function JobsTable({ jobs, initialQuery = '' }: { jobs: Job[]; initialQue
             {priorityOptions.map((option) => (
               <option key={option} value={option}>
                 {option === 'all' ? 'All priorities' : option}
+              </option>
+            ))}
+          </select>
+          <select
+            aria-label="Filter by recency"
+            className={selectClass}
+            value={recency}
+            onChange={(event) => setRecency(event.target.value as RecencyWindow)}
+          >
+            {RECENCY_OPTIONS.map((option) => (
+              <option key={option.value} value={option.value}>
+                {option.label}
               </option>
             ))}
           </select>
@@ -165,10 +185,31 @@ export function JobsTable({ jobs, initialQuery = '' }: { jobs: Job[]; initialQue
                         <span className="text-muted-foreground block truncate text-xs">
                           {job.company} · {job.location}
                         </span>
-                        {job.source === 'adzuna' || job.source === 'remotive' ? (
-                          <Badge variant="outline" className="mt-1 text-[10px] font-normal capitalize">
-                            via {job.source}
-                          </Badge>
+                        <span className="mt-1 flex flex-wrap items-center gap-1.5">
+                          {job.source === 'adzuna' || job.source === 'remotive' ? (
+                            <Badge variant="outline" className="text-[10px] font-normal capitalize">
+                              via {job.source}
+                            </Badge>
+                          ) : null}
+                          {isPrerankAnalysis(job.analysis.modelUsed) ? (
+                            <Badge
+                              variant="outline"
+                              className="border-amber-500/40 text-[10px] font-normal text-amber-700 dark:text-amber-400"
+                            >
+                              Estimated
+                            </Badge>
+                          ) : null}
+                          <span className="text-muted-foreground text-[11px]">
+                            Posted {formatDate(recencyDate(job))}
+                          </span>
+                        </span>
+                        {job.analysis.matchedSkills.length > 0 ? (
+                          <span className="text-muted-foreground mt-1 block truncate text-[11px]">
+                            Matches: {job.analysis.matchedSkills.slice(0, 3).join(' · ')}
+                            {job.analysis.matchedSkills.length > 3
+                              ? ` +${job.analysis.matchedSkills.length - 3}`
+                              : ''}
+                          </span>
                         ) : null}
                       </span>
                     </Link>

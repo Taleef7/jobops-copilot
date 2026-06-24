@@ -1,5 +1,6 @@
 import '@testing-library/jest-dom/vitest';
 import { render, screen } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { expect, it } from 'vitest';
 import type { Job } from '@/types/job';
 import { JobsTable } from './jobs-table';
@@ -54,4 +55,53 @@ it('shows all jobs when initialQuery is empty', () => {
 
   expect(screen.getByText('AI Automation Engineer')).toBeInTheDocument();
   expect(screen.getByText('Solutions Consultant')).toBeInTheDocument();
+});
+
+it('filters by recency on datePosted (falling back to discoveredAt)', async () => {
+  const now = Date.now();
+  const recent = makeJob({
+    company: 'RecentCo',
+    title: 'Fresh Role',
+    datePosted: new Date(now - 2 * 3600_000).toISOString(),
+  });
+  const stale = makeJob({
+    company: 'StaleCo',
+    title: 'Old Role',
+    datePosted: new Date(now - 10 * 24 * 3600_000).toISOString(),
+  });
+
+  const user = userEvent.setup();
+  render(<JobsTable jobs={[recent, stale]} />);
+
+  expect(screen.getByText('Fresh Role')).toBeInTheDocument();
+  expect(screen.getByText('Old Role')).toBeInTheDocument();
+
+  await user.selectOptions(screen.getByLabelText(/filter by recency/i), '24h');
+
+  expect(screen.getByText('Fresh Role')).toBeInTheDocument();
+  expect(screen.queryByText('Old Role')).not.toBeInTheDocument();
+});
+
+it('marks an estimated (local-prerank) job and lists its matched skills', () => {
+  const job = makeJob({
+    company: 'EstimateCo',
+    title: 'Estimated Role',
+    analysis: {
+      requiredSkills: [],
+      preferredSkills: [],
+      matchedSkills: ['TypeScript', 'React'],
+      missingSkills: [],
+      atsKeywords: [],
+      fitSummary: '',
+      recommendedResumeAngle: '',
+      applyRecommendation: '',
+      confidenceScore: 0,
+      modelUsed: 'local-prerank',
+    },
+  });
+
+  render(<JobsTable jobs={[job]} />);
+
+  expect(screen.getAllByText(/estimated/i).some((el) => el.textContent === 'Estimated')).toBe(true);
+  expect(screen.getByText(/TypeScript/)).toBeInTheDocument();
 });
