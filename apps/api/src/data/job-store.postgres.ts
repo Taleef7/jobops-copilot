@@ -423,6 +423,10 @@ export async function appendOutreachDraft(
       return undefined;
     }
 
+    // Replace only the superseded unsent draft; preserve approved/sent/skipped
+    // rows, which carry real outreach history and dashboard/reporting state.
+    await client.query("delete from outreach where job_id::text = $1 and status = 'drafted'", [jobId]);
+
     const { rows } = await client.query<OutreachRow>(
       `
         insert into outreach (

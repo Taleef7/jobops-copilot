@@ -15,8 +15,14 @@ import { hasPostgresConnection } from '@/lib/postgres';
 import * as postgresStore from '@/data/job-store.postgres';
 import { seedJobs } from '@/data/mock-store';
 
-const dataDir = join(process.cwd(), 'data');
-const dataFile = join(dataDir, 'jobs.json');
+// Resolved per call (not once at import) so tests can redirect the store with chdir.
+function dataDir() {
+  return join(process.cwd(), 'data');
+}
+
+function dataFile() {
+  return join(dataDir(), 'jobs.json');
+}
 
 let jobsCache: JobRecord[] | null = null;
 let loadPromise: Promise<JobRecord[]> | null = null;
@@ -108,10 +114,10 @@ export function getStoreMode() {
 }
 
 async function loadJobs(): Promise<JobRecord[]> {
-  await mkdir(dataDir, { recursive: true });
+  await mkdir(dataDir(), { recursive: true });
 
   try {
-    const raw = await readFile(dataFile, 'utf8');
+    const raw = await readFile(dataFile(), 'utf8');
     const parsed = JSON.parse(raw) as unknown;
 
     if (!Array.isArray(parsed)) {
@@ -141,8 +147,8 @@ async function persistJobs() {
     return;
   }
 
-  await mkdir(dataDir, { recursive: true });
-  await writeFile(dataFile, `${JSON.stringify(jobsCache, null, 2)}\n`, 'utf8');
+  await mkdir(dataDir(), { recursive: true });
+  await writeFile(dataFile(), `${JSON.stringify(jobsCache, null, 2)}\n`, 'utf8');
 }
 
 async function runExclusive<T>(operation: () => Promise<T>): Promise<T> {
@@ -258,7 +264,10 @@ export async function appendOutreachDraft(
       ...draft,
       jobId,
     });
-    job.outreach.push(clonedDraft);
+    // Replace only the superseded unsent draft; preserve approved/sent/skipped
+    // rows, which carry real outreach history and dashboard/reporting state.
+    const preserved = job.outreach.filter((entry) => entry.status !== 'drafted');
+    job.outreach = [...preserved, clonedDraft];
     const jobUpdate = deriveOutreachJobUpdate(job.status, job.outreach);
 
     if (jobUpdate) {
@@ -422,4 +431,10 @@ export async function seedDemoData(userId: string): Promise<void> {
     jobsCache = [...mine, ...others];
     await persistJobs();
   });
+}
+
+export function resetJobStoreForTests() {
+  jobsCache = null;
+  loadPromise = null;
+  mutationQueue = Promise.resolve();
 }
