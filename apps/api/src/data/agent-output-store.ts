@@ -138,6 +138,8 @@ export async function persistAgentRun(
   result: unknown,
   save: typeof saveAgentOutput = saveAgentOutput,
 ): Promise<void> {
+  // Nothing to persist (and `payload jsonb not null` would reject a null).
+  if (result === null || result === undefined) return;
   try {
     const candidate = (result as { model_used?: unknown }).model_used;
     const modelUsed = typeof candidate === 'string' ? candidate : undefined;

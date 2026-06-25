@@ -54,6 +54,10 @@ export async function saveAgentOutput(
         payload = excluded.payload,
         model_used = excluded.model_used,
         created_at = now()
+      -- The where-exists above already prevents a non-owner from inserting (so
+      -- the conflict path is unreachable for them), but make ownership explicit
+      -- on the update branch too.
+      where agent_outputs.user_id = $3
       returning *
     `,
     [randomUUID(), jobId, userId, kind, JSON.stringify(payload), modelUsed ?? null],

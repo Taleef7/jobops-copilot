@@ -25,3 +25,14 @@ test('persistAgentRun swallows save failures (best-effort)', async () => {
   await persistAgentRun('u1', 'job-1', 'interview_prep', { likely_questions: [] }, save);
   assert.ok(true);
 });
+
+test('persistAgentRun skips a null/undefined result (no persist)', async () => {
+  let called = false;
+  const save = async () => {
+    called = true;
+    return undefined;
+  };
+  await persistAgentRun('u1', 'job-1', 'research', null, save);
+  await persistAgentRun('u1', 'job-1', 'research', undefined, save);
+  assert.equal(called, false);
+});
