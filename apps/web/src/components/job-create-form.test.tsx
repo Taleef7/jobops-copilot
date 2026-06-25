@@ -67,6 +67,25 @@ it('shows a manual-entry fallback when nothing could be extracted', async () => 
   expect(screen.getByLabelText(/job title/i)).toHaveValue('');
 });
 
+it('locks the URL input while extraction is in flight (no stale apply)', async () => {
+  let resolveExtract: (value: { source: string }) => void = () => {};
+  extractJobFromUrl.mockReturnValue(
+    new Promise((resolve) => {
+      resolveExtract = resolve;
+    }),
+  );
+  const user = userEvent.setup();
+  render(<JobCreateForm />);
+
+  const urlInput = screen.getByLabelText(/job url/i);
+  await user.type(urlInput, 'https://x/y');
+  await user.click(screen.getByRole('button', { name: /autofill/i }));
+
+  expect(urlInput).toBeDisabled();
+  resolveExtract({ source: 'none' });
+  await waitFor(() => expect(urlInput).toBeEnabled());
+});
+
 it('toasts an error when the extraction request fails', async () => {
   extractJobFromUrl.mockRejectedValue(new Error('network down'));
   const user = userEvent.setup();

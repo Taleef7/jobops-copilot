@@ -205,6 +205,9 @@ export function JobCreateForm() {
               onChange={(event) => updateField('jobUrl', event.target.value)}
               placeholder="https://…"
               className="flex-1"
+              // Locked during extraction so an in-flight response can't be applied
+              // to a URL the user changed meanwhile (stale-autofill mismatch).
+              disabled={isExtracting}
             />
             <Button
               type="button"
