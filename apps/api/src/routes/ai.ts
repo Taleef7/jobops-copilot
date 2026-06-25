@@ -26,6 +26,7 @@ import {
   saveJobAnalysis,
   updateOutreachGmailDraftId,
 } from '@/data/job-store';
+import { persistAgentRun } from '@/data/agent-output-store';
 import { saveWeeklyReport } from '@/data/report-store';
 import { getUserProfile } from '@/data/profile-store';
 import { requireUser } from '@/lib/auth';
@@ -270,6 +271,7 @@ aiRouter.post('/agents/interview-prep', async (request, response, next) => {
       role: job.title,
     });
 
+    await persistAgentRun(userId, body.job_id!, 'interview_prep', result);
     return response.json(result);
   } catch (error) {
     if (error instanceof AgentDisabledError) {
@@ -301,6 +303,7 @@ aiRouter.post('/agents/research', async (request, response, next) => {
       context: job.descriptionText,
     });
 
+    await persistAgentRun(userId, body.job_id!, 'research', result);
     return response.json(result);
   } catch (error) {
     if (error instanceof AgentDisabledError) {
@@ -333,6 +336,7 @@ aiRouter.post('/agents/skill-gap', async (request, response, next) => {
       resume_text: body.resume_text ?? profile?.resumeText,
     });
 
+    await persistAgentRun(userId, body.job_id!, 'skill_gap', result);
     return response.json(result);
   } catch (error) {
     if (error instanceof AgentDisabledError) {
