@@ -1,0 +1,105 @@
+import '@testing-library/jest-dom/vitest';
+import { render, screen, waitFor } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
+import { afterEach, expect, it, vi } from 'vitest';
+
+const { extractJobFromUrl, createJob } = vi.hoisted(() => ({
+  extractJobFromUrl: vi.fn(),
+  createJob: vi.fn(),
+}));
+vi.mock('sonner', () => ({ toast: { success: vi.fn(), error: vi.fn() } }));
+vi.mock('next/navigation', () => ({ useRouter: () => ({ push: vi.fn(), refresh: vi.fn() }) }));
+vi.mock('@/lib/api', () => ({
+  extractJobFromUrl,
+  createJob,
+  ApiRequestError: class ApiRequestError extends Error {},
+}));
+
+import { toast } from 'sonner';
+import { JobCreateForm } from './job-create-form';
+
+afterEach(() => {
+  vi.clearAllMocks();
+});
+
+it('disables Autofill until the URL is a valid http(s) URL', async () => {
+  const user = userEvent.setup();
+  render(<JobCreateForm />);
+
+  const autofill = screen.getByRole('button', { name: /autofill/i });
+  expect(autofill).toBeDisabled();
+
+  await user.type(screen.getByLabelText(/job url/i), 'https://boards.greenhouse.io/x/jobs/1');
+  expect(autofill).toBeEnabled();
+});
+
+it('populates the form from a successful extraction', async () => {
+  extractJobFromUrl.mockResolvedValue({
+    title: 'AI Engineer',
+    company: 'Pebble',
+    location: 'Remote',
+    descriptionText: 'Build agents.',
+    workplaceType: 'remote',
+    source: 'jsonld',
+  });
+  const user = userEvent.setup();
+  render(<JobCreateForm />);
+
+  await user.type(screen.getByLabelText(/job url/i), 'https://x/y');
+  await user.click(screen.getByRole('button', { name: /autofill/i }));
+
+  await waitFor(() => expect(screen.getByLabelText(/company/i)).toHaveValue('Pebble'));
+  expect(screen.getByLabelText(/job title/i)).toHaveValue('AI Engineer');
+  expect(screen.getByLabelText(/job description/i)).toHaveValue('Build agents.');
+  // The success toast names the source (jsonld → structured data).
+  expect(vi.mocked(toast.success)).toHaveBeenCalledWith(expect.stringMatching(/structured data/i));
+});
+
+it('shows a manual-entry fallback when nothing could be extracted', async () => {
+  extractJobFromUrl.mockResolvedValue({ source: 'none' });
+  const user = userEvent.setup();
+  render(<JobCreateForm />);
+
+  await user.type(screen.getByLabelText(/job url/i), 'https://x/y');
+  await user.click(screen.getByRole('button', { name: /autofill/i }));
+
+  expect(await screen.findByText(/couldn.t read that posting/i)).toBeInTheDocument();
+  expect(screen.getByLabelText(/job title/i)).toHaveValue('');
+});
+
+it('locks the URL input while extraction is in flight (no stale apply)', async () => {
+  let resolveExtract: (value: { source: string }) => void = () => {};
+  extractJobFromUrl.mockReturnValue(
+    new Promise((resolve) => {
+      resolveExtract = resolve;
+    }),
+  );
+  const user = userEvent.setup();
+  render(<JobCreateForm />);
+
+  const urlInput = screen.getByLabelText(/job url/i);
+  await user.type(urlInput, 'https://x/y');
+  await user.click(screen.getByRole('button', { name: /autofill/i }));
+
+  // Both the URL and the mapped fields lock so in-flight edits can't be clobbered.
+  expect(urlInput).toBeDisabled();
+  expect(screen.getByLabelText(/job description/i)).toBeDisabled();
+  expect(screen.getByLabelText(/company/i)).toBeDisabled();
+  resolveExtract({ source: 'none' });
+  await waitFor(() => expect(urlInput).toBeEnabled());
+  expect(screen.getByLabelText(/job description/i)).toBeEnabled();
+});
+
+it('toasts an error when the extraction request fails', async () => {
+  extractJobFromUrl.mockRejectedValue(new Error('network down'));
+  const user = userEvent.setup();
+  render(<JobCreateForm />);
+
+  await user.type(screen.getByLabelText(/job url/i), 'https://x/y');
+  await user.click(screen.getByRole('button', { name: /autofill/i }));
+
+  await waitFor(() =>
+    expect(vi.mocked(toast.error)).toHaveBeenCalledWith('Could not read that job posting.'),
+  );
+  expect(screen.getByLabelText(/job title/i)).toHaveValue('');
+});

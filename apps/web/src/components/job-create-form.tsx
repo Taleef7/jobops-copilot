@@ -1,6 +1,6 @@
 'use client';
 
-import { Sparkles } from 'lucide-react';
+import { Download, Loader2, Sparkles } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import type { FormEvent } from 'react';
 import { useState } from 'react';
@@ -9,7 +9,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
-import { ApiRequestError, createJob } from '@/lib/api';
+import { ApiRequestError, createJob, extractJobFromUrl } from '@/lib/api';
 import type { Job } from '@/types/job';
 
 const workplaceTypeOptions: Array<Job['workplaceType']> = ['remote', 'hybrid', 'onsite', 'flexible'];
@@ -17,6 +17,15 @@ const priorityOptions: Array<Job['priority']> = ['high', 'medium', 'low'];
 
 const selectClass =
   'border-input bg-card h-9 w-full rounded-md border px-2.5 text-sm capitalize shadow-xs focus-visible:border-ring focus-visible:ring-ring/50 focus-visible:ring-[3px] outline-none';
+
+function isHttpUrl(value: string): boolean {
+  try {
+    const url = new URL(value.trim());
+    return url.protocol === 'http:' || url.protocol === 'https:';
+  } catch {
+    return false;
+  }
+}
 
 type FormState = {
   company: string;
@@ -49,9 +58,45 @@ export function JobCreateForm() {
   const [form, setForm] = useState<FormState>(initialState);
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isExtracting, setIsExtracting] = useState(false);
+  const [autofillNote, setAutofillNote] = useState<string | null>(null);
 
   function updateField<K extends keyof FormState>(field: K, value: FormState[K]) {
     setForm((current) => ({ ...current, [field]: value }));
+  }
+
+  async function handleAutofill() {
+    const url = form.jobUrl.trim();
+    if (!isHttpUrl(url)) return;
+    setIsExtracting(true);
+    setAutofillNote(null);
+    try {
+      const data = await extractJobFromUrl(url);
+      const hasAny = Boolean(
+        data.title || data.company || data.location || data.descriptionText || data.workplaceType,
+      );
+      if (!hasAny) {
+        setAutofillNote('Couldn’t read that posting automatically — paste the description below.');
+        return;
+      }
+      setForm((current) => ({
+        ...current,
+        title: data.title ?? current.title,
+        company: data.company ?? current.company,
+        location: data.location ?? current.location,
+        descriptionText: data.descriptionText ?? current.descriptionText,
+        workplaceType: data.workplaceType ?? current.workplaceType,
+      }));
+      setErrors({});
+      const label = data.source === 'jsonld' ? 'the posting’s structured data' : 'page metadata';
+      toast.success(`Autofilled from ${label} — review before saving.`);
+    } catch (error) {
+      toast.error(
+        error instanceof ApiRequestError ? error.message : 'Could not read that job posting.',
+      );
+    } finally {
+      setIsExtracting(false);
+    }
   }
 
   function validate(values: FormState) {
@@ -121,6 +166,9 @@ export function JobCreateForm() {
           onChange={(event) => updateField('descriptionText', event.target.value)}
           placeholder="Paste the full job posting here…"
           className="max-h-80 min-h-40 overflow-y-auto"
+          // Locked during autofill so in-flight edits aren't clobbered when the
+          // extracted response resolves (it overwrites the autofilled fields).
+          disabled={isExtracting}
           required
         />
         {errors.descriptionText ? (
@@ -136,6 +184,7 @@ export function JobCreateForm() {
             value={form.company}
             onChange={(event) => updateField('company', event.target.value)}
             placeholder="Pebble"
+            disabled={isExtracting}
             required
           />
           {errors.company ? <p className="text-destructive text-xs">{errors.company}</p> : null}
@@ -147,19 +196,44 @@ export function JobCreateForm() {
             value={form.title}
             onChange={(event) => updateField('title', event.target.value)}
             placeholder="AI Software Engineer"
+            disabled={isExtracting}
             required
           />
           {errors.title ? <p className="text-destructive text-xs">{errors.title}</p> : null}
         </div>
         <div className="space-y-1.5">
           <Label htmlFor="jobUrl">Job URL</Label>
-          <Input
-            id="jobUrl"
-            value={form.jobUrl}
-            onChange={(event) => updateField('jobUrl', event.target.value)}
-            placeholder="https://…"
-          />
+          <div className="flex gap-2">
+            <Input
+              id="jobUrl"
+              value={form.jobUrl}
+              onChange={(event) => updateField('jobUrl', event.target.value)}
+              placeholder="https://…"
+              className="flex-1"
+              // Locked during extraction so an in-flight response can't be applied
+              // to a URL the user changed meanwhile (stale-autofill mismatch).
+              disabled={isExtracting}
+            />
+            <Button
+              type="button"
+              variant="outline"
+              onClick={handleAutofill}
+              disabled={!isHttpUrl(form.jobUrl) || isExtracting}
+              className="shrink-0 gap-1.5"
+            >
+              {isExtracting ? (
+                <Loader2 className="size-4 animate-spin" aria-hidden="true" />
+              ) : (
+                <Download className="size-4" aria-hidden="true" />
+              )}
+              Autofill
+            </Button>
+          </div>
           {errors.jobUrl ? <p className="text-destructive text-xs">{errors.jobUrl}</p> : null}
+          {/* Always-present live region so a screen reader announces a failed autofill. */}
+          <p role="status" className="text-muted-foreground text-xs empty:hidden">
+            {autofillNote ?? ''}
+          </p>
         </div>
         <div className="space-y-1.5">
           <Label htmlFor="location">Location</Label>
@@ -168,6 +242,7 @@ export function JobCreateForm() {
             value={form.location}
             onChange={(event) => updateField('location', event.target.value)}
             placeholder="Remote · San Francisco"
+            disabled={isExtracting}
           />
         </div>
         <div className="space-y-1.5">
@@ -179,6 +254,7 @@ export function JobCreateForm() {
             onChange={(event) =>
               updateField('workplaceType', event.target.value as Job['workplaceType'])
             }
+            disabled={isExtracting}
           >
             {workplaceTypeOptions.map((option) => (
               <option key={option} value={option}>
