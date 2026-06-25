@@ -147,6 +147,68 @@ Validation rules:
 - `fitScore` must be a number between 0 and 100.
 - `nextActionDue` must be a valid date if provided.
 
+### `POST /api/jobs/extract`
+
+Fetches a user-supplied job posting URL server-side and returns structured autofill fields for the **New job** form's "Autofill" button. The fetch runs behind an SSRF guard (loopback/private/link-local addresses are blocked, with a connect-time DNS-rebinding re-check), caps the response at 2 MB, follows at most 3 redirects, and accepts only `text/html`. This route sits behind the strict AI/discovery rate limiter.
+
+Example request:
+
+```json
+{
+  "url": "https://example.com/jobs/ai-automation-engineer"
+}
+```
+
+The HTML is parsed by a tiered extractor — JSON-LD `JobPosting` → OpenGraph/meta tags → a heuristic DOM pass — and the first tier to supply a given field wins.
+
+Example response:
+
+```json
+{
+  "title": "AI Automation Engineer",
+  "company": "Northwind Labs",
+  "location": "Remote",
+  "descriptionText": "Build internal automations...",
+  "workplaceType": "remote",
+  "source": "jsonld"
+}
+```
+
+Response fields (every field except `source` is optional and omitted when not found):
+
+- `title`, `company`, `location`, `descriptionText` — extracted strings.
+- `workplaceType` — one of `remote`, `hybrid`, `onsite`, `flexible` (currently only set to `remote`, from a JSON-LD `TELECOMMUTE` location).
+- `source` — the highest-priority tier that contributed at least one field: `jsonld`, `opengraph`, `heuristic`, or `none`.
+
+When nothing could be extracted the body is just `{ "source": "none" }`.
+
+Validation / notes:
+
+- `url` is required; a missing or empty value returns `400` `{ "error": "A job URL is required." }`.
+- A blocked, unreachable, non-HTML, oversized, or otherwise unreadable URL returns `400` with a human-readable `error` (e.g. `"That URL is not an HTML page."`, `"That page is too large to read."`, `"Too many redirects."`).
+
+### `GET /api/jobs/:id/agent-outputs`
+
+Returns the persisted AI-agent outputs for a job — the saved results of the interview-prep, research, and skill-gap agents, so they survive a page reload. Ownership-guarded: a job that does not exist or is not owned by the caller returns `404` `{ "error": "Job not found" }`.
+
+Example response:
+
+```json
+{
+  "outputs": [
+    {
+      "jobId": "11111111-1111-4111-8111-111111111111",
+      "kind": "interview_prep",
+      "payload": {},
+      "modelUsed": "claude-sonnet",
+      "createdAt": "2026-06-25T12:00:00.000Z"
+    }
+  ]
+}
+```
+
+Outputs are returned newest-first. `kind` is one of `interview_prep`, `research`, or `skill_gap` (at most one row per `kind` per job — a re-run overwrites the previous output). `payload` is the raw agent response for that kind; `modelUsed` is omitted when unknown.
+
 > **No `DELETE` for jobs.** Jobs are never hard-deleted — they are archived by `PATCH`-ing `status` to `archived`, which preserves history and analytics. The only resource with a `DELETE` endpoint is saved searches (`DELETE /api/saved-searches/:id`).
 
 ## AI
@@ -322,6 +384,53 @@ Allowed `status` values:
 - `skipped`
 
 This endpoint updates the draft state manually. Setting `status` to `sent` records the send timestamp but does not send mail automatically.
+
+### `POST /api/ai/agents/interview-prep`, `POST /api/ai/agents/research`, `POST /api/ai/agents/skill-gap`
+
+Run the specialized agents for a single job. Each requires `job_id`, and the job must exist and be owned by the caller. The stored job description, company, and title supply the agent context; `resume_text` (where applicable) falls back to the saved profile resume.
+
+Example request:
+
+```json
+{
+  "job_id": "uuid",
+  "resume_text": "Optional resume text override"
+}
+```
+
+`research` takes only `job_id`; `interview-prep` and `skill-gap` also accept an optional `resume_text`.
+
+On success each agent returns its raw `snake_case` agent payload and **persists that output** (keyed by job + kind) so it is restored on reload via `GET /api/jobs/:id/agent-outputs`. Persistence is best-effort and never fails the request.
+
+Validation / notes:
+
+- Missing `job_id` → `400` `{ "error": "job_id is required" }`.
+- Unknown or unowned job → `404` `{ "error": "Job not found" }`.
+- When `AGENT_SERVICE_URL` is unset (agent service disabled) → `503` `{ "error": "The AI agent service is not configured. Set AGENT_SERVICE_URL and a provider key to enable the agents." }`.
+- If the agent service *is* configured but has no LLM provider, the agent's upstream `503` is **not** currently remapped on these routes — it surfaces as a generic `500`. (Unlike `/api/ai/assistant/chat` below, which passes the upstream status through.)
+
+### `POST /api/ai/assistant/chat`
+
+Server-Sent Events (`text/event-stream`) passthrough for the global assistant chat widget. Protected by the strict rate limiter and the daily AI budget. The request carries the running conversation and an optional `jobId`; when supplied (and owned), the API builds a compact, ownership-checked context block from that job (title, company, location, fit score/summary, matched/missing skills, and a truncated description) and forwards it to the agent.
+
+Example request:
+
+```json
+{
+  "messages": [
+    { "role": "user", "content": "What should I emphasize for this role?" }
+  ],
+  "jobId": "uuid"
+}
+```
+
+The response is an event stream that emits one or more `token` events as the answer is generated, then a terminal `done` event (or an `error` event on failure). Each `messages` entry needs a `role` (`user` or `assistant`) and a string `content`.
+
+Validation / notes:
+
+- Empty or invalid `messages` → `400` `{ "error": "messages is required" }`.
+- When the agent service is not configured → `503` `{ "error": "The AI agent service is not configured. Set AGENT_SERVICE_URL and a provider key to enable the assistant." }`.
+- A failed job-context build never breaks the chat — the context is simply omitted.
 
 ### `POST /api/ai/generate-weekly-report`
 

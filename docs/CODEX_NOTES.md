@@ -14,6 +14,12 @@
 - The schema avoids `pgcrypto`, so Azure compatibility does not depend on allow-listed database extensions.
 - The local n8n runtime pass is verified with live imports for `jobIntakePhase4`, `followUpPhase4`, and `weeklyReportP4`.
 - n8n v2 runtime in this setup needs `N8N_BLOCK_ENV_ACCESS_IN_NODE=false` so workflow expressions can read `$env.*` values.
+- Product overhaul (epic #124): dashboards/cards read live aggregates, the Parse step was folded into Score-fit, and outreach was reduced to a single canonical draft (#118).
+- The `/jobs` feed pre-ranks jobs on ingest and computes the LLM fit score lazily on open, with a recency filter and a scheduled discovery cron (#119).
+- Add-job autofill goes through `POST /api/jobs/extract`, a tiered extractor behind an SSRF guard and the strict rate limiter (#120).
+- Agent outputs persist via migration `008_agent_outputs.sql` and `GET /api/jobs/:id/agent-outputs`, with a Regenerate action plus generated-at/model metadata (#121).
+- The global floating assistant streams from `POST /api/ai/assistant/chat` (multi-turn, context-aware, `sessionStorage`-persisted); when the agent is disabled the structured stream returns 503, not 500 (#122, PR #140).
+- Identity is consolidated on Clerk: migration `009_drop_display_name.sql` drops `user_profiles.display_name`, name/avatar/email come from `currentUser()`, and `profile_text` grounding is kept (#123).
 
 ## Verified Infrastructure
 
@@ -46,4 +52,14 @@ Application Insights (`jobops-insights`) across all three services, and Key Vaul
 (`jobops-kv`) serving the App Service secrets via managed identity. Phase 7 (Zapier +
 Make companion flows) is built and live with screenshots.
 
-No outstanding implementation task — the focus is now maintenance and demos.
+The **product overhaul** (epic #124) is also complete — all six phases (#118–#123) plus
+cleanup PR #140 merged to `main` on 2026-06-25.
+
+No outstanding implementation task. The only remaining items are two owner-gated deploy
+follow-ups that need production credentials:
+
+- **#141** — activate the agent Container App revision that includes `/assistant/chat`, and
+  apply migration `009_drop_display_name.sql` to the production DB.
+- **#142** — add cold-start resilience for the streaming endpoints on the scale-to-zero agent.
+
+Otherwise the focus is maintenance and demos.

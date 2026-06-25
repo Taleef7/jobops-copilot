@@ -23,6 +23,11 @@ On top of the original 0–11 plan, the **production-grade AI program** (epics #
 LangGraph+MCP+streaming, hybrid retrieval+reranker+eval, operational hardening) all landed.
 See the dedicated section below.
 
+The **product overhaul** (epic #124, merged to `main` 2026-06-25) is also **complete** — its
+six phases (truthful data, JobRight-style jobs feed, add-job URL autofill, persistent agent
+outputs, global assistant widget, Clerk-consolidated profile) all landed. See the dedicated
+section below; two owner-gated deploy follow-ups (#141, #142) remain.
+
 ## Phase 0: Project Foundation
 
 Done:
@@ -224,3 +229,49 @@ Intentionally scoped as manual/credentialed steps in the Phase 5 plan, not requi
 - **Activate the CI e2e job** — gated; skips green until `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY` +
   `CLERK_SECRET_KEY` are set as repo secrets. *Recommendation:* add Clerk test-instance keys to run
   e2e on PRs.
+
+---
+
+## Product overhaul (epic #124, complete)
+
+A product-quality overhaul (epic #124, merged to `main` 2026-06-25) that takes the app from
+"works end to end" to a credible JobRight-style product: truthful surfaced data, in-app job
+discovery, frictionless job intake, persisted agent work, a global assistant, and identity fully
+on Clerk. Six phases (#118 → #123), **all complete and merged**, plus cleanup PR #140.
+
+### Phase 1 — Truthful data & quick correctness fixes (#118, complete)
+
+- Dashboard/cards driven by **live aggregates** instead of stand-in numbers, real empty states,
+  the **Parse** step folded into **Score-fit**, and a single canonical outreach draft.
+
+### Phase 2 — JobRight-style Jobs feed (#119, complete)
+
+- In-app job discovery on **/jobs**: pre-rank on ingest + an LLM fit score computed on open, a
+  recency filter, and a scheduled discovery cron feeding the feed.
+
+### Phase 3 — Add-job URL autofill (#120, complete)
+
+- `POST /api/jobs/extract` — an SSRF-guarded tiered extractor that autofills the add-job form
+  from a pasted posting URL.
+
+### Phase 4 — Persistent AI agent outputs (#121, complete)
+
+- Migration `008_agent_outputs.sql` (`agent_outputs` table) + `GET /api/jobs/:id/agent-outputs`;
+  the UI gains **Regenerate** plus generated-at / model metadata so agent runs persist across visits.
+
+### Phase 5 — Global floating assistant widget (#122, complete)
+
+- `POST /api/ai/assistant/chat` (streamed) backing a multi-turn, context-aware floating assistant
+  with `sessionStorage` persistence and accessible behavior.
+
+### Phase 6 — Profile management consolidated on Clerk (#123, complete)
+
+- Migration `009_drop_display_name.sql` drops `user_profiles.display_name`; identity (name/avatar/
+  email) comes from Clerk via `currentUser()`, while `profile_text` grounding is kept.
+
+### Open follow-ups (owner-gated, not done)
+
+- **#141 — Deploy/activate:** activate the agent Container App revision that includes
+  `/assistant/chat`, and apply migration `009` to the production DB.
+- **#142 — Cold-start resilience:** harden the streaming endpoints against cold starts on the
+  scale-to-zero agent.

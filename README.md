@@ -12,11 +12,12 @@
 ![pgvector](https://img.shields.io/badge/Postgres-pgvector-4169e1?logo=postgresql&logoColor=white)
 ![Human in the loop](https://img.shields.io/badge/AI-human--in--the--loop-7c3aed)
 
-**An AI-agent operations platform for the job search.** JobOps Copilot tracks
-opportunities in a CRM, then uses real LLMs, retrieval-augmented generation, and
-multi-step agents to analyze fit, research companies, prep interviews, plan
-skill gaps, draft outreach, and surface time-series insights — with a human in
-the loop at every critical step.
+**An AI-agent operations platform for the job search.** JobOps Copilot discovers
+and tracks opportunities in a CRM, then uses real LLMs, retrieval-augmented
+generation, and multi-step agents to analyze fit, research companies, prep
+interviews, plan skill gaps, draft outreach, and surface time-series insights —
+with a human in the loop at every critical step. A floating, context-aware
+assistant rides along on every page.
 
 It is intentionally a **responsible AI operations system, not an auto-apply
 bot**: it drafts and recommends, but never sends or fabricates.
@@ -41,7 +42,24 @@ bot**: it drafts and recommends, but never sends or fabricates.
   key is set, so the app always works.
 - **Multi-step LangChain agents** — interview-prep, company research (with a
   web-search **tool**), and skill-gap planning, built on `create_agent` +
-  `ToolStrategy` for provider-agnostic structured output.
+  `ToolStrategy` for provider-agnostic structured output. Outputs **persist per
+  job** (migration 008 `agent_outputs`; `GET /api/jobs/:id/agent-outputs`),
+  survive reloads, and show a generated-at/model line with a **Regenerate**
+  control.
+- **In-app job discovery** — find new roles without leaving the app: a "Find new
+  jobs" card on `/jobs` ingests from Adzuna with a local keyword pre-rank, then
+  computes a real LLM fit score on open. The jobs table adds a recency filter, a
+  "Posted" date, a matched-skills snippet, and an "Estimated" badge, backed by a
+  scheduled discovery cron (`.github/workflows/discover.yml`).
+- **Add-job URL autofill** — paste a posting URL and let the server extract the
+  details: `POST /api/jobs/extract` does an SSRF-guarded fetch and a tiered
+  extractor (JSON-LD `JobPosting` → OpenGraph → heuristic) behind the
+  "Autofill" button on `/jobs/new`.
+- **Floating global assistant** — a bottom-right, multi-turn, context-aware chat
+  widget on every authenticated page, streamed end to end (Python
+  `POST /assistant/chat` → Express `POST /api/ai/assistant/chat` → Next streaming
+  route → `AssistantWidget`), with context-aware quick prompts, `sessionStorage`
+  persistence, and a11y.
 - **RAG over pgvector** — resumes/JDs are embedded with Hugging Face
   sentence-transformers (PyTorch) and stored in Postgres `pgvector`; fit scoring
   is grounded in retrieved resume evidence.
@@ -49,10 +67,12 @@ bot**: it drafts and recommends, but never sends or fabricates.
   the pipeline, narrated by an LLM, plus a synthetic **EV battery telemetry**
   demo showing the same analysis transfers to vehicle sensor data.
 - **Modern, responsive UI** — Next.js 16 + Tailwind v4 + shadcn/ui (Base UI),
-  light/dark themes, a marketing landing page, and **Clerk authentication** with
-  protected routes. Visual-first: fit-score rings, status pills, skill chips,
-  sparklines, and a kanban outreach board. Verified with Playwright across
-  breakpoints.
+  light/dark themes, a marketing landing page, a 2-step onboarding wizard, and
+  **Clerk authentication** with protected routes. Identity (name, avatar, email)
+  is sourced solely from Clerk (`currentUser()`); Settings shows it read-only
+  alongside the resume/profile text that grounds scoring and outreach. Visual-first:
+  fit-score rings, status pills, skill chips, sparklines, and a kanban outreach
+  board. Verified with Playwright across breakpoints.
 - **Workflow automation** — n8n webhooks for job intake, follow-up reminders,
   and weekly reports. Companion flows for Make.com (webhook → API → email) and
   Zapier (sheet row → calendar reminder) are ready to import/build.
@@ -75,8 +95,8 @@ shows the full topology. In short: `apps/web` (Next.js) → `apps/api` (Express)
 `services/agent` (Python/FastAPI, which owns the real AI) → Azure PostgreSQL +
 `pgvector`, with Blob Storage, automation, and Azure platform services around it.
 
-- `apps/web` — dashboard and product UI (jobs, outreach, reports, AI agents, telemetry).
-- `apps/api` — Express API: CRUD, AI proxy routes, n8n webhooks, telemetry. Delegates AI to the agent service when `AGENT_SERVICE_URL` is set, else uses a mock.
+- `apps/web` — dashboard and product UI (jobs + in-app discovery, outreach, reports, AI agents, telemetry, and the floating assistant widget).
+- `apps/api` — Express API: CRUD, AI proxy routes, job-URL extract, persistent agent outputs, assistant chat/stream, n8n webhooks, telemetry. Delegates AI to the agent service when `AGENT_SERVICE_URL` is set, else uses a mock.
 - `services/agent` — **Python FastAPI** service: real LLM chains, RAG, LangChain agents, and telemetry analysis. See [services/agent/README.md](services/agent/README.md).
 - `db/migrations` — PostgreSQL schema (incl. `pgvector` embeddings table).
 - `prompts` — canonical prompt templates.
@@ -156,6 +176,13 @@ system for real operation and is now **fully complete (Phases 1–5)**:
 CI now runs the repo checks **plus the API test suite, Bicep validation, and a (secret-gated)
 web e2e job** alongside the agent/MCP pytest. Phase 4's measured retrieval gains are in
 [EVALS.md](EVALS.md); the full breakdown is in [docs/ROADMAP.md](docs/ROADMAP.md).
+
+A subsequent **product overhaul** (epic #124, 6 phases, all merged) ships truthful
+live-data Reports/Dashboard with empty states, in-app job discovery on `/jobs`,
+add-job URL autofill, persistent AI agent outputs, the floating global assistant, and
+Clerk-sourced identity (migrations 008/009). The web + API changes are deployed; the
+live assistant **chat** and **migration 009** await a pending agent-revision
+activation and production migration (tracked in issue #141).
 
 Phase 6 hosting and data layer are fully live and verified end to end: web, API,
 and the Python agent are deployed, and the cloud Postgres carries the complete

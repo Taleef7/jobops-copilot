@@ -874,6 +874,14 @@ The system must not:
 
 ## 18. Development Roadmap
 
+> **Current status (2026-06-25):** all phases below (0–8) are built and live, and the project has
+> since shipped two follow-on initiatives — the production-grade AI program (epics #43 → #51 → #61 →
+> #70 → #76) and the **product overhaul** (epic #124: truthful data, JobRight-style jobs feed,
+> add-job URL autofill, persistent agent outputs, global assistant widget, Clerk-consolidated
+> profile; all six phases #118–#123 merged). The only remaining items are two owner-gated deploy
+> follow-ups (#141, #142). See `docs/ROADMAP.md` and `docs/IMPLEMENTATION_STATUS.md` for the live
+> status of record.
+
 ## Phase 0: Project Foundation
 
 Goal:

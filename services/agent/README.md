@@ -23,6 +23,7 @@ auto-detected from whichever credentials are present.
 | `POST` | `/agents/interview-prep` | Interview-prep agent (structured brief). |
 | `POST` | `/agents/research` | Company/role research agent (web-search tool use). |
 | `POST` | `/agents/skill-gap` | Skill-gap learning-plan agent. |
+| `POST` | `/assistant/chat` | Token-streamed (SSE) conversational assistant for the global widget. |
 
 RAG (Phase 10): `score-fit` is **retrieval-augmented** — it ingests the resume
 into pgvector (Hugging Face `all-MiniLM-L6-v2` embeddings, on PyTorch) and feeds
@@ -34,6 +35,13 @@ Agents (Phase 8): real LangChain agents built with `create_agent` + `ToolStrateg
 for provider-agnostic structured output. The research agent uses a Tavily-backed
 `web_search` tool (degrades gracefully without `TAVILY_API_KEY`). They require a
 configured LLM provider — unlike the analysis chains, they have no mock fallback.
+
+Assistant chat (overhaul): `/assistant/chat` powers the global assistant widget.
+It accepts `{ messages: [{ role, content }], context?, user_id? }`, builds the
+`CHAT_ASSISTANT_SYSTEM` prompt plus the conversation history, scans every user
+turn for prompt injection (refuses when `INJECTION_ACTION=refuse`), and streams
+`token` events followed by a final `done` (or `error` on failure). It requires a
+configured LLM provider and returns `503` otherwise.
 
 Later phases add `/telemetry/*` (Phase 11).
 
