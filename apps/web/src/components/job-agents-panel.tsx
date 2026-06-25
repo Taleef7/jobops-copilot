@@ -1,7 +1,7 @@
 'use client';
 
 import { Bot, GraduationCap, Loader2, Search } from 'lucide-react';
-import { useState } from 'react';
+import { useState, useSyncExternalStore } from 'react';
 import { toast } from 'sonner';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -85,11 +85,27 @@ function RunPrompt({
   );
 }
 
+// `false` during SSR + the initial client render, `true` once hydrated — the
+// React-recommended, mismatch-free way to gate client-only rendering.
+const noopSubscribe = () => () => {};
+function useHydrated() {
+  return useSyncExternalStore(
+    noopSubscribe,
+    () => true,
+    () => false,
+  );
+}
+
 function GeneratedLine({ meta }: { meta: OutputMeta }) {
+  // formatCompactDateTime renders in the runtime's local timezone, so the SSR
+  // (server TZ) and hydration (browser TZ) outputs can disagree. Defer the
+  // local-time string until after hydration to avoid a hydration mismatch.
+  const hydrated = useHydrated();
+
   if (!meta.createdAt) return null;
   return (
     <p className="text-muted-foreground text-xs">
-      Generated {formatCompactDateTime(meta.createdAt)}
+      Generated {hydrated ? formatCompactDateTime(meta.createdAt) : '…'}
       {meta.modelUsed ? ` · ${meta.modelUsed}` : ''}
     </p>
   );
