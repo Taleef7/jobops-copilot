@@ -78,16 +78,20 @@ export function AssistantWidget() {
   // Abort any in-flight stream when the widget unmounts.
   useEffect(() => () => abortRef.current?.abort(), []);
 
-  function openPanel() {
-    // Hydrate once, lazily, on first open (by which point Clerk's userId is loaded).
-    // Restore only the *current* user's thread so a logged-out→in switch can't leak.
-    if (!hydratedRef.current) {
-      hydratedRef.current = true;
-      const stored = readStored();
-      if (stored && stored.userId === userId && stored.messages.length > 0) {
-        setMessages(stored.messages);
-      }
+  // Hydrate once, as soon as Clerk's userId is known — not on first open, which
+  // can race with Clerk still loading (userId undefined) and permanently skip the
+  // restore. Restore only the *current* user's thread so a logout→login can't leak.
+  useEffect(() => {
+    if (!userId || hydratedRef.current) return;
+    hydratedRef.current = true;
+    const stored = readStored();
+    if (stored && stored.userId === userId && stored.messages.length > 0) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- one-time hydration from sessionStorage, gated on the async Clerk userId
+      setMessages(stored.messages);
     }
+  }, [userId]);
+
+  function openPanel() {
     setOpen(true);
   }
 

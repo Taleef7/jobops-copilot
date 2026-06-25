@@ -89,7 +89,11 @@ export async function streamAssistantChat({
           doneEmitted = true;
           onDone({ modelUsed: (parsed.data.model_used as string) ?? undefined });
         } else if (parsed.event === 'error') {
+          // Terminal: stop reading so the clean-end fallback can't fire `onDone`
+          // afterwards and let the widget persist the partial text as a real reply.
           onError((parsed.data.message as string) ?? 'The assistant stream errored.');
+          await reader.cancel().catch(() => {});
+          return;
         }
       }
     }
