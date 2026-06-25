@@ -1,23 +1,47 @@
 'use client';
 
 import { Bot, GraduationCap, Loader2, Search } from 'lucide-react';
-import { useState } from 'react';
+import { useState, useSyncExternalStore } from 'react';
 import { toast } from 'sonner';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { formatCompactDateTime } from '@/lib/format';
 import {
   ApiRequestError,
   runInterviewPrep,
   runResearch,
   runSkillGap,
+  type AgentOutputItem,
+  type AgentOutputKind,
   type InterviewPrepResponse,
   type ResearchBriefResponse,
   type SkillGapPlanResponse,
 } from '@/lib/api';
 
 type AgentKind = 'interview' | 'research' | 'skillGap';
+
+/** Persisted store kinds ↔ the panel's tab keys. */
+const STORE_KIND: Record<AgentKind, AgentOutputKind> = {
+  interview: 'interview_prep',
+  research: 'research',
+  skillGap: 'skill_gap',
+};
+
+interface OutputMeta {
+  createdAt?: string;
+  modelUsed?: string;
+}
+
+/** A persisted run may carry the model on its payload even though the run types omit it. */
+function modelFrom(payload: unknown): string | undefined {
+  if (payload && typeof payload === 'object' && 'model_used' in payload) {
+    const value = (payload as { model_used?: unknown }).model_used;
+    return typeof value === 'string' ? value : undefined;
+  }
+  return undefined;
+}
 
 const AGENTS = [
   { kind: 'interview' as const, icon: GraduationCap, label: 'Interview prep', desc: 'Likely questions, talking points & gaps' },
@@ -55,9 +79,35 @@ function RunPrompt({
       </div>
       <Button size="sm" variant={hasResult ? 'outline' : 'secondary'} disabled={running} onClick={onRun}>
         {running ? <Loader2 className="size-4 animate-spin" /> : null}
-        {running ? 'Running…' : hasResult ? 'Re-run' : 'Run agent'}
+        {running ? 'Running…' : hasResult ? 'Regenerate' : 'Run agent'}
       </Button>
     </div>
+  );
+}
+
+// `false` during SSR + the initial client render, `true` once hydrated — the
+// React-recommended, mismatch-free way to gate client-only rendering.
+const noopSubscribe = () => () => {};
+function useHydrated() {
+  return useSyncExternalStore(
+    noopSubscribe,
+    () => true,
+    () => false,
+  );
+}
+
+function GeneratedLine({ meta }: { meta: OutputMeta }) {
+  // formatCompactDateTime renders in the runtime's local timezone, so the SSR
+  // (server TZ) and hydration (browser TZ) outputs can disagree. Defer the
+  // local-time string until after hydration to avoid a hydration mismatch.
+  const hydrated = useHydrated();
+
+  if (!meta.createdAt) return null;
+  return (
+    <p className="text-muted-foreground text-xs">
+      Generated {hydrated ? formatCompactDateTime(meta.createdAt) : '…'}
+      {meta.modelUsed ? ` · ${meta.modelUsed}` : ''}
+    </p>
   );
 }
 
@@ -80,16 +130,50 @@ function ListBlock({ title, items }: { title: string; items: string[] }) {
   );
 }
 
-export function JobAgentsPanel({ jobId }: { jobId: string }) {
+function seed<T>(outputs: AgentOutputItem[] | undefined, kind: AgentKind): T | null {
+  const record = outputs?.find((output) => output.kind === STORE_KIND[kind]);
+  return record ? (record.payload as T) : null;
+}
+
+function seedMeta(outputs: AgentOutputItem[] | undefined, kind: AgentKind): OutputMeta {
+  const record = outputs?.find((output) => output.kind === STORE_KIND[kind]);
+  if (!record) return {};
+  return { createdAt: record.createdAt, modelUsed: record.modelUsed ?? modelFrom(record.payload) };
+}
+
+export function JobAgentsPanel({
+  jobId,
+  initialOutputs,
+}: {
+  jobId: string;
+  initialOutputs?: AgentOutputItem[];
+}) {
   const [running, setRunning] = useState<AgentKind | null>(null);
-  const [interview, setInterview] = useState<InterviewPrepResponse | null>(null);
-  const [research, setResearch] = useState<ResearchBriefResponse | null>(null);
-  const [skillGap, setSkillGap] = useState<SkillGapPlanResponse | null>(null);
+  const [interview, setInterview] = useState<InterviewPrepResponse | null>(
+    () => seed<InterviewPrepResponse>(initialOutputs, 'interview'),
+  );
+  const [research, setResearch] = useState<ResearchBriefResponse | null>(
+    () => seed<ResearchBriefResponse>(initialOutputs, 'research'),
+  );
+  const [skillGap, setSkillGap] = useState<SkillGapPlanResponse | null>(
+    () => seed<SkillGapPlanResponse>(initialOutputs, 'skillGap'),
+  );
+  const [meta, setMeta] = useState<Record<AgentKind, OutputMeta>>(() => ({
+    interview: seedMeta(initialOutputs, 'interview'),
+    research: seedMeta(initialOutputs, 'research'),
+    skillGap: seedMeta(initialOutputs, 'skillGap'),
+  }));
 
   async function run<T>(kind: AgentKind, task: () => Promise<T>, onDone: (result: T) => void) {
     setRunning(kind);
     try {
-      onDone(await task());
+      const result = await task();
+      onDone(result);
+      // The server upserts and stamps the row; mirror that on the client without a refetch.
+      setMeta((current) => ({
+        ...current,
+        [kind]: { createdAt: new Date().toISOString(), modelUsed: modelFrom(result) },
+      }));
     } catch (error) {
       toast.error(error instanceof ApiRequestError ? error.message : 'The agent run failed.');
     } finally {
@@ -129,6 +213,7 @@ export function JobAgentsPanel({ jobId }: { jobId: string }) {
             />
             {interview ? (
               <>
+                <GeneratedLine meta={meta.interview} />
                 <ListBlock title="Likely questions" items={interview.likely_questions} />
                 <ListBlock title="Talking points" items={interview.talking_points} />
                 <ListBlock title="Gaps to address" items={interview.gaps_to_address} />
@@ -150,6 +235,7 @@ export function JobAgentsPanel({ jobId }: { jobId: string }) {
             />
             {research ? (
               <>
+                <GeneratedLine meta={meta.research} />
                 {research.used_web_search ? (
                   <Badge variant="secondary" className="w-fit gap-1">
                     <Search className="size-3" /> web search used
@@ -176,6 +262,7 @@ export function JobAgentsPanel({ jobId }: { jobId: string }) {
             />
             {skillGap ? (
               <>
+                <GeneratedLine meta={meta.skillGap} />
                 <p className="text-sm leading-relaxed">{skillGap.summary}</p>
                 <div className="space-y-3">
                   {skillGap.prioritized_skills.map((item, index) => (

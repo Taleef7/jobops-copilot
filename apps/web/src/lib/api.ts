@@ -255,6 +255,27 @@ export async function runSkillGap(payload: {
   });
 }
 
+/** Store-side agent kinds, as persisted by the API (mapped to panel tabs client-side). */
+export type AgentOutputKind = 'interview_prep' | 'research' | 'skill_gap';
+
+export interface AgentOutputItem {
+  jobId: string;
+  kind: AgentOutputKind;
+  /** The raw agent response JSON, stored verbatim (shape depends on `kind`). */
+  payload: unknown;
+  modelUsed?: string;
+  createdAt: string;
+}
+
+/** The persisted agent outputs for a job — `GET /api/jobs/:id/agent-outputs`. */
+export async function fetchAgentOutputs(jobId: string): Promise<AgentOutputItem[]> {
+  const response = await requestJson<{ outputs: AgentOutputItem[] }>(
+    `/api/jobs/${jobId}/agent-outputs`,
+    { cache: 'no-store' },
+  );
+  return response.outputs;
+}
+
 export interface TelemetryInsightsResponse {
   metric: string;
   total: number;

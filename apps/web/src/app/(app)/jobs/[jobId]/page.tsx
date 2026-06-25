@@ -13,7 +13,7 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { fetchProfile } from '@/lib/api';
+import { fetchAgentOutputs, fetchProfile } from '@/lib/api';
 import { isHeuristicAnalysis, isPrerankAnalysis } from '@/lib/analysis-display';
 import { formatDate } from '@/lib/format';
 import { loadJob } from '@/lib/job-data';
@@ -30,11 +30,12 @@ export async function generateMetadata({ params }: JobDetailParams): Promise<Met
 
 export default async function JobDetailPage({ params }: JobDetailParams) {
   const { jobId } = await params;
-  // Fetch the profile alongside the job so we can decide whether auto-scoring is
-  // even possible; a profile failure must not break the page.
-  const [{ job, source }, profile] = await Promise.all([
+  // Fetch the profile + persisted agent outputs alongside the job. Neither is
+  // load-bearing for the page, so a failure of either must not break it.
+  const [{ job, source }, profile, agentOutputs] = await Promise.all([
     loadJob(jobId),
     fetchProfile().catch(() => null),
+    fetchAgentOutputs(jobId).catch(() => []),
   ]);
   if (!job) notFound();
 
@@ -155,7 +156,7 @@ export default async function JobDetailPage({ params }: JobDetailParams) {
 
             <TabsContent value="agents">
               <Card className="p-5">
-                <JobAgentsPanel jobId={job.id} />
+                <JobAgentsPanel jobId={job.id} initialOutputs={agentOutputs} />
               </Card>
             </TabsContent>
 
