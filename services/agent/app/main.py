@@ -26,10 +26,13 @@ from app.chains.score_fit import score_fit
 from app.chains.weekly import weekly_recommendations
 from app.config import settings
 from app.graph.assistant import build_assistant_graph
-from app.llm.provider import LLMNotConfigured, llm_available, resolve_provider
+from app.llm.provider import LLMNotConfigured, get_model, llm_available, resolve_provider
 from app.obs import traced_config, traced_span
+from app.prompts import CHAT_ASSISTANT_SYSTEM
 from app.rag.store import ingest_document, rag_available, retrieve, retrieve_resume_evidence
+from app.safety.injection import injection_refused, scan_for_injection, wrap_untrusted
 from app.schemas import (
+    ChatRequest,
     DraftOutreachRequest,
     FitScoreResponse,
     InterviewPrep,
@@ -433,6 +436,75 @@ async def assistant_stream_endpoint(req: AssistantRunRequest) -> StreamingRespon
     return StreamingResponse(
         _assistant_event_stream(payload, config), media_type="text/event-stream"
     )
+
+
+# --- Phase 5 (overhaul) conversational assistant ----------------------------
+
+
+def _build_chat_messages(req: ChatRequest):
+    """Map the request into a LangChain message list: a system prompt (with any
+    job context delimited as untrusted data) followed by the conversation turns."""
+    from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
+
+    system = CHAT_ASSISTANT_SYSTEM
+    if req.context:
+        block = wrap_untrusted(req.context, "JOB CONTEXT")
+        system = (
+            f"{system}\n\nContext about the job the user is currently viewing:\n{block}"
+        )
+
+    messages = [SystemMessage(content=system)]
+    for turn in req.messages:
+        if turn.role == "assistant":
+            messages.append(AIMessage(content=turn.content))
+        else:
+            messages.append(HumanMessage(content=turn.content))
+    return messages
+
+
+def _chunk_text(chunk) -> str:
+    """Extract plain text from a streamed chunk; some providers return content parts."""
+    content = getattr(chunk, "content", "") or ""
+    if isinstance(content, list):
+        parts = []
+        for part in content:
+            if isinstance(part, dict):
+                parts.append(part.get("text", ""))
+            else:
+                parts.append(str(part))
+        return "".join(parts)
+    return content
+
+
+async def _chat_event_stream(req: ChatRequest):
+    """Stream the assistant reply as SSE `token` events, then a final `done`."""
+    # Scan EVERY user-role turn (and the context): the whole transcript is sent
+    # to the model, so an override hidden in an earlier turn must still be caught
+    # — checking only the latest turn would let a benign final turn bypass refusal.
+    user_text = "\n".join(turn.content for turn in req.messages if turn.role == "user")
+    verdict = scan_for_injection(f"{user_text}\n{req.context or ''}")
+    if injection_refused(verdict):
+        yield _sse("token", {"text": "I can't help with that request."})
+        yield _sse("done", {"model_used": None})
+        return
+
+    try:
+        model, label = get_model()
+        messages = _build_chat_messages(req)
+        async for chunk in model.astream(messages):
+            text = _chunk_text(chunk)
+            if text:
+                yield _sse("token", {"text": text})
+        yield _sse("done", {"model_used": label})
+    except Exception as exc:  # noqa: BLE001 - surface streaming failures as an SSE error
+        logger.exception("assistant chat stream failed")
+        yield _sse("error", {"message": str(exc)})
+
+
+@app.post("/assistant/chat")
+async def assistant_chat_endpoint(req: ChatRequest) -> StreamingResponse:
+    _require_llm()
+    return StreamingResponse(_chat_event_stream(req), media_type="text/event-stream")
 
 
 # --- Phase 11 telemetry -----------------------------------------------------
