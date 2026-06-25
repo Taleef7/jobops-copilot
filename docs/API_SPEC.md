@@ -406,7 +406,8 @@ Validation / notes:
 
 - Missing `job_id` → `400` `{ "error": "job_id is required" }`.
 - Unknown or unowned job → `404` `{ "error": "Job not found" }`.
-- When the agent service is not configured → `503` `{ "error": "The AI agent service is not configured. Set AGENT_SERVICE_URL and a provider key to enable the agents." }`.
+- When `AGENT_SERVICE_URL` is unset (agent service disabled) → `503` `{ "error": "The AI agent service is not configured. Set AGENT_SERVICE_URL and a provider key to enable the agents." }`.
+- If the agent service *is* configured but has no LLM provider, the agent's upstream `503` is **not** currently remapped on these routes — it surfaces as a generic `500`. (Unlike `/api/ai/assistant/chat` below, which passes the upstream status through.)
 
 ### `POST /api/ai/assistant/chat`
 
