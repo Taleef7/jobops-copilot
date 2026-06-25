@@ -18,6 +18,15 @@ const priorityOptions: Array<Job['priority']> = ['high', 'medium', 'low'];
 const selectClass =
   'border-input bg-card h-9 w-full rounded-md border px-2.5 text-sm capitalize shadow-xs focus-visible:border-ring focus-visible:ring-ring/50 focus-visible:ring-[3px] outline-none';
 
+function isHttpUrl(value: string): boolean {
+  try {
+    const url = new URL(value.trim());
+    return url.protocol === 'http:' || url.protocol === 'https:';
+  } catch {
+    return false;
+  }
+}
+
 type FormState = {
   company: string;
   title: string;
@@ -54,15 +63,6 @@ export function JobCreateForm() {
 
   function updateField<K extends keyof FormState>(field: K, value: FormState[K]) {
     setForm((current) => ({ ...current, [field]: value }));
-  }
-
-  function isHttpUrl(value: string): boolean {
-    try {
-      const url = new URL(value.trim());
-      return url.protocol === 'http:' || url.protocol === 'https:';
-    } catch {
-      return false;
-    }
   }
 
   async function handleAutofill() {
@@ -213,12 +213,19 @@ export function JobCreateForm() {
               disabled={!isHttpUrl(form.jobUrl) || isExtracting}
               className="shrink-0 gap-1.5"
             >
-              {isExtracting ? <Loader2 className="size-4 animate-spin" /> : <Download className="size-4" />}
+              {isExtracting ? (
+                <Loader2 className="size-4 animate-spin" aria-hidden="true" />
+              ) : (
+                <Download className="size-4" aria-hidden="true" />
+              )}
               Autofill
             </Button>
           </div>
           {errors.jobUrl ? <p className="text-destructive text-xs">{errors.jobUrl}</p> : null}
-          {autofillNote ? <p className="text-muted-foreground text-xs">{autofillNote}</p> : null}
+          {/* Always-present live region so a screen reader announces a failed autofill. */}
+          <p role="status" className="text-muted-foreground text-xs empty:hidden">
+            {autofillNote ?? ''}
+          </p>
         </div>
         <div className="space-y-1.5">
           <Label htmlFor="location">Location</Label>

@@ -15,6 +15,7 @@ vi.mock('@/lib/api', () => ({
   ApiRequestError: class ApiRequestError extends Error {},
 }));
 
+import { toast } from 'sonner';
 import { JobCreateForm } from './job-create-form';
 
 afterEach(() => {
@@ -50,6 +51,8 @@ it('populates the form from a successful extraction', async () => {
   await waitFor(() => expect(screen.getByLabelText(/company/i)).toHaveValue('Pebble'));
   expect(screen.getByLabelText(/job title/i)).toHaveValue('AI Engineer');
   expect(screen.getByLabelText(/job description/i)).toHaveValue('Build agents.');
+  // The success toast names the source (jsonld → structured data).
+  expect(vi.mocked(toast.success)).toHaveBeenCalledWith(expect.stringMatching(/structured data/i));
 });
 
 it('shows a manual-entry fallback when nothing could be extracted', async () => {
@@ -61,5 +64,19 @@ it('shows a manual-entry fallback when nothing could be extracted', async () => 
   await user.click(screen.getByRole('button', { name: /autofill/i }));
 
   expect(await screen.findByText(/couldn.t read that posting/i)).toBeInTheDocument();
+  expect(screen.getByLabelText(/job title/i)).toHaveValue('');
+});
+
+it('toasts an error when the extraction request fails', async () => {
+  extractJobFromUrl.mockRejectedValue(new Error('network down'));
+  const user = userEvent.setup();
+  render(<JobCreateForm />);
+
+  await user.type(screen.getByLabelText(/job url/i), 'https://x/y');
+  await user.click(screen.getByRole('button', { name: /autofill/i }));
+
+  await waitFor(() =>
+    expect(vi.mocked(toast.error)).toHaveBeenCalledWith('Could not read that job posting.'),
+  );
   expect(screen.getByLabelText(/job title/i)).toHaveValue('');
 });
