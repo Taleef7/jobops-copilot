@@ -48,8 +48,10 @@ export async function saveAgentOutput(
   const { rows } = await pool.query<AgentOutputRow>(
     `
       insert into agent_outputs (id, job_id, user_id, kind, payload, model_used, created_at)
-      select $1, $2, $3, $4, $5::jsonb, $6, now()
-      where exists (select 1 from jobs where id::text = $2 and user_id = $3)
+      -- $2 is bound consistently as uuid: it's both the job_id insert value and
+      -- the jobs.id comparison, so it must not be pinned to text by an ::text cast.
+      select $1::uuid, $2::uuid, $3, $4, $5::jsonb, $6, now()
+      where exists (select 1 from jobs where id = $2::uuid and user_id = $3)
       on conflict (job_id, kind) do update set
         payload = excluded.payload,
         model_used = excluded.model_used,
@@ -69,7 +71,7 @@ export async function saveAgentOutput(
 export async function listAgentOutputs(userId: string, jobId: string): Promise<AgentOutputRecord[]> {
   const pool = poolOrThrow();
   const { rows } = await pool.query<AgentOutputRow>(
-    'select * from agent_outputs where job_id::text = $1 and user_id = $2 order by created_at desc',
+    'select * from agent_outputs where job_id = $1::uuid and user_id = $2 order by created_at desc',
     [jobId, userId],
   );
   return rows.map(mapRow);
