@@ -4,7 +4,6 @@ import { getPool, hasPostgresConnection } from '@/lib/postgres';
 
 export interface UserProfile {
   userId: string;
-  displayName?: string;
   resumeText?: string;
   resumeFileName?: string;
   resumeFileUrl?: string;
@@ -14,7 +13,6 @@ export interface UserProfile {
 
 type ProfileRow = {
   user_id: string;
-  display_name: string | null;
   resume_text: string | null;
   resume_file_name: string | null;
   resume_file_url: string | null;
@@ -25,7 +23,6 @@ type ProfileRow = {
 function mapRow(row: ProfileRow): UserProfile {
   return {
     userId: row.user_id,
-    displayName: row.display_name ?? undefined,
     resumeText: row.resume_text ?? undefined,
     resumeFileName: row.resume_file_name ?? undefined,
     resumeFileUrl: row.resume_file_url ?? undefined,
@@ -71,19 +68,17 @@ export async function upsertUserProfile(
     const pool = getPool()!;
     const { rows } = await pool.query<ProfileRow>(
       `
-        insert into user_profiles (user_id, display_name, resume_text, resume_file_name, resume_file_url, profile_text)
-        values ($1, $2, $3, $4, $5, $6)
+        insert into user_profiles (user_id, resume_text, resume_file_name, resume_file_url, profile_text)
+        values ($1, $2, $3, $4, $5)
         on conflict (user_id) do update set
-          display_name = coalesce($2, user_profiles.display_name),
-          resume_text = coalesce($3, user_profiles.resume_text),
-          resume_file_name = coalesce($4, user_profiles.resume_file_name),
-          resume_file_url = coalesce($5, user_profiles.resume_file_url),
-          profile_text = coalesce($6, user_profiles.profile_text)
+          resume_text = coalesce($2, user_profiles.resume_text),
+          resume_file_name = coalesce($3, user_profiles.resume_file_name),
+          resume_file_url = coalesce($4, user_profiles.resume_file_url),
+          profile_text = coalesce($5, user_profiles.profile_text)
         returning *
       `,
       [
         userId,
-        patch.displayName ?? null,
         patch.resumeText ?? null,
         patch.resumeFileName ?? null,
         patch.resumeFileUrl ?? null,
