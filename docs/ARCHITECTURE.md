@@ -86,6 +86,8 @@ The current backend flow is:
 - `apps/api/src/data/job-store.ts` selects file mode or PostgreSQL mode.
 - `apps/api/src/data/job-store.postgres.ts` implements the database-backed store.
 - `apps/api/src/data/report-store.ts` and `apps/api/src/data/report-store.postgres.ts` manage weekly report persistence in file or Postgres mode.
+- `apps/api/src/data/agent-output-store.ts` (and `.postgres.ts`) persist the interview-prep / research / skill-gap agent runs to the `agent_outputs` table (migration `008`), dual-mode like the other stores; `persistAgentRun` is best-effort and never throws.
+- `apps/api/src/lib/job-url-fetch.ts` and `apps/api/src/lib/job-url-extract.ts` power add-job URL autofill: an SSRF-guarded server-side fetch feeding a tiered extractor (JSON-LD `JobPosting` → OpenGraph → heuristic).
 - `apps/api/src/lib/postgres.ts` creates and manages the `pg` pool.
 - `apps/api/src/lib/analysis-core.ts` centralizes parsing, fit scoring, validation, and structured analysis generation.
 - `apps/api/src/lib/weekly-report.ts` builds report snapshots and API payloads.
@@ -129,15 +131,38 @@ sequenceDiagram
   A-->>W: JobAnalysis
 ```
 
+The structured AI calls above are request/response and return a `JobAnalysis`. The
+**global assistant chat** (Phase 5) is a separate, token-streamed path: the
+`AssistantWidget` (`apps/web/src/components/assistant-widget.tsx`, mounted app-wide in
+`apps/web/src/app/(app)/layout.tsx`) POSTs to the Next streaming route
+`apps/web/src/app/api/assistant-chat/route.ts` (which can't go through the buffering
+`/api/proxy`), which attaches the Clerk token + shared secret and forwards to the Express
+SSE passthrough `apps/api/src/routes/assistant-chat.ts` (`POST /api/ai/assistant/chat`,
+behind `strictLimiter` + `enforceDailyBudget`). That route builds an ownership-checked,
+size-capped job-context block server-side and pipes the agent's `text/event-stream`
+through unbuffered. The agent's `POST /assistant/chat` (`services/agent/app/main.py`)
+token-streams the reply and runs the same prompt-injection guard over the user/context
+text. Conversations persist in `sessionStorage`, keyed by the Clerk user id.
+
 ## Data Flow
 
 ### Jobs
 
 Jobs are the CRM source of truth. The list and detail pages read job records, analysis, and outreach drafts through the API. Job updates write back to the same store, and the `fit_score` is duplicated on the job row for efficient sorting and dashboard summaries.
 
+A job can also be created from a URL: the add-job form posts the link to `POST /api/jobs/extract` (`apps/api/src/routes/job-extract.ts`, behind the strict limiter), which fetches the page through the SSRF guard and returns autofill fields (title, company, location, description) from the tiered extractor. The user reviews the fields before saving.
+
+### Jobs feed (discovery)
+
+`/jobs` doubles as an in-app discovery feed (Phase 2). User-facing discovery runs through `POST /api/discovery/run` (`apps/api/src/routes/discovery.ts`); on ingest each new posting is pre-ranked locally against the user's resume (keyword overlap) so the feed is useful without an LLM, and a richer LLM fit score is computed when a job is opened. A scheduled GitHub Actions cron (`.github/workflows/discover.yml`, every 6h) drives the background half by POSTing the service-to-service sweep endpoint `POST /api/n8n/discover` (n8n-webhook-secret guarded), which replays every user's saved searches and inserts + pre-ranks new postings. The workflow is inert until both the API origin variable and webhook secret are configured.
+
 ### AI Analysis
 
 `parse-job` and `score-fit` both use the same shared analysis core so that the shapes returned to the UI and the shapes stored in the database stay aligned. That reduces drift between mock responses, validation, and persistence.
+
+### Agent runs (interview prep / research / skill gap)
+
+The interview-prep, research, and skill-gap agents now persist their output (Phase 4). After a successful run, `apps/api/src/routes/ai.ts` calls `persistAgentRun`, which upserts the result into the `agent_outputs` table (one current row per `(job, kind)`, migration `008`) via `agent-output-store.ts`. The job detail page reads them back through `GET /api/jobs/:id/agent-outputs` (`apps/api/src/routes/agent-outputs.ts`, ownership-checked) and seeds the agent panel server-side, so a returning user sees the last result without re-running it.
 
 ### Outreach
 
@@ -146,6 +171,10 @@ Jobs are the CRM source of truth. The list and detail pages read job records, an
 ### Weekly Reports
 
 `generate-weekly-report` now persists a saved report snapshot. The dashboard reads report history through `/api/reports`, and the n8n workflow reuses the same storage path so weekly summaries, exports, and history stay aligned.
+
+### Identity
+
+Identity is consolidated on Clerk (Phase 6). The user's name, avatar, and email come from Clerk (`currentUser()`) rather than the app database; migration `009` dropped `user_profiles.display_name`. Only the app-specific grounding data — `profile_text` and the resume columns — remains in `user_profiles`.
 
 ## Infrastructure
 

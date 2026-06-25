@@ -60,6 +60,23 @@ intelligence.
   pass, e2e 5/5).
 - Numbered independently of the original phases; design/plans in `docs/superpowers/`.
 
+### Product overhaul (epic #124, complete — merged to `main` 2026-06-25)
+
+- **Phase 1 — truthful data & quick fixes (#118):** dashboard/cards driven by live aggregates,
+  real empty states, Parse folded into Score-fit, single canonical outreach draft.
+- **Phase 2 — JobRight-style Jobs feed (#119):** in-app discovery on `/jobs` (pre-rank on ingest
+  + LLM fit score on open), recency filter, scheduled discovery cron.
+- **Phase 3 — add-job URL autofill (#120):** `POST /api/jobs/extract`, an SSRF-guarded tiered
+  extractor that autofills the add-job form from a posting URL.
+- **Phase 4 — persistent agent outputs (#121):** migration `008_agent_outputs.sql` +
+  `GET /api/jobs/:id/agent-outputs`; Regenerate action with generated-at/model metadata.
+- **Phase 5 — global floating assistant (#122):** `POST /api/ai/assistant/chat` (streamed),
+  multi-turn, context-aware, `sessionStorage`-persisted, accessible.
+- **Phase 6 — profile on Clerk (#123):** migration `009_drop_display_name.sql`; identity via
+  `currentUser()`, `profile_text` grounding kept.
+- Plus cleanup PR #140 (the structured assistant stream returns 503, not 500, when the agent is
+  disabled). Two owner-gated deploy follow-ups (#141, #142) remain — see "What Is Still Pending".
+
 ## What Is Live Now
 
 - Jobs can be created, listed, viewed, and updated through the API and dashboard
@@ -114,6 +131,11 @@ intelligence.
 - The **production-grade AI program** (epic #43) is **fully complete** — Phases 1–5
   (LLMOps backbone, safety/guardrails, LangGraph+MCP+streaming, hybrid retrieval+reranker+eval,
   operational hardening; epics #43/#51/#61/#70/#76) all landed and were verified end to end.
+- The **product overhaul** (epic #124) is **complete** — all six phases (#118–#123) plus cleanup
+  PR #140 merged to `main` on 2026-06-25.
+- **Product-overhaul deploy follow-ups** (owner-gated, the only items not done): **#141** — activate
+  the agent Container App revision that includes `/assistant/chat` and apply migration `009` to the
+  prod DB; **#142** — cold-start resilience for the streaming endpoints on the scale-to-zero agent.
 - **Owner-gated optional follow-ups** (by design, not gaps; see `docs/ROADMAP.md`): applying the
   Bicep to a live/greenfield RG, running k6 in CI, and activating the gated e2e CI job (needs
   Clerk repo secrets). Fine-tuning and a larger retrieval gold set remain deferred.
