@@ -3,6 +3,7 @@ import http from 'node:http';
 import test from 'node:test';
 import express from 'express';
 import { createAssistantChatRouter } from './assistant-chat';
+import { AgentDisabledError } from '@/lib/agent-client';
 import type { JobRecord } from '@/types';
 
 function sseStream(frames: string[]): ReadableStream<Uint8Array> {
@@ -169,6 +170,23 @@ test('omits context when the job is not found / not owned', async () => {
     });
   });
   assert.equal(captured.context, undefined);
+});
+
+test('returns 503 (not 500) when the agent service is disabled', async () => {
+  const router = createAssistantChatRouter({
+    getJob: async () => undefined,
+    openUpstream: async () => {
+      throw new AgentDisabledError();
+    },
+  });
+  await withServer(router, async (baseUrl) => {
+    const res = await fetch(`${baseUrl}/chat`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-User-Id': 'u1' },
+      body: JSON.stringify({ messages: [{ role: 'user', content: 'hi' }] }),
+    });
+    assert.equal(res.status, 503);
+  });
 });
 
 test('returns 502 when the upstream is unavailable', async () => {

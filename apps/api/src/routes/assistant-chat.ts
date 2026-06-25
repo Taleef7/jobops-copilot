@@ -1,8 +1,11 @@
 import { Router } from 'express';
 import { requireUser } from '@/lib/auth';
 import { getJobById } from '@/data/job-store';
-import { streamAssistantChatUpstream } from '@/lib/agent-client';
+import { AgentDisabledError, streamAssistantChatUpstream } from '@/lib/agent-client';
 import type { UpstreamStream } from '@/routes/assistant';
+
+const AGENT_DISABLED_MESSAGE =
+  'The AI agent service is not configured. Set AGENT_SERVICE_URL and a provider key to enable the assistant.';
 
 export interface ChatMessage {
   role: 'user' | 'assistant';
@@ -100,6 +103,13 @@ export function createAssistantChatRouter(deps: AssistantChatDeps = defaultDeps)
     try {
       upstream = await deps.openUpstream({ messages: body.messages, context, user_id: userId });
     } catch (error) {
+      // A disabled agent service (no AGENT_SERVICE_URL) is an expected
+      // misconfiguration, not a server fault — surface it as 503 (which the
+      // widget handles) rather than letting it become a generic 500.
+      if (error instanceof AgentDisabledError) {
+        response.status(503).json({ error: AGENT_DISABLED_MESSAGE });
+        return;
+      }
       next(error);
       return;
     }

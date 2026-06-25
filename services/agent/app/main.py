@@ -478,8 +478,11 @@ def _chunk_text(chunk) -> str:
 
 async def _chat_event_stream(req: ChatRequest):
     """Stream the assistant reply as SSE `token` events, then a final `done`."""
-    latest = req.messages[-1].content if req.messages else ""
-    verdict = scan_for_injection(f"{latest}\n{req.context or ''}")
+    # Scan EVERY user-role turn (and the context): the whole transcript is sent
+    # to the model, so an override hidden in an earlier turn must still be caught
+    # — checking only the latest turn would let a benign final turn bypass refusal.
+    user_text = "\n".join(turn.content for turn in req.messages if turn.role == "user")
+    verdict = scan_for_injection(f"{user_text}\n{req.context or ''}")
     if injection_refused(verdict):
         yield _sse("token", {"text": "I can't help with that request."})
         yield _sse("done", {"model_used": None})
