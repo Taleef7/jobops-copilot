@@ -17,8 +17,8 @@ function publicProfile(profile: Awaited<ReturnType<typeof getUserProfile>>) {
     return null;
   }
   // Never ship the full resume text to the client; expose presence + metadata.
+  // Identity (name/avatar/email) lives in Clerk — not here (Phase 6).
   return {
-    displayName: profile.displayName ?? null,
     resumeFileName: profile.resumeFileName ?? null,
     hasResume: Boolean(profile.resumeText),
     profileText: profile.profileText ?? null,
@@ -41,9 +41,8 @@ profileRouter.put('/', async (request, response, next) => {
   try {
     const userId = requireUser(request, response);
     if (!userId) return;
-    const body = request.body as { displayName?: string; profileText?: string };
+    const body = request.body as { profileText?: string };
     const updated = await upsertUserProfile(userId, {
-      displayName: body.displayName?.trim() || undefined,
       profileText: body.profileText?.trim() || undefined,
     });
     response.json({ profile: publicProfile(updated) });
@@ -58,7 +57,7 @@ profileRouter.post('/resume', upload.single('file'), async (request, response, n
     const userId = requireUser(request, response);
     if (!userId) return;
 
-    const body = request.body as { resume_text?: string; display_name?: string };
+    const body = request.body as { resume_text?: string };
     let resumeText = body.resume_text?.trim();
     let resumeFileName: string | undefined;
 
@@ -76,7 +75,6 @@ profileRouter.post('/resume', upload.single('file'), async (request, response, n
     const updated = await upsertUserProfile(userId, {
       resumeText,
       resumeFileName: resumeFileName ?? 'resume.txt',
-      displayName: body.display_name?.trim() || undefined,
     });
 
     response.json({ profile: publicProfile(updated) });

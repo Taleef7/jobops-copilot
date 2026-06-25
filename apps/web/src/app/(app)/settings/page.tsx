@@ -1,4 +1,6 @@
 import type { Metadata } from 'next';
+import Image from 'next/image';
+import { currentUser } from '@clerk/nextjs/server';
 import { Database, FileText, Webhook } from 'lucide-react';
 import { SectionCard } from '@/components/section-card';
 import { DemoDataActions, ExportDataButton, ResumeReupload } from '@/components/settings-actions';
@@ -22,10 +24,13 @@ const PROVIDER_LABELS: Record<string, string> = {
 };
 
 export default async function SettingsPage() {
-  const [profile, status] = await Promise.all([
+  // Identity (name + avatar) comes from Clerk — the single source (Phase 6).
+  const [user, profile, status] = await Promise.all([
+    currentUser().catch(() => null),
     fetchProfile().catch(() => null),
     fetchStatus().catch(() => null),
   ]);
+  const fullName = user?.fullName ?? user?.firstName ?? null;
 
   const provider = status?.agent.provider ?? null;
   // The agent is a scale-to-zero Container App: when it's asleep, /api/status can't
@@ -46,7 +51,7 @@ export default async function SettingsPage() {
     : agentEnabled
       ? 'Idle — the agent scales to zero and wakes on the first request'
       : 'Deterministic mock (no LLM provider attached)';
-  const initial = (profile?.displayName ?? 'You').slice(0, 1).toUpperCase();
+  const initial = (fullName ?? 'You').slice(0, 1).toUpperCase();
 
   const integrations = [
     {
@@ -76,18 +81,36 @@ export default async function SettingsPage() {
         <p className="text-muted-foreground text-sm">Manage your profile, providers, and data.</p>
       </div>
 
-      <SectionCard title="Profile & resume" description="Used to ground fit scoring and outreach.">
-        <div className="flex flex-wrap items-center gap-3">
-          <span className="bg-primary/10 text-primary flex size-11 items-center justify-center rounded-full text-base font-semibold">
-            {initial}
-          </span>
-          <div className="mr-auto">
-            <p className="text-sm font-medium">{profile?.displayName ?? 'Your profile'}</p>
-            <p className="text-muted-foreground text-xs">
-              {profile?.hasResume ? (profile.resumeFileName ?? 'Resume on file') : 'No resume uploaded yet'}
-            </p>
+      <SectionCard
+        title="Profile & resume"
+        description="Your resume grounds fit scoring and outreach. Name, email & avatar are managed by your account."
+      >
+        <div className="space-y-3">
+          <div className="flex flex-wrap items-center gap-3">
+            {user?.imageUrl ? (
+              <Image
+                src={user.imageUrl}
+                alt=""
+                width={44}
+                height={44}
+                className="size-11 rounded-full object-cover"
+              />
+            ) : (
+              <span className="bg-primary/10 text-primary flex size-11 items-center justify-center rounded-full text-base font-semibold">
+                {initial}
+              </span>
+            )}
+            <div className="mr-auto">
+              <p className="text-sm font-medium">{fullName ?? 'Your profile'}</p>
+              <p className="text-muted-foreground text-xs">
+                {profile?.hasResume ? (profile.resumeFileName ?? 'Resume on file') : 'No resume uploaded yet'}
+              </p>
+            </div>
+            <ResumeReupload />
           </div>
-          <ResumeReupload />
+          <p className="text-muted-foreground text-xs">
+            Manage your name, email &amp; avatar from the account menu (top-right).
+          </p>
         </div>
       </SectionCard>
 

@@ -10,6 +10,10 @@ const nextConfig: NextConfig = {
   // Keep applicationinsights as a Node.js external so Turbopack/webpack never
   // tries to bundle its dynamic-require internals (mysql, etc.).
   serverExternalPackages: ['applicationinsights'],
+  // Clerk-hosted avatars (the single source of identity — Phase 6).
+  images: {
+    remotePatterns: [{ protocol: 'https', hostname: 'img.clerk.com' }],
+  },
 };
 
 export default nextConfig;

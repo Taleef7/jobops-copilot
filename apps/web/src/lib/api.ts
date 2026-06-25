@@ -317,7 +317,6 @@ export async function fetchStatus(): Promise<SystemStatus> {
 }
 
 export interface UserProfile {
-  displayName: string | null;
   resumeFileName: string | null;
   hasResume: boolean;
   profileText: string | null;
@@ -332,7 +331,6 @@ export async function fetchProfile(): Promise<UserProfile | null> {
 }
 
 export async function updateProfile(payload: {
-  displayName?: string;
   profileText?: string;
 }): Promise<UserProfile | null> {
   const response = await requestJson<{ profile: UserProfile | null }>('/api/profile', {
