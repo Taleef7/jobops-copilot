@@ -411,6 +411,22 @@ export async function runDiscovery(): Promise<DiscoveryRunResult> {
   return requestJson<DiscoveryRunResult>('/api/discovery/run', { method: 'POST', body: '{}' });
 }
 
+export interface ExtractedJobResponse {
+  title?: string;
+  company?: string;
+  location?: string;
+  descriptionText?: string;
+  workplaceType?: 'remote' | 'hybrid' | 'onsite' | 'flexible';
+  source: 'jsonld' | 'opengraph' | 'heuristic' | 'none';
+}
+
+export async function extractJobFromUrl(url: string): Promise<ExtractedJobResponse> {
+  return requestJson<ExtractedJobResponse>('/api/jobs/extract', {
+    method: 'POST',
+    body: JSON.stringify({ url }),
+  });
+}
+
 async function apiFetch(path: string, init: RequestInit): Promise<Response> {
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
