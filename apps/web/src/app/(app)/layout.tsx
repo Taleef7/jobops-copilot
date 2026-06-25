@@ -2,6 +2,7 @@ import { redirect } from 'next/navigation';
 import { Suspense } from 'react';
 import { AppHeader } from '@/components/app-header';
 import { AppSidebar } from '@/components/app-sidebar';
+import { AssistantWidget } from '@/components/assistant-widget';
 import { SidebarInset, SidebarProvider } from '@/components/ui/sidebar';
 import { fetchProfile } from '@/lib/api';
 
@@ -31,6 +32,8 @@ export default async function AppLayout({ children }: { children: React.ReactNod
         </Suspense>
         <main className="flex-1 p-4 md:p-6 lg:p-8">{children}</main>
       </SidebarInset>
+      {/* Global conversational assistant — available on every authed page. */}
+      <AssistantWidget />
     </SidebarProvider>
   );
 }
