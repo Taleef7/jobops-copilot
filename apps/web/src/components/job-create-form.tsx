@@ -166,6 +166,9 @@ export function JobCreateForm() {
           onChange={(event) => updateField('descriptionText', event.target.value)}
           placeholder="Paste the full job posting here…"
           className="max-h-80 min-h-40 overflow-y-auto"
+          // Locked during autofill so in-flight edits aren't clobbered when the
+          // extracted response resolves (it overwrites the autofilled fields).
+          disabled={isExtracting}
           required
         />
         {errors.descriptionText ? (
@@ -181,6 +184,7 @@ export function JobCreateForm() {
             value={form.company}
             onChange={(event) => updateField('company', event.target.value)}
             placeholder="Pebble"
+            disabled={isExtracting}
             required
           />
           {errors.company ? <p className="text-destructive text-xs">{errors.company}</p> : null}
@@ -192,6 +196,7 @@ export function JobCreateForm() {
             value={form.title}
             onChange={(event) => updateField('title', event.target.value)}
             placeholder="AI Software Engineer"
+            disabled={isExtracting}
             required
           />
           {errors.title ? <p className="text-destructive text-xs">{errors.title}</p> : null}
@@ -237,6 +242,7 @@ export function JobCreateForm() {
             value={form.location}
             onChange={(event) => updateField('location', event.target.value)}
             placeholder="Remote · San Francisco"
+            disabled={isExtracting}
           />
         </div>
         <div className="space-y-1.5">
@@ -248,6 +254,7 @@ export function JobCreateForm() {
             onChange={(event) =>
               updateField('workplaceType', event.target.value as Job['workplaceType'])
             }
+            disabled={isExtracting}
           >
             {workplaceTypeOptions.map((option) => (
               <option key={option} value={option}>

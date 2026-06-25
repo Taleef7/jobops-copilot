@@ -81,9 +81,13 @@ it('locks the URL input while extraction is in flight (no stale apply)', async (
   await user.type(urlInput, 'https://x/y');
   await user.click(screen.getByRole('button', { name: /autofill/i }));
 
+  // Both the URL and the mapped fields lock so in-flight edits can't be clobbered.
   expect(urlInput).toBeDisabled();
+  expect(screen.getByLabelText(/job description/i)).toBeDisabled();
+  expect(screen.getByLabelText(/company/i)).toBeDisabled();
   resolveExtract({ source: 'none' });
   await waitFor(() => expect(urlInput).toBeEnabled());
+  expect(screen.getByLabelText(/job description/i)).toBeEnabled();
 });
 
 it('toasts an error when the extraction request fails', async () => {
