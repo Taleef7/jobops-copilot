@@ -92,7 +92,11 @@ export async function saveAgentOutput(
   }
   return runExclusive(async () => {
     const list = await ensureLoaded();
-    const index = list.findIndex((entry) => entry.jobId === jobId && entry.kind === kind);
+    // Scope the upsert by userId too, so a save for one user can never overwrite
+    // another user's row (mirrors the Postgres `where exists` ownership gate).
+    const index = list.findIndex(
+      (entry) => entry.jobId === jobId && entry.kind === kind && entry.userId === userId,
+    );
     const record: StoredAgentOutput = {
       id: index >= 0 ? list[index]!.id : randomUUID(),
       userId,

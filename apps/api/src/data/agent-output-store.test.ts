@@ -51,6 +51,21 @@ test('listAgentOutputs returns all kinds for a job, scoped to the user', async (
   });
 });
 
+test('saveAgentOutput does not let one user overwrite another user output', async () => {
+  await withTempStore(async () => {
+    await saveAgentOutput('u1', 'job-1', 'interview_prep', { owner: 'u1' });
+    await saveAgentOutput('u2', 'job-1', 'interview_prep', { owner: 'u2' }); // same job + kind
+
+    const u1 = await listAgentOutputs('u1', 'job-1');
+    assert.equal(u1.length, 1);
+    assert.deepEqual(u1[0]?.payload, { owner: 'u1' }); // intact, not clobbered
+
+    const u2 = await listAgentOutputs('u2', 'job-1');
+    assert.equal(u2.length, 1);
+    assert.deepEqual(u2[0]?.payload, { owner: 'u2' });
+  });
+});
+
 test('listAgentOutputs is empty for a job with no outputs', async () => {
   await withTempStore(async () => {
     assert.deepEqual(await listAgentOutputs('u1', 'job-x'), []);
