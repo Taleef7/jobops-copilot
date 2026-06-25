@@ -330,6 +330,16 @@ export async function fetchProfile(): Promise<UserProfile | null> {
   return response.profile;
 }
 
+export async function updateProfile(payload: {
+  profileText?: string;
+}): Promise<UserProfile | null> {
+  const response = await requestJson<{ profile: UserProfile | null }>('/api/profile', {
+    method: 'PUT',
+    body: JSON.stringify(payload),
+  });
+  return response.profile;
+}
+
 /** Uploads a resume PDF (client-only; routed through the proxy for auth). */
 export async function uploadResumeFile(file: File): Promise<UserProfile | null> {
   const form = new FormData();

@@ -37,6 +37,20 @@ profileRouter.get('/', async (request, response, next) => {
   }
 });
 
+profileRouter.put('/', async (request, response, next) => {
+  try {
+    const userId = requireUser(request, response);
+    if (!userId) return;
+    const body = request.body as { profileText?: string };
+    const updated = await upsertUserProfile(userId, {
+      profileText: body.profileText?.trim() || undefined,
+    });
+    response.json({ profile: publicProfile(updated) });
+  } catch (error) {
+    next(error);
+  }
+});
+
 // Accept either a PDF upload (field "file") or pasted text in the JSON body.
 profileRouter.post('/resume', upload.single('file'), async (request, response, next) => {
   try {
