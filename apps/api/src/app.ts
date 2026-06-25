@@ -8,6 +8,7 @@ import { globalLimiter, strictLimiter } from '@/lib/rate-limit';
 import { enforceDailyBudget } from '@/lib/budget';
 import { aiRouter } from '@/routes/ai';
 import { assistantStreamRouter } from '@/routes/assistant';
+import { assistantChatRouter } from '@/routes/assistant-chat';
 import { demoRouter } from '@/routes/demo';
 import { healthRouter } from '@/routes/health';
 import { agentOutputsRouter } from '@/routes/agent-outputs';
@@ -84,6 +85,9 @@ export function createApp() {
   // SSE assistant stream: mounted at the exact path (before the AI router) so it pipes
   // unbuffered and doesn't double-apply the AI guards to /assistant/run|resume.
   app.use('/api/ai/assistant/stream', strictLimiter, enforceDailyBudget, assistantStreamRouter);
+  // Conversational chat for the global widget — also an exact-path SSE passthrough
+  // mounted before the AI router so the guards aren't double-applied (Phase 5).
+  app.use('/api/ai/assistant/chat', strictLimiter, enforceDailyBudget, assistantChatRouter);
   // Stricter per-user limit on the expensive AI + discovery routes; the AI routes
   // additionally enforce the per-user daily spend ceiling (discovery has no LLM cost).
   app.use('/api/ai', strictLimiter, enforceDailyBudget, aiRouter);

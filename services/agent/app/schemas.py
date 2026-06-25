@@ -156,6 +156,21 @@ class SkillGapRequest(BaseModel):
     resume_text: str | None = None
 
 
+class ChatMessage(BaseModel):
+    role: Literal["user", "assistant"]
+    content: str
+
+
+class ChatRequest(BaseModel):
+    """A multi-turn conversational request for the global assistant widget."""
+
+    messages: list[ChatMessage] = Field(default_factory=list)
+    # Optional context about the job the user is currently viewing (untrusted).
+    context: str | None = None
+    # Scopes any future per-user grounding; carried through for traceability.
+    user_id: str | None = None
+
+
 # --- Phase 11 telemetry -----------------------------------------------------
 
 
