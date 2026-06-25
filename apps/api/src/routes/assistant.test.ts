@@ -3,6 +3,7 @@ import http from 'node:http';
 import test from 'node:test';
 import express from 'express';
 import { createAssistantStreamRouter } from './assistant';
+import { AgentDisabledError } from '@/lib/agent-client';
 
 function sseStream(frames: string[]): ReadableStream<Uint8Array> {
   const encoder = new TextEncoder();
@@ -91,5 +92,21 @@ test('requires description_text', async () => {
       body: JSON.stringify({}),
     });
     assert.equal(res.status, 400);
+  });
+});
+
+test('returns 503 (not 500) when the agent service is disabled', async () => {
+  const router = createAssistantStreamRouter({
+    openUpstream: async () => {
+      throw new AgentDisabledError();
+    },
+  });
+  await withServer(router, async (baseUrl) => {
+    const res = await fetch(`${baseUrl}/stream`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-User-Id': 'u1' },
+      body: JSON.stringify({ description_text: 'd' }),
+    });
+    assert.equal(res.status, 503);
   });
 });
