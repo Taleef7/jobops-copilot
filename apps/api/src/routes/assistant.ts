@@ -1,6 +1,9 @@
 import { Router } from 'express';
 import { requireUser } from '@/lib/auth';
-import { streamAssistantUpstream } from '@/lib/agent-client';
+import { AgentDisabledError, streamAssistantUpstream } from '@/lib/agent-client';
+
+const AGENT_DISABLED_MESSAGE =
+  'The AI agent service is not configured. Set AGENT_SERVICE_URL and a provider key to enable the assistant.';
 
 /** The upstream shape we need to pipe — satisfied by a fetch `Response`. */
 export interface UpstreamStream {
@@ -44,6 +47,12 @@ export function createAssistantStreamRouter(
         user_id: userId,
       });
     } catch (error) {
+      // A disabled agent service (no AGENT_SERVICE_URL) is an expected
+      // misconfiguration, not a server fault — surface it as 503, not a 500.
+      if (error instanceof AgentDisabledError) {
+        response.status(503).json({ error: AGENT_DISABLED_MESSAGE });
+        return;
+      }
       next(error);
       return;
     }
