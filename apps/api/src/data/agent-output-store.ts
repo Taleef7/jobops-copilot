@@ -125,3 +125,24 @@ export function resetAgentOutputStoreForTests() {
   loadPromise = null;
   mutationQueue = Promise.resolve();
 }
+
+/**
+ * Best-effort persistence for a successful agent run: stores the output and
+ * NEVER throws (a save failure must not break the user's result). `save` is
+ * injectable for tests.
+ */
+export async function persistAgentRun(
+  userId: string,
+  jobId: string,
+  kind: AgentKind,
+  result: unknown,
+  save: typeof saveAgentOutput = saveAgentOutput,
+): Promise<void> {
+  try {
+    const candidate = (result as { model_used?: unknown }).model_used;
+    const modelUsed = typeof candidate === 'string' ? candidate : undefined;
+    await save(userId, jobId, kind, result, modelUsed);
+  } catch (error) {
+    console.error('[agents] failed to persist output', error);
+  }
+}
