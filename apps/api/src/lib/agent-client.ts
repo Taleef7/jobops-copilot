@@ -156,6 +156,19 @@ export async function streamAssistantUpstream(payload: unknown): Promise<Respons
   });
 }
 
+/** Open the conversational chat token stream on the agent service (Phase 5). */
+export async function streamAssistantChatUpstream(payload: unknown): Promise<Response> {
+  if (!isAgentEnabled()) {
+    throw new AgentDisabledError();
+  }
+  return fetch(`${AGENT_URL}/assistant/chat`, {
+    method: 'POST',
+    headers: agentHeaders({ 'Content-Type': 'application/json' }),
+    body: JSON.stringify(payload),
+    signal: AbortSignal.timeout(AGENT_TASK_TIMEOUT_MS),
+  });
+}
+
 /** Analyze the activity series via the agent (pandas + LLM narration). */
 export async function analyzeTelemetryViaAgent(series: ActivityPoint[]): Promise<TelemetryInsights> {
   return callAgent<TelemetryInsights>('/telemetry/insights', { series }, AGENT_TASK_TIMEOUT_MS);
