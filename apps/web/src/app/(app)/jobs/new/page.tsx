@@ -15,7 +15,7 @@ export default function AddJobPage() {
       </Button>
 
       <div>
-        <h2 className="font-heading text-2xl font-bold tracking-tight">Add a job</h2>
+        <h1 className="font-heading text-2xl font-bold tracking-tight">Add a job</h1>
         <p className="text-muted-foreground text-sm">
           Paste a posting — AI extracts the company, title, and skills, then scores your fit.
         </p>
