@@ -56,3 +56,6 @@ apps/web/.cache/
 .playwright-mcp/
 assistant-hitl-smoke.png
 *.playwright-mcp.png
+
+# Git worktrees
+.worktrees/
