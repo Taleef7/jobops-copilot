@@ -3,7 +3,7 @@
 import { Download, Loader2, Sparkles } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import type { FormEvent } from 'react';
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -61,8 +61,16 @@ export function JobCreateForm() {
   const [isExtracting, setIsExtracting] = useState(false);
   const [autofillNote, setAutofillNote] = useState<string | null>(null);
 
+  const descriptionRef = useRef<HTMLTextAreaElement>(null);
+  const companyRef     = useRef<HTMLInputElement>(null);
+  const titleRef       = useRef<HTMLInputElement>(null);
+  const jobUrlRef      = useRef<HTMLInputElement>(null);
+
   function updateField<K extends keyof FormState>(field: K, value: FormState[K]) {
     setForm((current) => ({ ...current, [field]: value }));
+    if (errors[field]) {
+      setErrors((prev) => ({ ...prev, [field]: '' }));
+    }
   }
 
   async function handleAutofill() {
@@ -118,7 +126,20 @@ export function JobCreateForm() {
     event.preventDefault();
     const nextErrors = validate(form);
     setErrors(nextErrors);
-    if (Object.keys(nextErrors).length > 0) return;
+    if (Object.keys(nextErrors).length > 0) {
+      // Focus the first errored field (DOM order) after React flushes.
+      setTimeout(() => {
+        const focusOrder = [
+          { key: 'descriptionText', ref: descriptionRef },
+          { key: 'company',         ref: companyRef },
+          { key: 'title',           ref: titleRef },
+          { key: 'jobUrl',          ref: jobUrlRef },
+        ] as const;
+        const first = focusOrder.find(({ key }) => nextErrors[key]);
+        first?.ref.current?.focus();
+      }, 0);
+      return;
+    }
 
     setIsSubmitting(true);
     try {
@@ -161,7 +182,9 @@ export function JobCreateForm() {
         {/* Cap the height so a long paste scrolls internally instead of pushing the
             rest of the form off-screen (the Textarea uses field-sizing-content). */}
         <Textarea
+          ref={descriptionRef}
           id="description"
+          name="description"
           value={form.descriptionText}
           onChange={(event) => updateField('descriptionText', event.target.value)}
           placeholder="Paste the full job posting here…"
@@ -170,9 +193,11 @@ export function JobCreateForm() {
           // extracted response resolves (it overwrites the autofilled fields).
           disabled={isExtracting}
           required
+          aria-describedby={errors.descriptionText ? 'description-error' : undefined}
+          aria-invalid={errors.descriptionText ? true : undefined}
         />
         {errors.descriptionText ? (
-          <p className="text-destructive text-xs">{errors.descriptionText}</p>
+          <p id="description-error" className="text-destructive text-xs">{errors.descriptionText}</p>
         ) : null}
       </div>
 
@@ -180,32 +205,50 @@ export function JobCreateForm() {
         <div className="space-y-1.5">
           <Label htmlFor="company">Company</Label>
           <Input
+            ref={companyRef}
             id="company"
+            name="company"
+            autoComplete="organization"
             value={form.company}
             onChange={(event) => updateField('company', event.target.value)}
             placeholder="Pebble"
             disabled={isExtracting}
             required
+            aria-describedby={errors.company ? 'company-error' : undefined}
+            aria-invalid={errors.company ? true : undefined}
           />
-          {errors.company ? <p className="text-destructive text-xs">{errors.company}</p> : null}
+          {errors.company ? (
+            <p id="company-error" className="text-destructive text-xs">{errors.company}</p>
+          ) : null}
         </div>
         <div className="space-y-1.5">
           <Label htmlFor="title">Job title</Label>
           <Input
+            ref={titleRef}
             id="title"
+            name="title"
+            autoComplete="off"
             value={form.title}
             onChange={(event) => updateField('title', event.target.value)}
             placeholder="AI Software Engineer"
             disabled={isExtracting}
             required
+            aria-describedby={errors.title ? 'title-error' : undefined}
+            aria-invalid={errors.title ? true : undefined}
           />
-          {errors.title ? <p className="text-destructive text-xs">{errors.title}</p> : null}
+          {errors.title ? (
+            <p id="title-error" className="text-destructive text-xs">{errors.title}</p>
+          ) : null}
         </div>
         <div className="space-y-1.5">
           <Label htmlFor="jobUrl">Job URL</Label>
           <div className="flex gap-2">
             <Input
+              ref={jobUrlRef}
               id="jobUrl"
+              name="jobUrl"
+              type="url"
+              autoComplete="url"
               value={form.jobUrl}
               onChange={(event) => updateField('jobUrl', event.target.value)}
               placeholder="https://…"
@@ -213,6 +256,8 @@ export function JobCreateForm() {
               // Locked during extraction so an in-flight response can't be applied
               // to a URL the user changed meanwhile (stale-autofill mismatch).
               disabled={isExtracting}
+              aria-describedby={errors.jobUrl ? 'job-url-error' : undefined}
+              aria-invalid={errors.jobUrl ? true : undefined}
             />
             <Button
               type="button"
@@ -229,7 +274,9 @@ export function JobCreateForm() {
               Autofill
             </Button>
           </div>
-          {errors.jobUrl ? <p className="text-destructive text-xs">{errors.jobUrl}</p> : null}
+          {errors.jobUrl ? (
+            <p id="job-url-error" className="text-destructive text-xs">{errors.jobUrl}</p>
+          ) : null}
           {/* Always-present live region so a screen reader announces a failed autofill. */}
           <p role="status" className="text-muted-foreground text-xs empty:hidden">
             {autofillNote ?? ''}
@@ -239,6 +286,8 @@ export function JobCreateForm() {
           <Label htmlFor="location">Location</Label>
           <Input
             id="location"
+            name="location"
+            autoComplete="off"
             value={form.location}
             onChange={(event) => updateField('location', event.target.value)}
             placeholder="Remote · San Francisco"
