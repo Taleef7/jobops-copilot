@@ -22,6 +22,7 @@ export function OutreachDraftCard({ draftText }: OutreachDraftCardProps) {
       </p>
       <button
         type="button"
+        aria-expanded={expanded}
         onClick={() => setExpanded((prev) => !prev)}
         className="text-muted-foreground hover:text-foreground mt-1 text-xs underline"
       >

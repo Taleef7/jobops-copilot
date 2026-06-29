@@ -50,19 +50,20 @@ export function ExportDataButton() {
 
   async function handleExport() {
     setBusy(true);
+    let objectUrl: string | undefined;
     try {
       const response = await fetch('/api/proxy/api/profile/export');
       if (!response.ok) throw new Error(`Export failed: ${response.status}`);
       const blob = await response.blob();
-      const url = URL.createObjectURL(blob);
+      objectUrl = URL.createObjectURL(blob);
       const anchor = document.createElement('a');
-      anchor.href = url;
+      anchor.href = objectUrl;
       anchor.download = 'jobops-export.json';
       anchor.click();
-      URL.revokeObjectURL(url);
     } catch {
       toast.error('Export failed. Try again.');
     } finally {
+      if (objectUrl) URL.revokeObjectURL(objectUrl);
       setBusy(false);
     }
   }
