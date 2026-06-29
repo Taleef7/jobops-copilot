@@ -148,12 +148,17 @@ export async function streamAssistantUpstream(payload: unknown): Promise<Respons
   if (!isAgentEnabled()) {
     throw new AgentDisabledError();
   }
-  return fetch(`${AGENT_URL}/assistant/stream`, {
-    method: 'POST',
-    headers: agentHeaders({ 'Content-Type': 'application/json' }),
-    body: JSON.stringify(payload),
-    signal: AbortSignal.timeout(AGENT_TASK_TIMEOUT_MS),
-  });
+  // Retry once on cold-start timeout. Streaming needs the full AGENT_TASK_TIMEOUT_MS on
+  // the retry too (the container wakes during the first attempt; the retry still streams),
+  // so we pass a fixed-timeout lambda and ignore the attempt number.
+  return withColdStartRetry(() =>
+    fetch(`${AGENT_URL}/assistant/stream`, {
+      method: 'POST',
+      headers: agentHeaders({ 'Content-Type': 'application/json' }),
+      body: JSON.stringify(payload),
+      signal: AbortSignal.timeout(AGENT_TASK_TIMEOUT_MS),
+    }),
+  );
 }
 
 /** Open the conversational chat token stream on the agent service (Phase 5). */
@@ -161,12 +166,15 @@ export async function streamAssistantChatUpstream(payload: unknown): Promise<Res
   if (!isAgentEnabled()) {
     throw new AgentDisabledError();
   }
-  return fetch(`${AGENT_URL}/assistant/chat`, {
-    method: 'POST',
-    headers: agentHeaders({ 'Content-Type': 'application/json' }),
-    body: JSON.stringify(payload),
-    signal: AbortSignal.timeout(AGENT_TASK_TIMEOUT_MS),
-  });
+  // Same cold-start retry as streamAssistantUpstream — see comment there.
+  return withColdStartRetry(() =>
+    fetch(`${AGENT_URL}/assistant/chat`, {
+      method: 'POST',
+      headers: agentHeaders({ 'Content-Type': 'application/json' }),
+      body: JSON.stringify(payload),
+      signal: AbortSignal.timeout(AGENT_TASK_TIMEOUT_MS),
+    }),
+  );
 }
 
 /** Analyze the activity series via the agent (pandas + LLM narration). */
