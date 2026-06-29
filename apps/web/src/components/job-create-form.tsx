@@ -171,7 +171,7 @@ export function JobCreateForm() {
   }
 
   return (
-    <form className="space-y-5" onSubmit={handleSubmit}>
+    <form className="space-y-5" onSubmit={handleSubmit} noValidate>
       <div className="space-y-1.5">
         <div className="flex items-center justify-between">
           <Label htmlFor="description">Job description</Label>
