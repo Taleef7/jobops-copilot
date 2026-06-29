@@ -17,6 +17,7 @@ import { fetchAgentOutputs, fetchProfile } from '@/lib/api';
 import { isHeuristicAnalysis, isPrerankAnalysis } from '@/lib/analysis-display';
 import { formatDate } from '@/lib/format';
 import { loadJob } from '@/lib/job-data';
+import { isDuplicateRemote } from '@/lib/job-display';
 
 export const dynamic = 'force-dynamic';
 
@@ -61,7 +62,9 @@ export default async function JobDetailPage({ params }: JobDetailParams) {
             <p className="text-muted-foreground">{job.company}</p>
             <div className="flex flex-wrap items-center gap-2">
               <StatusPill status={job.status} />
-              <Badge variant="outline" className="capitalize">{job.location}</Badge>
+              {!isDuplicateRemote(job.location, job.workplaceType) ? (
+                <Badge variant="outline" className="capitalize">{job.location}</Badge>
+              ) : null}
               <Badge variant="outline" className="capitalize">{job.workplaceType}</Badge>
               <Badge variant="outline" className="capitalize">{job.employmentType}</Badge>
               <Badge variant="outline" className="capitalize">{job.priority} priority</Badge>
