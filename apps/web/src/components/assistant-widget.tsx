@@ -62,6 +62,10 @@ export function AssistantWidget() {
   const [streaming, setStreaming] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [retryPayload, setRetryPayload] = useState<{
+    messages: ChatMessage[];
+    jobId: string | undefined;
+  } | null>(null);
 
   const hydratedRef = useRef(false);
   const launcherRef = useRef<HTMLButtonElement>(null);
@@ -109,6 +113,7 @@ export function AssistantWidget() {
     setInput('');
     setStreaming('');
     setError(null);
+    setRetryPayload(null);
     setBusy(true);
 
     const controller = new AbortController();
@@ -132,6 +137,41 @@ export function AssistantWidget() {
         setError(message);
         setStreaming('');
         setBusy(false);
+        setRetryPayload({ messages: next, jobId });
+      },
+    });
+  }
+
+  async function retry() {
+    if (!retryPayload || busy) return;
+    const { messages: retryMessages, jobId: retryJobId } = retryPayload;
+    setRetryPayload(null);
+    setError(null);
+    setStreaming('');
+    setBusy(true);
+
+    const controller = new AbortController();
+    abortRef.current = controller;
+    let acc = '';
+
+    await streamAssistantChat({
+      messages: retryMessages,
+      jobId: retryJobId,
+      signal: controller.signal,
+      onToken: (token) => {
+        acc += token;
+        setStreaming(acc);
+      },
+      onDone: () => {
+        if (acc) setMessages((current) => [...current, { role: 'assistant', content: acc }]);
+        setStreaming('');
+        setBusy(false);
+      },
+      onError: (message) => {
+        setError(message);
+        setStreaming('');
+        setBusy(false);
+        setRetryPayload({ messages: retryMessages, jobId: retryJobId });
       },
     });
   }
@@ -199,7 +239,20 @@ export function AssistantWidget() {
               </div>
             ) : null}
 
-            {error ? <p className="text-destructive text-sm">{error}</p> : null}
+            {error ? (
+              <div className="flex items-center gap-2">
+                <p className="text-destructive text-sm">{error}</p>
+                {retryPayload ? (
+                  <button
+                    type="button"
+                    onClick={() => retry()}
+                    className="text-muted-foreground hover:text-foreground text-xs underline motion-reduce:transition-none"
+                  >
+                    Retry
+                  </button>
+                ) : null}
+              </div>
+            ) : null}
           </div>
 
           {empty ? (
