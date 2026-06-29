@@ -48,7 +48,7 @@ export default async function ReportsPage() {
   return (
     <div className="space-y-6">
       <div>
-        <h2 className="font-heading text-2xl font-bold tracking-tight">Weekly reports</h2>
+        <h1 className="font-heading text-2xl font-bold tracking-tight">Weekly reports</h1>
         <p className="text-muted-foreground text-sm">A live snapshot of your pipeline.</p>
       </div>
 

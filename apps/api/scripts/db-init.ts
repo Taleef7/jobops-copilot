@@ -1,14 +1,19 @@
 import 'dotenv/config';
-import { readFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
-import { readdir } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import { Pool } from 'pg';
+import {
+  applyMigration,
+  bootstrapIfNeeded,
+  ensureTrackingTable,
+  listMigrationFiles,
+} from './db-migrations';
 
 const databaseUrl = process.env.DATABASE_URL?.trim();
-
 if (!databaseUrl) {
-  throw new Error('DATABASE_URL is required. Set it in apps/api/.env before running the database bootstrap.');
+  throw new Error(
+    'DATABASE_URL is required. Set it in apps/api/.env before running the database bootstrap.',
+  );
 }
 
 const scriptDir = dirname(fileURLToPath(import.meta.url));
@@ -18,27 +23,6 @@ const migrationDir = join(repoRoot, 'db', 'migrations');
 function describeTarget(url: string) {
   const parsed = new URL(url);
   return `${parsed.hostname}${parsed.pathname}`;
-}
-
-async function runSql(pool: Pool, label: string, filePath: string) {
-  const sql = await readFile(filePath, 'utf8');
-  const client = await pool.connect();
-
-  try {
-    console.log(`Running ${label} from ${filePath}`);
-    await client.query(sql);
-    console.log(`Finished ${label}`);
-  } finally {
-    client.release();
-  }
-}
-
-async function listMigrationFiles() {
-  const entries = await readdir(migrationDir, { withFileTypes: true });
-  return entries
-    .filter((entry) => entry.isFile() && entry.name.endsWith('.sql'))
-    .map((entry) => join(migrationDir, entry.name))
-    .sort((left, right) => left.localeCompare(right));
 }
 
 async function main() {
@@ -52,12 +36,22 @@ async function main() {
 
   try {
     console.log(`Connecting to ${describeTarget(databaseUrl)}`);
-    await pool.query('select 1');
-    for (const migrationPath of await listMigrationFiles()) {
-      await runSql(pool, `schema migration ${migrationPath.split('\\').pop() ?? migrationPath}`, migrationPath);
+    await pool.query('SELECT 1');
+
+    await ensureTrackingTable(pool);
+
+    const migrationFiles = await listMigrationFiles(migrationDir);
+    await bootstrapIfNeeded(pool, migrationFiles);
+
+    let applied = 0;
+    let skipped = 0;
+    for (const filePath of migrationFiles) {
+      const wasApplied = await applyMigration(pool, filePath);
+      if (wasApplied) applied++;
+      else skipped++;
     }
-    // No global seed: sample data is loaded per-account via POST /api/demo/seed.
-    console.log('Azure PostgreSQL bootstrap completed successfully.');
+
+    console.log(`Bootstrap complete: ${applied} applied, ${skipped} skipped.`);
   } finally {
     await pool.end();
   }

@@ -26,7 +26,7 @@ export default async function OutreachPage() {
   return (
     <div className="space-y-6">
       <div>
-        <h2 className="font-heading text-2xl font-bold tracking-tight">Outreach</h2>
+        <h1 className="font-heading text-2xl font-bold tracking-tight">Outreach</h1>
         <p className="text-muted-foreground text-sm">Review and approve every draft before it goes out.</p>
       </div>
 

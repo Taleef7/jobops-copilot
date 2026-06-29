@@ -1,6 +1,7 @@
 import { Briefcase, FileBarChart, Plus, Send, Target, TimerReset } from 'lucide-react';
 import Link from 'next/link';
 import { FitScoreRing } from '@/components/fit-score-ring';
+import { LoadSampleDataButton } from '@/components/load-sample-data-button';
 import { SectionCard } from '@/components/section-card';
 import { StatTile } from '@/components/stat-tile';
 import { StatusPill } from '@/components/status-pill';
@@ -36,7 +37,7 @@ export default async function DashboardPage() {
     <div className="space-y-6">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
-          <h2 className="font-heading text-2xl font-bold tracking-tight">Welcome back</h2>
+          <h1 className="font-heading text-2xl font-bold tracking-tight">Welcome back</h1>
           <p className="text-muted-foreground text-sm">
             Your AI job-search operations at a glance.
           </p>
@@ -81,9 +82,7 @@ export default async function DashboardPage() {
             <Button render={<Link href="/jobs/new" />} className="gap-1.5">
               <Plus className="size-4" /> Add your first job
             </Button>
-            <Button render={<Link href="/settings" />} variant="outline">
-              Load sample data
-            </Button>
+            <LoadSampleDataButton />
           </div>
         </Card>
       ) : null}

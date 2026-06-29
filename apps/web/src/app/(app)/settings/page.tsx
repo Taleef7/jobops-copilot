@@ -77,7 +77,7 @@ export default async function SettingsPage() {
   return (
     <div className="space-y-6">
       <div>
-        <h2 className="font-heading text-2xl font-bold tracking-tight">Settings</h2>
+        <h1 className="font-heading text-2xl font-bold tracking-tight">Settings</h1>
         <p className="text-muted-foreground text-sm">Manage your profile, providers, and data.</p>
       </div>
 
