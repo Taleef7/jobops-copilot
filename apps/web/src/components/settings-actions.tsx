@@ -63,7 +63,7 @@ export function ExportDataButton() {
     } catch {
       toast.error('Export failed. Try again.');
     } finally {
-      if (objectUrl) URL.revokeObjectURL(objectUrl);
+      if (objectUrl) setTimeout(() => URL.revokeObjectURL(objectUrl!), 100);
       setBusy(false);
     }
   }
