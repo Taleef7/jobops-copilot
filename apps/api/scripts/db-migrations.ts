@@ -20,19 +20,38 @@ export async function ensureTrackingTable(pool: Pool): Promise<void> {
 }
 
 /**
- * If schema_migrations is empty AND the jobs table already exists, the DB
- * was initialised before tracking was added. Pre-seed all known migration
- * filenames so the first tracked run skips them rather than re-running against
- * live data.
+ * If schema_migrations is empty AND the DB looks fully initialised, pre-seed
+ * all known migration filenames so the first tracked run skips them rather
+ * than re-running against live data.
+ *
+ * "Fully initialised" is determined by checking two sentinel tables that span
+ * the migration history: `jobs` (001, the first table) and `agent_outputs`
+ * (008, the last table-creating migration). Checking both guards against the
+ * case where an earlier un-tracked run failed partway — in that scenario
+ * `jobs` would exist but later tables would not, and blindly pre-seeding all
+ * filenames would permanently mark unrun migrations as applied.
  */
 export async function bootstrapIfNeeded(pool: Pool, migrationFiles: string[]): Promise<void> {
   const { rows } = await pool.query<{ n: string }>('SELECT count(*) AS n FROM schema_migrations');
   if (Number(rows[0].n) > 0) return;
 
-  const { rows: jobRows } = await pool.query(
-    "SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'jobs' LIMIT 1",
+  const { rows: tableRows } = await pool.query<{ table_name: string }>(
+    `SELECT table_name FROM information_schema.tables
+     WHERE table_schema = 'public' AND table_name IN ('jobs', 'agent_outputs')`,
   );
-  if (jobRows.length === 0) return; // fresh DB — let migrations run normally
+  const existing = new Set(tableRows.map((r) => r.table_name));
+
+  if (!existing.has('jobs')) return; // fresh DB — let migrations run normally
+
+  if (!existing.has('agent_outputs')) {
+    // jobs exists but a later sentinel is absent — partial migration state.
+    // Do not pre-seed; let applyMigration run and skip/apply as appropriate.
+    console.warn(
+      'Existing DB detected but agent_outputs table is absent — ' +
+        'skipping bootstrap pre-seed so pending migrations can be applied.',
+    );
+    return;
+  }
 
   console.log('Existing DB detected — pre-seeding schema_migrations for all current migrations.');
   for (const filePath of migrationFiles) {

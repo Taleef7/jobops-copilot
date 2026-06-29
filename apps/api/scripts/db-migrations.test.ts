@@ -148,11 +148,14 @@ test('applyMigration returns false and rolls back when a concurrent process wins
 
 // ─── bootstrapIfNeeded ────────────────────────────────────────────────────────
 
-test('bootstrapIfNeeded pre-seeds all migrations when table is empty and jobs table exists', async () => {
+test('bootstrapIfNeeded pre-seeds all migrations when both sentinel tables exist', async () => {
   const inserted: string[] = [];
   const pool = poolQueryOnly((sql, params) => {
     if (sql.includes('count(*)')) return { rows: [{ n: '0' }] };
-    if (sql.includes('information_schema')) return { rows: [{ '?column?': 1 }] };
+    // Return both sentinel tables so the full-initialisation check passes.
+    if (sql.includes('information_schema')) {
+      return { rows: [{ table_name: 'jobs' }, { table_name: 'agent_outputs' }] };
+    }
     if (sql.includes('INSERT INTO schema_migrations')) inserted.push(String(params?.[0] ?? ''));
     return { rows: [] };
   });
@@ -171,14 +174,27 @@ test('bootstrapIfNeeded does nothing when the tracking table already has rows', 
   assert.equal(extraCalls, 0, 'should not have made further queries after seeing n > 0');
 });
 
-test('bootstrapIfNeeded does nothing on a fresh DB (jobs table absent)', async () => {
+test('bootstrapIfNeeded does nothing on a fresh DB (no sentinel tables)', async () => {
   const inserted: string[] = [];
   const pool = poolQueryOnly((sql, params) => {
     if (sql.includes('count(*)')) return { rows: [{ n: '0' }] };
-    if (sql.includes('information_schema')) return { rows: [] }; // no jobs table
+    if (sql.includes('information_schema')) return { rows: [] }; // no tables
     if (sql.includes('INSERT INTO schema_migrations')) inserted.push(String(params?.[0] ?? ''));
     return { rows: [] };
   });
   await bootstrapIfNeeded(pool, ['/m/001.sql']);
-  assert.equal(inserted.length, 0, 'should not pre-seed when jobs table is missing');
+  assert.equal(inserted.length, 0, 'should not pre-seed on a fresh DB');
+});
+
+test('bootstrapIfNeeded does not pre-seed when jobs exists but agent_outputs is absent (partial migration state)', async () => {
+  const inserted: string[] = [];
+  const pool = poolQueryOnly((sql, params) => {
+    if (sql.includes('count(*)')) return { rows: [{ n: '0' }] };
+    // Only jobs returned — agent_outputs missing, indicating a partial earlier run.
+    if (sql.includes('information_schema')) return { rows: [{ table_name: 'jobs' }] };
+    if (sql.includes('INSERT INTO schema_migrations')) inserted.push(String(params?.[0] ?? ''));
+    return { rows: [] };
+  });
+  await bootstrapIfNeeded(pool, ['/m/001.sql', '/m/008.sql']);
+  assert.equal(inserted.length, 0, 'should not pre-seed when schema is only partially initialised');
 });
