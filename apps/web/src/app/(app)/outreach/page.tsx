@@ -5,6 +5,7 @@ import { EmptyState } from '@/components/empty-state';
 import { OutreachReviewActions } from '@/components/outreach-review-actions';
 import { Badge } from '@/components/ui/badge';
 import { Card } from '@/components/ui/card';
+import { OutreachDraftCard } from '@/components/outreach-draft-card';
 import { loadOutreach } from '@/lib/outreach-data';
 import type { OutreachStatus } from '@/types/job';
 
@@ -73,9 +74,7 @@ export default async function OutreachPage() {
                         {item.draft.messageType.replaceAll('_', ' ')}
                       </Badge>
                     </div>
-                    <p className="text-muted-foreground line-clamp-3 text-sm">
-                      {item.draft.draftText}
-                    </p>
+                    <OutreachDraftCard draftText={item.draft.draftText} />
                     <div className="flex items-center justify-between gap-2 border-t pt-2">
                       <OutreachReviewActions
                         outreachId={item.draft.id}

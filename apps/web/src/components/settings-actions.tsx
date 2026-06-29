@@ -46,14 +46,37 @@ export function ResumeReupload() {
 }
 
 export function ExportDataButton() {
+  const [busy, setBusy] = useState(false);
+
+  async function handleExport() {
+    setBusy(true);
+    try {
+      const response = await fetch('/api/proxy/api/profile/export');
+      if (!response.ok) throw new Error(`Export failed: ${response.status}`);
+      const blob = await response.blob();
+      const url = URL.createObjectURL(blob);
+      const anchor = document.createElement('a');
+      anchor.href = url;
+      anchor.download = 'jobops-export.json';
+      anchor.click();
+      URL.revokeObjectURL(url);
+    } catch {
+      toast.error('Export failed. Try again.');
+    } finally {
+      setBusy(false);
+    }
+  }
+
   return (
     <Button
       variant="outline"
       size="sm"
       className="ml-auto"
-      onClick={() => window.open('/api/proxy/api/profile/export', '_blank')}
+      disabled={busy}
+      onClick={() => void handleExport()}
     >
-      <Download className="size-4" /> Export data
+      {busy ? <Loader2 className="size-4 animate-spin" /> : <Download className="size-4" />}
+      Export data
     </Button>
   );
 }
