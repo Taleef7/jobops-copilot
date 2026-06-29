@@ -22,6 +22,7 @@ const NODE_LABELS: Record<string, string> = {
   review: 'Awaiting your approval',
   draft: 'Drafting outreach',
   pass: 'Below the fit bar — stopping',
+  below_fit_bar: 'Below the fit bar — stopping',
 };
 
 export function AssistantPanel() {
@@ -145,14 +146,30 @@ export function AssistantPanel() {
       </Button>
 
       {steps.length > 0 && (
-        <ol className="space-y-1 text-sm">
-          {steps.map((step, i) => (
-            <li key={i} className="text-muted-foreground flex items-center gap-2">
-              <Check className="size-3.5 text-emerald-500" />
-              {NODE_LABELS[step.node] ?? step.node}
-            </li>
-          ))}
-        </ol>
+        <>
+          <ol className="space-y-1 text-sm">
+            {steps.map((step, i) => (
+              <li key={i} className="text-muted-foreground flex items-center gap-2">
+                {step.node === 'pass' || step.node === 'below_fit_bar' ? (
+                  <X className="size-3.5 text-destructive" />
+                ) : (
+                  <Check className="size-3.5 text-emerald-500" />
+                )}
+                {NODE_LABELS[step.node] ?? step.node}
+              </li>
+            ))}
+          </ol>
+          {steps.some((s) => s.node === 'pass' || s.node === 'below_fit_bar') ? (
+            <div role="status" className="bg-muted mt-3 rounded-md px-3 py-2 text-sm">
+              <p className="font-medium">Below the fit threshold</p>
+              <p className="text-muted-foreground mt-1">
+                Your profile didn&apos;t score high enough for this role. Common next steps: strengthen
+                your resume for the required skills, or use the <strong>Score fit</strong> button on the
+                job detail page to see exactly what&apos;s missing.
+              </p>
+            </div>
+          ) : null}
+        </>
       )}
 
       {awaiting && (
