@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation';
 import { FileText, Loader2, Sparkles, Upload } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Card, CardContent, CardDescription, CardHeader } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
@@ -104,7 +104,7 @@ export default function OnboardingPage() {
           </div>
           {step === 1 ? (
             <>
-              <CardTitle className="font-heading text-2xl">Welcome to JobOps Copilot</CardTitle>
+              <h1 className="font-heading text-2xl font-medium leading-snug">Welcome to JobOps Copilot</h1>
               <CardDescription>
                 Add your resume so the AI can score job fit and draft outreach grounded in your real
                 experience. Nothing is sent anywhere without your review.
@@ -112,7 +112,7 @@ export default function OnboardingPage() {
             </>
           ) : (
             <>
-              <CardTitle className="font-heading text-2xl">What roles are you targeting?</CardTitle>
+              <h1 className="font-heading text-2xl font-medium leading-snug">What roles are you targeting?</h1>
               <CardDescription>
                 We&apos;ll pull matching postings into your feed, already scored against your resume.
               </CardDescription>

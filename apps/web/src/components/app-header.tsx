@@ -56,7 +56,7 @@ export function AppHeader() {
     <header className="bg-background/80 sticky top-0 z-30 flex h-16 items-center gap-2 border-b px-3 backdrop-blur-md sm:px-4">
       <SidebarTrigger className="-ml-1" />
       <Separator orientation="vertical" className="mr-1 h-6" />
-      <h1 className="font-heading truncate text-base font-semibold sm:text-lg">{title}</h1>
+      <p className="font-heading truncate text-base font-semibold sm:text-lg">{title}</p>
 
       <div className="ml-auto flex items-center gap-1.5 sm:gap-2">
         <form onSubmit={handleSubmit} role="search" className="relative hidden sm:block">

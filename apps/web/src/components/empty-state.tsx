@@ -22,7 +22,7 @@ export function EmptyState({
       <span className="bg-muted text-muted-foreground mb-3 flex size-12 items-center justify-center rounded-full">
         <Inbox className="size-6" />
       </span>
-      <h3 className="font-heading text-base font-semibold">{title}</h3>
+      <h2 className="font-heading text-base font-semibold">{title}</h2>
       <p className="text-muted-foreground mt-1 max-w-sm text-sm">{description}</p>
       {actionLabel && onAction ? (
         <Button onClick={onAction} variant="outline" size="sm" className="mt-4">
