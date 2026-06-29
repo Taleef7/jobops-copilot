@@ -22,6 +22,7 @@ const NODE_LABELS: Record<string, string> = {
   review: 'Awaiting your approval',
   draft: 'Drafting outreach',
   pass: 'Below the fit bar — stopping',
+  below_fit_bar: 'Below the fit bar — stopping',
 };
 
 export function AssistantPanel() {
