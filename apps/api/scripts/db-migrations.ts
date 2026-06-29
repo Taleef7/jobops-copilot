@@ -62,12 +62,24 @@ export async function applyMigration(pool: Pool, filePath: string): Promise<bool
   try {
     await client.query('BEGIN');
     await client.query(sql);
-    await client.query('INSERT INTO schema_migrations (filename) VALUES ($1)', [filename]);
+    const insertResult = await client.query(
+      'INSERT INTO schema_migrations (filename) VALUES ($1) ON CONFLICT DO NOTHING',
+      [filename],
+    );
+    if ((insertResult.rowCount ?? 0) === 0) {
+      await client.query('ROLLBACK');
+      console.log(`Skipping already-applied migration ${filename} (concurrent run detected)`);
+      return false;
+    }
     await client.query('COMMIT');
     console.log(`Applied migration ${filename}`);
     return true;
   } catch (error) {
-    await client.query('ROLLBACK');
+    try {
+      await client.query('ROLLBACK');
+    } catch (rollbackError) {
+      console.error('ROLLBACK failed (connection may be broken):', rollbackError);
+    }
     throw error;
   } finally {
     client.release();

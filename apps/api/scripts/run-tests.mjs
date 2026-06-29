@@ -33,7 +33,7 @@ const testFiles = [
 ];
 
 if (testFiles.length === 0) {
-  console.error('No test files found under apps/api/src');
+  console.error('No test files found under apps/api/src or apps/api/scripts');
   process.exit(1);
 }
 

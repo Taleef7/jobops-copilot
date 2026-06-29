@@ -60,9 +60,11 @@ test('applyMigration runs BEGIN/SQL/INSERT/COMMIT and returns true on success', 
       if (sql.includes('WHERE filename')) return { rows: [] };
       return { rows: [] };
     },
-    // client.query: record each call
+    // client.query: record each call; return rowCount:1 for INSERT so the
+    // ON CONFLICT rowCount check sees a successful insert (not a conflict).
     (sql) => {
       executed.push(sql.trim().slice(0, 80));
+      if (sql.includes('INSERT INTO schema_migrations')) return { rows: [], rowCount: 1 };
       return { rows: [] };
     },
   );
