@@ -118,6 +118,34 @@ test('applyMigration rolls back and rethrows when the migration SQL fails', asyn
   }
 });
 
+test('applyMigration returns false and rolls back when a concurrent process wins the INSERT race (rowCount 0)', async () => {
+  const executed: string[] = [];
+  const pool = poolWithClient(
+    (sql) => {
+      if (sql.includes('WHERE filename')) return { rows: [] }; // not yet recorded by upfront SELECT
+      return { rows: [] };
+    },
+    (sql) => {
+      executed.push(sql.trim().slice(0, 80));
+      if (sql.includes('INSERT INTO schema_migrations')) {
+        return { rows: [], rowCount: 0 }; // simulate concurrent process already inserted
+      }
+      return { rows: [], rowCount: 0 };
+    },
+  );
+  const dir = await mkdtemp(join(tmpdir(), 'jobops-'));
+  const filePath = join(dir, '001_concurrent.sql');
+  await writeFile(filePath, 'SELECT 1;');
+  try {
+    const result = await applyMigration(pool, filePath);
+    assert.equal(result, false, 'should return false when concurrent process wins INSERT race');
+    assert.ok(executed.includes('ROLLBACK'), `expected ROLLBACK; got: ${JSON.stringify(executed)}`);
+    assert.ok(!executed.includes('COMMIT'), 'should not have committed');
+  } finally {
+    await rm(dir, { recursive: true });
+  }
+});
+
 // ─── bootstrapIfNeeded ────────────────────────────────────────────────────────
 
 test('bootstrapIfNeeded pre-seeds all migrations when table is empty and jobs table exists', async () => {
