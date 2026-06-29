@@ -1,6 +1,7 @@
 import { Briefcase, FileBarChart, Plus, Send, Target, TimerReset } from 'lucide-react';
 import Link from 'next/link';
 import { FitScoreRing } from '@/components/fit-score-ring';
+import { LoadSampleDataButton } from '@/components/load-sample-data-button';
 import { SectionCard } from '@/components/section-card';
 import { StatTile } from '@/components/stat-tile';
 import { StatusPill } from '@/components/status-pill';
@@ -81,9 +82,7 @@ export default async function DashboardPage() {
             <Button render={<Link href="/jobs/new" />} className="gap-1.5">
               <Plus className="size-4" /> Add your first job
             </Button>
-            <Button render={<Link href="/settings" />} variant="outline">
-              Load sample data
-            </Button>
+            <LoadSampleDataButton />
           </div>
         </Card>
       ) : null}
