@@ -17,6 +17,8 @@ export function OutreachDraftCard({ draftText }: OutreachDraftCardProps) {
           'text-muted-foreground text-sm',
           expanded ? 'max-h-48 overflow-y-auto' : 'line-clamp-3',
         )}
+        // eslint-disable-next-line jsx-a11y/no-noninteractive-tabindex
+        tabIndex={expanded ? 0 : undefined}
       >
         {draftText}
       </p>
