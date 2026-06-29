@@ -148,19 +148,24 @@ test('applyMigration returns false and rolls back when a concurrent process wins
 
 // ─── bootstrapIfNeeded ────────────────────────────────────────────────────────
 
-test('bootstrapIfNeeded pre-seeds all migrations when both sentinel tables exist', async () => {
+test('bootstrapIfNeeded pre-seeds only migrations up to the sentinel when both sentinel tables exist', async () => {
   const inserted: string[] = [];
   const pool = poolQueryOnly((sql, params) => {
     if (sql.includes('count(*)')) return { rows: [{ n: '0' }] };
-    // Return both sentinel tables so the full-initialisation check passes.
     if (sql.includes('information_schema')) {
       return { rows: [{ table_name: 'jobs' }, { table_name: 'agent_outputs' }] };
     }
     if (sql.includes('INSERT INTO schema_migrations')) inserted.push(String(params?.[0] ?? ''));
     return { rows: [] };
   });
-  await bootstrapIfNeeded(pool, ['/m/001_init.sql', '/m/002_jobs.sql']);
-  assert.deepEqual(inserted, ['001_init.sql', '002_jobs.sql']);
+  // 009 should NOT be pre-seeded; applyMigration will handle it instead.
+  await bootstrapIfNeeded(pool, [
+    '/m/001_init.sql',
+    '/m/008_agent_outputs.sql',
+    '/m/009_drop_display_name.sql',
+  ]);
+  assert.deepEqual(inserted, ['001_init.sql', '008_agent_outputs.sql']);
+  assert.ok(!inserted.includes('009_drop_display_name.sql'), '009 must not be pre-seeded');
 });
 
 test('bootstrapIfNeeded does nothing when the tracking table already has rows', async () => {

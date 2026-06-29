@@ -21,16 +21,25 @@ export async function ensureTrackingTable(pool: Pool): Promise<void> {
 
 /**
  * If schema_migrations is empty AND the DB looks fully initialised, pre-seed
- * all known migration filenames so the first tracked run skips them rather
- * than re-running against live data.
+ * migration filenames up to and including the sentinel so the first tracked
+ * run skips them rather than re-running against live data. Migrations after
+ * the sentinel are left un-seeded so applyMigration handles them — they are
+ * idempotent (IF EXISTS / IF NOT EXISTS) and safe to re-run.
  *
- * "Fully initialised" is determined by checking two sentinel tables that span
- * the migration history: `jobs` (001, the first table) and `agent_outputs`
- * (008, the last table-creating migration). Checking both guards against the
- * case where an earlier un-tracked run failed partway — in that scenario
- * `jobs` would exist but later tables would not, and blindly pre-seeding all
- * filenames would permanently mark unrun migrations as applied.
+ * Two sentinel tables span the known migration history: `jobs` (001) and
+ * `agent_outputs` (008, the last table-creating migration). If only `jobs`
+ * exists, a prior run failed partway — we skip pre-seeding entirely so
+ * pending migrations can be applied. Pre-seeding is bounded to files whose
+ * basename is ≤ BOOTSTRAP_SENTINEL_FILE so that later idempotent migrations
+ * (e.g. 009_drop_display_name.sql) are never permanently marked as applied
+ * without actually running.
  */
+
+// The filename of the last migration whose effects are verified by the
+// sentinel table check. Only files up to and including this name are
+// pre-seeded; everything after runs through applyMigration normally.
+const BOOTSTRAP_SENTINEL_FILE = '008_agent_outputs.sql';
+
 export async function bootstrapIfNeeded(pool: Pool, migrationFiles: string[]): Promise<void> {
   const { rows } = await pool.query<{ n: string }>('SELECT count(*) AS n FROM schema_migrations');
   if (Number(rows[0].n) > 0) return;
@@ -53,8 +62,11 @@ export async function bootstrapIfNeeded(pool: Pool, migrationFiles: string[]): P
     return;
   }
 
-  console.log('Existing DB detected — pre-seeding schema_migrations for all current migrations.');
-  for (const filePath of migrationFiles) {
+  const toSeed = migrationFiles.filter((f) => basename(f) <= BOOTSTRAP_SENTINEL_FILE);
+  console.log(
+    `Existing DB detected — pre-seeding ${toSeed.length} verified migration(s) up to ${BOOTSTRAP_SENTINEL_FILE}.`,
+  );
+  for (const filePath of toSeed) {
     await pool.query(
       'INSERT INTO schema_migrations (filename) VALUES ($1) ON CONFLICT DO NOTHING',
       [basename(filePath)],
