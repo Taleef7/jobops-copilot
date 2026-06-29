@@ -27,7 +27,10 @@ function findTestFiles(rootDir) {
 
 const scriptDir = dirname(fileURLToPath(import.meta.url));
 const projectRoot = resolve(scriptDir, '..');
-const testFiles = findTestFiles(join(projectRoot, 'src'));
+const testFiles = [
+  ...findTestFiles(join(projectRoot, 'src')),
+  ...findTestFiles(join(projectRoot, 'scripts')),
+];
 
 if (testFiles.length === 0) {
   console.error('No test files found under apps/api/src');
