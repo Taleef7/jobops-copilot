@@ -102,6 +102,31 @@ cd ../.. && npm run test:e2e     # Playwright e2e (needs Clerk secrets in apps/w
 gh run list --limit 10           # CI — every recent run green
 ```
 
+### CI gating & required checks
+
+**Deploys gate on tests.** Each deploy workflow (`deploy-api`, `deploy-web`, `deploy-agent`)
+runs a `test` job that the deploy/build job `needs`, so a red build — or a manual
+`workflow_dispatch` — cannot ship. Each mirrors its matching `ci.yml` job in the same run.
+
+**Required status checks (owner action).** Branch protection on `main` should require *every*
+`ci.yml` job, not just the two `Verify` legs, so a PR that breaks the Postgres tenancy tests,
+Python guardrail/agent tests, the MCP server, Bicep, browser e2e, or the dependency audit
+can't merge. Apply once with:
+
+```bash
+gh api -X PATCH repos/Taleef7/jobops-copilot/branches/main/protection/required_status_checks \
+  -F strict=true \
+  -f 'contexts[]=Verify (20.x)' -f 'contexts[]=Verify (22.x)' \
+  -f 'contexts[]=Postgres stores (real DB)' \
+  -f 'contexts[]=Agent service (Python)' -f 'contexts[]=MCP server (Python)' \
+  -f 'contexts[]=Infra (Bicep)' -f 'contexts[]=Web e2e (Playwright)' \
+  -f 'contexts[]=Dependency audit'
+```
+
+The e2e job is safe to require: without Clerk secrets, its prerequisite gate succeeds and the
+job concludes successfully after skipping only the secret-dependent steps. With secrets, a
+failing Playwright run blocks a merge as intended.
+
 ---
 
 ## 5. Agent drift guard (#110)

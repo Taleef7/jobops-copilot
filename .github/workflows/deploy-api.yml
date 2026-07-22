@@ -32,8 +32,31 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  # Gate the deploy on the same checks CI runs, in the SAME run — so a red build (or a
+  # manual workflow_dispatch) can't ship. Duplicates ci.yml's `verify` intentionally;
+  # `deploy` needs this to pass first.
+  test:
+    name: Lint + typecheck + build + test
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - name: Set up Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 22.x
+          cache: npm
+      - name: Install dependencies
+        run: npm ci
+      - name: Repo checks (lint + typecheck + build)
+        run: npm run check
+      - name: Tests
+        run: npm test
+
   deploy:
     name: Build + deploy API
+    needs: test
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
