@@ -26,6 +26,19 @@ export const clerkAuth: RequestHandler = clerkEnabled
   ? clerkMiddleware()
   : (_request, _response, next) => next();
 
+/**
+ * True when running as a real deployment: an explicit `NODE_ENV=production`, or an Azure
+ * runtime (App Service sets `WEBSITE_SITE_NAME`, Container Apps sets `CONTAINER_APP_NAME`).
+ * Read dynamically so a misconfigured deploy is caught regardless of how prod is signalled.
+ */
+function inProduction(): boolean {
+  return (
+    process.env.NODE_ENV === 'production' ||
+    Boolean(process.env.WEBSITE_SITE_NAME?.trim()) ||
+    Boolean(process.env.CONTAINER_APP_NAME?.trim())
+  );
+}
+
 /** Resolves `req.userId` from Clerk (or the dev/n8n fallback). */
 export function attachUserId(request: Request, _response: Response, next: NextFunction) {
   if (request.path.startsWith('/api/n8n')) {
@@ -49,11 +62,30 @@ export function attachUserId(request: Request, _response: Response, next: NextFu
     if (userId) {
       request.userId = userId;
     }
-  } else {
+  } else if (!inProduction()) {
+    // Dev/test only: with Clerk unconfigured, honor an explicit X-User-Id or the dev default.
+    // In production this branch is skipped, so `userId` stays undefined and `requireUser` 401s —
+    // a deploy that lost its Clerk key fails closed instead of trusting a client header.
     request.userId = request.header('X-User-Id')?.trim() || DEV_USER_ID;
   }
 
   next();
+}
+
+/**
+ * Boot-time guard (called from `server.ts`): refuse to start a production deploy whose auth
+ * would be silently disabled. In production Clerk must be configured; otherwise the API would
+ * fall back to trusting an unauthenticated `X-User-Id` header. Fails loud instead of open.
+ */
+export function assertProductionAuthConfigured(): void {
+  const clerkConfigured = Boolean(process.env.CLERK_SECRET_KEY?.trim());
+  if (inProduction() && !clerkConfigured) {
+    throw new Error(
+      'FATAL: production runtime detected but CLERK_SECRET_KEY is not set. Refusing to start — ' +
+        'the API would otherwise trust an unauthenticated X-User-Id header. Set CLERK_SECRET_KEY ' +
+        '(or run locally without the production / Azure env vars).',
+    );
+  }
 }
 
 /** Returns the request user id, or sends 401 and returns null when absent. */

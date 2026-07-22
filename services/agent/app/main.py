@@ -19,7 +19,7 @@ from langgraph.types import Command
 from pydantic import BaseModel, Field
 
 from app.agents.runner import run_interview_prep, run_research, run_skill_gap
-from app.auth import is_authorized
+from app.auth import assert_auth_configured, is_authorized
 from app.chains.draft_outreach import draft_outreach
 from app.chains.parse_job import parse_job
 from app.chains.score_fit import score_fit
@@ -133,6 +133,8 @@ async def _lifespan(_app: FastAPI):
     startup when DATABASE_URL is set; degrade to the in-memory saver on any
     failure so a checkpointer outage never blocks the service from starting."""
     global _assistant_graph, _checkpointer_pool
+    # Fail closed: refuse to start on a public cloud runtime with auth disabled.
+    assert_auth_configured()
     if settings.database_url:
         try:
             _assistant_graph, _checkpointer_pool = await _build_durable_assistant_graph()

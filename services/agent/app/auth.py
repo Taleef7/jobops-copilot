@@ -14,6 +14,7 @@ without the secret. When ``AGENT_API_KEY`` is unset, auth is disabled entirely
 from __future__ import annotations
 
 import hmac
+import os
 from collections.abc import Mapping
 
 from app.config import settings
@@ -24,6 +25,30 @@ from app.config import settings
 # The rendered doc explorers (/docs, /redoc) are deliberately NOT exempt so an
 # unauthenticated caller can't browse the full route map on an internet-facing service.
 PUBLIC_PATHS: frozenset[str] = frozenset({"/health", "/openapi.json"})
+
+
+def is_production_runtime() -> bool:
+    """True on an Azure cloud runtime.
+
+    Container Apps sets ``CONTAINER_APP_NAME``; App Service sets ``WEBSITE_SITE_NAME``.
+    Either signals an internet-facing deployment where auth must not be disabled.
+    """
+    return bool(os.environ.get("CONTAINER_APP_NAME") or os.environ.get("WEBSITE_SITE_NAME"))
+
+
+def assert_auth_configured() -> None:
+    """Fail closed: refuse to start on a cloud runtime without a shared secret.
+
+    Unset ``AGENT_API_KEY`` disables auth entirely, which is fine for local dev but would
+    leave the public Container App open. Called at startup so a misconfigured deploy fails
+    loud instead of silently serving unauthenticated.
+    """
+    if is_production_runtime() and not settings.agent_api_key:
+        raise RuntimeError(
+            "FATAL: agent running on a cloud runtime (CONTAINER_APP_NAME / WEBSITE_SITE_NAME set) "
+            "without AGENT_API_KEY. Refusing to start — auth would be disabled on an "
+            "internet-facing service. Provision AGENT_API_KEY."
+        )
 
 
 def extract_key(headers: Mapping[str, str]) -> str | None:
