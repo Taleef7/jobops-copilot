@@ -106,6 +106,18 @@ def test_rag_ingest_returns_503_when_disabled(monkeypatch):
     assert res.status_code == 503
 
 
+def test_rag_search_requires_user_id():
+    # Security (AI-4): retrieval must be scoped to a tenant; an unscoped search is rejected.
+    res = client.post("/rag/search", json={"query": "x"})
+    assert res.status_code == 400
+
+
+def test_rag_search_accepts_scoped_user_id(monkeypatch):
+    monkeypatch.setattr(main, "rag_available", lambda: False)
+    res = client.post("/rag/search", json={"query": "x", "user_id": "u1"})
+    assert res.status_code == 503  # validation passed; then rag disabled
+
+
 def test_assistant_run_returns_503_without_provider(monkeypatch):
     monkeypatch.setattr(main, "llm_available", lambda: False)
     res = client.post("/assistant/run", json={"description_text": "Build AI agents."})

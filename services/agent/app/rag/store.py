@@ -147,9 +147,11 @@ def retrieve(
         if source_id:
             conditions.append("source_id = %s")
             params.append(source_id)
-        if user_id is not None:
-            conditions.append("user_id = %s")
-            params.append(user_id)
+        # Always scope by user, mirroring ingest's `is not distinct from`: a value matches
+        # that user's rows; None matches only unowned (NULL) rows — never every tenant's.
+        # (The prior `if user_id is not None` dropped the filter for None → cross-tenant read.)
+        conditions.append("user_id is not distinct from %s")
+        params.append(user_id)
         where_sql = ("where " + " and ".join(conditions)) if conditions else ""
 
         with _connect() as conn, conn.cursor() as cur:
