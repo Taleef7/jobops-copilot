@@ -7,9 +7,27 @@ import {
   isAgentEnabled,
 } from '@/lib/agent-client';
 import { requireUser } from '@/lib/auth';
+import { reserveAiBudget } from '@/lib/budget';
 import { buildActivitySeries, localTelemetryFallback } from '@/lib/telemetry';
 
-export const telemetryRouter = Router();
+export interface TelemetryDeps {
+  listJobs: typeof listJobs;
+  analyzeTelemetryViaAgent: typeof analyzeTelemetryViaAgent;
+  fetchEvDemoViaAgent: typeof fetchEvDemoViaAgent;
+  isAgentEnabled: typeof isAgentEnabled;
+  reserveAiBudget: typeof reserveAiBudget;
+}
+
+const productionDeps: TelemetryDeps = {
+  listJobs,
+  analyzeTelemetryViaAgent,
+  fetchEvDemoViaAgent,
+  isAgentEnabled,
+  reserveAiBudget,
+};
+
+export function createTelemetryRouter(deps: TelemetryDeps = productionDeps) {
+  const telemetryRouter = Router();
 
 /**
  * Pipeline telemetry insights. Builds a daily activity series from the CRM and
@@ -21,11 +39,14 @@ telemetryRouter.get('/insights', async (request, response, next) => {
     const userId = requireUser(request, response);
     if (!userId) return;
 
-    const series = buildActivitySeries(await listJobs(userId));
+    const series = buildActivitySeries(await deps.listJobs(userId));
 
-    if (isAgentEnabled()) {
+    if (deps.isAgentEnabled()) {
+      if (!(await deps.reserveAiBudget(userId, 'telemetry'))) {
+        return response.status(429).json({ error: 'Daily AI budget reached' });
+      }
       try {
-        return response.json(await analyzeTelemetryViaAgent(series));
+        return response.json(await deps.analyzeTelemetryViaAgent(series));
       } catch (error) {
         console.warn('telemetry agent failed; using local fallback', error);
       }
@@ -46,7 +67,16 @@ telemetryRouter.get('/ev-demo', async (request, response, next) => {
     const userId = requireUser(request, response);
     if (!userId) return;
 
-    return response.json(await fetchEvDemoViaAgent());
+    if (!deps.isAgentEnabled()) {
+      return response.status(503).json({
+        error: 'The EV telemetry demo requires the agent service. Set AGENT_SERVICE_URL.',
+      });
+    }
+    if (!(await deps.reserveAiBudget(userId, 'telemetry'))) {
+      return response.status(429).json({ error: 'Daily AI budget reached' });
+    }
+
+    return response.json(await deps.fetchEvDemoViaAgent());
   } catch (error) {
     if (error instanceof AgentDisabledError) {
       return response.status(503).json({
@@ -55,4 +85,9 @@ telemetryRouter.get('/ev-demo', async (request, response, next) => {
     }
     next(error);
   }
-});
+  });
+
+  return telemetryRouter;
+}
+
+export const telemetryRouter = createTelemetryRouter();
