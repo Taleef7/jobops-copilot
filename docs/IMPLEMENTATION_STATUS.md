@@ -15,6 +15,13 @@ It now also has a real AI layer: a Python agent service with multi-provider
 LLMs, RAG over pgvector, multi-step LangChain agents, and time-series telemetry
 intelligence.
 
+## Security & audit remediation
+
+A 2026-07 full-stack security + engineering audit (overall grade **B**) is being remediated in
+phases. Phase 1 — fail-closed auth (API + agent), the Next.js middleware-CVE patch, an
+API crash guard, and three resilience fixes — is merged. The running journal, per-finding PR
+log, and behavioral notes live in [AUDIT_REMEDIATION.md](AUDIT_REMEDIATION.md) (epic #152).
+
 ## Verified Milestones
 
 - Multi-tenant: every account is isolated. Data (jobs, reports, outreach, embeddings) is scoped to the Clerk user id; the web forwards the session token to the API via a server-side proxy (`/api/proxy/*`), which `@clerk/express` verifies. New accounts start empty and complete a resume onboarding step (PDF upload or paste); a per-account "Load sample data" / "Clear my data" control lives in Settings. RAG retrieval is user-scoped. The EV/telemetry feature was removed from the app shell (endpoints retained in `services/agent` for demos).

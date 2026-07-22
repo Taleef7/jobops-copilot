@@ -274,6 +274,12 @@ def rag_ingest_endpoint(req: IngestRequest) -> dict:
 
 @app.post("/rag/search")
 def rag_search_endpoint(req: SearchRequest) -> dict:
+    # Retrieval must be scoped to a tenant. Reject an unscoped search rather than let a
+    # missing user_id fall through to a cross-tenant read (AI-4).
+    if not (req.user_id and req.user_id.strip()):
+        raise HTTPException(
+            status_code=400, detail="user_id is required to scope retrieval to a tenant."
+        )
     if not rag_available():
         raise HTTPException(status_code=503, detail="RAG is disabled; set DATABASE_URL.")
     matches = _run(retrieve, req.query, req.k, req.source_type, req.source_id, req.user_id)

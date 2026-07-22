@@ -146,11 +146,24 @@ def test_hybrid_scoping_flows_into_lexical_query(monkeypatch):
     lexical_sql, lexical_params = next(
         (sql, params) for sql, params in cursor.calls if "websearch_to_tsquery" in sql
     )
-    assert "user_id = %s" in lexical_sql
+    assert "user_id is not distinct from %s" in lexical_sql
     # Scoping binds precede the two tsquery binds, which precede the limit.
     assert lexical_params[:3] == ["resume", "resume-x", "u1"]
     assert lexical_params[3] == "python backend" and lexical_params[4] == "python backend"
     assert lexical_params[-1] == store.settings.rag_candidate_pool  # pool, then RRF to k
+
+
+def test_retrieve_scopes_to_null_user_when_user_id_missing(monkeypatch):
+    # Security (AI-4): user_id=None must scope to unowned rows (IS NULL), never search
+    # across all tenants. Mirrors ingest's `is not distinct from` semantics.
+    cursor = _FakeCursor(DENSE_ROWS, LEXICAL_ROWS)
+    _patch_store(monkeypatch, cursor)
+    store.retrieve("python backend", k=2, mode="vector", user_id=None)
+    dense_sql, dense_params = next(
+        (sql, params) for sql, params in cursor.calls if "websearch_to_tsquery" not in sql
+    )
+    assert "user_id is not distinct from %s" in dense_sql
+    assert None in dense_params  # the None user_id is bound (scoped), not dropped
 
 
 # --- reranker wiring (Phase 4 · P2) --------------------------------------------------
