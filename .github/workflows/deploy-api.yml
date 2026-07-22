@@ -38,10 +38,10 @@ jobs:
     timeout-minutes: 15
     steps:
       - name: Check out repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
       - name: Set up Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: 22.x
           cache: npm
@@ -70,7 +70,7 @@ jobs:
           ( cd apps/api/.deploy && node -e "const d=require('./package.json').dependencies||{};for(const k of Object.keys(d))require.resolve(k);console.log('OK:',Object.keys(d).length,'prod deps resolve');" )
 
       - name: Deploy to Azure App Service
-        uses: azure/webapps-deploy@v3
+        uses: azure/webapps-deploy@02a81bead70021f5284939794bcec79c271ab383 # v3
         with:
           app-name: ${{ vars.AZURE_WEBAPP_NAME_API }}
           publish-profile: ${{ secrets.AZURE_WEBAPP_PUBLISH_PROFILE_API }}

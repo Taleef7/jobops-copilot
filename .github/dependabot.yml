@@ -1,0 +1,32 @@
+version: 2
+updates:
+  # Keep the SHA-pinned GitHub Actions fresh (and patched) — Dependabot bumps the pin
+  # and updates the `# vN` comment, so pinning never means going stale.
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    groups:
+      actions:
+        patterns: ["*"]
+
+  # npm workspaces (web + api) resolve from the root lockfile.
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+
+  # Python agent service.
+  - package-ecosystem: pip
+    directory: /services/agent
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+
+  # Python MCP server.
+  - package-ecosystem: pip
+    directory: /services/mcp
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
