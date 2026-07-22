@@ -41,8 +41,11 @@ telemetryRouter.get('/insights', async (request, response, next) => {
  * Synthetic EV battery telemetry demo — the same anomaly/trend/forecast
  * analysis applied to vehicle sensor data, to show the pattern transfers.
  */
-telemetryRouter.get('/ev-demo', async (_request, response, next) => {
+telemetryRouter.get('/ev-demo', async (request, response, next) => {
   try {
+    const userId = requireUser(request, response);
+    if (!userId) return;
+
     return response.json(await fetchEvDemoViaAgent());
   } catch (error) {
     if (error instanceof AgentDisabledError) {
