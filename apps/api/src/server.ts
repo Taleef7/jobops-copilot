@@ -1,7 +1,10 @@
 import 'dotenv/config';
 import { startAppInsights } from '@/lib/app-insights';
+import { registerProcessSafetyNet } from '@/lib/process-safety';
 
 startAppInsights();
+// Keep the process alive on a stray unhandled rejection instead of crashing every in-flight request.
+registerProcessSafetyNet();
 
 import { createApp } from '@/app';
 import { assertProductionAuthConfigured } from '@/lib/auth';

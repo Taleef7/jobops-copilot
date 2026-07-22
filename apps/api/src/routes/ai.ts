@@ -19,6 +19,7 @@ import {
 import { isSingleRecipientEmailAddress } from '@/lib/email';
 import { createGmailDraftIfEnabled } from '@/lib/gmail';
 import { reserveAiBudget } from '@/lib/budget';
+import { asyncHandler } from '@/lib/async-handler';
 import {
   appendOutreachDraft,
   getJobById,
@@ -146,7 +147,7 @@ aiRouter.post('/score-fit', async (request, response, next) => {
   }
 });
 
-aiRouter.post('/draft-outreach', async (request, response, next) => {
+aiRouter.post('/draft-outreach', asyncHandler(async (request, response, next) => {
   const userId = requireUser(request, response);
   if (!userId) return;
 
@@ -242,7 +243,7 @@ aiRouter.post('/draft-outreach', async (request, response, next) => {
     gmail_draft_id: draft.gmailDraftId ?? null,
     gmail_draft_message: gmailDraftMessage,
   });
-});
+}));
 
 const AGENT_DISABLED_MESSAGE =
   'The AI agent service is not configured. Set AGENT_SERVICE_URL and a provider key to enable the agents.';
