@@ -33,7 +33,7 @@ jobs:
       IMAGE: ca9ee6437892acr.azurecr.io/jobops-agent
     steps:
       - name: Check out repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
       - name: Log in to ACR
         run: echo "${{ secrets.ACR_PASSWORD }}" | docker login "${ACR}.azurecr.io" -u "${{ secrets.ACR_USERNAME }}" --password-stdin
