@@ -95,7 +95,9 @@ export function createApp() {
   app.use('/api/demo', demoRouter);
   app.use('/api/outreach', outreachRouter);
   app.use('/api/reports', reportsRouter);
-  app.use('/api/telemetry', telemetryRouter);
+  // Telemetry stays strictly rate-limited. Its router reserves AI budget only immediately
+  // before a configured agent call, preserving the zero-cost local fallback.
+  app.use('/api/telemetry', strictLimiter, telemetryRouter);
   app.use('/api/discovery', strictLimiter, discoveryRouter);
   app.use('/api/saved-searches', savedSearchesRouter);
   // Mounted before '/api/n8n' so this more specific path wins; it inherits the

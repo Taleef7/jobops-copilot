@@ -11,17 +11,21 @@ export function getPool() {
     return null;
   }
 
-  pool ??= new Pool({
-    connectionString: process.env.DATABASE_URL,
-    allowExitOnIdle: true,
-    max: 10,
-    idleTimeoutMillis: 30_000,
-    connectionTimeoutMillis: 5_000,
-  });
+  if (!pool) {
+    pool = new Pool({
+      connectionString: process.env.DATABASE_URL,
+      allowExitOnIdle: true,
+      max: 10,
+      idleTimeoutMillis: 30_000,
+      connectionTimeoutMillis: 5_000,
+    });
 
-  pool.on('error', (error: Error) => {
-    console.error('Unexpected Postgres pool error:', error);
-  });
+    // Register the error listener once, on creation — not on every getPool() call,
+    // which would leak a listener (and closure) per query and warn past 10.
+    pool.on('error', (error: Error) => {
+      console.error('Unexpected Postgres pool error:', error);
+    });
+  }
 
   return pool;
 }

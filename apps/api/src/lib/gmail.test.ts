@@ -72,6 +72,54 @@ test('rejects multi-recipient email strings before contacting Google', async () 
   }
 });
 
+test('attaches an abort timeout signal to both Google fetches', async () => {
+  const restore = snapshotEnv([
+    'GMAIL_DRAFTS_ENABLED',
+    'GMAIL_CLIENT_ID',
+    'GMAIL_CLIENT_SECRET',
+    'GMAIL_REFRESH_TOKEN',
+  ]);
+  const originalFetch = globalThis.fetch;
+  const signals: Array<AbortSignal | undefined> = [];
+
+  try {
+    process.env.GMAIL_DRAFTS_ENABLED = 'true';
+    process.env.GMAIL_CLIENT_ID = 'client-id';
+    process.env.GMAIL_CLIENT_SECRET = 'client-secret';
+    process.env.GMAIL_REFRESH_TOKEN = 'refresh-token';
+
+    globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) => {
+      signals.push((init?.signal as AbortSignal | null) ?? undefined);
+      const url = String(input);
+      if (url.includes('oauth2.googleapis.com/token')) {
+        return new Response(JSON.stringify({ access_token: 'access-token' }), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        });
+      }
+      return new Response(JSON.stringify({ id: 'draft-123' }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    }) as typeof fetch;
+
+    const result = await createGmailDraftIfEnabled({
+      recipientEmail: 'maya@example.com',
+      subject: 'Hello',
+      bodyText: 'Draft body',
+    });
+
+    assert.equal(result.status, 'created');
+    assert.equal(signals.length, 2, 'both the token and draft fetches should run');
+    for (const signal of signals) {
+      assert.ok(signal instanceof AbortSignal, 'each Google fetch must carry an AbortSignal timeout');
+    }
+  } finally {
+    globalThis.fetch = originalFetch;
+    restore();
+  }
+});
+
 test('surfaces Gmail API error details and logs the rejection', async () => {
   const restore = snapshotEnv([
     'GMAIL_DRAFTS_ENABLED',

@@ -1,5 +1,9 @@
 import { isSingleRecipientEmailAddress } from '@/lib/email';
 
+// Bound every outbound Google call so a hung endpoint can't pin a request (and its
+// connection/memory) indefinitely — under the strict per-user limiter that is a self-DoS.
+const GMAIL_TIMEOUT_MS = 10_000;
+
 type GmailDraftStatus = 'created' | 'skipped' | 'failed';
 
 export interface GmailDraftRequest {
@@ -100,6 +104,7 @@ async function fetchAccessToken() {
       refresh_token: refreshToken,
       grant_type: 'refresh_token',
     }),
+    signal: AbortSignal.timeout(GMAIL_TIMEOUT_MS),
   });
 
   let payload: GmailTokenResponse = {};
@@ -160,6 +165,7 @@ export async function createGmailDraftIfEnabled(
         raw: base64UrlEncode(buildMimeMessage(request)),
       },
     }),
+    signal: AbortSignal.timeout(GMAIL_TIMEOUT_MS),
   });
 
   let payload: GmailCreateDraftResponse = {};
