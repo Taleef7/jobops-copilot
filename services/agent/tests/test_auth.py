@@ -5,6 +5,7 @@ is set, while keeping the health/docs probe paths open and staying a no-op when
 no key is configured.
 """
 
+import pytest
 from fastapi.testclient import TestClient
 
 import app.auth as auth
@@ -100,3 +101,32 @@ def test_extract_key_unit():
     assert auth.extract_key({"authorization": f"Bearer {KEY}"}) == KEY
     assert auth.extract_key({"x-agent-key": KEY}) == KEY
     assert auth.extract_key({}) is None
+
+
+def test_is_production_runtime_detects_cloud(monkeypatch):
+    monkeypatch.delenv("CONTAINER_APP_NAME", raising=False)
+    monkeypatch.delenv("WEBSITE_SITE_NAME", raising=False)
+    assert auth.is_production_runtime() is False
+    monkeypatch.setenv("WEBSITE_SITE_NAME", "jobops-agent")
+    assert auth.is_production_runtime() is True
+
+
+def test_assert_auth_configured_raises_in_cloud_without_key(monkeypatch):
+    # The public Container App must refuse to start with auth disabled.
+    monkeypatch.setenv("CONTAINER_APP_NAME", "jobops-agent")
+    monkeypatch.setattr(settings, "agent_api_key", None)
+    with pytest.raises(RuntimeError):
+        auth.assert_auth_configured()
+
+
+def test_assert_auth_configured_ok_in_cloud_with_key(monkeypatch):
+    monkeypatch.setenv("CONTAINER_APP_NAME", "jobops-agent")
+    monkeypatch.setattr(settings, "agent_api_key", KEY)
+    auth.assert_auth_configured()  # no raise
+
+
+def test_assert_auth_configured_ok_locally_without_key(monkeypatch):
+    monkeypatch.delenv("CONTAINER_APP_NAME", raising=False)
+    monkeypatch.delenv("WEBSITE_SITE_NAME", raising=False)
+    monkeypatch.setattr(settings, "agent_api_key", None)
+    auth.assert_auth_configured()  # no raise

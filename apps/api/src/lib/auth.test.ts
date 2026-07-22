@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import http from 'node:http';
 import test from 'node:test';
 import express from 'express';
-import { attachUserId } from './auth';
+import { assertProductionAuthConfigured, attachUserId } from './auth';
 
 function snapshotEnv(keys: string[]) {
   const snapshot = new Map<string, string | undefined>();
@@ -55,6 +55,58 @@ test('the service path requires both the key and X-User-Id', async () => {
     // erroring or acting as an empty user.
     const userId = await whoami({ 'X-API-Key': 'svc-secret' });
     assert.equal(userId, 'user_local_dev');
+  } finally {
+    restore();
+  }
+});
+
+test('production with Clerk disabled ignores X-User-Id (fail closed)', async () => {
+  const restore = snapshotEnv(['NODE_ENV', 'CLERK_SECRET_KEY', 'WEBSITE_SITE_NAME', 'API_SHARED_SECRET']);
+  process.env.NODE_ENV = 'production';
+  delete process.env.CLERK_SECRET_KEY;
+  delete process.env.WEBSITE_SITE_NAME;
+  delete process.env.API_SHARED_SECRET;
+  try {
+    // A misconfigured prod deploy (no Clerk) must NOT let an anonymous caller pick an identity.
+    const userId = await whoami({ 'X-User-Id': 'u_attacker' });
+    assert.equal(userId, null);
+  } finally {
+    restore();
+  }
+});
+
+test('outside production, X-User-Id still resolves the dev user', async () => {
+  const restore = snapshotEnv(['NODE_ENV', 'CLERK_SECRET_KEY', 'WEBSITE_SITE_NAME']);
+  delete process.env.NODE_ENV;
+  delete process.env.CLERK_SECRET_KEY;
+  delete process.env.WEBSITE_SITE_NAME;
+  try {
+    const userId = await whoami({ 'X-User-Id': 'u_dev' });
+    assert.equal(userId, 'u_dev');
+  } finally {
+    restore();
+  }
+});
+
+test('assertProductionAuthConfigured throws when production and Clerk is unconfigured', () => {
+  const restore = snapshotEnv(['NODE_ENV', 'CLERK_SECRET_KEY', 'WEBSITE_SITE_NAME']);
+  process.env.NODE_ENV = 'production';
+  delete process.env.CLERK_SECRET_KEY;
+  delete process.env.WEBSITE_SITE_NAME;
+  try {
+    assert.throws(() => assertProductionAuthConfigured(), /CLERK_SECRET_KEY/);
+  } finally {
+    restore();
+  }
+});
+
+test('assertProductionAuthConfigured is a no-op in local development', () => {
+  const restore = snapshotEnv(['NODE_ENV', 'CLERK_SECRET_KEY', 'WEBSITE_SITE_NAME']);
+  delete process.env.NODE_ENV;
+  delete process.env.CLERK_SECRET_KEY;
+  delete process.env.WEBSITE_SITE_NAME;
+  try {
+    assert.doesNotThrow(() => assertProductionAuthConfigured());
   } finally {
     restore();
   }
