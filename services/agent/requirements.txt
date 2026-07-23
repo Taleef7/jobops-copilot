@@ -15,7 +15,7 @@ langchain-openai>=1.0,<2
 langchain-google-genai>=4.3.1,<5
 
 # LangGraph application-assistant orchestration (Phase 3 · Workstream K).
-langgraph>=1.0,<2
+langgraph>=1.2.9,<2
 
 # Agent-as-MCP-client: load external MCP tools into the research agent (Phase 3 · N).
 langchain-mcp-adapters>=0.3,<1
