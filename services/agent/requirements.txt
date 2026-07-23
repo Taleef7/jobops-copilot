@@ -12,7 +12,7 @@ python-dotenv>=1.0,<2
 langchain>=1.0,<2
 langchain-anthropic>=1.0,<2
 langchain-openai>=1.0,<2
-langchain-google-genai>=3.0,<4
+langchain-google-genai>=4.3.1,<5
 
 # LangGraph application-assistant orchestration (Phase 3 · Workstream K).
 langgraph>=1.0,<2
