@@ -1,4 +1,4 @@
 # JobOps MCP server (Phase 3 · Workstream L). Standalone — isolated from the agent's
 # FastAPI/Starlette pins, so the MCP SDK's Starlette requirement doesn't conflict.
 mcp>=1.12,<2
-httpx>=0.27,<1
+httpx>=0.28.1,<1
