@@ -12,6 +12,7 @@ updates:
     groups:
       actions:
         patterns: ["*"]
+        update-types: ["minor", "patch"]
 
   # npm workspaces (web + api) resolve from the root lockfile.
   - package-ecosystem: npm
