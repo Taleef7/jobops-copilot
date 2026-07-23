@@ -1,32 +1,48 @@
 version: 2
+# Grouped + monthly to keep the noise down: each ecosystem batches its minor/patch bumps
+# into ONE PR per month. MAJOR bumps are intentionally left OUT of the groups so they
+# arrive as individual PRs and get reviewed on their own (a major can break at runtime in
+# ways CI doesn't exercise — e.g. a provider SDK).
 updates:
-  # Keep the SHA-pinned GitHub Actions fresh (and patched) — Dependabot bumps the pin
-  # and updates the `# vN` comment, so pinning never means going stale.
+  # Keep the SHA-pinned GitHub Actions fresh — Dependabot bumps the pin and its `# vN` comment.
   - package-ecosystem: github-actions
     directory: /
     schedule:
-      interval: weekly
+      interval: monthly
     groups:
       actions:
         patterns: ["*"]
+        update-types: ["minor", "patch"]
 
   # npm workspaces (web + api) resolve from the root lockfile.
   - package-ecosystem: npm
     directory: /
     schedule:
-      interval: weekly
+      interval: monthly
     open-pull-requests-limit: 5
+    groups:
+      npm-minor-patch:
+        patterns: ["*"]
+        update-types: ["minor", "patch"]
 
   # Python agent service.
   - package-ecosystem: pip
     directory: /services/agent
     schedule:
-      interval: weekly
+      interval: monthly
     open-pull-requests-limit: 5
+    groups:
+      agent-minor-patch:
+        patterns: ["*"]
+        update-types: ["minor", "patch"]
 
   # Python MCP server.
   - package-ecosystem: pip
     directory: /services/mcp
     schedule:
-      interval: weekly
+      interval: monthly
     open-pull-requests-limit: 5
+    groups:
+      mcp-minor-patch:
+        patterns: ["*"]
+        update-types: ["minor", "patch"]
