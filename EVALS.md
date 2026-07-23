@@ -30,13 +30,25 @@ quality measured and gated here.
 
 Hybrid retrieval (dense pgvector + Postgres FTS via RRF) and the CPU cross-encoder
 reranker are **measured, not assumed**. `evals/retrieval.py` runs the *same*
-fit-score eval under each retrieval mode — only the retrieved evidence changes — so
-the table is a true **downstream delta**:
+fit-score eval under each mode — only the evidence changes — so the table is a true
+**downstream delta**.
 
-- **off** — no resume evidence (JD only); the no-retrieval baseline.
+**Ablation** — the resume reaches the model *only* through retrieval:
+
+- **off** — no resume at all (JD only); the no-retrieval floor.
 - **vector** — dense pgvector only.
 - **hybrid** — dense + FTS fused via Reciprocal Rank Fusion.
 - **hybrid+rerank** — the hybrid pool reranked by `cross-encoder/ms-marco-MiniLM-L-6-v2`.
+
+**Production-path reference** — the whole resume in the prompt, which is what
+`score_fit` actually receives live:
+
+- **full-resume** — whole resume, no retrieved chunks (the no-database fallback).
+- **full-resume+vector** — whole resume *plus* top-k chunks (the live RAG path).
+
+The two groups answer different questions. The ablation asks *what does retrieval buy
+versus nothing?*; the reference pair asks *what does retrieval buy on top of the real
+product prompt?* — the second is the one that matters for the shipped system.
 
 ```bash
 cd services/agent
@@ -47,36 +59,94 @@ Needs **both** a `DATABASE_URL` (with the `chunk_tsv` column + `embeddings_tsv_i
 from migration `007_fts.sql`) **and** a provider key; otherwise it writes a skipped
 report and exits 0. Hybrid modes are marked **N/A** (not silently reported as ≈vector)
 when the FTS column/index are absent, so a missing migration can't masquerade as "no
-gain". Note the sweep's `off` mode feeds the JD only (no resume evidence at all) — it is
-the no-retrieval floor, distinct from the *main* eval's default baseline (`python -m
-evals.run`), which feeds the whole resume. Because the retrieval modes feed only top-k
-chunks, **context-recall can fall even as faithfulness/precision rise** — read all four
-columns, not one headline.
+gain". A sweep ingests the sample resume under a dedicated `eval-harness` tenant so eval
+rows can never land in a shared table as unowned (`user_id IS NULL`) data. Because the
+retrieval modes feed only top-k chunks, **context-recall can fall even as
+faithfulness/precision rise** — read all four columns, not one headline.
 
-### Results (gpt-4o-mini judge, dev DB, 2026-06)
+### Harness integrity
+
+The judge's contexts are derived from the **same `Evidence` value** the generator
+received (`evals/evidence.py`), so a mode cannot score better merely by showing the
+judge more. This was not always true — see the correction below.
+
+### ⚠️ Correction (2026-07-23) — the previous numbers on this page were invalid
+
+An earlier version of this section reported that retrieval lifted faithfulness from
+**0.25 → ~0.83, "a ~3× gain."** **That claim is withdrawn.** It measured what the *judge*
+could see, not what retrieval contributed.
+
+The harness passed `resume_text` to `score_fit` in **every** mode, and `score_fit` puts it
+in the prompt unconditionally. So the `off` arm — documented here as "JD only, no resume
+evidence at all" — had the whole resume in its prompt the entire time. Only the Ragas
+judge's contexts were withheld, which manufactured a low baseline faithfulness for an arm
+that was not actually resume-blind.
+
+The tell was published in the old table and went unnoticed: `off` scored the **highest**
+fit-vs-label Spearman (0.705) of any mode. A model with no resume cannot rank candidates
+against a job description. Under the corrected harness the same arm scores **0.407**.
+
+Fixed in [#197](https://github.com/Taleef7/jobops-copilot/issues/197): the judge's contexts
+are now derived from the same `Evidence` value handed to the generator, and a parametrized
+regression test fails if the two ever diverge again.
+
+### Results (gpt-4o-mini judge, 2026-07-23)
 
 Captured by `python -m evals.run --retrieval-modes`; the raw artifact is committed at
 `services/agent/evals/retrieval_report.json` for auditability. n = 16, 0 errors per mode.
 
 | mode | fit-vs-label Spearman | faithfulness | answer relevancy | context recall |
 | --- | --- | --- | --- | --- |
-| off (JD only) | 0.705 | 0.251 | 0.237 | 0.333 |
-| vector | 0.701 | **0.827** | 0.154 | **0.479** |
-| hybrid | 0.687 | 0.813 | 0.214 | 0.365 |
-| hybrid+rerank | 0.688 | 0.804 | 0.222 | 0.417 |
+| _Ablation_ | | | | |
+| off (JD only, truly resume-blind) | 0.407 | 0.139 | 0.485 | 0.427 |
+| vector | 0.721 | 0.824 | 0.212 | 0.479 |
+| hybrid | 0.779 | 0.922 | 0.167 | 0.417 |
+| hybrid+rerank | 0.704 | 0.777 | 0.225 | 0.427 |
+| _Production-path reference_ | | | | |
+| full-resume | 0.684 | 0.805 | 0.200 | **0.542** |
+| full-resume+vector | 0.726 | 0.795 | 0.157 | 0.490 |
 
-**What the numbers say (honestly).** The headline win is **retrieval vs. no retrieval**:
-grounding the fit summary in retrieved resume evidence lifts **faithfulness from 0.25 →
-~0.80–0.83** — a ~3× gain — because the model stops inventing un-grounded claims. Fit-vs-label
-**Spearman is flat (~0.69–0.70)** across all modes: retrieval mode doesn't change how the
-model *ranks* candidates on this set. On this **16-row** gold set the **hybrid and reranker
-upgrades do not beat plain vector** — vector edges them on faithfulness and context-recall,
-and the hybrid/rerank differences sit within judge variance. That's a legitimate,
-evidence-based result: the infrastructure degrades gracefully and is measured, and at this
-gold-set size the lexical+rerank refinements aren't yet justified over dense-only for *this*
-resume/JD mix. A larger, more lexically diverse gold set (deferred — see the epic) is where
-hybrid/rerank would be expected to pull ahead. Answer-relevancy stays low for the same reason
-as the main eval (lightweight MiniLM embeddings + JD-as-question framing).
+#### The measured noise floor — read this before comparing any two rows
+
+On this gold set **`hybrid` and `vector` are the same experiment.** The lexical side is
+structurally dead: `_lexical_candidates` builds `websearch_to_tsquery('english', <whole JD>)`,
+which **ANDs** every term, so a JD becomes a ~98-node conjunction that no resume chunk can
+satisfy. Verified directly against the database: **0 of 16** JDs match a single chunk, and
+`hybrid` returns **byte-identical chunks to `vector` on 16/16 rows**. RRF fusing
+`[dense, []]` is just `dense`.
+
+So the apparent "hybrid beats vector" gap — **Δ0.058 Spearman, Δ0.098 faithfulness** — comes
+from *provably identical generator input*. It is pure sampling noise (temperature 0.2 plus
+Ragas judge variance), and it is the best error bar we have:
+
+> **On this 16-row set, no difference below ~0.06 Spearman / ~0.10 faithfulness is
+> interpretable.** Every hybrid/rerank comparison in this table sits inside that band.
+
+Fixing the lexical query is tracked as
+[#198](https://github.com/Taleef7/jobops-copilot/issues/198); until then, **hybrid and
+hybrid+rerank are unmeasured**, not measured-and-equal.
+
+#### What the numbers actually support
+
+**Retrieval works, and the honest claim is stronger than a faithfulness ratio.** A
+resume-blind model (`off`) ranks candidates at **0.407** Spearman and grounds almost nothing
+(**0.139** faithfulness) — it fabricates a candidate. Feeding it only **four retrieved
+chunks** restores **0.721 / 0.824**, which matches the **whole-resume** prompt's **0.684 /
+0.805** within the noise floor. That is the defensible result: *top-k retrieval recovers
+full-resume quality from a fraction of the context.*
+
+**Retrieval adds nothing measurable on top of the production prompt.** `full-resume+vector`
+(0.726 / 0.795) versus `full-resume` (0.684 / 0.805) is well inside the noise band. For a
+single-resume prompt that already fits the context window, RAG is buying context *efficiency*,
+not accuracy — which is the honest engineering justification for it here.
+
+**Context-recall behaves exactly as it should**, which is a useful sanity check on the judge:
+`full-resume` scores highest (0.542) because the whole resume covers the reference rationale
+by construction, while top-k modes trade recall for precision.
+
+**Answer-relevancy inverts, and that is not a win.** `off` scores *highest* (0.485) because a
+model with no resume writes generic, on-topic prose about the role. The metric rewards
+addressing the question, not being right — treat it as a foil, not a quality signal.
 
 ## Gold set
 

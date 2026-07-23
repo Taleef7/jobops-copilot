@@ -15,13 +15,14 @@ def _rows():
 def test_run_retrieval_modes_runs_each_mode_and_aggregates():
     fed: dict[str, bool] = {}
 
-    def fake_retrieve(resume_text, jd, k):
+    def fake_retrieve(resume_text, jd, k, user_id=None):
         # Reflect the per-mode settings toggles the sweep applies.
         return [f"ctx-{settings.rag_retrieval_mode}:{settings.rag_rerank_enabled}"]
 
-    def fake_score(rows, resume_text, contexts_for):
-        ctx = contexts_for(rows[0])
-        fed[ctx[0] if ctx else "EMPTY"] = True
+    def fake_score(rows, resume_text, evidence_for):
+        evidence = evidence_for(rows[0])
+        chunks = evidence.retrieved_context
+        fed[chunks[0] if chunks else "EMPTY"] = True
         return {"rank_correlation_spearman": 0.5, "ragas": {"faithfulness": 0.8}}
 
     result = retrieval.run_retrieval_modes(
@@ -37,7 +38,7 @@ def test_run_retrieval_modes_runs_each_mode_and_aggregates():
     for metrics in result.values():
         assert "rank_correlation_spearman" in metrics and "ragas" in metrics
         assert metrics["status"] == "ok"
-    # "off" feeds no evidence; the three retrieval modes feed distinct toggled contexts.
+    # "off" retrieves nothing; the three retrieval modes feed distinct toggled contexts.
     assert "EMPTY" in fed
     assert "ctx-vector:False" in fed
     assert "ctx-hybrid:False" in fed
@@ -50,7 +51,7 @@ def test_run_retrieval_modes_marks_hybrid_na_without_fts():
         "resume text",
         modes=("vector", "hybrid", "hybrid+rerank"),
         retrieve_evidence=lambda *a, **k: ["c"],
-        score_eval=lambda rows, resume_text, contexts_for: {
+        score_eval=lambda rows, resume_text, evidence_for: {
             "rank_correlation_spearman": 0.5,
             "ragas": {},
         },
@@ -128,8 +129,8 @@ def test_run_retrieval_modes_restores_settings():
         "resume text",
         modes=("hybrid+rerank",),
         retrieve_evidence=lambda *a, **k: ["c"],
-        score_eval=lambda rows, resume_text, contexts_for: (
-            contexts_for(rows[0]),
+        score_eval=lambda rows, resume_text, evidence_for: (
+            evidence_for(rows[0]),
             {"rank_correlation_spearman": 0.5, "ragas": {}},
         )[1],
         fts_ready=lambda: True,
@@ -140,7 +141,7 @@ def test_run_retrieval_modes_restores_settings():
 def test_run_retrieval_modes_restores_settings_after_exception():
     before = (settings.rag_retrieval_mode, settings.rag_rerank_enabled)
 
-    def boom(rows, resume_text, contexts_for):
+    def boom(rows, resume_text, evidence_for):
         raise RuntimeError("scorer blew up mid-sweep")
 
     with pytest.raises(RuntimeError):
@@ -156,15 +157,20 @@ def test_run_retrieval_modes_restores_settings_after_exception():
     assert (settings.rag_retrieval_mode, settings.rag_rerank_enabled) == before
 
 
-def test_default_contexts_for_chunks_whole_resume(monkeypatch):
-    # The default seam (no contexts_for) must still feed the whole resume chunked.
-    from app.rag.chunk import chunk_text
+def test_default_evidence_feeds_the_whole_resume(monkeypatch):
+    """The default seam (no ``evidence_for``) measures the production prompt.
+
+    It used to pass the resume *twice* -- once as ``resume_text`` and again as
+    ``retrieved_context`` -- which is not what ``score_fit`` receives in production.
+    Now it carries the resume once, the way the live no-RAG path does.
+    """
     from evals import run
 
     resume = "Para one.\n\nPara two."
     captured = {}
 
     def fake_score_fit(request):
+        captured["resume_text"] = request.resume_text
         captured["contexts"] = list(request.retrieved_context)
 
         class _Resp:
@@ -178,5 +184,6 @@ def test_default_contexts_for_chunks_whole_resume(monkeypatch):
     monkeypatch.setattr(run, "get_model", lambda: (object(), "fake:model"))
     monkeypatch.setattr(run, "fit_ragas_scores", lambda *a, **k: {})
     rows = [{"description_text": "jd", "expected": {"fit_label": 50, "reference": "r"}}]
-    run.run_fit_score_eval(rows, resume)  # no contexts_for -> default path
-    assert captured["contexts"] == chunk_text(resume)
+    run.run_fit_score_eval(rows, resume)  # no evidence_for -> default path
+    assert captured["resume_text"] == resume
+    assert captured["contexts"] == []

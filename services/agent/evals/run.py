@@ -21,8 +21,8 @@ from app.chains.parse_job import parse_job
 from app.chains.score_fit import score_fit
 from app.config import settings
 from app.llm.provider import get_model, resolve_provider
-from app.rag.chunk import chunk_text
 from app.schemas import ScoreFitRequest
+from evals.evidence import Evidence
 from evals.gate import check_regression, check_thresholds, load_baseline, load_thresholds
 from evals.metrics.extraction import exact_match, skill_prf
 from evals.metrics.ragas_fit import fit_ragas_scores, mean, spearman
@@ -122,27 +122,30 @@ def run_parse_job_eval(rows: list[dict]) -> dict:
 def run_fit_score_eval(
     rows: list[dict],
     resume_text: str,
-    contexts_for: Callable[[dict], list[str]] | None = None,
+    evidence_for: Callable[[dict], Evidence] | None = None,
 ) -> dict:
     """Score-fit rank correlation + Ragas faithfulness/relevance/context-recall.
 
-    ``contexts_for`` injects the retrieved evidence per row; it defaults to the
-    whole resume chunked (today's behavior). The retrieval-mode sweep
-    (``evals.retrieval``) passes a function that returns each mode's top-k chunks
-    so the same scorer measures every retrieval mode.
+    ``evidence_for`` decides what the generator may see for each row; it defaults to
+    the whole resume, which is what ``score_fit`` receives in production. The
+    retrieval-mode sweep (``evals.retrieval``) passes a function that withholds the
+    resume and returns each mode's top-k chunks instead, so the ablation is real.
+
+    The judge's contexts come from the *same* ``Evidence``, so the generator's inputs
+    and the judge's view can never drift apart again (#197).
     """
-    contexts_for = contexts_for or (lambda _row: chunk_text(resume_text))
+    evidence_for = evidence_for or (lambda _row: Evidence(resume_text=resume_text))
     predicted_scores, gold_labels, ragas_samples = [], [], []
     errors = 0
     for row in rows:
         expected = row["expected"]
-        contexts = contexts_for(row)
+        evidence = evidence_for(row)
         try:
             request = ScoreFitRequest(
                 description_text=row["description_text"],
-                resume_text=resume_text,
+                resume_text=evidence.resume_text,
                 profile_text="",
-                retrieved_context=contexts,
+                retrieved_context=list(evidence.retrieved_context),
             )
             response = score_fit(request)
         except Exception:  # noqa: BLE001 - one bad row shouldn't kill the run
@@ -162,11 +165,9 @@ def run_fit_score_eval(
                     + row["description_text"]
                 ),
                 "response": response.fit_summary,
-                # Ground faithfulness in BOTH the resume and the JD: a fit summary
-                # legitimately cites role requirements/gaps, which live in the JD,
-                # not the resume — so resume-only contexts would mark those claims
-                # unfaithful and corrupt the score.
-                "retrieved_contexts": [*contexts, row["description_text"]],
+                # Derived from the same Evidence the generator got — see
+                # Evidence.judge_contexts for why the JD is always included.
+                "retrieved_contexts": evidence.judge_contexts(row["description_text"]),
                 "reference": expected["reference"],
             }
         )
@@ -236,9 +237,13 @@ def render_retrieval_markdown(report: dict) -> str:
 
     lines += [
         "",
-        "Same gold set + scorer; only the retrieved evidence changes (downstream delta).",
-        "`off` feeds **no** resume evidence (JD only); retrieval modes feed only top-k chunks,",
-        "so context-recall can fall even as faithfulness rises — read all four columns.",
+        "Same gold set + scorer; only the evidence changes (downstream delta). The judge's",
+        "contexts are derived from exactly what the generator received, so a mode cannot look",
+        "better merely by showing the judge more.",
+        "",
+        "**Ablation** (`off` … `hybrid+rerank`): the resume reaches the model *only* through",
+        "retrieval — `off` gets the JD and nothing else. **Reference** (`full-resume*`): the",
+        "whole resume in the prompt, which is what `score_fit` does in production.",
         "",
         "| mode | fit-vs-label Spearman | faithfulness | answer relevancy | context recall "
         "| n (errors) |",
@@ -247,9 +252,7 @@ def render_retrieval_markdown(report: dict) -> str:
     for mode in report["modes_order"]:
         metrics = report["modes"].get(mode, {})
         if metrics.get("status") == "n/a":
-            lines.append(
-                f"| {mode} | _n/a_ | _n/a_ | _n/a_ | _n/a_ | _{metrics.get('reason')}_ |"
-            )
+            lines.append(f"| {mode} | _n/a_ | _n/a_ | _n/a_ | _n/a_ | _{metrics.get('reason')}_ |")
             continue
         ragas = metrics.get("ragas", {})
         lines.append(
