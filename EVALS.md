@@ -106,7 +106,7 @@ Captured by `python -m evals.run --retrieval-modes`; the raw artifact is committ
 | full-resume | 0.684 | 0.805 | 0.200 | **0.542** |
 | full-resume+vector | 0.726 | 0.795 | 0.157 | 0.490 |
 
-#### The measured noise floor — read this before comparing any two rows
+#### `hybrid` and `vector` are the same experiment — read this before comparing any two rows
 
 On this gold set **`hybrid` and `vector` are the same experiment.** The lexical side is
 structurally dead: `_lexical_candidates` builds `websearch_to_tsquery('english', <whole JD>)`,
@@ -115,30 +115,69 @@ satisfy. Verified directly against the database: **0 of 16** JDs match a single 
 `hybrid` returns **byte-identical chunks to `vector` on 16/16 rows**. RRF fusing
 `[dense, []]` is just `dense`.
 
-So the apparent "hybrid beats vector" gap — **Δ0.058 Spearman, Δ0.098 faithfulness** — comes
-from *provably identical generator input*. It is pure sampling noise (temperature 0.2 plus
-Ragas judge variance), and it is the best error bar we have:
-
-> **On this 16-row set, no difference below ~0.06 Spearman / ~0.10 faithfulness is
-> interpretable.** Every hybrid/rerank comparison in this table sits inside that band.
+So the apparent "hybrid beats vector" gap — Δ0.058 Spearman, Δ0.098 faithfulness — comes from
+*provably identical generator input*. It is pure sampling noise (temperature 0.2 plus Ragas
+judge variance).
 
 Fixing the lexical query is tracked as
 [#198](https://github.com/Taleef7/jobops-copilot/issues/198); until then, **hybrid and
 hybrid+rerank are unmeasured**, not measured-and-equal.
 
+### How much does this eval move when nothing changes?
+
+One identical-input pair shows variance of a given size *occurred*; it does not bound the
+variance. So the spread is measured directly — the same configuration, scored five times:
+
+```bash
+python -m evals.run --noise-floor 5   # writes evals/noise_report.{json,md}
+```
+
+Retrieval is frozen up front (retrieved once, reused), so every replicate receives byte-identical
+evidence and all movement is generator + judge variance.
+
+| metric | mean | stdev | min | max | max pairwise Δ |
+| --- | --- | --- | --- | --- | --- |
+| fit-vs-label Spearman | 0.767 | 0.034 | 0.721 | 0.797 | **0.076** |
+| faithfulness | 0.778 | 0.039 | 0.741 | 0.821 | **0.080** |
+| answer relevancy | 0.225 | 0.052 | 0.160 | 0.291 | **0.131** |
+| context recall | 0.488 | 0.043 | 0.448 | 0.542 | **0.094** |
+
+**Five replicates are still not enough to bound the tail, and the table above proves it.** The
+sweep's `hybrid` faithfulness of **0.922** lies *outside* the entire replicate range
+(0.741–0.821) — and `hybrid` is, by construction, the same experiment as `vector`. A single
+extra draw landed beyond five prior ones, so treat these figures as a **floor on the spread**,
+not a confidence interval. Reporting `n` and the observed range beats reporting a threshold.
+
+**Practical rule:** a between-mode difference on the order of **0.08 Spearman / 0.08–0.10
+faithfulness or smaller is unresolved** on this gold set. Resolving effects that small needs a
+larger gold set, a fixed-seed judge, or replicate-averaged scores per mode — not a closer read
+of a single sweep.
+
 #### What the numbers actually support
 
-**Retrieval works, and the honest claim is stronger than a faithfulness ratio.** A
-resume-blind model (`off`) ranks candidates at **0.407** Spearman and grounds almost nothing
-(**0.139** faithfulness) — it fabricates a candidate. Feeding it only **four retrieved
-chunks** restores **0.721 / 0.824**, which matches the **whole-resume** prompt's **0.684 /
-0.805** within the noise floor. That is the defensible result: *top-k retrieval recovers
-full-resume quality from a fraction of the context.*
+**Retrieval works, and this is the one effect large enough to be safe.** A resume-blind model
+(`off`) ranks candidates at **0.407** Spearman and grounds almost nothing (**0.139**
+faithfulness) — it fabricates a candidate. Feeding it only **four retrieved chunks** gives
+**0.721 / 0.824**. Those gaps are **0.31 Spearman and 0.69 faithfulness — roughly 4× and 9×
+the largest no-op movement measured above.** No plausible amount of judge variance explains
+them. This is the defensible result: *top-k retrieval recovers most of the model's ability to
+assess a candidate, from a fraction of the context.*
 
-**Retrieval adds nothing measurable on top of the production prompt.** `full-resume+vector`
-(0.726 / 0.795) versus `full-resume` (0.684 / 0.805) is well inside the noise band. For a
-single-resume prompt that already fits the context window, RAG is buying context *efficiency*,
-not accuracy — which is the honest engineering justification for it here.
+**Everything else in the table is unresolved, and that is a limit of the measurement, not a
+finding.** Both remaining comparisons sit inside the noise:
+
+| comparison | Δ Spearman | Δ faithfulness | verdict |
+| --- | --- | --- | --- |
+| retrieval-only (`vector`) vs whole résumé (`full-resume`) | 0.037 | 0.019 | unresolved |
+| `full-resume+vector` vs `full-resume` | 0.042 | 0.010 | unresolved |
+| no-op replicate spread (reference) | 0.076 | 0.080 | — |
+
+So the correct statement is *"we cannot detect a difference,"* **not** *"there is no
+difference."* These deltas put a rough **upper bound on the effect size** — whatever retrieval
+adds on top of a whole-résumé prompt is smaller than this setup can see. That is still useful:
+it means top-k retrieval is not measurably *worse* than sending the entire résumé, which is
+what justifies it here on **context efficiency** grounds. It is not evidence that retrieval is
+useless on the production path, and it must not be quoted as such.
 
 **Context-recall behaves exactly as it should**, which is a useful sanity check on the judge:
 `full-resume` scores highest (0.542) because the whole resume covers the reference rationale
@@ -186,6 +225,7 @@ pip install -r requirements-dev.txt -r requirements-evals.txt
 python -m evals.run               # writes evals/report.json + evals/report.md
 python -m evals.run --gate        # also fails (exit 1) if a metric is below threshold
 python -m evals.run --retrieval-modes  # per-mode retrieval comparison (needs DB + key)
+python -m evals.run --noise-floor 5    # run-to-run spread, same config (needs DB + key)
 ```
 
 (`requirements-evals.txt` carries Ragas; it is intentionally **not** in the runtime

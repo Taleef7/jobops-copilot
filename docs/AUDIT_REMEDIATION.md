@@ -62,10 +62,16 @@ Two things came out of the re-measurement that are worth more than the original 
 1. **A real result.** Four retrieved chunks recover whole-résumé quality (0.721/0.824 vs
    0.684/0.805) — retrieval buys context *efficiency*, not accuracy, on a prompt that already
    fits. That is the honest engineering justification.
-2. **A measured noise floor.** `hybrid` and `vector` retrieve byte-identical chunks on 16/16
-   rows (the lexical side matches 0/16 JDs — see #198), yet scored Δ0.058 Spearman and Δ0.098
-   faithfulness apart. Identical inputs, different outputs: that gap *is* the error bar, and
-   every hybrid/rerank comparison ever published on this gold set sits inside it.
+2. **An honest measure of how noisy this eval is.** `hybrid` and `vector` retrieve
+   byte-identical chunks on 16/16 rows (the lexical side matches 0/16 JDs — see #198) yet
+   scored Δ0.058 Spearman / Δ0.098 faithfulness apart. One such pair only shows variance of
+   that order *occurred*, so the spread is now measured properly: `--noise-floor 5` scores one
+   fixed configuration five times. Result — Spearman sd 0.034 (range 0.721–0.797),
+   faithfulness sd 0.039 (range 0.741–0.821). Even that understates it: the sweep's `hybrid`
+   faithfulness (0.922) lands outside all five replicates despite being the same experiment,
+   so the figures are a **floor on the spread, not a bound**. Only the retrieval-vs-nothing
+   effect (4–9× the largest no-op movement) clears it; every other comparison in the table is
+   *unresolved*, which is a limit of the measurement rather than a finding.
 
 Structural fix: `evals/evidence.py` makes the generator's inputs and the judge's contexts
 derive from one `Evidence` value, with a parametrized regression test that fails if they

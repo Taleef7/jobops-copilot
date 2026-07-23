@@ -356,4 +356,10 @@ if __name__ == "__main__":
 
     if "--retrieval-modes" in sys.argv:
         raise SystemExit(retrieval_main())
+    if "--noise-floor" in sys.argv:
+        from evals.noise import noise_main
+
+        index = sys.argv.index("--noise-floor") + 1
+        replicates = int(sys.argv[index]) if len(sys.argv) > index else 5
+        raise SystemExit(noise_main(replicates=replicates))
     raise SystemExit(main(gate="--gate" in sys.argv))

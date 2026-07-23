@@ -204,7 +204,8 @@ Design + plans live under `docs/superpowers/specs|plans/`.
   **Corrected 2026-07-23 (#197):** the original "≈3× faithfulness" headline was withdrawn —
   the harness leaked the resume to the generator in every arm, so the baseline was never
   resume-blind. See the correction notice in `EVALS.md` for the re-measured table and the
-  measured noise floor.
+  replicate-derived run-to-run spread (`python -m evals.run --noise-floor N`), which shows
+  only the retrieval-vs-nothing effect is large enough to resolve on this gold set.
 
 ### Phase 5 — Operational hardening (complete, epic #76)
 
