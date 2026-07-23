@@ -14,7 +14,7 @@
   },
   "dependencies": {
     "@azure/storage-blob": "^12.33.0",
-    "@clerk/express": "^1.7.5",
+    "@clerk/express": "^2.1.44",
     "applicationinsights": "^3.15.0",
     "cors": "^2.8.5",
     "dotenv": "^16.4.7",
