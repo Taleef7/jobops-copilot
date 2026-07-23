@@ -31,4 +31,4 @@ numpy>=1.26,<3
 azure-monitor-opentelemetry>=1.6,<2
 
 # LLM tracing/observability (Phase 1 LLMOps). No-op when unconfigured.
-langfuse>=3.0,<4
+langfuse>=4.14.1,<5
