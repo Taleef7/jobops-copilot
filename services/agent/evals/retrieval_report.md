@@ -1,15 +1,21 @@
 # JobOps Copilot — Retrieval-Mode Comparison
 
-- Generated: `2026-06-18T16:52:55+00:00`
+- Generated: `2026-07-23T22:22:41+00:00`
 - Judge / model: `openai:gpt-4o-mini`
 
-Same gold set + scorer; only the retrieved evidence changes (downstream delta).
-`off` feeds **no** resume evidence (JD only); retrieval modes feed only top-k chunks,
-so context-recall can fall even as faithfulness rises — read all four columns.
+Same gold set + scorer; only the evidence changes (downstream delta). The judge's
+contexts are derived from exactly what the generator received, so a mode cannot look
+better merely by showing the judge more.
+
+**Ablation** (`off` … `hybrid+rerank`): the resume reaches the model *only* through
+retrieval — `off` gets the JD and nothing else. **Reference** (`full-resume*`): the
+whole resume in the prompt, which is what `score_fit` does in production.
 
 | mode | fit-vs-label Spearman | faithfulness | answer relevancy | context recall | n (errors) |
 | --- | --- | --- | --- | --- | --- |
-| off | 0.7049 | 0.2506 | 0.2369 | 0.3333 | 16 (0) |
-| vector | 0.7014 | 0.8268 | 0.1541 | 0.4792 | 16 (0) |
-| hybrid | 0.687 | 0.8134 | 0.2139 | 0.3646 | 16 (0) |
-| hybrid+rerank | 0.688 | 0.8036 | 0.2219 | 0.4167 | 16 (0) |
+| off | 0.4067 | 0.1392 | 0.4847 | 0.4271 | 16 (0) |
+| vector | 0.7209 | 0.8236 | 0.2124 | 0.4792 | 16 (0) |
+| hybrid | 0.7789 | 0.9221 | 0.1671 | 0.4167 | 16 (0) |
+| hybrid+rerank | 0.7043 | 0.7768 | 0.2245 | 0.4271 | 16 (0) |
+| full-resume | 0.684 | 0.8046 | 0.1995 | 0.5417 | 16 (0) |
+| full-resume+vector | 0.7262 | 0.795 | 0.1565 | 0.4896 | 16 (0) |

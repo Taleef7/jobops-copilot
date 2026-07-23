@@ -1,19 +1,29 @@
 """Retrieval-mode eval (Phase 4 · Q): the downstream fit-score quality delta.
 
 Runs the existing fit-score eval (rank correlation + Ragas) under each retrieval
-mode and reports a per-mode comparison:
+mode and reports a per-mode comparison.
 
-- ``off``           — no resume evidence (JD only); the true no-retrieval baseline.
+**Retrieval ablation** — the resume reaches the generator *only* through retrieval:
+
+- ``off``           — no resume at all (JD only); the true no-retrieval floor.
 - ``vector``        — dense pgvector only.
 - ``hybrid``        — dense + Postgres FTS fused via RRF.
 - ``hybrid+rerank`` — hybrid pool reranked by the CPU cross-encoder.
 
-The point is *downstream delta*: same gold set, same scorer, only the retrieved
-context changes — so we measure what retrieval actually buys the fit score.
+**Production-path reference** — the whole resume in the prompt, which is what
+``score_fit`` actually receives in production:
 
-Note: ``off`` (and today's default baseline) feed the *whole* resume, while the
-retrieval modes feed only top-k chunks. Context-recall can therefore fall even as
-faithfulness/precision rise — read all four metrics, not one headline.
+- ``full-resume``        — whole resume, no retrieved chunks (the no-DB fallback).
+- ``full-resume+vector`` — whole resume *plus* top-k chunks (the live RAG path).
+
+Together the two groups answer different questions: the ablation measures what
+retrieval buys versus nothing, the reference pair measures what retrieval buys *on
+top of* the real product prompt.
+
+The point is *downstream delta*: same gold set, same scorer, only the evidence
+changes. Because the judge's contexts are derived from the same ``Evidence`` the
+generator received (see ``evals.evidence``), a mode can only look better by actually
+grounding the summary better — not by showing the judge more (#197).
 """
 
 from __future__ import annotations
@@ -23,19 +33,36 @@ from collections.abc import Callable, Sequence
 
 from app.config import settings
 from app.rag.store import retrieve_resume_evidence
+from evals.evidence import Evidence
 from evals.run import run_fit_score_eval
 
 logger = logging.getLogger("jobops.evals")
 
-RETRIEVAL_MODES = ("off", "vector", "hybrid", "hybrid+rerank")
+RETRIEVAL_MODES = (
+    "off",
+    "vector",
+    "hybrid",
+    "hybrid+rerank",
+    "full-resume",
+    "full-resume+vector",
+)
+
+# A sweep ingests the sample resume to retrieve against. Scope those rows to a
+# dedicated tenant: unowned (user_id IS NULL) rows are exactly what any
+# `retrieve(user_id=None)` caller reads, so an eval run against a shared database
+# would otherwise leave the sample resume inside real retrieval's reach.
+EVAL_USER_ID = "eval-harness"
 
 # (rag_retrieval_mode, rag_rerank_enabled) toggles for each evidence-bearing mode.
 _MODE_TOGGLES = {
     "vector": ("vector", False),
     "hybrid": ("hybrid", False),
     "hybrid+rerank": ("hybrid", True),
+    "full-resume+vector": ("vector", False),
 }
 _FTS_MODES = ("hybrid", "hybrid+rerank")
+# Modes that also put the whole resume in the prompt (the production path).
+_FULL_RESUME_MODES = ("full-resume", "full-resume+vector")
 
 
 def _fts_ready() -> bool:
@@ -61,24 +88,32 @@ def _fts_ready() -> bool:
         return False
 
 
-def _make_contexts_for(
+def _make_evidence_for(
     mode: str, resume_text: str, k: int, retrieve_evidence: Callable
-) -> Callable[[dict], list[str]]:
-    """A ``contexts_for(row)`` callable for one retrieval mode."""
-    if mode == "off":
-        return lambda _row: []  # JD only — the true no-retrieval baseline
+) -> Callable[[dict], Evidence]:
+    """An ``evidence_for(row)`` callable for one mode.
+
+    ``resume_in_prompt`` is what separates the ablation from the production-path
+    reference: the ablation withholds the resume so retrieval is the only way the
+    model can learn anything about the candidate.
+    """
+    resume_in_prompt = resume_text if mode in _FULL_RESUME_MODES else ""
+
+    if mode not in _MODE_TOGGLES:  # "off" and "full-resume" retrieve nothing
+        return lambda _row: Evidence(resume_text=resume_in_prompt)
 
     retrieval_mode, rerank = _MODE_TOGGLES[mode]
 
-    def contexts_for(row: dict) -> list[str]:
+    def evidence_for(row: dict) -> Evidence:
         # retrieve() takes mode= but rerank is read from settings, so we toggle both
         # here. Safe only because this eval is single-process / non-concurrent (a CLI
         # run); run_retrieval_modes restores the original settings in its finally.
         settings.rag_retrieval_mode = retrieval_mode
         settings.rag_rerank_enabled = rerank
-        return retrieve_evidence(resume_text, row["description_text"], k=k)
+        chunks = retrieve_evidence(resume_text, row["description_text"], k=k, user_id=EVAL_USER_ID)
+        return Evidence(resume_text=resume_in_prompt, retrieved_context=tuple(chunks))
 
-    return contexts_for
+    return evidence_for
 
 
 def run_retrieval_modes(
@@ -111,8 +146,8 @@ def run_retrieval_modes(
                         "reason": "chunk_tsv / embeddings_tsv_idx absent",
                     }
                     continue
-            contexts_for = _make_contexts_for(mode, resume_text, k, retrieve_evidence)
-            metrics = score_eval(rows, resume_text, contexts_for=contexts_for)
+            evidence_for = _make_evidence_for(mode, resume_text, k, retrieve_evidence)
+            metrics = score_eval(rows, resume_text, evidence_for=evidence_for)
             metrics["status"] = "ok"
             results[mode] = metrics
     finally:
