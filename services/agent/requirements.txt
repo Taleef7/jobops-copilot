@@ -21,7 +21,7 @@ langgraph>=1.0,<2
 langchain-mcp-adapters>=0.3,<1
 
 # HTTP client for agent tools (web search)
-httpx>=0.27,<1
+httpx>=0.28.1,<1
 
 # Time-series telemetry intelligence (Phase 11)
 pandas>=2.2,<3
