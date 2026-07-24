@@ -58,12 +58,18 @@ log, and behavioral notes live in [AUDIT_REMEDIATION.md](AUDIT_REMEDIATION.md) (
 - **Phase 4 — hybrid retrieval, reranker & eval (epic #70):** hybrid retrieval (pgvector +
   Postgres FTS via RRF, #67); CPU cross-encoder reranker (opt-in, graceful, #68); retrieval-mode
   eval with the per-mode comparison committed to `EVALS.md` (#69). Fine-tuning dropped
-  (CPU-only infra). **Numbers re-stated 2026-07-23 (#197):** the original "≈3× faithfulness"
-  was a judge-visibility artifact — the sweep leaked the resume to the generator in every mode.
-  Corrected measurement: top-k retrieval recovers whole-resume quality (0.72 vs 0.68 Spearman,
-  0.82 vs 0.81 faithfulness) from a fraction of the context, while a truly resume-blind
-  baseline collapses to 0.41 / 0.14. Hybrid/rerank remain **unmeasured** — the lexical side
-  matches 0/16 JDs, so hybrid is byte-identical to vector (#198).
+  (CPU-only infra). **Numbers withdrawn and re-measured twice — see `EVALS.md` for the audit
+  trail.** The original "≈3× faithfulness" was a judge-visibility artifact (#197: the sweep fed
+  the resume to the generator in every arm). The first re-measurement was still invalid (#198:
+  the gold resume chunked into 4 pieces at `k=4`, so retrieval selected nothing) and the
+  lexical side of "hybrid" matched 0/16 JDs, making hybrid byte-identical to vector.
+  **Current measurement** (9-chunk resume, `k=4`, parsed title+skills as the query, lexical
+  firing 16/16): **hybrid beats dense-only** — 5 replicates each, `hybrid` 0.821
+  (0.800–0.848) vs `vector` 0.716 (0.706–0.733) Spearman, non-overlapping ranges. The first
+  retrieval improvement the project has been able to demonstrate, and only measurable once the
+  lexical side was revived. Retrieval also *outranks the whole resume* (`full-resume` 0.612):
+  extra context dilutes the fit signal. Both gains are ranking-specific — faithfulness leans
+  the other way and is unresolved. Resume-blind collapses to 0.233.
 - **Phase 5 — operational hardening (epic #76):** job-search TTL cache + the API `node:test`
   suite wired into CI (#77); Bicep IaC of the live Azure topology, CI-validated + `what-if`-verified
   (#78); k6 load test verified against the live API (#79); Playwright e2e verified locally and

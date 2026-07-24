@@ -112,6 +112,10 @@ class ScoreFitRequest(BaseModel):
     description_text: str
     resume_text: str
     profile_text: str
+    # The parsed role title. Retrieval distills its query from title + skills, so without
+    # this a role whose only parsed skill is generic ("communication") retrieves on that
+    # word alone instead of the role (#202 review).
+    title: str | None = None
     required_skills: list[str] | None = None
     preferred_skills: list[str] | None = None
     ats_keywords: list[str] | None = None

@@ -28,8 +28,10 @@ grounding the summary better — not by showing the judge more (#197).
 
 from __future__ import annotations
 
+import json
 import logging
 from collections.abc import Callable, Sequence
+from pathlib import Path
 
 from app.config import settings
 from app.rag.store import retrieve_resume_evidence
@@ -88,8 +90,37 @@ def _fts_ready() -> bool:
         return False
 
 
+def load_gold_parses(path: Path | None = None) -> dict[str, dict]:
+    """``{row id: {"title", "required_skills"}}`` from the hand-labeled parse-job gold set.
+
+    Production retrieves with the fields ``parse_job`` extracted, so the sweep must too --
+    otherwise it silently measures the keyword fallback while the product measures parsed
+    skills. Reusing the *gold* parse (rather than calling ``parse_job`` per row) keeps the
+    sweep deterministic: a live parse would inject extraction variance into a comparison
+    whose real deltas are already close to the noise floor.
+
+    14 of the 16 fit-score rows have a gold parse; the other two fall back to keywords.
+    """
+    path = path or (Path(__file__).parent / "data" / "parse_job.jsonl")
+    parsed: dict[str, dict] = {}
+    for line in path.read_text(encoding="utf-8").splitlines():
+        if not line.strip():
+            continue
+        row = json.loads(line)
+        expected = row.get("expected") or {}
+        parsed[row["id"]] = {
+            "title": expected.get("title"),
+            "required_skills": expected.get("required_skills") or None,
+        }
+    return parsed
+
+
 def _make_evidence_for(
-    mode: str, resume_text: str, k: int, retrieve_evidence: Callable
+    mode: str,
+    resume_text: str,
+    k: int,
+    retrieve_evidence: Callable,
+    parsed_by_id: dict[str, dict] | None = None,
 ) -> Callable[[dict], Evidence]:
     """An ``evidence_for(row)`` callable for one mode.
 
@@ -110,7 +141,15 @@ def _make_evidence_for(
         # run); run_retrieval_modes restores the original settings in its finally.
         settings.rag_retrieval_mode = retrieval_mode
         settings.rag_rerank_enabled = rerank
-        chunks = retrieve_evidence(resume_text, row["description_text"], k=k, user_id=EVAL_USER_ID)
+        parsed = (parsed_by_id or {}).get(row.get("id"), {})
+        chunks = retrieve_evidence(
+            resume_text,
+            row["description_text"],
+            k=k,
+            user_id=EVAL_USER_ID,
+            required_skills=parsed.get("required_skills"),
+            title=parsed.get("title"),
+        )
         return Evidence(resume_text=resume_in_prompt, retrieved_context=tuple(chunks))
 
     return evidence_for
@@ -125,6 +164,7 @@ def run_retrieval_modes(
     retrieve_evidence: Callable = retrieve_resume_evidence,
     score_eval: Callable = run_fit_score_eval,
     fts_ready: Callable[[], bool] = _fts_ready,
+    parsed_by_id: dict[str, dict] | None = None,
 ) -> dict[str, dict]:
     """Run the fit-score eval under each retrieval mode; return ``{mode: metrics}``.
 
@@ -146,7 +186,9 @@ def run_retrieval_modes(
                         "reason": "chunk_tsv / embeddings_tsv_idx absent",
                     }
                     continue
-            evidence_for = _make_evidence_for(mode, resume_text, k, retrieve_evidence)
+            evidence_for = _make_evidence_for(
+                mode, resume_text, k, retrieve_evidence, parsed_by_id
+            )
             metrics = score_eval(rows, resume_text, evidence_for=evidence_for)
             metrics["status"] = "ok"
             results[mode] = metrics

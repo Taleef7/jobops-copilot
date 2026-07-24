@@ -282,7 +282,7 @@ def retrieval_main(output_dir: Path | None = None) -> int:
             "provider": None,
         }
     else:
-        from evals.retrieval import RETRIEVAL_MODES, run_retrieval_modes
+        from evals.retrieval import RETRIEVAL_MODES, load_gold_parses, run_retrieval_modes
 
         _, provider_label = get_model()
         rows = _load_jsonl(_DATA_DIR / "fit_score.jsonl")
@@ -292,7 +292,8 @@ def retrieval_main(output_dir: Path | None = None) -> int:
             "status": "ok",
             "provider": provider_label,
             "modes_order": list(RETRIEVAL_MODES),
-            "modes": run_retrieval_modes(rows, resume),
+            # Retrieve with the parsed fields production uses, not the keyword fallback.
+            "modes": run_retrieval_modes(rows, resume, parsed_by_id=load_gold_parses()),
         }
 
     output_dir.mkdir(parents=True, exist_ok=True)

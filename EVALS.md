@@ -90,38 +90,62 @@ Fixed in [#197](https://github.com/Taleef7/jobops-copilot/issues/197): the judge
 are now derived from the same `Evidence` value handed to the generator, and a parametrized
 regression test fails if the two ever diverge again.
 
-### Results (gpt-4o-mini judge, 2026-07-23)
+### A second correction (2026-07-24) — the first re-measurement was still not measuring retrieval
+
+The 2026-07-23 table above was run against a **1.5 KB résumé that chunks into exactly 4
+pieces, with `k = 4`.** Every retrieval mode therefore returned *all four chunks*; retrieval
+selected nothing and only changed their order. `vector` and `full-resume` were feeding the
+generator the same information in different packaging, which is why they scored within noise
+of each other — not because retrieval is efficient.
+
+The claim published from it — *"top-k retrieval recovers full-résumé quality from a fraction
+of the context"* — was **wrong**: top-4-of-4 is not a fraction. Two fixes landed together:
+
+- **[#198](https://github.com/Taleef7/jobops-copilot/issues/198)** — the lexical query
+  (below), and
+- **the gold set** — `sample_resume.txt` expanded to a realistic length (4.2 KB → **9
+  chunks**), so `k = 4` is a genuine selection of ~45%. The candidate's *qualification
+  profile is unchanged* (same skills, same ~3 years, same gaps) because 10 of the 16 gold
+  rationales depend on specific technologies being **absent** — only detail was added, and a
+  word-boundary check asserts none of Django/Flask/AWS/GCP/TensorFlow/PyTorch/Java/Spring/
+  Kubernetes/Kafka/statistics/seniority terms appear.
+
+### Results (gpt-4o-mini judge, 9-chunk résumé, k=4, 2026-07-24)
 
 Captured by `python -m evals.run --retrieval-modes`; the raw artifact is committed at
 `services/agent/evals/retrieval_report.json` for auditability. n = 16, 0 errors per mode.
 
+The sweep retrieves with the **parsed title + required skills**, joined from the hand-labeled
+`parse_job.jsonl` gold by row id — the same fields `/score-fit` receives in production, since
+the API parses before scoring. (Using the *gold* parse rather than calling `parse_job` live
+keeps the sweep deterministic; a live parse would inject extraction variance into a comparison
+whose deltas sit near the noise floor. 14 of 16 rows have a gold parse; the other two fall back
+to keyword extraction.)
+
 | mode | fit-vs-label Spearman | faithfulness | answer relevancy | context recall |
 | --- | --- | --- | --- | --- |
 | _Ablation_ | | | | |
-| off (JD only, truly resume-blind) | 0.407 | 0.139 | 0.485 | 0.427 |
-| vector | 0.721 | 0.824 | 0.212 | 0.479 |
-| hybrid | 0.779 | 0.922 | 0.167 | 0.417 |
-| hybrid+rerank | 0.704 | 0.777 | 0.225 | 0.427 |
+| off (JD only, résumé-blind) | 0.233 | 0.345 | 0.381 | 0.458 |
+| vector | 0.751 | 0.788 | 0.199 | 0.458 |
+| hybrid | **0.839** | 0.748 | 0.138 | 0.490 |
+| hybrid+rerank | 0.776 | 0.779 | 0.314 | 0.521 |
 | _Production-path reference_ | | | | |
-| full-resume | 0.684 | 0.805 | 0.200 | **0.542** |
-| full-resume+vector | 0.726 | 0.795 | 0.157 | 0.490 |
+| full-resume | 0.612 | **0.816** | 0.231 | **0.583** |
+| full-resume+vector | 0.570 | 0.753 | 0.220 | 0.521 |
 
-#### `hybrid` and `vector` are the same experiment — read this before comparing any two rows
+#### The lexical side now actually fires
 
-On this gold set **`hybrid` and `vector` are the same experiment.** The lexical side is
-structurally dead: `_lexical_candidates` builds `websearch_to_tsquery('english', <whole JD>)`,
-which **ANDs** every term, so a JD becomes a ~98-node conjunction that no resume chunk can
-satisfy. Verified directly against the database: **0 of 16** JDs match a single chunk, and
-`hybrid` returns **byte-identical chunks to `vector` on 16/16 rows**. RRF fusing
-`[dense, []]` is just `dense`.
+Before #198 the FTS half of "hybrid" was dead: `websearch_to_tsquery('english', <whole JD>)`
+**ANDs** every term, so a JD became a ~98-node conjunction no chunk could satisfy. RRF fusing
+`[dense, []]` is just `dense`, so hybrid was byte-identical to vector. Measured against the
+database, before and after distilling the query to title + parsed skills, OR-joined:
 
-So the apparent "hybrid beats vector" gap — Δ0.058 Spearman, Δ0.098 faithfulness — comes from
-*provably identical generator input*. It is pure sampling noise (temperature 0.2 plus Ragas
-judge variance).
+| | before | after |
+| --- | --- | --- |
+| JDs whose lexical query matches ≥1 chunk | 0/16 | **16/16** |
+| rows where `hybrid` retrieves different chunks than `vector` | 0/16 | **13/16** |
 
-Fixing the lexical query is tracked as
-[#198](https://github.com/Taleef7/jobops-copilot/issues/198); until then, **hybrid and
-hybrid+rerank are unmeasured**, not measured-and-equal.
+So hybrid is finally a real experiment — and, replicated, a better one: see the results below.
 
 ### How much does this eval move when nothing changes?
 
@@ -135,56 +159,76 @@ python -m evals.run --noise-floor 5   # writes evals/noise_report.{json,md}
 Retrieval is frozen up front (retrieved once, reused), so every replicate receives byte-identical
 evidence and all movement is generator + judge variance.
 
-| metric | mean | stdev | min | max | max pairwise Δ |
+`--noise-floor` takes a `mode`, because a "mode A beats mode B" claim needs **both** modes
+replicated — a single sweep value has now landed outside its own five-replicate range three
+separate times. Five replicates each, identical frozen evidence within each mode:
+
+| configuration | Spearman mean | stdev | range | faithfulness mean | range |
 | --- | --- | --- | --- | --- | --- |
-| fit-vs-label Spearman | 0.767 | 0.034 | 0.721 | 0.797 | **0.076** |
-| faithfulness | 0.778 | 0.039 | 0.741 | 0.821 | **0.080** |
-| answer relevancy | 0.225 | 0.052 | 0.160 | 0.291 | **0.131** |
-| context recall | 0.488 | 0.043 | 0.448 | 0.542 | **0.094** |
+| `vector` | 0.716 | 0.011 | 0.706 – 0.733 | 0.748 | 0.732 – 0.772 |
+| `hybrid` | **0.821** | 0.021 | **0.800 – 0.848** | 0.713 | 0.666 – 0.769 |
 
-**Five replicates are still not enough to bound the tail, and the table above proves it.** The
-sweep's `hybrid` faithfulness of **0.922** lies *outside* the entire replicate range
-(0.741–0.821) — and `hybrid` is, by construction, the same experiment as `vector`. A single
-extra draw landed beyond five prior ones, so treat these figures as a **floor on the spread**,
-not a confidence interval. Reporting `n` and the observed range beats reporting a threshold.
+Max pairwise Δ within a mode: **0.027** Spearman / **0.040** faithfulness for `vector`,
+**0.048** / **0.103** for `hybrid`.
 
-**Practical rule:** a between-mode difference on the order of **0.08 Spearman / 0.08–0.10
-faithfulness or smaller is unresolved** on this gold set. Resolving effects that small needs a
-larger gold set, a fixed-seed judge, or replicate-averaged scores per mode — not a closer read
-of a single sweep.
+**The noise floor is corpus- and configuration-specific — re-measure it, never carry it over.**
+Across the three gold-set/query combinations measured so far, the Spearman floor moved
+0.076 → 0.063 → **0.027** and the faithfulness floor 0.080 → 0.120 → **0.040**. Any threshold
+inherited from an earlier run would have mis-graded results in both directions. The sharp drop
+here is itself informative: a focused, deterministic retrieval query produces markedly more
+consistent generations than a sprawling one.
+
+**Five replicates estimate the spread; they do not bound it.** Three times now a single sweep
+value has fallen outside five replicates of its own configuration — most recently `vector`
+scoring 0.751 in the sweep against a 0.706–0.733 replicate range. Prefer reporting `n` and the
+observed range over any single threshold, and replicate anything you intend to claim.
 
 #### What the numbers actually support
 
-**Retrieval works, and this is the one effect large enough to be safe.** A resume-blind model
-(`off`) ranks candidates at **0.407** Spearman and grounds almost nothing (**0.139**
-faithfulness) — it fabricates a candidate. Feeding it only **four retrieved chunks** gives
-**0.721 / 0.824**. Those gaps are **0.31 Spearman and 0.69 faithfulness — roughly 4× and 9×
-the largest no-op movement measured above.** No plausible amount of judge variance explains
-them. This is the defensible result: *top-k retrieval recovers most of the model's ability to
-assess a candidate, from a fraction of the context.*
+**1. Hybrid retrieval beats dense-only — established by replication, not a single sweep.**
 
-**Everything else in the table is unresolved, and that is a limit of the measurement, not a
-finding.** Both remaining comparisons sit inside the noise:
+| | `vector` | `hybrid` |
+| --- | --- | --- |
+| Spearman, 5 replicates | 0.716 (0.706 – 0.733) | **0.821 (0.800 – 0.848)** |
 
-| comparison | Δ Spearman | Δ faithfulness | verdict |
-| --- | --- | --- | --- |
-| retrieval-only (`vector`) vs whole résumé (`full-resume`) | 0.037 | 0.019 | unresolved |
-| `full-resume+vector` vs `full-resume` | 0.042 | 0.010 | unresolved |
-| no-op replicate spread (reference) | 0.076 | 0.080 | — |
+The two ranges **do not overlap**: hybrid's worst run beats vector's best by 0.067, a mean
+difference of **0.105** (Welch's t ≈ 9.9). This is the first retrieval improvement this project
+has been able to demonstrate — and it only became measurable once #198 revived the lexical
+side, because before that hybrid retrieved byte-identical chunks to vector and *could not*
+differ.
 
-So the correct statement is *"we cannot detect a difference,"* **not** *"there is no
-difference."* These deltas put a rough **upper bound on the effect size** — whatever retrieval
-adds on top of a whole-résumé prompt is smaller than this setup can see. That is still useful:
-it means top-k retrieval is not measurably *worse* than sending the entire résumé, which is
-what justifies it here on **context efficiency** grounds. It is not evidence that retrieval is
-useless on the production path, and it must not be quoted as such.
+The single-sweep numbers understate it: that run's `vector` (0.751) was a high draw above its
+own replicate range, making the sweep's Δ0.088 smaller than the replicated Δ0.105.
 
-**Context-recall behaves exactly as it should**, which is a useful sanity check on the judge:
-`full-resume` scores highest (0.542) because the whole resume covers the reference rationale
-by construction, while top-k modes trade recall for precision.
+The gain is **ranking-specific**. Faithfulness moves the other way (hybrid 0.713 vs vector
+0.748 by replicate mean), and with hybrid's faithfulness spread at Δ0.103 that difference is
+unresolved — possibly a small real cost, possibly noise. Lexical matching appears to surface
+chunks that discriminate between candidates better without grounding the prose any better.
 
-**Answer-relevancy inverts, and that is not a win.** `off` scores *highest* (0.485) because a
-model with no resume writes generic, on-topic prose about the role. The metric rewards
+**2. Retrieval ranks better than the whole résumé.** `vector` (0.751) and `hybrid` (0.839) both
+beat `full-resume` (0.612) by far more than any measured spread, and `full-resume` sits well
+below the entire replicate range of either. Feeding the model all nine chunks makes it rank
+candidates *worse* than feeding it the four retrieval selected.
+
+That reverses the intuition RAG is usually sold on here: retrieval is not a lossy compromise
+accepted for context-window reasons — on this set it is a **precision filter that improves the
+judgment**. Faithfulness again leans the other way (`full-resume` 0.816 is the table's best),
+which is consistent — more context grounds the prose better while diluting the ranking signal.
+
+**3. The reranker remains unresolved.** `hybrid+rerank` (0.776) sits between vector and hybrid,
+and was not replicated. On a 9-chunk corpus a cross-encoder has very little to reorder; this
+gold set is a weak instrument for detecting a reranking effect.
+
+**4. The model needs the résumé.** Résumé-blind (`off`) ranks at **0.233** and grounds little
+(**0.345** faithfulness). Large, unsurprising, and mostly a check that the harness measures
+what it claims to.
+
+**Context recall is too noisy to use as a judge sanity check.** `full-resume` is highest
+(0.583) as expected, but the recall noise band is Δ0.125 — wider than most gaps in the column.
+An earlier version of this page cited it as a sanity check; it cannot serve as one.
+
+**Answer-relevancy inverts, and that is not a win.** `off` scores *highest* (0.369) because a
+model with no résumé writes generic, on-topic prose about the role. The metric rewards
 addressing the question, not being right — treat it as a foil, not a quality signal.
 
 ## Gold set
@@ -192,7 +236,9 @@ addressing the question, not being right — treat it as a foil, not a quality s
 - `evals/data/parse_job.jsonl` — 17 real JDs with expected skills / title / seniority.
 - `evals/data/fit_score.jsonl` — 16 real JDs with an expected `fit_label` (spread 10–85)
   and a short reference rationale.
-- `evals/data/sample_resume.txt` — one candidate, scored against every posting.
+- `evals/data/sample_resume.txt` — one candidate (4.2 KB, 9 chunks), scored against every
+  posting. Expanded 2026-07-24 so `k=4` is a real selection; the qualification profile is
+  unchanged because most gold rationales turn on specific technologies being absent.
 
 ## Baseline & thresholds
 

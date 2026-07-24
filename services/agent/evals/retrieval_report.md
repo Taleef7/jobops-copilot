@@ -1,6 +1,6 @@
 # JobOps Copilot — Retrieval-Mode Comparison
 
-- Generated: `2026-07-23T22:22:41+00:00`
+- Generated: `2026-07-24T01:56:24+00:00`
 - Judge / model: `openai:gpt-4o-mini`
 
 Same gold set + scorer; only the evidence changes (downstream delta). The judge's
@@ -13,9 +13,9 @@ whole resume in the prompt, which is what `score_fit` does in production.
 
 | mode | fit-vs-label Spearman | faithfulness | answer relevancy | context recall | n (errors) |
 | --- | --- | --- | --- | --- | --- |
-| off | 0.4067 | 0.1392 | 0.4847 | 0.4271 | 16 (0) |
-| vector | 0.7209 | 0.8236 | 0.2124 | 0.4792 | 16 (0) |
-| hybrid | 0.7789 | 0.9221 | 0.1671 | 0.4167 | 16 (0) |
-| hybrid+rerank | 0.7043 | 0.7768 | 0.2245 | 0.4271 | 16 (0) |
-| full-resume | 0.684 | 0.8046 | 0.1995 | 0.5417 | 16 (0) |
-| full-resume+vector | 0.7262 | 0.795 | 0.1565 | 0.4896 | 16 (0) |
+| off | 0.2329 | 0.3452 | 0.3808 | 0.4583 | 16 (0) |
+| vector | 0.7509 | 0.7877 | 0.1994 | 0.4583 | 16 (0) |
+| hybrid | 0.8389 | 0.7475 | 0.1375 | 0.4896 | 16 (0) |
+| hybrid+rerank | 0.7758 | 0.7787 | 0.3139 | 0.5208 | 16 (0) |
+| full-resume | 0.6117 | 0.8162 | 0.2307 | 0.5833 | 16 (0) |
+| full-resume+vector | 0.5704 | 0.7534 | 0.2202 | 0.5208 | 16 (0) |

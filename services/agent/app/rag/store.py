@@ -10,12 +10,14 @@ from __future__ import annotations
 import hashlib
 import logging
 import uuid
+from collections.abc import Sequence
 
 from app.config import settings
 from app.obs import traced_span
 from app.rag.chunk import chunk_text
 from app.rag.embeddings import embed_query, embed_texts
 from app.rag.fusion import reciprocal_rank_fusion
+from app.rag.query import build_lexical_tsquery, distill_query, terms_for
 
 logger = logging.getLogger("jobops.agent.rag")
 
@@ -97,6 +99,10 @@ def _lexical_candidates(
 ) -> list[tuple[str, str]]:
     """Top-``n`` (id, chunk_text) by full-text rank (the Postgres FTS lexical side).
 
+    ``query`` must already be ``websearch_to_tsquery`` syntax -- see
+    :func:`app.rag.query.build_lexical_tsquery`, which OR-joins quoted terms. Passing
+    free text here silently ANDs every word and matches nothing (#198).
+
     Raises if the ``chunk_tsv`` column is absent (caller falls back to dense). An
     all-stopword / unparseable query yields an *empty* tsquery that matches zero
     rows **without** raising -- that is expected, and RRF simply degrades to the
@@ -119,6 +125,7 @@ def retrieve(
     source_id: str | None = None,
     user_id: str | None = None,
     mode: str | None = None,
+    lexical_terms: Sequence[str] | None = None,
 ) -> list[str]:
     """Return the ``k`` chunk texts most relevant to ``query``.
 
@@ -126,6 +133,11 @@ def retrieve(
     cosine similarity only; ``"hybrid"`` pulls a candidate pool from the dense and
     lexical (FTS) sides and fuses them with Reciprocal Rank Fusion, falling back to
     vector-only if the lexical query fails (e.g. the ``chunk_tsv`` column is absent).
+
+    ``lexical_terms`` are the distinct terms the FTS side should match on; they are
+    OR-joined so a chunk covering *some* requirements can still rank. Defaults to the
+    whitespace-split ``query``. Callers with parsed skills should pass them explicitly
+    so multi-word skills survive as phrases (#198).
 
     When ``settings.rag_rerank_enabled`` is set, a larger pool is fetched and a CPU
     cross-encoder reranks it down to ``k`` (best-effort; pre-rerank order on failure).
@@ -160,7 +172,10 @@ def retrieve(
                 dense = _dense_candidates(cur, query_literal, pool, where_sql, params)
                 texts = {row[0]: row[1] for row in dense}
                 try:
-                    lexical = _lexical_candidates(cur, query, pool, where_sql, params)
+                    tsquery = build_lexical_tsquery(
+                        lexical_terms if lexical_terms is not None else query.split()
+                    )
+                    lexical = _lexical_candidates(cur, tsquery, pool, where_sql, params)
                     for row in lexical:
                         texts.setdefault(row[0], row[1])
                     fused = reciprocal_rank_fusion(
@@ -193,15 +208,32 @@ def retrieve_resume_evidence(
     job_description: str,
     k: int = 4,
     user_id: str | None = None,
+    required_skills: Sequence[str] | None = None,
+    preferred_skills: Sequence[str] | None = None,
+    title: str | None = None,
 ) -> list[str]:
     """Ingest the resume (idempotent) and retrieve the chunks most relevant to
     the job description. Returns [] and logs on any failure so callers can
-    proceed without RAG."""
+    proceed without RAG.
+
+    The job description is *distilled* into a short requirement-shaped query rather
+    than used raw: the raw JD both truncated the dense query and reduced the lexical
+    side to a conjunction matching nothing (#198). Pass the parsed skills when the
+    caller has them -- they are the signal retrieval actually wants.
+    """
     try:
         source_id = resume_source_id(resume_text)
         ingest_document("resume", source_id, resume_text, user_id=user_id)
+        terms = terms_for(job_description, required_skills, preferred_skills, title)
+        query = distill_query(job_description, required_skills, preferred_skills, title)
         return retrieve(
-            job_description, k=k, source_type="resume", source_id=source_id, user_id=user_id
+            # Fall back to the raw JD only if distillation found nothing at all.
+            query or job_description,
+            k=k,
+            source_type="resume",
+            source_id=source_id,
+            user_id=user_id,
+            lexical_terms=terms or None,
         )
     except Exception:  # noqa: BLE001 - RAG is best-effort augmentation
         logger.exception("resume RAG retrieval failed; continuing without evidence")
