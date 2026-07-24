@@ -395,8 +395,15 @@ def _traced_graph_config(name: str, thread_id: str, user_id: str | None) -> dict
     keys resume-after-interrupt on it) *and* the Langfuse callbacks every other LLM
     entrypoint already sets. `configurable` is applied last so a traced config can never
     displace the thread id (#200).
+
+    The thread id is also passed as the Langfuse `session_id`: run and resume of one HITL
+    flow are separate HTTP requests, so without it the resumed turn would trace as an
+    orphan root instead of joining its run (#204 review).
     """
-    return {**traced_config(name, user_id=user_id), "configurable": {"thread_id": thread_id}}
+    return {
+        **traced_config(name, session_id=thread_id, user_id=user_id),
+        "configurable": {"thread_id": thread_id},
+    }
 
 
 @app.post("/assistant/run")

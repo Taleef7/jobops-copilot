@@ -148,6 +148,34 @@ def test_contact_fields_are_scanned_too(sink):
     assert config.get("metadata", {}).get("injection_flagged") is True
 
 
+def test_contact_fields_are_delimited_not_just_scanned(sink):
+    """Under the default flag mode a scanned payload still proceeds, so the contact
+    record must also be *delimited* — scanning alone leaves it as plain prompt text the
+    system rule doesn't cover (#204 review)."""
+    outreach_module.draft_outreach(
+        _request(contact_name="Dana", contact_role="Recruiter", company="Acme")
+    )
+
+    human = _human_text(sink)
+    begin = human.index("BEGIN CONTACT")
+    end = human.index("END CONTACT")
+    # The contact details now live *inside* the untrusted block, not as bare top-level
+    # lines the system rule doesn't cover.
+    assert begin < human.index("Contact name: Dana") < end
+    assert begin < human.index("Company: Acme") < end
+
+
+def test_an_injection_in_a_contact_field_stays_inside_the_block(sink):
+    """A flag-mode payload in a contact field must reach the model only as delimited data."""
+    outreach_module.draft_outreach(_request(job_context="A normal role.", company=_ATTACK))
+
+    human = _human_text(sink)
+    attack_pos = human.index("Ignore all previous")
+    begin = human.index("BEGIN CONTACT")
+    end = human.index("END CONTACT")
+    assert begin < attack_pos < end
+
+
 def test_a_clean_request_is_not_flagged(sink):
     config: dict = {}
     outreach_module.draft_outreach(_request(), config)

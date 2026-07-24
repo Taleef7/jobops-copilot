@@ -22,11 +22,12 @@ def traced(monkeypatch):
     seen: list[dict] = []
 
     def fake_traced_config(name, session_id=None, user_id=None):
-        return {
-            "callbacks": ["handler"],
-            "run_name": name,
-            "metadata": {"langfuse_user_id": user_id} if user_id else {},
-        }
+        metadata = {}
+        if session_id:
+            metadata["langfuse_session_id"] = session_id
+        if user_id:
+            metadata["langfuse_user_id"] = user_id
+        return {"callbacks": ["handler"], "run_name": name, "metadata": metadata}
 
     monkeypatch.setattr(main, "traced_config", fake_traced_config)
     monkeypatch.setattr(main, "llm_available", lambda: True)
@@ -69,7 +70,11 @@ def test_assistant_run_is_traced(traced):
     assert config["callbacks"] == ["handler"]
     assert config["metadata"]["langfuse_user_id"] == "u1"
     # The checkpointer key must survive the merge, or resume-after-interrupt breaks.
-    assert config["configurable"]["thread_id"]
+    thread_id = config["configurable"]["thread_id"]
+    assert thread_id
+    # ...and it must also group the Langfuse traces: run + resume of one HITL flow are
+    # separate HTTP requests, so without a session id resume is an orphan root (#204).
+    assert config["metadata"]["langfuse_session_id"] == thread_id
 
 
 def test_assistant_resume_is_traced_and_keeps_its_thread(traced):
@@ -80,6 +85,8 @@ def test_assistant_resume_is_traced_and_keeps_its_thread(traced):
     assert config["run_name"] == "assistant-resume"
     assert config["callbacks"] == ["handler"]
     assert config["configurable"]["thread_id"] == "thread-42"
+    # Resume must land in the same Langfuse session as its original run.
+    assert config["metadata"]["langfuse_session_id"] == "thread-42"
 
 
 def test_tracing_never_clobbers_configurable(monkeypatch):
