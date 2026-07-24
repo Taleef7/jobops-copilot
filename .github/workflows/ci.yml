@@ -89,6 +89,24 @@ jobs:
       - name: Postgres store tenancy tests
         run: npm run test:pg --workspace @jobops/api
 
+      # The agent's lexical retrieval can only be verified against a real Postgres:
+      # mocked cursors happily accept a tsquery that matches nothing, which is exactly
+      # how #198 shipped (raw JD -> AND-conjunction -> 0 rows -> hybrid == vector).
+      # psycopg only; no embeddings/torch, so this stays cheap.
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: '3.12'
+
+      - name: Agent lexical retrieval tests (real DB)
+        working-directory: services/agent
+        env:
+          DATABASE_URL: postgres://postgres:postgres@localhost:5432/jobops_test
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install "psycopg[binary]" pytest pydantic pydantic-settings
+          python -m pytest tests/test_rag_lexical_pgtest.py -q
+
   agent:
     name: Agent service (Python)
     runs-on: ubuntu-latest

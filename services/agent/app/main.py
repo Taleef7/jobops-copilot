@@ -257,7 +257,13 @@ def score_fit_endpoint(req: ScoreFitRequest) -> FitScoreResponse:
         # relevant to this job. Best-effort — falls through to direct scoring.
         if rag_available() and req.resume_text and not req.retrieved_context:
             evidence = retrieve_resume_evidence(
-                req.resume_text, req.description_text, user_id=req.user_id
+                req.resume_text,
+                req.description_text,
+                user_id=req.user_id,
+                # The API parses the job before scoring, so these are normally
+                # populated; they are what the distilled query is built from (#198).
+                required_skills=req.required_skills,
+                preferred_skills=req.preferred_skills,
             )
             if evidence:
                 req.retrieved_context = evidence
@@ -457,9 +463,7 @@ def _build_chat_messages(req: ChatRequest):
     system = CHAT_ASSISTANT_SYSTEM
     if req.context:
         block = wrap_untrusted(req.context, "JOB CONTEXT")
-        system = (
-            f"{system}\n\nContext about the job the user is currently viewing:\n{block}"
-        )
+        system = f"{system}\n\nContext about the job the user is currently viewing:\n{block}"
 
     messages = [SystemMessage(content=system)]
     for turn in req.messages:
