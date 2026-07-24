@@ -58,12 +58,16 @@ log, and behavioral notes live in [AUDIT_REMEDIATION.md](AUDIT_REMEDIATION.md) (
 - **Phase 4 — hybrid retrieval, reranker & eval (epic #70):** hybrid retrieval (pgvector +
   Postgres FTS via RRF, #67); CPU cross-encoder reranker (opt-in, graceful, #68); retrieval-mode
   eval with the per-mode comparison committed to `EVALS.md` (#69). Fine-tuning dropped
-  (CPU-only infra). **Numbers re-stated 2026-07-23 (#197):** the original "≈3× faithfulness"
-  was a judge-visibility artifact — the sweep leaked the resume to the generator in every mode.
-  Corrected measurement: top-k retrieval recovers whole-resume quality (0.72 vs 0.68 Spearman,
-  0.82 vs 0.81 faithfulness) from a fraction of the context, while a truly resume-blind
-  baseline collapses to 0.41 / 0.14. Hybrid/rerank remain **unmeasured** — the lexical side
-  matches 0/16 JDs, so hybrid is byte-identical to vector (#198).
+  (CPU-only infra). **Numbers withdrawn and re-measured twice — see `EVALS.md` for the audit
+  trail.** The original "≈3× faithfulness" was a judge-visibility artifact (#197: the sweep fed
+  the resume to the generator in every arm). The first re-measurement was still invalid (#198:
+  the gold resume chunked into 4 pieces at `k=4`, so retrieval selected nothing) and the
+  lexical side of "hybrid" matched 0/16 JDs, making hybrid byte-identical to vector.
+  **Current measurement** (9-chunk resume, `k=4`, lexical firing 16/16): retrieval *outranks*
+  the whole resume — `vector` 0.726 vs `full-resume` 0.586 Spearman, 2.2× the measured noise
+  floor — i.e. extra context dilutes the fit signal. Resume-blind collapses to 0.268.
+  Hybrid/rerank vs vector remain **unresolved** (Δ0.031, inside the floor), now as an honest
+  null rather than a structural impossibility.
 - **Phase 5 — operational hardening (epic #76):** job-search TTL cache + the API `node:test`
   suite wired into CI (#77); Bicep IaC of the live Azure topology, CI-validated + `what-if`-verified
   (#78); k6 load test verified against the live API (#79); Playwright e2e verified locally and

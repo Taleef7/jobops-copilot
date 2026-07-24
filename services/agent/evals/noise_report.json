@@ -1,73 +1,73 @@
 {
-  "generated_at": "2026-07-23T22:45:44+00:00",
+  "generated_at": "2026-07-24T01:13:55+00:00",
   "status": "ok",
   "provider": "openai:gpt-4o-mini",
   "mode": "vector",
   "replicates": 5,
   "runs": [
     {
-      "rank_correlation_spearman": 0.7973,
-      "faithfulness": 0.8205,
-      "answer_relevancy": 0.1965,
-      "context_recall": 0.4479
+      "rank_correlation_spearman": 0.7713,
+      "faithfulness": 0.7028,
+      "answer_relevancy": 0.1934,
+      "context_recall": 0.4896
     },
     {
-      "rank_correlation_spearman": 0.7801,
-      "faithfulness": 0.7409,
-      "answer_relevancy": 0.2622,
-      "context_recall": 0.4792
+      "rank_correlation_spearman": 0.812,
+      "faithfulness": 0.7725,
+      "answer_relevancy": 0.2313,
+      "context_recall": 0.4583
     },
     {
-      "rank_correlation_spearman": 0.7944,
-      "faithfulness": 0.7498,
-      "answer_relevancy": 0.2166,
-      "context_recall": 0.4479
+      "rank_correlation_spearman": 0.8346,
+      "faithfulness": 0.6552,
+      "answer_relevancy": 0.2458,
+      "context_recall": 0.3646
     },
     {
-      "rank_correlation_spearman": 0.7209,
-      "faithfulness": 0.7562,
-      "answer_relevancy": 0.2912,
-      "context_recall": 0.5208
+      "rank_correlation_spearman": 0.8189,
+      "faithfulness": 0.7553,
+      "answer_relevancy": 0.1883,
+      "context_recall": 0.4271
     },
     {
-      "rank_correlation_spearman": 0.7413,
-      "faithfulness": 0.8201,
-      "answer_relevancy": 0.1604,
-      "context_recall": 0.5417
+      "rank_correlation_spearman": 0.8086,
+      "faithfulness": 0.7755,
+      "answer_relevancy": 0.2503,
+      "context_recall": 0.3958
     }
   ],
   "spread": {
     "rank_correlation_spearman": {
       "n": 5,
-      "mean": 0.7668,
-      "stdev": 0.034,
-      "min": 0.7209,
-      "max": 0.7973,
-      "max_pairwise_delta": 0.0764
+      "mean": 0.8091,
+      "stdev": 0.0234,
+      "min": 0.7713,
+      "max": 0.8346,
+      "max_pairwise_delta": 0.0633
     },
     "faithfulness": {
       "n": 5,
-      "mean": 0.7775,
-      "stdev": 0.0394,
-      "min": 0.7409,
-      "max": 0.8205,
-      "max_pairwise_delta": 0.0796
+      "mean": 0.7323,
+      "stdev": 0.052,
+      "min": 0.6552,
+      "max": 0.7755,
+      "max_pairwise_delta": 0.1203
     },
     "answer_relevancy": {
       "n": 5,
-      "mean": 0.2254,
-      "stdev": 0.052,
-      "min": 0.1604,
-      "max": 0.2912,
-      "max_pairwise_delta": 0.1308
+      "mean": 0.2218,
+      "stdev": 0.0292,
+      "min": 0.1883,
+      "max": 0.2503,
+      "max_pairwise_delta": 0.062
     },
     "context_recall": {
       "n": 5,
-      "mean": 0.4875,
-      "stdev": 0.0426,
-      "min": 0.4479,
-      "max": 0.5417,
-      "max_pairwise_delta": 0.0938
+      "mean": 0.4271,
+      "stdev": 0.0494,
+      "min": 0.3646,
+      "max": 0.4896,
+      "max_pairwise_delta": 0.125
     }
   }
 }

@@ -201,11 +201,14 @@ Design + plans live under `docs/superpowers/specs|plans/`.
 - **CPU cross-encoder reranker** (#68): opt-in, graceful, no new dependency.
 - **Retrieval-mode eval** (#69): off/vector/hybrid/hybrid+rerank downstream delta; results in
   `EVALS.md`. **Fine-tuning was dropped** (CPU-only infra; needs labeled data + GPU).
-  **Corrected 2026-07-23 (#197):** the original "≈3× faithfulness" headline was withdrawn —
-  the harness leaked the resume to the generator in every arm, so the baseline was never
-  resume-blind. See the correction notice in `EVALS.md` for the re-measured table and the
-  replicate-derived run-to-run spread (`python -m evals.run --noise-floor N`), which shows
-  only the retrieval-vs-nothing effect is large enough to resolve on this gold set.
+  **Corrected twice — see the notices in `EVALS.md`.** The original "≈3× faithfulness"
+  headline was withdrawn (#197: the harness leaked the resume to the generator in every arm,
+  so the baseline was never resume-blind), and the first re-measurement was itself invalid
+  (#198: the gold resume chunked into 4 pieces at `k=4`, so retrieval selected nothing, and
+  the lexical side matched 0/16 JDs). With both fixed, the standing result is that **top-k
+  retrieval outranks the whole resume** (0.726 vs 0.586 Spearman, 2.2× the replicate-derived
+  noise floor) — extra context dilutes the fit signal — while hybrid and reranking remain
+  unresolved against plain vector.
 
 ### Phase 5 — Operational hardening (complete, epic #76)
 

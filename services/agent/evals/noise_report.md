@@ -1,6 +1,6 @@
 # JobOps Copilot — Eval Noise Floor
 
-- Generated: `2026-07-23T22:45:44+00:00`
+- Generated: `2026-07-24T01:13:55+00:00`
 - Judge / model: `openai:gpt-4o-mini`
 - Configuration: `vector` retrieval, **5 replicates**
 
@@ -11,7 +11,7 @@ result.
 
 | metric | mean | stdev | min | max | max pairwise Δ |
 | --- | --- | --- | --- | --- | --- |
-| rank_correlation_spearman | 0.7668 | 0.034 | 0.7209 | 0.7973 | **0.0764** |
-| faithfulness | 0.7775 | 0.0394 | 0.7409 | 0.8205 | **0.0796** |
-| answer_relevancy | 0.2254 | 0.052 | 0.1604 | 0.2912 | **0.1308** |
-| context_recall | 0.4875 | 0.0426 | 0.4479 | 0.5417 | **0.0938** |
+| rank_correlation_spearman | 0.8091 | 0.0234 | 0.7713 | 0.8346 | **0.0633** |
+| faithfulness | 0.7323 | 0.052 | 0.6552 | 0.7755 | **0.1203** |
+| answer_relevancy | 0.2218 | 0.0292 | 0.1883 | 0.2503 | **0.062** |
+| context_recall | 0.4271 | 0.0494 | 0.3646 | 0.4896 | **0.125** |

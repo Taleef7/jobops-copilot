@@ -42,7 +42,7 @@ silently serving unauthenticated. Local dev and tests are unchanged.
 | Finding | Severity | Issue | PR |
 | --- | --- | --- | --- |
 | Eval sweep leaked the résumé to the generator → "~3× faithfulness" withdrawn | High | [#197](https://github.com/Taleef7/jobops-copilot/issues/197) | _this PR_ |
-| Retrieval query is the raw JD: lexical side never fires, dense query truncated | High | [#198](https://github.com/Taleef7/jobops-copilot/issues/198) | _pending_ |
+| Retrieval query is the raw JD: lexical side never fires, dense query truncated | High | [#198](https://github.com/Taleef7/jobops-copilot/issues/198) | _this PR_ |
 | Skip re-embedding unchanged résumés; structured-output retry + clamp | Medium | [#199](https://github.com/Taleef7/jobops-copilot/issues/199) | _pending_ |
 | Trace assistant/chat paths; injection-guard `draft_outreach` | Medium | [#200](https://github.com/Taleef7/jobops-copilot/issues/200) | _pending_ |
 
@@ -76,6 +76,28 @@ Two things came out of the re-measurement that are worth more than the original 
 Structural fix: `evals/evidence.py` makes the generator's inputs and the judge's contexts
 derive from one `Evidence` value, with a parametrized regression test that fails if they
 diverge.
+
+### …and what the #198 re-measurement then found
+
+Fixing the harness was not enough: the gold résumé chunked into exactly **4** pieces and the
+sweep retrieved **k=4**, so every "retrieval mode" returned the whole résumé in a different
+order. Retrieval was never being measured. The résumé was expanded to 9 chunks (qualification
+profile deliberately unchanged — most gold rationales turn on specific technologies being
+*absent*), and with the lexical query fixed:
+
+- **Lexical retrieval went from 0/16 to 16/16 JDs matching**, and hybrid now retrieves
+  different chunks from vector on 13/16 rows. It is finally a real experiment.
+- **Retrieval outranks the whole résumé**: `vector` 0.726 vs `full-resume` 0.586 Spearman —
+  2.2× the noise floor, with `full-resume` below the entire 5-replicate range of `vector`.
+  More context made the ranking *worse*; retrieval acts as a precision filter, not a
+  compromise.
+- **Hybrid/rerank vs vector stays unresolved** (Δ0.031, half the floor) — an honest null now
+  rather than an impossibility.
+- **The noise floor is corpus-specific.** Re-measured on the new gold set it moved from
+  Spearman Δ0.076 → 0.063 and faithfulness Δ0.080 → **0.120**. Inheriting the old threshold
+  would have mis-graded results in both directions. And for the second time a single sweep
+  value landed outside five replicates of the same configuration — five replicates bound
+  nothing; they estimate.
 
 ## Phase 4 — Polish & harden for scale 📋 planned
 
