@@ -30,7 +30,12 @@ from app.llm.provider import LLMNotConfigured, get_model, llm_available, resolve
 from app.obs import traced_config, traced_span
 from app.prompts import CHAT_ASSISTANT_SYSTEM
 from app.rag.store import ingest_document, rag_available, retrieve, retrieve_resume_evidence
-from app.safety.injection import injection_refused, scan_for_injection, wrap_untrusted
+from app.safety.injection import (
+    annotate_trace,
+    injection_refused,
+    scan_for_injection,
+    wrap_untrusted,
+)
 from app.schemas import (
     ChatRequest,
     DraftOutreachRequest,
@@ -279,9 +284,7 @@ def score_fit_endpoint(req: ScoreFitRequest) -> FitScoreResponse:
 def rag_ingest_endpoint(req: IngestRequest) -> dict:
     if not rag_available():
         raise HTTPException(status_code=503, detail="RAG is disabled; set DATABASE_URL.")
-    count = _run(
-        ingest_document, req.source_type, req.source_id, req.text, req.user_id, req.force
-    )
+    count = _run(ingest_document, req.source_type, req.source_id, req.text, req.user_id, req.force)
     return {"source_type": req.source_type, "source_id": req.source_id, "chunks_ingested": count}
 
 
@@ -385,12 +388,30 @@ def _assistant_response(thread_id: str, state: dict) -> dict:
     }
 
 
+def _traced_graph_config(name: str, thread_id: str, user_id: str | None) -> dict:
+    """A LangGraph config that is both checkpointed and traced.
+
+    The assistant paths need `configurable.thread_id` (the durable HITL checkpointer
+    keys resume-after-interrupt on it) *and* the Langfuse callbacks every other LLM
+    entrypoint already sets. `configurable` is applied last so a traced config can never
+    displace the thread id (#200).
+
+    The thread id is also passed as the Langfuse `session_id`: run and resume of one HITL
+    flow are separate HTTP requests, so without it the resumed turn would trace as an
+    orphan root instead of joining its run (#204 review).
+    """
+    return {
+        **traced_config(name, session_id=thread_id, user_id=user_id),
+        "configurable": {"thread_id": thread_id},
+    }
+
+
 @app.post("/assistant/run")
 async def assistant_run_endpoint(req: AssistantRunRequest) -> dict:
     _require_llm()
     graph = _get_assistant_graph()
     thread_id = str(uuid.uuid4())
-    config = {"configurable": {"thread_id": thread_id}}
+    config = _traced_graph_config("assistant-run", thread_id, req.user_id)
     state = await _arun(
         graph.ainvoke,
         {
@@ -408,7 +429,7 @@ async def assistant_run_endpoint(req: AssistantRunRequest) -> dict:
 async def assistant_resume_endpoint(req: AssistantResumeRequest) -> dict:
     _require_llm()
     graph = _get_assistant_graph()
-    config = {"configurable": {"thread_id": req.thread_id}}
+    config = _traced_graph_config("assistant-resume", req.thread_id, None)
     state = await _arun(graph.ainvoke, Command(resume={"approved": req.approved}), config)
     return _assistant_response(req.thread_id, state)
 
@@ -447,7 +468,7 @@ async def _assistant_event_stream(payload: dict, config: dict):
 async def assistant_stream_endpoint(req: AssistantRunRequest) -> StreamingResponse:
     _require_llm()
     thread_id = str(uuid.uuid4())
-    config = {"configurable": {"thread_id": thread_id}}
+    config = _traced_graph_config("assistant-stream", thread_id, req.user_id)
     payload = {
         "description_text": req.description_text,
         "resume_text": req.resume_text,
@@ -510,7 +531,12 @@ async def _chat_event_stream(req: ChatRequest):
     try:
         model, label = get_model()
         messages = _build_chat_messages(req)
-        async for chunk in model.astream(messages):
+        # Trace the chat turn like every other LLM call. `user_id` groups a user's
+        # conversations in Langfuse; annotate_trace surfaces a flagged-but-allowed
+        # injection verdict (INJECTION_ACTION=flag) that refusal above let through.
+        config = traced_config("assistant-chat", user_id=req.user_id)
+        annotate_trace(config, verdict)
+        async for chunk in model.astream(messages, config=config or None):
             text = _chunk_text(chunk)
             if text:
                 yield _sse("token", {"text": text})
