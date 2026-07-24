@@ -205,10 +205,11 @@ Design + plans live under `docs/superpowers/specs|plans/`.
   headline was withdrawn (#197: the harness leaked the resume to the generator in every arm,
   so the baseline was never resume-blind), and the first re-measurement was itself invalid
   (#198: the gold resume chunked into 4 pieces at `k=4`, so retrieval selected nothing, and
-  the lexical side matched 0/16 JDs). With both fixed, the standing result is that **top-k
-  retrieval outranks the whole resume** (0.726 vs 0.586 Spearman, 2.2× the replicate-derived
-  noise floor) — extra context dilutes the fit signal — while hybrid and reranking remain
-  unresolved against plain vector.
+  the lexical side matched 0/16 JDs). With both fixed, two results stand: **hybrid retrieval
+  beats dense-only** (5 replicates each, 0.821 vs 0.716 Spearman, non-overlapping ranges —
+  the reranker is still unresolved), and **top-k retrieval outranks the whole resume**
+  (0.612), i.e. extra context dilutes the fit signal. Both are ranking-specific; faithfulness
+  leans the other way and is unresolved.
 
 ### Phase 5 — Operational hardening (complete, epic #76)
 

@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-07-24T01:05:02+00:00",
+  "generated_at": "2026-07-24T01:56:24+00:00",
   "status": "ok",
   "provider": "openai:gpt-4o-mini",
   "modes_order": [
@@ -14,66 +14,66 @@
     "off": {
       "n": 16,
       "errors": 0,
-      "rank_correlation_spearman": 0.2683,
+      "rank_correlation_spearman": 0.2329,
       "ragas": {
-        "faithfulness": 0.3868,
-        "context_recall": 0.3333,
-        "answer_relevancy": 0.3692
+        "faithfulness": 0.3452,
+        "context_recall": 0.4583,
+        "answer_relevancy": 0.3808
       },
       "status": "ok"
     },
     "vector": {
       "n": 16,
       "errors": 0,
-      "rank_correlation_spearman": 0.7259,
+      "rank_correlation_spearman": 0.7509,
       "ragas": {
-        "faithfulness": 0.7693,
-        "context_recall": 0.4271,
-        "answer_relevancy": 0.2933
+        "faithfulness": 0.7877,
+        "context_recall": 0.4583,
+        "answer_relevancy": 0.1994
       },
       "status": "ok"
     },
     "hybrid": {
       "n": 16,
       "errors": 0,
-      "rank_correlation_spearman": 0.7568,
+      "rank_correlation_spearman": 0.8389,
       "ragas": {
-        "faithfulness": 0.7288,
-        "context_recall": 0.4792,
-        "answer_relevancy": 0.2303
+        "faithfulness": 0.7475,
+        "context_recall": 0.4896,
+        "answer_relevancy": 0.1375
       },
       "status": "ok"
     },
     "hybrid+rerank": {
       "n": 16,
       "errors": 0,
-      "rank_correlation_spearman": 0.7294,
+      "rank_correlation_spearman": 0.7758,
       "ragas": {
-        "faithfulness": 0.7041,
-        "context_recall": 0.4167,
-        "answer_relevancy": 0.1796
+        "faithfulness": 0.7787,
+        "context_recall": 0.5208,
+        "answer_relevancy": 0.3139
       },
       "status": "ok"
     },
     "full-resume": {
       "n": 16,
       "errors": 0,
-      "rank_correlation_spearman": 0.5859,
+      "rank_correlation_spearman": 0.6117,
       "ragas": {
-        "faithfulness": 0.7855,
-        "context_recall": 0.5208,
-        "answer_relevancy": 0.1632
+        "faithfulness": 0.8162,
+        "context_recall": 0.5833,
+        "answer_relevancy": 0.2307
       },
       "status": "ok"
     },
     "full-resume+vector": {
       "n": 16,
       "errors": 0,
-      "rank_correlation_spearman": 0.5938,
+      "rank_correlation_spearman": 0.5704,
       "ragas": {
-        "faithfulness": 0.8074,
-        "context_recall": 0.4896,
-        "answer_relevancy": 0.2058
+        "faithfulness": 0.7534,
+        "context_recall": 0.5208,
+        "answer_relevancy": 0.2202
       },
       "status": "ok"
     }

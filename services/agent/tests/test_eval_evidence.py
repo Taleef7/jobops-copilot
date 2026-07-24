@@ -185,7 +185,7 @@ def test_sweep_scopes_ingest_to_an_eval_tenant(monkeypatch):
     """
     seen: dict = {}
 
-    def fake_retrieve_evidence(resume_text, jd, k, user_id=None):
+    def fake_retrieve_evidence(resume_text, jd, k, user_id=None, **_parsed):
         seen["user_id"] = user_id
         return ["chunk"]
 

@@ -71,27 +71,43 @@ def run_replicates(
     *,
     replicates: int = 5,
     k: int = 4,
+    mode: str = "vector",
+    rerank: bool = False,
     retrieve_evidence: Callable = retrieve_resume_evidence,
     score_eval: Callable = run_fit_score_eval,
+    parsed_by_id: dict[str, dict] | None = None,
 ) -> dict:
     """Score the same evidence ``replicates`` times; return the per-metric spread.
 
     Every replicate is handed the *same* ``Evidence``, retrieved once up front — if the
     inputs varied between runs this would measure retrieval, not noise.
+
+    ``mode`` picks which retrieval configuration to freeze. Estimating the spread of the
+    *specific* mode under discussion matters: a single sweep value has landed outside its
+    own five-replicate range three times now, so a "mode A beats mode B" claim needs the
+    winning mode replicated too, not just the reference one.
     """
     if replicates < 2:
         raise ValueError("noise estimation needs at least 2 replicates")
 
     original = (settings.rag_retrieval_mode, settings.rag_rerank_enabled)
     try:
-        settings.rag_retrieval_mode = "vector"
-        settings.rag_rerank_enabled = False
+        settings.rag_retrieval_mode = mode
+        settings.rag_rerank_enabled = rerank
         # Retrieve once and freeze it, so every replicate is byte-identical.
+        # Same parsed fields the sweep and production use, so the spread is measured on
+        # the configuration actually being compared (#202 review).
+        lookup = parsed_by_id or {}
         frozen = {
             index: Evidence(
                 retrieved_context=tuple(
                     retrieve_evidence(
-                        resume_text, row["description_text"], k=k, user_id=EVAL_USER_ID
+                        resume_text,
+                        row["description_text"],
+                        k=k,
+                        user_id=EVAL_USER_ID,
+                        required_skills=(lookup.get(row.get("id")) or {}).get("required_skills"),
+                        title=(lookup.get(row.get("id")) or {}).get("title"),
                     )
                 )
             )
@@ -114,7 +130,7 @@ def run_replicates(
 
     metric_names = ("rank_correlation_spearman", *_RAGAS_METRICS)
     return {
-        "mode": "vector",
+        "mode": mode + ("+rerank" if rerank else ""),
         "replicates": replicates,
         "runs": runs,
         "spread": {name: summarize_spread([run[name] for run in runs]) for name in metric_names},
@@ -158,6 +174,7 @@ def noise_main(output_dir: Path | None = None, replicates: int = 5) -> int:
     generated_at = datetime.now(UTC).isoformat(timespec="seconds")
 
     from app.rag.store import rag_available
+    from evals.retrieval import load_gold_parses
     from evals.run import _DATA_DIR, _load_jsonl, _provider_ready, get_model
 
     if not _provider_ready() or not rag_available():
@@ -176,7 +193,9 @@ def noise_main(output_dir: Path | None = None, replicates: int = 5) -> int:
             "generated_at": generated_at,
             "status": "ok",
             "provider": provider_label,
-            **run_replicates(rows, resume, replicates=replicates),
+            **run_replicates(
+                rows, resume, replicates=replicates, parsed_by_id=load_gold_parses()
+            ),
         }
 
     output_dir.mkdir(parents=True, exist_ok=True)

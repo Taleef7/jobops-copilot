@@ -87,12 +87,14 @@ profile deliberately unchanged — most gold rationales turn on specific technol
 
 - **Lexical retrieval went from 0/16 to 16/16 JDs matching**, and hybrid now retrieves
   different chunks from vector on 13/16 rows. It is finally a real experiment.
-- **Retrieval outranks the whole résumé**: `vector` 0.726 vs `full-resume` 0.586 Spearman —
-  2.2× the noise floor, with `full-resume` below the entire 5-replicate range of `vector`.
+- **Hybrid beats dense-only — the project's first demonstrated retrieval win.** 5 replicates
+  each: `hybrid` 0.821 (0.800–0.848) vs `vector` 0.716 (0.706–0.733) Spearman, **ranges do not
+  overlap** (Welch's t ≈ 9.9). Only measurable once the lexical side was revived. The reranker
+  is still unresolved and was not replicated.
+- **Retrieval outranks the whole résumé**: `full-resume` 0.612 against both retrieval modes.
   More context made the ranking *worse*; retrieval acts as a precision filter, not a
-  compromise.
-- **Hybrid/rerank vs vector stays unresolved** (Δ0.031, half the floor) — an honest null now
-  rather than an impossibility.
+  compromise. Both gains are ranking-specific — faithfulness leans the other way (best on
+  `full-resume`) and is unresolved.
 - **The noise floor is corpus-specific.** Re-measured on the new gold set it moved from
   Spearman Δ0.076 → 0.063 and faithfulness Δ0.080 → **0.120**. Inheriting the old threshold
   would have mis-graded results in both directions. And for the second time a single sweep

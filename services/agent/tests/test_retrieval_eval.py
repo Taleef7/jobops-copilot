@@ -15,7 +15,7 @@ def _rows():
 def test_run_retrieval_modes_runs_each_mode_and_aggregates():
     fed: dict[str, bool] = {}
 
-    def fake_retrieve(resume_text, jd, k, user_id=None):
+    def fake_retrieve(resume_text, jd, k, user_id=None, **_parsed):
         # Reflect the per-mode settings toggles the sweep applies.
         return [f"ctx-{settings.rag_retrieval_mode}:{settings.rag_rerank_enabled}"]
 
@@ -43,6 +43,83 @@ def test_run_retrieval_modes_runs_each_mode_and_aggregates():
     assert "ctx-vector:False" in fed
     assert "ctx-hybrid:False" in fed
     assert "ctx-hybrid:True" in fed
+
+
+def test_sweep_feeds_parsed_skills_and_title_into_retrieval():
+    """The sweep must retrieve the way production does.
+
+    `/score-fit` receives parsed skills (the API parses before scoring), so a sweep that
+    passed only the raw JD would silently exercise the keyword *fallback* and measure a
+    different top-k selection than the product ships. Caught in review on #202.
+    """
+    captured: dict = {}
+
+    def fake_retrieve(resume_text, jd, k, user_id=None, **kwargs):
+        captured.update(kwargs)
+        return ["chunk"]
+
+    rows = [
+        {
+            "id": "adzuna-8",
+            "description_text": "python backend role",
+            "expected": {"fit_label": 80, "reference": "r"},
+        }
+    ]
+    retrieval.run_retrieval_modes(
+        rows,
+        "resume text",
+        modes=("vector",),
+        retrieve_evidence=fake_retrieve,
+        score_eval=lambda rows, resume_text, evidence_for: (
+            evidence_for(rows[0]),
+            {"rank_correlation_spearman": 0.5, "ragas": {}},
+        )[1],
+        fts_ready=lambda: True,
+        parsed_by_id={
+            "adzuna-8": {"title": "Python Developer", "required_skills": ["Python", "SQL"]}
+        },
+    )
+
+    assert captured["required_skills"] == ["Python", "SQL"]
+    assert captured["title"] == "Python Developer"
+
+
+def test_sweep_falls_back_cleanly_for_rows_without_a_gold_parse():
+    """Two gold rows have no parse_job entry; they must still retrieve, via keywords."""
+    captured: dict = {}
+
+    def fake_retrieve(resume_text, jd, k, user_id=None, **kwargs):
+        captured.update(kwargs)
+        return ["chunk"]
+
+    rows = [
+        {
+            "id": "adzuna-6",
+            "description_text": "facilities robotics",
+            "expected": {"fit_label": 10, "reference": "r"},
+        }
+    ]
+    retrieval.run_retrieval_modes(
+        rows,
+        "resume text",
+        modes=("vector",),
+        retrieve_evidence=fake_retrieve,
+        score_eval=lambda rows, resume_text, evidence_for: (
+            evidence_for(rows[0]),
+            {"rank_correlation_spearman": 0.5, "ragas": {}},
+        )[1],
+        fts_ready=lambda: True,
+        parsed_by_id={},
+    )
+
+    assert captured["required_skills"] is None
+    assert captured["title"] is None
+
+
+def test_load_gold_parses_joins_fit_rows_to_their_parsed_fields():
+    parsed = retrieval.load_gold_parses()
+    assert parsed["adzuna-8"]["title"] == "Python Developer"
+    assert "Python" in parsed["adzuna-8"]["required_skills"]
 
 
 def test_run_retrieval_modes_marks_hybrid_na_without_fts():

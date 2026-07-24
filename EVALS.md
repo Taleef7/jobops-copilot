@@ -115,16 +115,23 @@ of the context"* — was **wrong**: top-4-of-4 is not a fraction. Two fixes land
 Captured by `python -m evals.run --retrieval-modes`; the raw artifact is committed at
 `services/agent/evals/retrieval_report.json` for auditability. n = 16, 0 errors per mode.
 
+The sweep retrieves with the **parsed title + required skills**, joined from the hand-labeled
+`parse_job.jsonl` gold by row id — the same fields `/score-fit` receives in production, since
+the API parses before scoring. (Using the *gold* parse rather than calling `parse_job` live
+keeps the sweep deterministic; a live parse would inject extraction variance into a comparison
+whose deltas sit near the noise floor. 14 of 16 rows have a gold parse; the other two fall back
+to keyword extraction.)
+
 | mode | fit-vs-label Spearman | faithfulness | answer relevancy | context recall |
 | --- | --- | --- | --- | --- |
 | _Ablation_ | | | | |
-| off (JD only, résumé-blind) | 0.268 | 0.387 | 0.369 | 0.333 |
-| vector | 0.726 | 0.769 | 0.293 | 0.427 |
-| hybrid | **0.757** | 0.729 | 0.230 | 0.479 |
-| hybrid+rerank | 0.729 | 0.704 | 0.180 | 0.417 |
+| off (JD only, résumé-blind) | 0.233 | 0.345 | 0.381 | 0.458 |
+| vector | 0.751 | 0.788 | 0.199 | 0.458 |
+| hybrid | **0.839** | 0.748 | 0.138 | 0.490 |
+| hybrid+rerank | 0.776 | 0.779 | 0.314 | 0.521 |
 | _Production-path reference_ | | | | |
-| full-resume | 0.586 | 0.786 | 0.163 | **0.521** |
-| full-resume+vector | 0.594 | **0.807** | 0.206 | 0.490 |
+| full-resume | 0.612 | **0.816** | 0.231 | **0.583** |
+| full-resume+vector | 0.570 | 0.753 | 0.220 | 0.521 |
 
 #### The lexical side now actually fires
 
@@ -138,9 +145,7 @@ database, before and after distilling the query to title + parsed skills, OR-joi
 | JDs whose lexical query matches ≥1 chunk | 0/16 | **16/16** |
 | rows where `hybrid` retrieves different chunks than `vector` | 0/16 | **13/16** |
 
-So hybrid is finally a real experiment. Whether it is a *better* one is answered below — and
-the answer is "we still can't tell", which is now an honest null result rather than a
-structural impossibility.
+So hybrid is finally a real experiment — and, replicated, a better one: see the results below.
 
 ### How much does this eval move when nothing changes?
 
@@ -154,71 +159,73 @@ python -m evals.run --noise-floor 5   # writes evals/noise_report.{json,md}
 Retrieval is frozen up front (retrieved once, reused), so every replicate receives byte-identical
 evidence and all movement is generator + judge variance.
 
-Measured on the current 9-chunk gold set (`vector`, 5 replicates):
+`--noise-floor` takes a `mode`, because a "mode A beats mode B" claim needs **both** modes
+replicated — a single sweep value has now landed outside its own five-replicate range three
+separate times. Five replicates each, identical frozen evidence within each mode:
 
-| metric | mean | stdev | min | max | max pairwise Δ |
+| configuration | Spearman mean | stdev | range | faithfulness mean | range |
 | --- | --- | --- | --- | --- | --- |
-| fit-vs-label Spearman | 0.809 | 0.023 | 0.771 | 0.835 | **0.063** |
-| faithfulness | 0.732 | 0.052 | 0.655 | 0.776 | **0.120** |
-| answer relevancy | 0.222 | 0.029 | 0.188 | 0.250 | **0.062** |
-| context recall | 0.427 | 0.049 | 0.365 | 0.490 | **0.125** |
+| `vector` | 0.716 | 0.011 | 0.706 – 0.733 | 0.748 | 0.732 – 0.772 |
+| `hybrid` | **0.821** | 0.021 | **0.800 – 0.848** | 0.713 | 0.666 – 0.769 |
 
-**The noise floor is corpus-specific — re-measure it, never carry it over.** On the previous
-4-chunk gold set the same procedure gave Spearman Δ0.076 / faithfulness Δ0.080. Faithfulness
-noise has since grown by half (0.080 → **0.120**) while Spearman noise shrank. A threshold
-inherited from an older corpus would have mis-classified results in both directions.
+Max pairwise Δ within a mode: **0.027** Spearman / **0.040** faithfulness for `vector`,
+**0.048** / **0.103** for `hybrid`.
 
-**Five replicates still do not bound the tail — twice now.** The `vector` row in the results
-table scored **0.726** Spearman, which is *below the minimum* of five replicates of that exact
-configuration (0.771–0.835). The earlier corpus produced the same surprise in the other
-direction (a `hybrid` faithfulness of 0.922 against a 0.741–0.821 replicate range). Treat
-these figures as a **floor on the spread**, not a confidence interval, and prefer reporting
-`n` and the observed range over any single threshold.
+**The noise floor is corpus- and configuration-specific — re-measure it, never carry it over.**
+Across the three gold-set/query combinations measured so far, the Spearman floor moved
+0.076 → 0.063 → **0.027** and the faithfulness floor 0.080 → 0.120 → **0.040**. Any threshold
+inherited from an earlier run would have mis-graded results in both directions. The sharp drop
+here is itself informative: a focused, deterministic retrieval query produces markedly more
+consistent generations than a sprawling one.
 
-**Practical rule:** on this gold set a difference below roughly **0.06 Spearman** or **0.12
-faithfulness** is unresolved. Resolving effects that small needs more gold rows, a fixed-seed
-judge, or replicate-averaged scores per mode — not a closer read of one sweep.
+**Five replicates estimate the spread; they do not bound it.** Three times now a single sweep
+value has fallen outside five replicates of its own configuration — most recently `vector`
+scoring 0.751 in the sweep against a 0.706–0.733 replicate range. Prefer reporting `n` and the
+observed range over any single threshold, and replicate anything you intend to claim.
 
 #### What the numbers actually support
 
-Two effects clear the noise floor. Everything else does not.
+**1. Hybrid retrieval beats dense-only — established by replication, not a single sweep.**
 
-| comparison | Δ Spearman | vs floor (0.063) | verdict |
-| --- | --- | --- | --- |
-| `vector` vs `off` | 0.458 | 7× | **resolved** |
-| `vector` vs `full-resume` | 0.140 | 2.2× | **resolved** |
-| `hybrid` vs `vector` | 0.031 | 0.5× | unresolved |
-| `hybrid+rerank` vs `vector` | 0.003 | 0.05× | unresolved |
-| `full-resume+vector` vs `full-resume` | 0.008 | 0.1× | unresolved |
+| | `vector` | `hybrid` |
+| --- | --- | --- |
+| Spearman, 5 replicates | 0.716 (0.706 – 0.733) | **0.821 (0.800 – 0.848)** |
 
-**1. The model needs the résumé.** Résumé-blind (`off`) ranks at **0.268** Spearman and
-grounds little (**0.387** faithfulness); four retrieved chunks give **0.726 / 0.769**. Large
-and unsurprising — it mostly validates that the harness measures what it claims to.
+The two ranges **do not overlap**: hybrid's worst run beats vector's best by 0.067, a mean
+difference of **0.105** (Welch's t ≈ 9.9). This is the first retrieval improvement this project
+has been able to demonstrate — and it only became measurable once #198 revived the lexical
+side, because before that hybrid retrieved byte-identical chunks to vector and *could not*
+differ.
 
-**2. Retrieval ranks *better* than the whole résumé — the one genuinely interesting result.**
-`vector` (0.726) beats `full-resume` (0.586) by **0.140 Spearman, 2.2× the largest no-op
-movement**, and `full-resume` sits below the entire 5-replicate range of `vector`
-(0.771–0.835). Feeding the model all nine chunks makes it rank candidates *worse* than feeding
-it the four that retrieval selected. The extra context dilutes the signal rather than adding
-to it.
+The single-sweep numbers understate it: that run's `vector` (0.751) was a high draw above its
+own replicate range, making the sweep's Δ0.088 smaller than the replicated Δ0.105.
 
-That reverses the intuition RAG is usually sold on here. Retrieval is not a lossy compromise
+The gain is **ranking-specific**. Faithfulness moves the other way (hybrid 0.713 vs vector
+0.748 by replicate mean), and with hybrid's faithfulness spread at Δ0.103 that difference is
+unresolved — possibly a small real cost, possibly noise. Lexical matching appears to surface
+chunks that discriminate between candidates better without grounding the prose any better.
+
+**2. Retrieval ranks better than the whole résumé.** `vector` (0.751) and `hybrid` (0.839) both
+beat `full-resume` (0.612) by far more than any measured spread, and `full-resume` sits well
+below the entire replicate range of either. Feeding the model all nine chunks makes it rank
+candidates *worse* than feeding it the four retrieval selected.
+
+That reverses the intuition RAG is usually sold on here: retrieval is not a lossy compromise
 accepted for context-window reasons — on this set it is a **precision filter that improves the
-judgment**. Note the direction is specific to ranking: faithfulness slightly *favours* the
-full résumé (0.786 vs 0.769), though that gap is well inside the 0.120 noise band.
+judgment**. Faithfulness again leans the other way (`full-resume` 0.816 is the table's best),
+which is consistent — more context grounds the prose better while diluting the ranking signal.
 
-**3. Hybrid and reranking remain unresolved — but now honestly so.** With the lexical side
-firing (16/16) and hybrid retrieving different chunks from vector on 13/16 rows, hybrid still
-lands Δ0.031 Spearman from vector — half the noise floor. The reranker is closer still
-(Δ0.003). The correct statement is *"we cannot detect a difference,"* not *"there is no
-difference"*: these bound the effect size at roughly the noise floor, and a 16-row set with
-one résumé is a weak instrument for detecting a re-ranking improvement.
+**3. The reranker remains unresolved.** `hybrid+rerank` (0.776) sits between vector and hybrid,
+and was not replicated. On a 9-chunk corpus a cross-encoder has very little to reorder; this
+gold set is a weak instrument for detecting a reranking effect.
 
-**Context recall no longer behaves as cleanly as it looked.** `full-resume` is highest (0.521
-vs `vector` 0.427) as expected — the whole résumé covers the reference rationale by
-construction — but Δ0.094 is *inside* the 0.125 recall noise band, so even that "obvious"
-result is unresolved. A previous version of this page cited it as a judge sanity check; it is
-too noisy to serve as one.
+**4. The model needs the résumé.** Résumé-blind (`off`) ranks at **0.233** and grounds little
+(**0.345** faithfulness). Large, unsurprising, and mostly a check that the harness measures
+what it claims to.
+
+**Context recall is too noisy to use as a judge sanity check.** `full-resume` is highest
+(0.583) as expected, but the recall noise band is Δ0.125 — wider than most gaps in the column.
+An earlier version of this page cited it as a sanity check; it cannot serve as one.
 
 **Answer-relevancy inverts, and that is not a win.** `off` scores *highest* (0.369) because a
 model with no résumé writes generic, on-topic prose about the role. The metric rewards

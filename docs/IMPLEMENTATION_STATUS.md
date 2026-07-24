@@ -63,11 +63,13 @@ log, and behavioral notes live in [AUDIT_REMEDIATION.md](AUDIT_REMEDIATION.md) (
   the resume to the generator in every arm). The first re-measurement was still invalid (#198:
   the gold resume chunked into 4 pieces at `k=4`, so retrieval selected nothing) and the
   lexical side of "hybrid" matched 0/16 JDs, making hybrid byte-identical to vector.
-  **Current measurement** (9-chunk resume, `k=4`, lexical firing 16/16): retrieval *outranks*
-  the whole resume — `vector` 0.726 vs `full-resume` 0.586 Spearman, 2.2× the measured noise
-  floor — i.e. extra context dilutes the fit signal. Resume-blind collapses to 0.268.
-  Hybrid/rerank vs vector remain **unresolved** (Δ0.031, inside the floor), now as an honest
-  null rather than a structural impossibility.
+  **Current measurement** (9-chunk resume, `k=4`, parsed title+skills as the query, lexical
+  firing 16/16): **hybrid beats dense-only** — 5 replicates each, `hybrid` 0.821
+  (0.800–0.848) vs `vector` 0.716 (0.706–0.733) Spearman, non-overlapping ranges. The first
+  retrieval improvement the project has been able to demonstrate, and only measurable once the
+  lexical side was revived. Retrieval also *outranks the whole resume* (`full-resume` 0.612):
+  extra context dilutes the fit signal. Both gains are ranking-specific — faithfulness leans
+  the other way and is unresolved. Resume-blind collapses to 0.233.
 - **Phase 5 — operational hardening (epic #76):** job-search TTL cache + the API `node:test`
   suite wired into CI (#77); Bicep IaC of the live Azure topology, CI-validated + `what-if`-verified
   (#78); k6 load test verified against the live API (#79); Playwright e2e verified locally and

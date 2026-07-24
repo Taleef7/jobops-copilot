@@ -264,6 +264,7 @@ def score_fit_endpoint(req: ScoreFitRequest) -> FitScoreResponse:
                 # populated; they are what the distilled query is built from (#198).
                 required_skills=req.required_skills,
                 preferred_skills=req.preferred_skills,
+                title=req.title,
             )
             if evidence:
                 req.retrieved_context = evidence

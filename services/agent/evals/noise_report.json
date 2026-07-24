@@ -1,65 +1,65 @@
 {
-  "generated_at": "2026-07-24T01:13:55+00:00",
+  "generated_at": "2026-07-24T02:06:10+00:00",
   "status": "ok",
   "provider": "openai:gpt-4o-mini",
   "mode": "vector",
   "replicates": 5,
   "runs": [
     {
-      "rank_correlation_spearman": 0.7713,
-      "faithfulness": 0.7028,
-      "answer_relevancy": 0.1934,
+      "rank_correlation_spearman": 0.706,
+      "faithfulness": 0.7723,
+      "answer_relevancy": 0.2367,
       "context_recall": 0.4896
     },
     {
-      "rank_correlation_spearman": 0.812,
-      "faithfulness": 0.7725,
-      "answer_relevancy": 0.2313,
+      "rank_correlation_spearman": 0.7189,
+      "faithfulness": 0.7323,
+      "answer_relevancy": 0.2562,
       "context_recall": 0.4583
     },
     {
-      "rank_correlation_spearman": 0.8346,
-      "faithfulness": 0.6552,
-      "answer_relevancy": 0.2458,
-      "context_recall": 0.3646
-    },
-    {
-      "rank_correlation_spearman": 0.8189,
-      "faithfulness": 0.7553,
-      "answer_relevancy": 0.1883,
+      "rank_correlation_spearman": 0.7331,
+      "faithfulness": 0.743,
+      "answer_relevancy": 0.2497,
       "context_recall": 0.4271
     },
     {
-      "rank_correlation_spearman": 0.8086,
-      "faithfulness": 0.7755,
-      "answer_relevancy": 0.2503,
+      "rank_correlation_spearman": 0.711,
+      "faithfulness": 0.7473,
+      "answer_relevancy": 0.2203,
+      "context_recall": 0.3646
+    },
+    {
+      "rank_correlation_spearman": 0.711,
+      "faithfulness": 0.7446,
+      "answer_relevancy": 0.1992,
       "context_recall": 0.3958
     }
   ],
   "spread": {
     "rank_correlation_spearman": {
       "n": 5,
-      "mean": 0.8091,
-      "stdev": 0.0234,
-      "min": 0.7713,
-      "max": 0.8346,
-      "max_pairwise_delta": 0.0633
+      "mean": 0.716,
+      "stdev": 0.0106,
+      "min": 0.706,
+      "max": 0.7331,
+      "max_pairwise_delta": 0.0271
     },
     "faithfulness": {
       "n": 5,
-      "mean": 0.7323,
-      "stdev": 0.052,
-      "min": 0.6552,
-      "max": 0.7755,
-      "max_pairwise_delta": 0.1203
+      "mean": 0.7479,
+      "stdev": 0.0148,
+      "min": 0.7323,
+      "max": 0.7723,
+      "max_pairwise_delta": 0.04
     },
     "answer_relevancy": {
       "n": 5,
-      "mean": 0.2218,
-      "stdev": 0.0292,
-      "min": 0.1883,
-      "max": 0.2503,
-      "max_pairwise_delta": 0.062
+      "mean": 0.2324,
+      "stdev": 0.0231,
+      "min": 0.1992,
+      "max": 0.2562,
+      "max_pairwise_delta": 0.057
     },
     "context_recall": {
       "n": 5,
