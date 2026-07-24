@@ -5,12 +5,34 @@ from __future__ import annotations
 from app.llm.provider import get_model
 from app.prompts import OUTREACH_DRAFTER_SYSTEM
 from app.safety.groundedness import check_groundedness
+from app.safety.injection import (
+    annotate_trace,
+    guard_untrusted,
+    injection_refused,
+    scan_for_injection,
+)
 from app.safety.moderation import moderate_text
 from app.safety.pii import maybe_redact
 from app.schemas import DraftOutreachRequest, OutreachDraftLLM, OutreachDraftResponse
 
 
 def draft_outreach(req: DraftOutreachRequest, config: dict | None = None) -> OutreachDraftResponse:
+    # The job context and contact record are attacker-influenced: both can be populated
+    # by URL autofill from a scraped posting. Scan everything, delimit the free-text
+    # block, and honour INJECTION_ACTION before spending a model call (#200).
+    contact_text = " ".join(
+        value for value in (req.contact_name, req.contact_role, req.company) if value
+    )
+    verdict = scan_for_injection(f"{req.job_context or ''}\n{contact_text}")
+    annotate_trace(config, verdict)
+    if injection_refused(verdict):
+        return OutreachDraftResponse(
+            subject="",
+            draft_text="",
+            safety_notes="BLOCKED: suspected prompt-injection in the job or contact context.",
+            model_used=get_model()[1],
+        )
+
     model, label = get_model()
     structured = model.with_structured_output(OutreachDraftLLM)
 
@@ -22,7 +44,10 @@ def draft_outreach(req: DraftOutreachRequest, config: dict | None = None) -> Out
     if req.company:
         parts.append(f"Company: {req.company}")
     if req.job_context:
-        parts.append(f"Job context:\n{maybe_redact(req.job_context)}")
+        # guard_untrusted redacts PII and neutralizes dash-runs that could forge an END
+        # line and break out of the block.
+        block, _ = guard_untrusted(req.job_context, "JOB CONTEXT")
+        parts.append(block)
     if req.resume_summary:
         summary = maybe_redact(req.resume_summary)
         parts.append(f"Resume summary (only truthful claims allowed):\n{summary}")
