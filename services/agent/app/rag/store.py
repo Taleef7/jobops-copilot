@@ -41,26 +41,34 @@ def _vector_literal(vector: list[float]) -> str:
     return "[" + ",".join(f"{value:.6f}" for value in vector) + "]"
 
 
-def _chunk_count(source_type: str, source_id: str, user_id: str | None) -> int:
-    """Rows already stored for this document, scoped to its tenant.
+def _stored_chunk_texts(source_type: str, source_id: str, user_id: str | None) -> list[str]:
+    """Chunk texts already stored for this document, in order, scoped to its tenant.
 
-    The tenant predicate is not optional: ``source_id`` hashes the *content*, so two
-    users with the same resume share it. Counting across tenants would make the second
-    user skip ingest and then retrieve nothing (their own rows never having been
-    written). Returns 0 on any error so a failed check degrades to re-indexing.
+    Returns the *text* rather than a count because ``source_id`` is only a content hash
+    for resumes (``resume_source_id``). ``/rag/ingest`` accepts a **caller-supplied**
+    ``source_id``, so a caller can update a document's text under the same id; a
+    count-only check would then skip the write whenever the new text happened to produce
+    the same number of chunks, serving the old content indefinitely.
+
+    The tenant predicate is not optional either: two users can hold the same resume, and
+    counting across tenants would make the second user skip ingest and then retrieve
+    nothing (their own rows never having been written).
+
+    Returns ``[]`` on any error, so a failed check degrades to re-indexing, never to
+    skipping.
     """
     try:
         with _connect() as conn, conn.cursor() as cur:
             cur.execute(
-                "select count(*) from embeddings "
-                "where source_type = %s and source_id = %s and user_id is not distinct from %s",
+                "select chunk_text from embeddings "
+                "where source_type = %s and source_id = %s and user_id is not distinct from %s "
+                "order by chunk_index",
                 (source_type, source_id, user_id),
             )
-            row = cur.fetchone()
-            return int(row[0]) if row else 0
+            return [row[0] for row in cur.fetchall()]
     except Exception:  # noqa: BLE001 - a failed check must not block ingest
-        logger.warning("could not check existing chunks; re-indexing", exc_info=True)
-        return 0
+        logger.warning("could not read existing chunks; re-indexing", exc_info=True)
+        return []
 
 
 def ingest_document(
@@ -75,22 +83,26 @@ def ingest_document(
     Embeddings are scoped to ``user_id`` so one user's resume can never ground
     another user's retrieval.
 
-    Idempotent by content: ``source_id`` is a hash of the text, so if this
-    (``source_type``, ``source_id``, ``user_id``) already holds exactly the expected
-    number of chunks the stored rows are identical to what we would write, and the work
-    is skipped -- ``retrieve_resume_evidence`` calls this on every score-fit request, so
-    the naive path burned a full sentence-transformers pass plus a delete/insert cycle
-    per request for a guaranteed no-op (#199).
+    Idempotent by content: when the stored chunks for this
+    (``source_type``, ``source_id``, ``user_id``) are **exactly** the chunks we would
+    write, the work is skipped -- ``retrieve_resume_evidence`` calls this on every
+    score-fit request, so the naive path burned a full sentence-transformers pass plus a
+    delete/insert cycle per request for a guaranteed no-op (#199).
 
-    A *mismatched* count means an interrupted write, so that repairs rather than skips.
-    ``force=True`` re-indexes regardless -- needed after a chunker or embedding-model
-    change, where the text hash is unchanged but the vectors are stale.
+    The comparison is on chunk text, not a count. ``/rag/ingest`` accepts a
+    caller-supplied ``source_id``, so a document can be *updated* under the same id; a
+    count-only check would silently keep serving the old content whenever the new text
+    produced the same number of chunks. Any difference -- edited text, a partial write,
+    reordering -- re-indexes.
+
+    ``force=True`` re-indexes even when the text matches; needed after an embedding-model
+    change, where the stored text is identical but its vectors are stale.
     """
     chunks = chunk_text(text)
     if not chunks:
         return 0
 
-    if not force and _chunk_count(source_type, source_id, user_id) == len(chunks):
+    if not force and _stored_chunk_texts(source_type, source_id, user_id) == chunks:
         logger.debug("ingest skipped; %s/%s already indexed", source_type, source_id)
         return len(chunks)
 

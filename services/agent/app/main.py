@@ -205,6 +205,10 @@ class IngestRequest(BaseModel):
     source_id: str
     text: str
     user_id: str | None = None
+    # Re-index even when the stored chunks already match the submitted text. Ingest is
+    # content-idempotent, so this is only needed when the *text* is unchanged but its
+    # vectors are stale — e.g. after an embedding-model change.
+    force: bool = False
 
 
 class SearchRequest(BaseModel):
@@ -275,7 +279,9 @@ def score_fit_endpoint(req: ScoreFitRequest) -> FitScoreResponse:
 def rag_ingest_endpoint(req: IngestRequest) -> dict:
     if not rag_available():
         raise HTTPException(status_code=503, detail="RAG is disabled; set DATABASE_URL.")
-    count = _run(ingest_document, req.source_type, req.source_id, req.text, req.user_id)
+    count = _run(
+        ingest_document, req.source_type, req.source_id, req.text, req.user_id, req.force
+    )
     return {"source_type": req.source_type, "source_id": req.source_id, "chunks_ingested": count}
 
 
