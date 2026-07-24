@@ -42,16 +42,23 @@ class ParsedJob(BaseModel):
 
 
 class FitScoreLLM(BaseModel):
-    """Fields the model produces for a fit assessment."""
+    """Fields the model produces for a fit assessment.
 
-    fit_score: int = Field(ge=0, le=100, description="Overall fit, 0-100.")
+    The 0-100 bounds live in the field *descriptions* (which reach the model through the
+    structured-output JSON schema) rather than as ``ge``/``le`` validators. A hard
+    validator turns a model that answers 105 into a ``ValidationError`` and fails the
+    whole request; ``score_fit`` clamps instead, so a near-miss becomes a usable answer
+    (#199). ``FitScoreResponse`` is what callers see, and it is always in range.
+    """
+
+    fit_score: int = Field(description="Overall fit, 0-100.")
     matched_skills: list[str] = Field(default_factory=list)
     missing_skills: list[str] = Field(default_factory=list)
     ats_keywords: list[str] = Field(default_factory=list)
     fit_summary: str = ""
     recommended_resume_angle: str = ""
     apply_recommendation: ApplyRecommendation = "review"
-    confidence_score: int = Field(default=50, ge=0, le=100)
+    confidence_score: int = Field(default=50, description="Confidence, 0-100.")
 
 
 class OutreachDraftLLM(BaseModel):
@@ -212,6 +219,9 @@ class TelemetryInsights(BaseModel):
 
 
 class FitScoreResponse(FitScoreLLM):
+    # Re-imposed here: whatever the model said, what leaves the service is in range.
+    fit_score: int = Field(ge=0, le=100, description="Overall fit, 0-100.")
+    confidence_score: int = Field(default=50, ge=0, le=100)
     model_used: str
 
 

@@ -41,20 +41,58 @@ def _vector_literal(vector: list[float]) -> str:
     return "[" + ",".join(f"{value:.6f}" for value in vector) + "]"
 
 
+def _chunk_count(source_type: str, source_id: str, user_id: str | None) -> int:
+    """Rows already stored for this document, scoped to its tenant.
+
+    The tenant predicate is not optional: ``source_id`` hashes the *content*, so two
+    users with the same resume share it. Counting across tenants would make the second
+    user skip ingest and then retrieve nothing (their own rows never having been
+    written). Returns 0 on any error so a failed check degrades to re-indexing.
+    """
+    try:
+        with _connect() as conn, conn.cursor() as cur:
+            cur.execute(
+                "select count(*) from embeddings "
+                "where source_type = %s and source_id = %s and user_id is not distinct from %s",
+                (source_type, source_id, user_id),
+            )
+            row = cur.fetchone()
+            return int(row[0]) if row else 0
+    except Exception:  # noqa: BLE001 - a failed check must not block ingest
+        logger.warning("could not check existing chunks; re-indexing", exc_info=True)
+        return 0
+
+
 def ingest_document(
     source_type: str,
     source_id: str,
     text: str,
     user_id: str | None = None,
+    force: bool = False,
 ) -> int:
     """Chunk, embed, and upsert a document's embeddings. Returns chunk count.
 
     Embeddings are scoped to ``user_id`` so one user's resume can never ground
     another user's retrieval.
+
+    Idempotent by content: ``source_id`` is a hash of the text, so if this
+    (``source_type``, ``source_id``, ``user_id``) already holds exactly the expected
+    number of chunks the stored rows are identical to what we would write, and the work
+    is skipped -- ``retrieve_resume_evidence`` calls this on every score-fit request, so
+    the naive path burned a full sentence-transformers pass plus a delete/insert cycle
+    per request for a guaranteed no-op (#199).
+
+    A *mismatched* count means an interrupted write, so that repairs rather than skips.
+    ``force=True`` re-indexes regardless -- needed after a chunker or embedding-model
+    change, where the text hash is unchanged but the vectors are stale.
     """
     chunks = chunk_text(text)
     if not chunks:
         return 0
+
+    if not force and _chunk_count(source_type, source_id, user_id) == len(chunks):
+        logger.debug("ingest skipped; %s/%s already indexed", source_type, source_id)
+        return len(chunks)
 
     vectors = embed_texts(chunks)
     with _connect() as conn, conn.cursor() as cur:
