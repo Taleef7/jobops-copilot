@@ -15,30 +15,30 @@
   "dependencies": {
     "@azure/storage-blob": "^12.33.0",
     "@clerk/express": "^1.7.5",
-    "applicationinsights": "^3.15.0",
+    "applicationinsights": "^3.15.1",
     "cors": "^2.8.5",
     "dotenv": "^16.4.7",
     "express": "^4.21.2",
-    "express-rate-limit": "^8.5.2",
-    "helmet": "^8.2.0",
-    "multer": "^2.0.1",
+    "express-rate-limit": "^8.6.0",
+    "helmet": "^8.3.0",
+    "multer": "^2.2.0",
     "node-html-parser": "^7.1.0",
     "pdf-parse": "^1.1.1",
-    "pg": "^8.20.0",
+    "pg": "^8.22.0",
     "undici": "^7.28.0"
   },
   "devDependencies": {
     "@eslint/js": "^9.0.0",
     "@types/cors": "^2.8.19",
     "@types/express": "^5.0.0",
-    "@types/multer": "^1.4.12",
+    "@types/multer": "^2.2.0",
     "@types/node": "^22.0.0",
     "@types/pdf-parse": "^1.1.4",
     "@types/pg": "^8.20.0",
     "eslint": "^9.0.0",
-    "tsc-alias": "^1.8.17",
+    "tsc-alias": "^1.9.1",
     "tsx": "^4.23.1",
     "typescript": "^5.8.0",
-    "typescript-eslint": "^8.0.0"
+    "typescript-eslint": "^8.65.0"
   }
 }
