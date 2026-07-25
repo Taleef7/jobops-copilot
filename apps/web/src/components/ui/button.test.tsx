@@ -1,3 +1,7 @@
+// These tests render plain <a> elements on purpose: the point is to assert what
+// `Button` does to whatever `render` target it receives, independent of
+// next/link. Callers in the app still pass <Link />.
+/* eslint-disable @next/next/no-html-link-for-pages */
 import '@testing-library/jest-dom/vitest';
 import { render, screen } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
