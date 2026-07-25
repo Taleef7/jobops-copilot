@@ -4,6 +4,10 @@ Follow-up work to the **2026-07-22 full-stack engineering & security audit** (7 
 specialist passes; overall grade **B**). This is the running journal of the remediation
 program — one finding per branch, test-first, closed by its own PR.
 
+- **Status:** ✅ **all four phases merged** (2026-07-25). Phases 1–3 closed the fail-open
+  and eval-integrity findings; Phase 4 shipped the polish/scale work (assistant a11y,
+  faithful Bicep, reproducible+lock-audited agent image, pagination, and the externalized
+  rate-limiter/cache).
 - **Full audit report:** <https://claude.ai/code/artifact/6b022354-a3c5-4a35-8040-045efd2b8327>
 - **Tracking epic:** [#152](https://github.com/Taleef7/jobops-copilot/issues/152)
 - **Dominant theme:** a *fail-open* reflex — controls were present but silently downgraded to
@@ -102,14 +106,15 @@ profile deliberately unchanged — most gold rationales turn on specific technol
   value landed outside five replicates of the same configuration — five replicates bound
   nothing; they estimate.
 
-## Phase 4 — Polish & harden for scale 🚧 in progress
+## Phase 4 — Polish & harden for scale ✅ merged
 
 | Finding | Severity | PR |
 | --- | --- | --- |
 | Assistant a11y/stream fixes (streaming live-region anti-pattern), loading/error boundaries, skip link | High | [#206](https://github.com/Taleef7/jobops-copilot/pull/206) |
 | Reconcile the Bicep with live reality — faithful model, `what-if` verified (0 deletions) | Medium | [#207](https://github.com/Taleef7/jobops-copilot/pull/207) |
-| Pagination + list projections; externalize the limiter/cache before scale-out | Medium | _pending_ |
-| Refresh stale docs (this journal; README/IMPLEMENTATION_STATUS understate live assistant chat + migration 009) | Medium | _this PR_ |
+| Backward-compatible list pagination (jobs, reports) + reports-export N+1 fix | Medium | [#210](https://github.com/Taleef7/jobops-copilot/pull/210) |
+| Externalize the rate-limiter + job-search cache for scale-out (opt-in Postgres stores; migration 010) | Medium | [#211](https://github.com/Taleef7/jobops-copilot/pull/211) |
+| Refresh stale docs (journal + README/IMPLEMENTATION_STATUS understated live assistant chat + migration 009) | Medium | [#209](https://github.com/Taleef7/jobops-copilot/pull/209) |
 
 > **Note on the "supply chain" row.** SHA-pinning Actions + the `npm`/`pip` audit gates
 > ([#164](https://github.com/Taleef7/jobops-copilot/pull/205)) and pinning the agent image
