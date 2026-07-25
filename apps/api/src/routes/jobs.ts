@@ -1,11 +1,13 @@
 import { Router } from 'express';
 import {
+  countJobs,
   createJob,
   getJobById,
   listJobs,
   updateJob,
 } from '@/data/job-store';
 import { requireUser } from '@/lib/auth';
+import { parsePageParams } from '@/lib/pagination';
 import type { CreateJobBody, JobPriority, JobStatus, UpdateJobBody } from '@/types';
 
 export const jobsRouter = Router();
@@ -40,9 +42,11 @@ jobsRouter.get('/', async (request, response, next) => {
     const userId = requireUser(request, response);
     if (!userId) return;
 
-    response.json({
-      jobs: await listJobs(userId),
-    });
+    // Opt-in pagination: no ?limit means the full list (the web filters client-side).
+    const page = parsePageParams(request.query);
+    const [jobs, total] = await Promise.all([listJobs(userId, page), countJobs(userId)]);
+    response.set('X-Total-Count', String(total));
+    response.json({ jobs });
   } catch (error) {
     next(error);
   }

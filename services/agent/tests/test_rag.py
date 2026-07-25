@@ -149,7 +149,10 @@ def test_hybrid_scoping_flows_into_lexical_query(monkeypatch):
     assert "user_id is not distinct from %s" in lexical_sql
     # Scoping binds precede the two tsquery binds, which precede the limit.
     assert lexical_params[:3] == ["resume", "resume-x", "u1"]
-    assert lexical_params[3] == "python backend" and lexical_params[4] == "python backend"
+    # The query reaches FTS as quoted, OR-joined terms -- bare text would be ANDed and
+    # match nothing (#198). Both tsquery binds get the same text (match + rank).
+    assert lexical_params[3] == '"python" or "backend"'
+    assert lexical_params[4] == '"python" or "backend"'
     assert lexical_params[-1] == store.settings.rag_candidate_pool  # pool, then RRF to k
 
 

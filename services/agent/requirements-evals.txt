@@ -11,4 +11,4 @@
 
 # evals/_ragas_compat.py shims a VertexAI import Ragas still performs against the
 # langchain-community 0.4.x that the agent's langchain 1.x stack pulls in.
-ragas>=0.4,<0.5
+ragas>=0.4.3,<0.5

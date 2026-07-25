@@ -55,11 +55,11 @@ Make companion flows) is built and live with screenshots.
 The **product overhaul** (epic #124) is also complete — all six phases (#118–#123) plus
 cleanup PR #140 merged to `main` on 2026-06-25.
 
-No outstanding implementation task. The only remaining items are two owner-gated deploy
-follow-ups that need production credentials:
+No outstanding implementation task. The two owner-gated deploy follow-ups are now done:
 
-- **#141** — activate the agent Container App revision that includes `/assistant/chat`, and
-  apply migration `009_drop_display_name.sql` to the production DB.
-- **#142** — add cold-start resilience for the streaming endpoints on the scale-to-zero agent.
+- **#141** — ✅ activated the agent Container App revision that includes `/assistant/chat`, and
+  applied migration `009_drop_display_name.sql` to the production DB.
+- **#142** — ✅ added cold-start resilience for the streaming endpoints on the scale-to-zero agent.
 
-Otherwise the focus is maintenance and demos.
+Current focus is the 2026-07 audit-remediation program (epic #152) — see
+[AUDIT_REMEDIATION.md](AUDIT_REMEDIATION.md) — plus maintenance and demos.

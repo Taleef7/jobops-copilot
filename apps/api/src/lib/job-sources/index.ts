@@ -1,4 +1,6 @@
-import { TtlCache } from '../cache';
+import { TtlCache, type AsyncTtlCache } from '../cache';
+import { PostgresTtlCache } from '../cache.postgres';
+import { getPool } from '../postgres';
 import { createAdzunaSource } from './adzuna';
 import { createRemotiveSource } from './remotive';
 import type { SourcedJob } from './normalize';
@@ -23,11 +25,26 @@ function jobSearchCacheTtlMs(): number {
   return Number.isFinite(parsed) ? parsed : 0;
 }
 
-const jobSearchCache = new TtlCache<SourcedJob[]>({ ttlMs: jobSearchCacheTtlMs() });
+/**
+ * Build the job-search cache. `JOB_SEARCH_CACHE_STORE=postgres` (with a live pool)
+ * shares hits across instances via `cache_entries`; otherwise the process-local
+ * in-memory cache (correct for a single instance, and the safe fallback if the flag
+ * is set but the DB is unavailable).
+ */
+function createJobSearchCache(): AsyncTtlCache<SourcedJob[]> {
+  const ttlMs = jobSearchCacheTtlMs();
+  if (process.env.JOB_SEARCH_CACHE_STORE === 'postgres') {
+    const pool = getPool();
+    if (pool) return new PostgresTtlCache<SourcedJob[]>(pool, { ttlMs, namespace: 'jobsearch' });
+  }
+  return new TtlCache<SourcedJob[]>({ ttlMs });
+}
+
+const jobSearchCache = createJobSearchCache();
 
 /** Clear the shared job-search cache (used in tests; safe to call anytime). */
-export function clearJobSearchCache(): void {
-  jobSearchCache.clear();
+export async function clearJobSearchCache(): Promise<void> {
+  await jobSearchCache.clear();
 }
 
 /** Stable cache key for a search. Country matters because Adzuna is region-scoped. */
@@ -52,7 +69,7 @@ export function jobSearchCacheKey(
  */
 export function withCachedSearch(
   source: JobSource,
-  cache: TtlCache<SourcedJob[]>,
+  cache: AsyncTtlCache<SourcedJob[]>,
   country: () => string,
 ): JobSource {
   return {

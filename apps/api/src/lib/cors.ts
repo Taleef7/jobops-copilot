@@ -15,6 +15,10 @@ const DEV_ORIGINS = ['http://localhost:3000', 'http://127.0.0.1:3000'];
 
 const ALLOWED_HEADERS = ['Content-Type', 'X-API-Key', 'Authorization', 'X-N8N-Webhook-Secret'];
 
+// Response headers a browser fetch() is allowed to read cross-origin. The list
+// endpoints set X-Total-Count (the unpaginated total) for paging clients.
+const EXPOSED_HEADERS = ['X-Total-Count'];
+
 export function allowedOrigins(env: NodeJS.ProcessEnv = process.env): string[] {
   const configured = env.CORS_ALLOWED_ORIGINS?.trim();
   if (!configured) return DEV_ORIGINS;
@@ -38,5 +42,7 @@ export function corsOptions(env: NodeJS.ProcessEnv = process.env): CorsOptions {
       callback(null, false);
     },
     allowedHeaders: ALLOWED_HEADERS,
+    // Custom response headers a browser fetch() may read cross-origin.
+    exposedHeaders: EXPOSED_HEADERS,
   };
 }

@@ -133,6 +133,17 @@ Deploy workflows (canonical):
   `scripts/azure/deploy-agent.sh --activate <sha>` (skips the slow local rebuild). The
   `azure-app-service.yml` agent target is a code-deploy fallback for a no-RAG agent only.
 
+> **Reproducible agent image (#168).** `services/agent/Dockerfile` pins the base image by
+> digest, pins `torch==2.13.0+cpu` (CPU wheel), and applies `services/agent/constraints.txt`
+> — a full `pip freeze` of the resolved graph — so any historical SHA rebuilds byte-for-byte
+> the same dependency set. The ranged `requirements*.txt` stay loose for local dev; the
+> constraints file is applied **only** in the Docker build. CI also `pip-audit`s the lock
+> itself (not just the ranged files), so a vuln in a pinned version can't slip through green.
+> After a deliberate dependency bump, regenerate the lock by resolving the ranged
+> requirements **unconstrained** (building the image would just re-apply the old pins) — see
+> the recipe in `services/agent/README.md` — then refresh the base digest by re-pulling
+> `python:3.12-slim` and reading its `RepoDigest`.
+
 ## Agent service-to-service auth (AGENT_API_KEY)
 
 The agent Container App is internet-facing (the API reaches it across regions over its

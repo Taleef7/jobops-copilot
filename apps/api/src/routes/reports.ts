@@ -1,7 +1,13 @@
 import { Router } from 'express';
 import { readFile } from 'node:fs/promises';
-import { getLatestWeeklyReport, listWeeklyReports } from '@/data/report-store';
+import {
+  countWeeklyReports,
+  getLatestWeeklyReport,
+  getWeeklyReportById,
+  listWeeklyReports,
+} from '@/data/report-store';
 import { requireUser } from '@/lib/auth';
+import { parsePageParams } from '@/lib/pagination';
 import {
   buildLocalWeeklyReportExportPath,
   buildWeeklyReportExportFileName,
@@ -14,7 +20,13 @@ reportsRouter.get('/', async (request, response, next) => {
     const userId = requireUser(request, response);
     if (!userId) return;
 
-    const reports = await listWeeklyReports(userId);
+    const page = parsePageParams(request.query);
+    const [reports, total] = await Promise.all([
+      listWeeklyReports(userId, page),
+      countWeeklyReports(userId),
+    ]);
+    // Expose the unpaginated total so a client can page without the JSON shape changing.
+    response.set('X-Total-Count', String(total));
     response.json({ reports });
   } catch (error) {
     next(error);
@@ -44,8 +56,9 @@ reportsRouter.get('/:reportId/export', async (request, response, next) => {
     const userId = requireUser(request, response);
     if (!userId) return;
 
-    const reports = await listWeeklyReports(userId);
-    const report = reports.find((entry) => entry.id === request.params.reportId);
+    // Targeted lookup — previously this loaded the user's entire report history
+    // and scanned it in JS just to render one export.
+    const report = await getWeeklyReportById(userId, request.params.reportId);
 
     if (!report) {
       response.status(404).json({ error: 'Weekly report not found' });

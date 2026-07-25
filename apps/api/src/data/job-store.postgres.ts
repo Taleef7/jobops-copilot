@@ -9,6 +9,7 @@ import type {
 } from '@/types';
 import { getDefaultAnalysis, validateJobAnalysis } from '@/lib/analysis-core';
 import { getPool } from '@/lib/postgres';
+import type { PageParams } from '@/lib/pagination';
 import { deriveOutreachJobUpdate } from '@/lib/outreach-workflow';
 import { seedJobs } from '@/data/mock-store';
 
@@ -163,13 +164,25 @@ function mapJob(row: JobRow, analysisRow?: JobAnalysisRow, outreachRows: Outreac
   };
 }
 
-export async function listJobs(userId: string): Promise<JobRecord[]> {
+export async function listJobs(userId: string, page?: PageParams): Promise<JobRecord[]> {
   const pool = poolOrThrow();
 
-  const jobsResult = await pool.query<JobRow>(
-    'select * from jobs where user_id = $1 order by created_at desc',
-    [userId],
-  );
+  // Paginate the base jobs query; the analysis/outreach fan-out below then scopes
+  // to only the page's job ids, so a page never over-fetches the nested rows.
+  const params: unknown[] = [userId];
+  // `id` tie-breaks equal created_at (concurrent creates) so LIMIT/OFFSET pages are
+  // stable — without it a client can see a job twice or miss one across pages.
+  let sql = 'select * from jobs where user_id = $1 order by created_at desc, id desc';
+  if (page?.limit !== undefined) {
+    params.push(page.limit);
+    sql += ` limit $${params.length}`;
+  }
+  if (page && page.offset > 0) {
+    params.push(page.offset);
+    sql += ` offset $${params.length}`;
+  }
+
+  const jobsResult = await pool.query<JobRow>(sql, params);
   if (jobsResult.rowCount === 0) {
     return [];
   }
@@ -197,6 +210,15 @@ export async function listJobs(userId: string): Promise<JobRecord[]> {
   }
 
   return jobsResult.rows.map((row: JobRow) => mapJob(row, analysisByJobId.get(row.id), outreachByJobId.get(row.id)));
+}
+
+export async function countJobs(userId: string): Promise<number> {
+  const pool = poolOrThrow();
+  const { rows } = await pool.query<{ count: number }>(
+    'select count(*)::int as count from jobs where user_id = $1',
+    [userId],
+  );
+  return rows[0]?.count ?? 0;
 }
 
 export async function getJobById(userId: string, jobId: string): Promise<JobRecord | undefined> {

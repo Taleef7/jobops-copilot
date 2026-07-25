@@ -4,6 +4,10 @@ Follow-up work to the **2026-07-22 full-stack engineering & security audit** (7 
 specialist passes; overall grade **B**). This is the running journal of the remediation
 program — one finding per branch, test-first, closed by its own PR.
 
+- **Status:** ✅ **all four phases merged** (2026-07-25). Phases 1–3 closed the fail-open
+  and eval-integrity findings; Phase 4 shipped the polish/scale work (assistant a11y,
+  faithful Bicep, reproducible+lock-audited agent image, pagination, and the externalized
+  rate-limiter/cache).
 - **Full audit report:** <https://claude.ai/code/artifact/6b022354-a3c5-4a35-8040-045efd2b8327>
 - **Tracking epic:** [#152](https://github.com/Taleef7/jobops-copilot/issues/152)
 - **Dominant theme:** a *fail-open* reflex — controls were present but silently downgraded to
@@ -28,22 +32,92 @@ present) the API refuses to boot without `CLERK_SECRET_KEY`, the agent refuses t
 so nothing changes operationally — a future deploy that *loses* one now fails loudly instead of
 silently serving unauthenticated. Local dev and tests are unchanged.
 
-## Phase 2 — Close tenancy & gating holes 🚧 in progress
+## Phase 2 — Close tenancy & gating holes ✅ merged
 
 | Finding | Severity | Issue | PR |
 | --- | --- | --- | --- |
-| Cross-tenant RAG: `retrieve(user_id=None)` searched all tenants → scope to `IS NULL`; require `user_id` on `/rag/search` | High | [#161](https://github.com/Taleef7/jobops-copilot/issues/161) | _this PR_ |
-| Gate merges + deploys on the full CI suite | High | [#162](https://github.com/Taleef7/jobops-copilot/issues/162) | _pending_ |
-| Test the Postgres stores + tenancy SQL against a real DB in CI | Medium | [#163](https://github.com/Taleef7/jobops-copilot/issues/163) | _pending_ |
-| Supply chain: SHA-pin Actions, add audit gates, pin the agent image | Medium | [#164](https://github.com/Taleef7/jobops-copilot/issues/164) | _pending_ |
+| Cross-tenant RAG: `retrieve(user_id=None)` searched all tenants → scope to `IS NULL`; require `user_id` on `/rag/search` | High | [#161](https://github.com/Taleef7/jobops-copilot/issues/161) | [#165](https://github.com/Taleef7/jobops-copilot/pull/165) |
+| Gate merges + deploys on the full CI suite | High | [#162](https://github.com/Taleef7/jobops-copilot/issues/162) | [#166](https://github.com/Taleef7/jobops-copilot/pull/166) |
+| Test the Postgres stores + tenancy SQL against a real DB in CI | Medium | [#163](https://github.com/Taleef7/jobops-copilot/issues/163) | [#169](https://github.com/Taleef7/jobops-copilot/pull/169) |
+| Supply chain: SHA-pin Actions, add `npm`/`pip` audit gates | Medium | [#164](https://github.com/Taleef7/jobops-copilot/issues/164) | [#205](https://github.com/Taleef7/jobops-copilot/pull/205) |
+| Pin the agent Docker image for reproducible builds (base digest + `torch==…+cpu` + `constraints.txt`) | Medium | [#168](https://github.com/Taleef7/jobops-copilot/issues/168) | [#208](https://github.com/Taleef7/jobops-copilot/pull/208) |
 
-## Phase 3 — Make the flagship AI claims true 📋 planned
+## Phase 3 — Make the flagship AI claims true ✅ merged
 
-Fix the eval "off" baseline and re-state the faithfulness numbers; distill the retrieval query so
-the lexical + rerank sides actually fire; skip re-embedding unchanged résumés; trace the
-assistant/chat paths; add an injection guard to `draft_outreach`.
+| Finding | Severity | Issue | PR |
+| --- | --- | --- | --- |
+| Eval sweep leaked the résumé to the generator → "~3× faithfulness" withdrawn | High | [#197](https://github.com/Taleef7/jobops-copilot/issues/197) | [#201](https://github.com/Taleef7/jobops-copilot/pull/201) |
+| Retrieval query is the raw JD: lexical side never fires, dense query truncated | High | [#198](https://github.com/Taleef7/jobops-copilot/issues/198) | [#202](https://github.com/Taleef7/jobops-copilot/pull/202) |
+| Skip re-embedding unchanged résumés; structured-output retry + clamp | Medium | [#199](https://github.com/Taleef7/jobops-copilot/issues/199) | [#203](https://github.com/Taleef7/jobops-copilot/pull/203) |
+| Trace assistant/chat paths; injection-guard `draft_outreach` | Medium | [#200](https://github.com/Taleef7/jobops-copilot/issues/200) | [#204](https://github.com/Taleef7/jobops-copilot/pull/204) |
 
-## Phase 4 — Polish & harden for scale 📋 planned
+### What the eval correction found
 
-Assistant a11y/stream fixes; loading/error boundaries; pagination + externalized limiter/cache;
-reconcile the Bicep with live reality; refresh remaining stale docs.
+The retrieval sweep passed `resume_text` to `score_fit` in **every** mode, and `score_fit`
+puts it in the prompt unconditionally — so the `off` arm, documented as "JD only", always had
+the whole résumé. Only the Ragas judge's contexts varied. The published "faithfulness
+0.25 → 0.83, a ~3× gain" measured judge visibility.
+
+The evidence was already in the published table: `off` scored the *highest* fit-vs-label
+Spearman (0.705). A résumé-blind model cannot rank candidates. Corrected, that arm scores
+**0.407**.
+
+Two things came out of the re-measurement that are worth more than the original claim:
+
+1. **A real result.** Four retrieved chunks recover whole-résumé quality (0.721/0.824 vs
+   0.684/0.805) — retrieval buys context *efficiency*, not accuracy, on a prompt that already
+   fits. That is the honest engineering justification.
+2. **An honest measure of how noisy this eval is.** `hybrid` and `vector` retrieve
+   byte-identical chunks on 16/16 rows (the lexical side matches 0/16 JDs — see #198) yet
+   scored Δ0.058 Spearman / Δ0.098 faithfulness apart. One such pair only shows variance of
+   that order *occurred*, so the spread is now measured properly: `--noise-floor 5` scores one
+   fixed configuration five times. Result — Spearman sd 0.034 (range 0.721–0.797),
+   faithfulness sd 0.039 (range 0.741–0.821). Even that understates it: the sweep's `hybrid`
+   faithfulness (0.922) lands outside all five replicates despite being the same experiment,
+   so the figures are a **floor on the spread, not a bound**. Only the retrieval-vs-nothing
+   effect (4–9× the largest no-op movement) clears it; every other comparison in the table is
+   *unresolved*, which is a limit of the measurement rather than a finding.
+
+Structural fix: `evals/evidence.py` makes the generator's inputs and the judge's contexts
+derive from one `Evidence` value, with a parametrized regression test that fails if they
+diverge.
+
+### …and what the #198 re-measurement then found
+
+Fixing the harness was not enough: the gold résumé chunked into exactly **4** pieces and the
+sweep retrieved **k=4**, so every "retrieval mode" returned the whole résumé in a different
+order. Retrieval was never being measured. The résumé was expanded to 9 chunks (qualification
+profile deliberately unchanged — most gold rationales turn on specific technologies being
+*absent*), and with the lexical query fixed:
+
+- **Lexical retrieval went from 0/16 to 16/16 JDs matching**, and hybrid now retrieves
+  different chunks from vector on 13/16 rows. It is finally a real experiment.
+- **Hybrid beats dense-only — the project's first demonstrated retrieval win.** 5 replicates
+  each: `hybrid` 0.821 (0.800–0.848) vs `vector` 0.716 (0.706–0.733) Spearman, **ranges do not
+  overlap** (Welch's t ≈ 9.9). Only measurable once the lexical side was revived. The reranker
+  is still unresolved and was not replicated.
+- **Retrieval outranks the whole résumé**: `full-resume` 0.612 against both retrieval modes.
+  More context made the ranking *worse*; retrieval acts as a precision filter, not a
+  compromise. Both gains are ranking-specific — faithfulness leans the other way (best on
+  `full-resume`) and is unresolved.
+- **The noise floor is corpus-specific.** Re-measured on the new gold set it moved from
+  Spearman Δ0.076 → 0.063 and faithfulness Δ0.080 → **0.120**. Inheriting the old threshold
+  would have mis-graded results in both directions. And for the second time a single sweep
+  value landed outside five replicates of the same configuration — five replicates bound
+  nothing; they estimate.
+
+## Phase 4 — Polish & harden for scale ✅ merged
+
+| Finding | Severity | PR |
+| --- | --- | --- |
+| Assistant a11y/stream fixes (streaming live-region anti-pattern), loading/error boundaries, skip link | High | [#206](https://github.com/Taleef7/jobops-copilot/pull/206) |
+| Reconcile the Bicep with live reality — faithful model, `what-if` verified (0 deletions) | Medium | [#207](https://github.com/Taleef7/jobops-copilot/pull/207) |
+| Backward-compatible list pagination (jobs, reports) + reports-export N+1 fix | Medium | [#210](https://github.com/Taleef7/jobops-copilot/pull/210) |
+| Externalize the rate-limiter + job-search cache for scale-out (opt-in Postgres stores; migration 010) | Medium | [#211](https://github.com/Taleef7/jobops-copilot/pull/211) |
+| Refresh stale docs (journal + README/IMPLEMENTATION_STATUS understated live assistant chat + migration 009) | Medium | [#209](https://github.com/Taleef7/jobops-copilot/pull/209) |
+
+> **Note on the "supply chain" row.** SHA-pinning Actions + the `npm`/`pip` audit gates
+> ([#164](https://github.com/Taleef7/jobops-copilot/pull/205)) and pinning the agent image
+> ([#168](https://github.com/Taleef7/jobops-copilot/pull/208)) landed under Phase 2's table
+> above but completed during Phase 4 — the CI now also audits the pinned image lock, not
+> just the ranged requirements.

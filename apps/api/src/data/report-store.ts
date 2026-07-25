@@ -3,6 +3,7 @@ import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import type { WeeklyReportRecord } from '@/types';
 import { hasPostgresConnection } from '@/lib/postgres';
+import { paginateArray, type PageParams } from '@/lib/pagination';
 import * as postgresStore from '@/data/report-store.postgres';
 import { seedWeeklyReports } from '@/data/mock-store';
 
@@ -90,17 +91,43 @@ async function runExclusive<T>(operation: () => Promise<T>): Promise<T> {
   }
 }
 
-export async function listWeeklyReports(userId: string): Promise<WeeklyReportRecord[]> {
+export async function listWeeklyReports(
+  userId: string,
+  page?: PageParams,
+): Promise<WeeklyReportRecord[]> {
   if (hasPostgresConnection()) {
-    return postgresStore.listWeeklyReports(userId);
+    return postgresStore.listWeeklyReports(userId, page);
   }
 
   const reports = await ensureLoaded();
-  return sortReports(clone(reports.filter((entry) => entry.userId === userId)));
+  const mine = sortReports(clone(reports.filter((entry) => entry.userId === userId)));
+  return page ? paginateArray(mine, page) : mine;
+}
+
+export async function countWeeklyReports(userId: string): Promise<number> {
+  if (hasPostgresConnection()) {
+    return postgresStore.countWeeklyReports(userId);
+  }
+
+  const reports = await ensureLoaded();
+  return reports.filter((entry) => entry.userId === userId).length;
+}
+
+export async function getWeeklyReportById(
+  userId: string,
+  reportId: string,
+): Promise<WeeklyReportRecord | undefined> {
+  if (hasPostgresConnection()) {
+    return postgresStore.getWeeklyReportById(userId, reportId);
+  }
+
+  const reports = await ensureLoaded();
+  const found = reports.find((entry) => entry.userId === userId && entry.id === reportId);
+  return found ? clone(found) : undefined;
 }
 
 export async function getLatestWeeklyReport(userId: string): Promise<WeeklyReportRecord | undefined> {
-  const reports = await listWeeklyReports(userId);
+  const reports = await listWeeklyReports(userId, { limit: 1, offset: 0 });
   return reports[0];
 }
 

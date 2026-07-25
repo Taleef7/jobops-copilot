@@ -16,8 +16,11 @@ class _FakeModel:
     def __init__(self, captured):
         self._captured = captured
 
-    async def astream(self, messages):
+    async def astream(self, messages, config=None):
         self._captured["messages"] = messages
+        # The chat turn is traced like every other LLM call (#200); capture the config
+        # so a regression that drops tracing shows up here.
+        self._captured["config"] = config
         for text in ["Hello", ", world"]:
             yield _Chunk(text)
 

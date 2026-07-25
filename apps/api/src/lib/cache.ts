@@ -8,6 +8,16 @@
  * Degrades safely: a non-positive `ttlMs` disables caching (every lookup misses),
  * and a failed `getOrCompute` is never cached so the next call retries.
  */
+/**
+ * The cache seam the job-search path depends on. Both the in-memory `TtlCache`
+ * and the Postgres-backed `PostgresTtlCache` satisfy it, so the store is a config
+ * choice (`JOB_SEARCH_CACHE_STORE`) rather than a code change.
+ */
+export interface AsyncTtlCache<T> {
+  getOrCompute(key: string, compute: () => Promise<T>): Promise<T>;
+  clear(): Promise<void> | void;
+}
+
 export interface TtlCacheOptions {
   /** Entry lifetime in ms. `<= 0` disables caching entirely. */
   ttlMs: number;
@@ -22,7 +32,7 @@ interface Entry<T> {
   expires: number;
 }
 
-export class TtlCache<T> {
+export class TtlCache<T> implements AsyncTtlCache<T> {
   private readonly store = new Map<string, Entry<T>>();
   private readonly ttlMs: number;
   private readonly maxEntries: number;

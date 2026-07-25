@@ -92,3 +92,49 @@ test('persists generated weekly reports and exposes them through the reports API
     await rm(tempDir, { recursive: true, force: true });
   }
 });
+
+test('reports list paginates via ?limit and reports the unpaginated total header', async () => {
+  const originalCwd = process.cwd();
+  const tempDir = await mkdtemp(join(tmpdir(), 'jobops-weekly-report-page-'));
+
+  try {
+    process.chdir(tempDir);
+    resetWeeklyReportStoreForTests();
+
+    await withServer(async (baseUrl) => {
+      // Generate two reports in distinct weeks.
+      for (const [start, end] of [
+        ['2026-05-11', '2026-05-17'],
+        ['2026-05-18', '2026-05-24'],
+      ]) {
+        const res = await fetch(`${baseUrl}/api/ai/generate-weekly-report`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ week_start: start, week_end: end }),
+        });
+        assert.equal(res.status, 200);
+      }
+
+      // Full list: both, and the total header reflects the unpaginated count.
+      const full = await fetch(`${baseUrl}/api/reports`);
+      assert.equal(full.headers.get('X-Total-Count'), '2');
+      assert.equal(((await full.json()) as { reports: unknown[] }).reports.length, 2);
+
+      // Paginated: one item, but the total header still says 2.
+      const paged = await fetch(`${baseUrl}/api/reports?limit=1`);
+      assert.equal(paged.headers.get('X-Total-Count'), '2');
+      const pagedBody = (await paged.json()) as { reports: Array<{ id: string }> };
+      assert.equal(pagedBody.reports.length, 1);
+
+      // The export uses a targeted lookup: a real id succeeds, a bogus one 404s
+      // (previously it scanned the whole list).
+      const exportOk = await fetch(`${baseUrl}/api/reports/${pagedBody.reports[0]!.id}/export`);
+      assert.equal(exportOk.status, 200);
+      const exportMissing = await fetch(`${baseUrl}/api/reports/does-not-exist/export`);
+      assert.equal(exportMissing.status, 404);
+    });
+  } finally {
+    process.chdir(originalCwd);
+    await rm(tempDir, { recursive: true, force: true });
+  }
+});
