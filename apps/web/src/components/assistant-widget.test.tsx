@@ -137,6 +137,23 @@ it('exposes completed replies in a polite log region, not token-by-token', async
   expect(log).toHaveAttribute('aria-relevant', 'additions');
 });
 
+it('signals in-flight state on the send button, not on the live log', async () => {
+  // A pending stream (no onDone): busy stays true. aria-busy on the log would
+  // defer its announcements, so the signal must live on the button instead.
+  streamAssistantChat.mockImplementation(async ({ onToken }) => {
+    onToken('thinking');
+  });
+
+  render(<AssistantWidget />);
+  await userEvent.click(screen.getByRole('button', { name: /open assistant/i }));
+  await userEvent.type(screen.getByLabelText(/message the assistant/i), 'hi');
+  await userEvent.click(screen.getByRole('button', { name: /^send$/i }));
+
+  const send = screen.getByRole('button', { name: /^send$/i });
+  expect(send).toHaveAttribute('aria-busy', 'true');
+  expect(screen.getByRole('log')).not.toHaveAttribute('aria-busy');
+});
+
 it('surfaces a stream error as an assertive alert with a retry action', async () => {
   streamAssistantChat.mockImplementation(async ({ onError }) => {
     onError('Network blip');

@@ -221,15 +221,10 @@ export function AssistantWidget() {
 
             {/* Completed turns are a polite log: each finished message is announced
                 once (aria-relevant="additions"). Tokens stream into the separate,
-                aria-hidden bubble below so a screen reader isn't spammed per token;
-                aria-busy signals a reply is in flight. */}
-            <div
-              role="log"
-              aria-live="polite"
-              aria-relevant="additions"
-              aria-busy={busy}
-              className="space-y-3"
-            >
+                aria-hidden bubble below so a screen reader isn't spammed per token.
+                No aria-busy here — it would defer the log's announcements; the
+                "in flight" state lives on the Send button instead. */}
+            <div role="log" aria-live="polite" aria-relevant="additions" className="space-y-3">
               {messages.map((message, index) => (
                 <div
                   key={index}
@@ -300,7 +295,13 @@ export function AssistantWidget() {
               aria-label="Message the assistant"
               autoFocus
             />
-            <Button type="submit" size="icon" disabled={busy || !input.trim()} aria-label="Send">
+            <Button
+              type="submit"
+              size="icon"
+              disabled={busy || !input.trim()}
+              aria-busy={busy}
+              aria-label="Send"
+            >
               {busy ? <Loader2 className="size-4 animate-spin" /> : <Send className="size-4" />}
             </Button>
           </form>

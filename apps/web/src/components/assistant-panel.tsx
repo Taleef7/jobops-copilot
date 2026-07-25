@@ -148,14 +148,10 @@ export function AssistantPanel() {
       {steps.length > 0 && (
         <>
           {/* Each step is appended as the run streams; a polite log announces the
-              additions so a screen-reader user hears progress, not just sighted ones. */}
-          <ol
-            className="space-y-1 text-sm"
-            role="log"
-            aria-live="polite"
-            aria-relevant="additions"
-            aria-busy={running}
-          >
+              additions so a screen-reader user hears progress, not just sighted ones.
+              No aria-busy here: it would defer these incremental announcements until
+              the run ends. The "working" state lives on the Run button instead. */}
+          <ol className="space-y-1 text-sm" role="log" aria-live="polite" aria-relevant="additions">
             {steps.map((step, i) => (
               <li key={i} className="text-muted-foreground flex items-center gap-2">
                 {step.node === 'pass' || step.node === 'below_fit_bar' ? (
