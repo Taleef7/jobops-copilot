@@ -246,6 +246,7 @@ export function createN8nRouter(dependencies: N8nDependencies = defaultDependenc
             descriptionText: createdJob.descriptionText,
             resumeText: validation.normalized.resumeText,
             profileText: validation.normalized.profileText,
+            title: parsed.title,
             requiredSkills: parsed.required_skills,
             preferredSkills: parsed.preferred_skills,
             atsKeywords: [...parsed.required_skills, ...parsed.preferred_skills],

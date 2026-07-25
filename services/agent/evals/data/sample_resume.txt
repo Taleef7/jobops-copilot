@@ -1,11 +1,13 @@
 Alex Rivera
 AI / Full-Stack Software Engineer
+alex.rivera@example.com | github.com/alexrivera-dev | Remote (US)
 
 SUMMARY
 Software engineer with ~3 years of experience building AI-powered web applications
 end to end. Comfortable across the stack: Python services, TypeScript front ends, and
 LLM/RAG features shipped to production on Azure. Strong on API design, retrieval-
 augmented generation, and pragmatic LLMOps (tracing, evals, graceful degradation).
+Enjoys owning a feature from schema design through deployment and measurement.
 
 SKILLS
 Languages: Python, TypeScript, JavaScript, SQL
@@ -14,8 +16,10 @@ AI / LLM: LangChain, large language models (LLMs), retrieval-augmented generatio
   prompt engineering, structured output, embeddings, vector search
 Frontend: React, Next.js, Tailwind CSS
 Cloud / DevOps: Microsoft Azure (App Service, Functions), Docker, GitHub Actions CI/CD, Git
+Testing / Quality: pytest, Vitest, Playwright, Ragas, Langfuse tracing
 
 EXPERIENCE
+
 AI Engineer (Contract) — Independent, 2023–Present
 - Built a multi-service job-search copilot: Express + TypeScript API, a Python FastAPI
   agent (LangChain), and a Next.js/React web app, deployed on Azure with CI/CD.
@@ -23,10 +27,50 @@ AI Engineer (Contract) — Independent, 2023–Present
   Langfuse tracing plus a Ragas/pytest eval harness for the LLM features.
 - Designed graceful degradation so the app runs with no provider key, no vector DB,
   and no external job API.
+- Added hybrid retrieval combining pgvector dense search with PostgreSQL full-text
+  search, fusing both rankings so lexical and semantic matches contribute.
+- Designed the PostgreSQL schema and migrations for multi-tenant data, scoping every
+  query by user so one tenant's records can never appear in another's results.
+- Built structured-output extraction with LangChain so the model returns validated
+  JSON instead of free text, cutting downstream parsing failures.
+- Instrumented the agent with request tracing and per-feature evaluation runs, using
+  the numbers to decide which prompt and retrieval changes were worth keeping.
+- Wrote the GitHub Actions pipelines that lint, type-check, test, and deploy each
+  service independently, with Docker images for the Python agent.
 
 Software Engineer — Early-career roles, 2021–2023
 - Developed Python backend services and REST APIs against SQL databases.
 - Shipped React/TypeScript front ends and automated builds/tests with Git and CI.
+- Modeled relational schemas in PostgreSQL and tuned the queries behind the slowest
+  endpoints, adding indexes where reads dominated.
+- Wrote integration tests around the REST layer and raised coverage on the payment
+  and notification paths that failed most often in production.
+- Collaborated with designers to turn mockups into responsive React components.
+
+PROJECTS
+
+JobOps Copilot — AI job-search assistant
+End-to-end application pairing a TypeScript API with a Python agent service. Parses job
+descriptions into structured fields, scores candidate fit against a resume with retrieved
+evidence, and drafts outreach messages. Includes prompt-injection guards, a daily spend
+budget, and an evaluation suite gating quality in CI.
+
+Resume Evidence Search — retrieval prototype
+Small FastAPI service exploring chunking and embedding strategies for resume text. Compared
+chunk sizes and overlap settings against a hand-labeled question set, using vector search
+over pgvector to find which configuration retrieved the most relevant passages.
+
+Prompt Regression Harness — internal tooling
+Python tool that replays a fixed set of prompts against a model and diffs the structured
+output between runs, making unintended prompt changes visible before release. Reports
+results as JSON and Markdown for review in pull requests.
 
 EDUCATION
 B.S. in Computer Science.
+Relevant coursework: data structures, algorithms, databases, operating systems,
+software engineering, web development.
+
+ADDITIONAL
+- Maintains small open-source utilities in Python and TypeScript.
+- Writes occasional technical posts on RAG evaluation and LLM observability.
+- Comfortable working remotely across time zones and communicating in writing.

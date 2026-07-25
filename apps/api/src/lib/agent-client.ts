@@ -202,6 +202,9 @@ export interface ScoreFitInput {
   descriptionText: string;
   resumeText: string;
   profileText: string;
+  /** Parsed role title. The agent distills its RAG query from title + skills, so
+   *  dropping it makes a role with only generic parsed skills retrieve on those alone. */
+  title?: string | null;
   requiredSkills?: string[];
   preferredSkills?: string[];
   atsKeywords?: string[];
@@ -248,6 +251,7 @@ export async function resolveFitScore(input: ScoreFitInput): Promise<FitScoreOut
             description_text: input.descriptionText,
             resume_text: input.resumeText,
             profile_text: input.profileText,
+            title: input.title,
             required_skills: input.requiredSkills,
             preferred_skills: input.preferredSkills,
             ats_keywords: input.atsKeywords,

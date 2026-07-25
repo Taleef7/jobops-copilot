@@ -6,11 +6,15 @@ model is told to ground its matched skills and summary in those snippets.
 
 from __future__ import annotations
 
+import logging
+
 from app.llm.provider import get_model
 from app.prompts import FIT_SCORER_SYSTEM
 from app.safety.injection import annotate_trace, guard_job_description, injection_refused
 from app.safety.pii import maybe_redact
 from app.schemas import FitScoreLLM, FitScoreResponse, ScoreFitRequest
+
+logger = logging.getLogger("jobops.agent.score_fit")
 
 
 def score_fit(req: ScoreFitRequest, config: dict | None = None) -> FitScoreResponse:
@@ -47,5 +51,27 @@ def score_fit(req: ScoreFitRequest, config: dict | None = None) -> FitScoreRespo
         )
 
     messages = [("system", FIT_SCORER_SYSTEM), ("human", "\n\n".join(parts))]
-    result = structured.invoke(messages, config=config or None)
-    return FitScoreResponse(**result.model_dump(), model_used=label)
+    try:
+        result = structured.invoke(messages, config=config or None)
+    except Exception:  # noqa: BLE001 - one bounded retry, then let it surface
+        # Structured output is a single sampled generation: a malformed tool call is
+        # usually transient. Retry exactly once -- an unbounded loop against a model
+        # that cannot satisfy the schema would burn budget and stall the request.
+        logger.warning("score-fit structured output failed; retrying once", exc_info=True)
+        result = structured.invoke(messages, config=config or None)
+
+    payload = result.model_dump() if hasattr(result, "model_dump") else dict(result)
+    # Clamp rather than reject: a model that answers 105 has expressed a clear intent,
+    # and failing the request over it would be a worse answer than 100.
+    payload["fit_score"] = _clamp(payload.get("fit_score"))
+    payload["confidence_score"] = _clamp(payload.get("confidence_score"), default=50)
+    return FitScoreResponse(**payload, model_used=label)
+
+
+def _clamp(value: object, default: int = 0, low: int = 0, high: int = 100) -> int:
+    """Coerce to an int inside ``[low, high]``; ``default`` when unusable."""
+    try:
+        number = int(value)  # type: ignore[arg-type]
+    except (TypeError, ValueError):
+        return default
+    return max(low, min(high, number))

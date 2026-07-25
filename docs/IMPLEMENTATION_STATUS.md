@@ -17,10 +17,16 @@ intelligence.
 
 ## Security & audit remediation
 
-A 2026-07 full-stack security + engineering audit (overall grade **B**) is being remediated in
-phases. Phase 1 — fail-closed auth (API + agent), the Next.js middleware-CVE patch, an
-API crash guard, and three resilience fixes — is merged. The running journal, per-finding PR
-log, and behavioral notes live in [AUDIT_REMEDIATION.md](AUDIT_REMEDIATION.md) (epic #152).
+A 2026-07 full-stack security + engineering audit (overall grade **B**) was remediated in
+four phases, **all merged (2026-07-25)**: fail-closed auth (API + agent), the Next.js
+middleware-CVE patch, and crash/resilience guards (P1); cross-tenant RAG scoping, full-suite
+CI gating, real-DB tenancy tests, and SHA-pinned Actions + `npm`/`pip` audit gates (P2); the
+eval-integrity correction that withdrew the inflated faithfulness claim and produced the
+project's first demonstrated hybrid-retrieval win (P3); and the polish/scale work — assistant
+a11y + route boundaries, a `what-if`-verified faithful Bicep reconcile, a pinned + lock-audited
+agent image, list pagination, and an opt-in Postgres-backed rate-limiter/cache for scale-out
+(P4). The running journal, per-finding PR log, and behavioral notes live in
+[AUDIT_REMEDIATION.md](AUDIT_REMEDIATION.md) (epic #152).
 
 ## Verified Milestones
 
@@ -57,9 +63,19 @@ log, and behavioral notes live in [AUDIT_REMEDIATION.md](AUDIT_REMEDIATION.md) (
   bridge, #65); agent-as-MCP-client consuming external tools (#66).
 - **Phase 4 — hybrid retrieval, reranker & eval (epic #70):** hybrid retrieval (pgvector +
   Postgres FTS via RRF, #67); CPU cross-encoder reranker (opt-in, graceful, #68); retrieval-mode
-  eval with the per-mode comparison committed to `EVALS.md` (#69). Measured: retrieval grounding
-  ≈3× faithfulness; hybrid/rerank within judge variance vs vector on the 16-row gold set.
-  Fine-tuning dropped (CPU-only infra).
+  eval with the per-mode comparison committed to `EVALS.md` (#69). Fine-tuning dropped
+  (CPU-only infra). **Numbers withdrawn and re-measured twice — see `EVALS.md` for the audit
+  trail.** The original "≈3× faithfulness" was a judge-visibility artifact (#197: the sweep fed
+  the resume to the generator in every arm). The first re-measurement was still invalid (#198:
+  the gold resume chunked into 4 pieces at `k=4`, so retrieval selected nothing) and the
+  lexical side of "hybrid" matched 0/16 JDs, making hybrid byte-identical to vector.
+  **Current measurement** (9-chunk resume, `k=4`, parsed title+skills as the query, lexical
+  firing 16/16): **hybrid beats dense-only** — 5 replicates each, `hybrid` 0.821
+  (0.800–0.848) vs `vector` 0.716 (0.706–0.733) Spearman, non-overlapping ranges. The first
+  retrieval improvement the project has been able to demonstrate, and only measurable once the
+  lexical side was revived. Retrieval also *outranks the whole resume* (`full-resume` 0.612):
+  extra context dilutes the fit signal. Both gains are ranking-specific — faithfulness leans
+  the other way and is unresolved. Resume-blind collapses to 0.233.
 - **Phase 5 — operational hardening (epic #76):** job-search TTL cache + the API `node:test`
   suite wired into CI (#77); Bicep IaC of the live Azure topology, CI-validated + `what-if`-verified
   (#78); k6 load test verified against the live API (#79); Playwright e2e verified locally and
@@ -82,7 +98,9 @@ log, and behavioral notes live in [AUDIT_REMEDIATION.md](AUDIT_REMEDIATION.md) (
 - **Phase 6 — profile on Clerk (#123):** migration `009_drop_display_name.sql`; identity via
   `currentUser()`, `profile_text` grounding kept.
 - Plus cleanup PR #140 (the structured assistant stream returns 503, not 500, when the agent is
-  disabled). Two owner-gated deploy follow-ups (#141, #142) remain — see "What Is Still Pending".
+  disabled). The two owner-gated deploy follow-ups are **done and closed**: #141 (activate the
+  agent revision serving `/assistant/chat` + apply migration 009 in prod) and #142 (assistant
+  cold-start resilience for the scale-to-zero agent).
 
 ## What Is Live Now
 
@@ -140,9 +158,15 @@ log, and behavioral notes live in [AUDIT_REMEDIATION.md](AUDIT_REMEDIATION.md) (
   operational hardening; epics #43/#51/#61/#70/#76) all landed and were verified end to end.
 - The **product overhaul** (epic #124) is **complete** — all six phases (#118–#123) plus cleanup
   PR #140 merged to `main` on 2026-06-25.
-- **Product-overhaul deploy follow-ups** (owner-gated, the only items not done): **#141** — activate
-  the agent Container App revision that includes `/assistant/chat` and apply migration `009` to the
-  prod DB; **#142** — cold-start resilience for the streaming endpoints on the scale-to-zero agent.
+- **Product-overhaul deploy follow-ups are done** — **#141** (activated the agent Container App
+  revision serving `/assistant/chat` and applied migration `009` to the prod DB) and **#142**
+  (cold-start resilience for the streaming endpoints on the scale-to-zero agent) are both closed.
+- **Audit remediation (epic #152) is complete** — all four phases merged (2026-07-25):
+  fail-closed auth + crash/resilience (P1), tenancy/gating + supply-chain (P2), eval-integrity
+  + hybrid-retrieval win (P3), and the polish/scale work (P4: assistant a11y + boundaries,
+  faithful Bicep reconcile, pinned + lock-audited agent image, list pagination, and the
+  opt-in Postgres-backed rate-limiter/cache for scale-out). See
+  [AUDIT_REMEDIATION.md](AUDIT_REMEDIATION.md).
 - **Owner-gated optional follow-ups** (by design, not gaps; see `docs/ROADMAP.md`): applying the
   Bicep to a live/greenfield RG, running k6 in CI, and activating the gated e2e CI job (needs
   Clerk repo secrets). Fine-tuning and a larger retrieval gold set remain deferred.

@@ -70,6 +70,34 @@ Point the Node API at it:
 AGENT_SERVICE_URL=http://127.0.0.1:8000
 ```
 
+## Docker image (reproducible build — #168)
+
+The production image (`Dockerfile`) is **reproducible**: the base is pinned by digest,
+`torch` is pinned to the CPU wheel (`torch==2.13.0+cpu`), and `constraints.txt` — a full
+`pip freeze` of the resolved graph — is applied with `pip install -c` so every rebuild
+yields the identical dependency set. The ranged `requirements*.txt` stay loose for local
+dev (above); `constraints.txt` is used **only** in the Docker build.
+
+```bash
+docker build -t jobops-agent:local services/agent
+docker run --rm -p 8000:8000 jobops-agent:local    # GET /health → {"status":"ok",...}
+```
+
+After a deliberate dependency bump, regenerate the pins. Resolve the **ranged** requirements
+**unconstrained** (building the image applies `constraints.txt`, so it would just lock the
+old pins back in), then freeze:
+
+```bash
+docker run --rm -v "$PWD/services/agent:/a" -w /a python:3.12-slim sh -c \
+  'pip install -q -r requirements.txt \
+   && pip install -q --index-url https://download.pytorch.org/whl/cpu torch \
+   && pip install -q -r requirements-rag.txt \
+   && pip install -q --upgrade setuptools && pip freeze' \
+  > services/agent/constraints.txt
+# then re-add the header and update the torch/setuptools pins in the Dockerfile.
+# refresh the base digest: docker pull python:3.12-slim && docker inspect --format '{{index .RepoDigests 0}}' python:3.12-slim
+```
+
 ## Tests & lint
 
 ```bash

@@ -10,12 +10,14 @@ from __future__ import annotations
 import hashlib
 import logging
 import uuid
+from collections.abc import Sequence
 
 from app.config import settings
 from app.obs import traced_span
 from app.rag.chunk import chunk_text
 from app.rag.embeddings import embed_query, embed_texts
 from app.rag.fusion import reciprocal_rank_fusion
+from app.rag.query import build_lexical_tsquery, distill_query, terms_for
 
 logger = logging.getLogger("jobops.agent.rag")
 
@@ -39,20 +41,70 @@ def _vector_literal(vector: list[float]) -> str:
     return "[" + ",".join(f"{value:.6f}" for value in vector) + "]"
 
 
+def _stored_chunk_texts(source_type: str, source_id: str, user_id: str | None) -> list[str]:
+    """Chunk texts already stored for this document, in order, scoped to its tenant.
+
+    Returns the *text* rather than a count because ``source_id`` is only a content hash
+    for resumes (``resume_source_id``). ``/rag/ingest`` accepts a **caller-supplied**
+    ``source_id``, so a caller can update a document's text under the same id; a
+    count-only check would then skip the write whenever the new text happened to produce
+    the same number of chunks, serving the old content indefinitely.
+
+    The tenant predicate is not optional either: two users can hold the same resume, and
+    counting across tenants would make the second user skip ingest and then retrieve
+    nothing (their own rows never having been written).
+
+    Returns ``[]`` on any error, so a failed check degrades to re-indexing, never to
+    skipping.
+    """
+    try:
+        with _connect() as conn, conn.cursor() as cur:
+            cur.execute(
+                "select chunk_text from embeddings "
+                "where source_type = %s and source_id = %s and user_id is not distinct from %s "
+                "order by chunk_index",
+                (source_type, source_id, user_id),
+            )
+            return [row[0] for row in cur.fetchall()]
+    except Exception:  # noqa: BLE001 - a failed check must not block ingest
+        logger.warning("could not read existing chunks; re-indexing", exc_info=True)
+        return []
+
+
 def ingest_document(
     source_type: str,
     source_id: str,
     text: str,
     user_id: str | None = None,
+    force: bool = False,
 ) -> int:
     """Chunk, embed, and upsert a document's embeddings. Returns chunk count.
 
     Embeddings are scoped to ``user_id`` so one user's resume can never ground
     another user's retrieval.
+
+    Idempotent by content: when the stored chunks for this
+    (``source_type``, ``source_id``, ``user_id``) are **exactly** the chunks we would
+    write, the work is skipped -- ``retrieve_resume_evidence`` calls this on every
+    score-fit request, so the naive path burned a full sentence-transformers pass plus a
+    delete/insert cycle per request for a guaranteed no-op (#199).
+
+    The comparison is on chunk text, not a count. ``/rag/ingest`` accepts a
+    caller-supplied ``source_id``, so a document can be *updated* under the same id; a
+    count-only check would silently keep serving the old content whenever the new text
+    produced the same number of chunks. Any difference -- edited text, a partial write,
+    reordering -- re-indexes.
+
+    ``force=True`` re-indexes even when the text matches; needed after an embedding-model
+    change, where the stored text is identical but its vectors are stale.
     """
     chunks = chunk_text(text)
     if not chunks:
         return 0
+
+    if not force and _stored_chunk_texts(source_type, source_id, user_id) == chunks:
+        logger.debug("ingest skipped; %s/%s already indexed", source_type, source_id)
+        return len(chunks)
 
     vectors = embed_texts(chunks)
     with _connect() as conn, conn.cursor() as cur:
@@ -97,6 +149,10 @@ def _lexical_candidates(
 ) -> list[tuple[str, str]]:
     """Top-``n`` (id, chunk_text) by full-text rank (the Postgres FTS lexical side).
 
+    ``query`` must already be ``websearch_to_tsquery`` syntax -- see
+    :func:`app.rag.query.build_lexical_tsquery`, which OR-joins quoted terms. Passing
+    free text here silently ANDs every word and matches nothing (#198).
+
     Raises if the ``chunk_tsv`` column is absent (caller falls back to dense). An
     all-stopword / unparseable query yields an *empty* tsquery that matches zero
     rows **without** raising -- that is expected, and RRF simply degrades to the
@@ -119,6 +175,7 @@ def retrieve(
     source_id: str | None = None,
     user_id: str | None = None,
     mode: str | None = None,
+    lexical_terms: Sequence[str] | None = None,
 ) -> list[str]:
     """Return the ``k`` chunk texts most relevant to ``query``.
 
@@ -126,6 +183,11 @@ def retrieve(
     cosine similarity only; ``"hybrid"`` pulls a candidate pool from the dense and
     lexical (FTS) sides and fuses them with Reciprocal Rank Fusion, falling back to
     vector-only if the lexical query fails (e.g. the ``chunk_tsv`` column is absent).
+
+    ``lexical_terms`` are the distinct terms the FTS side should match on; they are
+    OR-joined so a chunk covering *some* requirements can still rank. Defaults to the
+    whitespace-split ``query``. Callers with parsed skills should pass them explicitly
+    so multi-word skills survive as phrases (#198).
 
     When ``settings.rag_rerank_enabled`` is set, a larger pool is fetched and a CPU
     cross-encoder reranks it down to ``k`` (best-effort; pre-rerank order on failure).
@@ -160,7 +222,10 @@ def retrieve(
                 dense = _dense_candidates(cur, query_literal, pool, where_sql, params)
                 texts = {row[0]: row[1] for row in dense}
                 try:
-                    lexical = _lexical_candidates(cur, query, pool, where_sql, params)
+                    tsquery = build_lexical_tsquery(
+                        lexical_terms if lexical_terms is not None else query.split()
+                    )
+                    lexical = _lexical_candidates(cur, tsquery, pool, where_sql, params)
                     for row in lexical:
                         texts.setdefault(row[0], row[1])
                     fused = reciprocal_rank_fusion(
@@ -193,15 +258,32 @@ def retrieve_resume_evidence(
     job_description: str,
     k: int = 4,
     user_id: str | None = None,
+    required_skills: Sequence[str] | None = None,
+    preferred_skills: Sequence[str] | None = None,
+    title: str | None = None,
 ) -> list[str]:
     """Ingest the resume (idempotent) and retrieve the chunks most relevant to
     the job description. Returns [] and logs on any failure so callers can
-    proceed without RAG."""
+    proceed without RAG.
+
+    The job description is *distilled* into a short requirement-shaped query rather
+    than used raw: the raw JD both truncated the dense query and reduced the lexical
+    side to a conjunction matching nothing (#198). Pass the parsed skills when the
+    caller has them -- they are the signal retrieval actually wants.
+    """
     try:
         source_id = resume_source_id(resume_text)
         ingest_document("resume", source_id, resume_text, user_id=user_id)
+        terms = terms_for(job_description, required_skills, preferred_skills, title)
+        query = distill_query(job_description, required_skills, preferred_skills, title)
         return retrieve(
-            job_description, k=k, source_type="resume", source_id=source_id, user_id=user_id
+            # Fall back to the raw JD only if distillation found nothing at all.
+            query or job_description,
+            k=k,
+            source_type="resume",
+            source_id=source_id,
+            user_id=user_id,
+            lexical_terms=terms or None,
         )
     except Exception:  # noqa: BLE001 - RAG is best-effort augmentation
         logger.exception("resume RAG retrieval failed; continuing without evidence")
