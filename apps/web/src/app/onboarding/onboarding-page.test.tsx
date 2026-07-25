@@ -163,3 +163,24 @@ it('rejects a file over the 5 MB API limit and reports the actual size', () => {
   expect(alert).toHaveTextContent('6.0 MB');
   expect(alert).toHaveTextContent(/limit is 5 MB/i);
 });
+
+it('lets a user recover by pasting after a PDF upload fails', async () => {
+  // The failure message tells the user to switch to "Paste text". That advice
+  // was previously a dead end: `pendingFile` stayed set, so saveResume kept
+  // preferring uploadResumeFile and retried the same broken PDF forever.
+  uploadResumeFile.mockRejectedValueOnce(new Error('unparseable pdf'));
+  const user = userEvent.setup();
+  render(<OnboardingPage />);
+
+  dropFile(pdfFile('broken.pdf'));
+  await user.click(screen.getByRole('button', { name: /continue/i }));
+  expect(await screen.findByRole('alert')).toHaveTextContent(/paste text/i);
+
+  await user.click(screen.getByRole('tab', { name: /paste text/i }));
+  await user.type(screen.getByPlaceholderText(/paste your resume text/i), 'Ava Tester — AI engineer');
+  await user.click(screen.getByRole('button', { name: /continue/i }));
+
+  await waitFor(() => expect(saveResumeText).toHaveBeenCalledWith('Ava Tester — AI engineer'));
+  // and crucially: the broken file was not retried
+  expect(uploadResumeFile).toHaveBeenCalledTimes(1);
+});

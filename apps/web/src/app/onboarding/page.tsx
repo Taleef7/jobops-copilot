@@ -38,6 +38,11 @@ export default function OnboardingPage() {
   const [fileName, setFileName] = useState<string | null>(null);
   const [pendingFile, setPendingFile] = useState<File | null>(null);
   const [isDraggingOver, setIsDraggingOver] = useState(false);
+  // Which input the user is actually working in. Without this, a PDF that
+  // failed to upload stayed in `pendingFile` and kept winning over pasted
+  // text, so following the error's own advice ("switch to Paste text") just
+  // retried the same broken file.
+  const [inputMode, setInputMode] = useState<'upload' | 'paste'>('upload');
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -91,13 +96,19 @@ export default function OnboardingPage() {
   async function saveResume() {
     setSaving(true);
     setError(null);
+    // Submit whichever input the user is looking at, so a previously-chosen
+    // file can't silently override text typed on the other tab.
+    const usingFile = inputMode === 'upload' && pendingFile !== null;
     try {
-      if (pendingFile) {
+      if (usingFile) {
         await uploadResumeFile(pendingFile);
-      } else if (resumeText.trim()) {
+      } else if (inputMode === 'paste' && resumeText.trim()) {
         await saveResumeText(resumeText.trim());
       } else {
-        const message = 'Add your resume to continue — upload a PDF or paste the text.';
+        const message =
+          inputMode === 'upload'
+            ? 'Add your resume to continue — choose a PDF, or switch to “Paste text”.'
+            : 'Add your resume to continue — paste the text, or switch to “Upload PDF”.';
         setError(message);
         toast.error(message);
         return;
@@ -106,8 +117,8 @@ export default function OnboardingPage() {
     } catch {
       // Name the fallback explicitly: a PDF that fails to parse is the most
       // likely failure here, and without this the user has no way forward.
-      const message = pendingFile
-        ? "We couldn't read that PDF. Try another file, or paste the text instead."
+      const message = usingFile
+        ? "We couldn't read that PDF. Try another file, or switch to “Paste text”."
         : 'Could not save your resume. Please try again.';
       setError(message);
       toast.error(message);
@@ -208,7 +219,13 @@ export default function OnboardingPage() {
 
         {step === 1 ? (
           <CardContent className="space-y-5">
-            <Tabs defaultValue="upload">
+            <Tabs
+              value={inputMode}
+              onValueChange={(value) => {
+                setInputMode(value as 'upload' | 'paste');
+                setError(null);
+              }}
+            >
               <TabsList className="w-full">
                 <TabsTrigger value="upload" className="flex-1">
                   Upload PDF
