@@ -3,6 +3,7 @@ import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { expect, it } from 'vitest';
 import type { Job } from '@/types/job';
+import { chooseOption } from '@/test/select';
 import { JobsTable } from './jobs-table';
 
 function makeJob(overrides: Partial<Job>): Job {
@@ -62,7 +63,7 @@ it('reaches "No matching jobs" via the status filter, not only via search', asyn
   const user = userEvent.setup();
   render(<JobsTable jobs={[makeJob({ company: 'Northwind', status: 'discovered' })]} />);
 
-  await user.selectOptions(screen.getByRole('combobox', { name: /filter by status/i }), 'offer');
+  await chooseOption(user, /filter by status/i, /^offer$/i);
 
   expect(screen.getByText('No matching jobs')).toBeInTheDocument();
 });
