@@ -6,10 +6,16 @@
 #
 # torch is the CPU wheel (torch==...+cpu) from https://download.pytorch.org/whl/cpu.
 #
-# To regenerate after a deliberate dependency bump:
-#   docker build -t jobops-agent:freeze services/agent
-#   docker run --rm jobops-agent:freeze pip freeze > services/agent/constraints.txt
-#   (re-add this header)
+# To regenerate after a deliberate dependency bump, resolve the RANGED requirements
+# UNCONSTRAINED (building the image applies THIS file, which would just lock the old pins
+# back in), then freeze:
+#   docker run --rm -v "$PWD/services/agent:/a" -w /a \
+#     python:3.12-slim sh -c 'pip install -q -r requirements.txt \
+#       && pip install -q --index-url https://download.pytorch.org/whl/cpu torch \
+#       && pip install -q -r requirements-rag.txt \
+#       && pip install -q --upgrade setuptools && pip freeze' \
+#     > services/agent/constraints.txt
+#   then re-add this header and update the torch/setuptools pins in the Dockerfile.
 annotated-doc==0.0.4
 annotated-types==0.8.0
 anthropic==0.120.0
@@ -132,7 +138,7 @@ safetensors==0.8.0
 scikit-learn==1.9.0
 scipy==1.18.0
 sentence-transformers==5.6.1
-setuptools==78.1.0
+setuptools==83.0.0
 shellingham==1.5.4
 six==1.17.0
 sniffio==1.3.1
