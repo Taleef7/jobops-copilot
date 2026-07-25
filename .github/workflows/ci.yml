@@ -23,8 +23,9 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
+        # Node 22 only: undici 8 requires node >=22.19.0, and we deploy on the App
+        # Service NODE|22-lts runtime — testing Node 20 would test a version we can't run.
         node-version:
-          - 20.x
           - 22.x
 
     steps:
