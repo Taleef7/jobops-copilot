@@ -180,9 +180,9 @@ web e2e job** alongside the agent/MCP pytest. Phase 4's measured retrieval gains
 A subsequent **product overhaul** (epic #124, 6 phases, all merged) ships truthful
 live-data Reports/Dashboard with empty states, in-app job discovery on `/jobs`,
 add-job URL autofill, persistent AI agent outputs, the floating global assistant, and
-Clerk-sourced identity (migrations 008/009). The web + API changes are deployed; the
-live assistant **chat** and **migration 009** await a pending agent-revision
-activation and production migration (tracked in issue #141).
+Clerk-sourced identity (migrations 008/009). It is **fully deployed** — the live
+assistant **chat** serves from the activated agent revision and **migration 009** is
+applied in production (the ops follow-ups #141/#142 are closed).
 
 Phase 6 hosting and data layer are fully live and verified end to end: web, API,
 and the Python agent are deployed, and the cloud Postgres carries the complete

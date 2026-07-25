@@ -28,24 +28,24 @@ present) the API refuses to boot without `CLERK_SECRET_KEY`, the agent refuses t
 so nothing changes operationally — a future deploy that *loses* one now fails loudly instead of
 silently serving unauthenticated. Local dev and tests are unchanged.
 
-## Phase 2 — Close tenancy & gating holes 🚧 in progress
+## Phase 2 — Close tenancy & gating holes ✅ merged
 
 | Finding | Severity | Issue | PR |
 | --- | --- | --- | --- |
-| Cross-tenant RAG: `retrieve(user_id=None)` searched all tenants → scope to `IS NULL`; require `user_id` on `/rag/search` | High | [#161](https://github.com/Taleef7/jobops-copilot/issues/161) | _this PR_ |
-| Gate merges + deploys on the full CI suite | High | [#162](https://github.com/Taleef7/jobops-copilot/issues/162) | _pending_ |
-| Test the Postgres stores + tenancy SQL against a real DB in CI | Medium | [#163](https://github.com/Taleef7/jobops-copilot/issues/163) | _pending_ |
+| Cross-tenant RAG: `retrieve(user_id=None)` searched all tenants → scope to `IS NULL`; require `user_id` on `/rag/search` | High | [#161](https://github.com/Taleef7/jobops-copilot/issues/161) | [#165](https://github.com/Taleef7/jobops-copilot/pull/165) |
+| Gate merges + deploys on the full CI suite | High | [#162](https://github.com/Taleef7/jobops-copilot/issues/162) | [#166](https://github.com/Taleef7/jobops-copilot/pull/166) |
+| Test the Postgres stores + tenancy SQL against a real DB in CI | Medium | [#163](https://github.com/Taleef7/jobops-copilot/issues/163) | [#169](https://github.com/Taleef7/jobops-copilot/pull/169) |
 | Supply chain: SHA-pin Actions, add `npm`/`pip` audit gates | Medium | [#164](https://github.com/Taleef7/jobops-copilot/issues/164) | [#205](https://github.com/Taleef7/jobops-copilot/pull/205) |
 | Pin the agent Docker image for reproducible builds (base digest + `torch==…+cpu` + `constraints.txt`) | Medium | [#168](https://github.com/Taleef7/jobops-copilot/issues/168) | [#208](https://github.com/Taleef7/jobops-copilot/pull/208) |
 
-## Phase 3 — Make the flagship AI claims true 🚧 in progress
+## Phase 3 — Make the flagship AI claims true ✅ merged
 
 | Finding | Severity | Issue | PR |
 | --- | --- | --- | --- |
-| Eval sweep leaked the résumé to the generator → "~3× faithfulness" withdrawn | High | [#197](https://github.com/Taleef7/jobops-copilot/issues/197) | _this PR_ |
-| Retrieval query is the raw JD: lexical side never fires, dense query truncated | High | [#198](https://github.com/Taleef7/jobops-copilot/issues/198) | _this PR_ |
-| Skip re-embedding unchanged résumés; structured-output retry + clamp | Medium | [#199](https://github.com/Taleef7/jobops-copilot/issues/199) | _pending_ |
-| Trace assistant/chat paths; injection-guard `draft_outreach` | Medium | [#200](https://github.com/Taleef7/jobops-copilot/issues/200) | _pending_ |
+| Eval sweep leaked the résumé to the generator → "~3× faithfulness" withdrawn | High | [#197](https://github.com/Taleef7/jobops-copilot/issues/197) | [#201](https://github.com/Taleef7/jobops-copilot/pull/201) |
+| Retrieval query is the raw JD: lexical side never fires, dense query truncated | High | [#198](https://github.com/Taleef7/jobops-copilot/issues/198) | [#202](https://github.com/Taleef7/jobops-copilot/pull/202) |
+| Skip re-embedding unchanged résumés; structured-output retry + clamp | Medium | [#199](https://github.com/Taleef7/jobops-copilot/issues/199) | [#203](https://github.com/Taleef7/jobops-copilot/pull/203) |
+| Trace assistant/chat paths; injection-guard `draft_outreach` | Medium | [#200](https://github.com/Taleef7/jobops-copilot/issues/200) | [#204](https://github.com/Taleef7/jobops-copilot/pull/204) |
 
 ### What the eval correction found
 
@@ -102,7 +102,17 @@ profile deliberately unchanged — most gold rationales turn on specific technol
   value landed outside five replicates of the same configuration — five replicates bound
   nothing; they estimate.
 
-## Phase 4 — Polish & harden for scale 📋 planned
+## Phase 4 — Polish & harden for scale 🚧 in progress
 
-Assistant a11y/stream fixes; loading/error boundaries; pagination + externalized limiter/cache;
-reconcile the Bicep with live reality; refresh remaining stale docs.
+| Finding | Severity | PR |
+| --- | --- | --- |
+| Assistant a11y/stream fixes (streaming live-region anti-pattern), loading/error boundaries, skip link | High | [#206](https://github.com/Taleef7/jobops-copilot/pull/206) |
+| Reconcile the Bicep with live reality — faithful model, `what-if` verified (0 deletions) | Medium | [#207](https://github.com/Taleef7/jobops-copilot/pull/207) |
+| Pagination + list projections; externalize the limiter/cache before scale-out | Medium | _pending_ |
+| Refresh stale docs (this journal; README/IMPLEMENTATION_STATUS understate live assistant chat + migration 009) | Medium | _this PR_ |
+
+> **Note on the "supply chain" row.** SHA-pinning Actions + the `npm`/`pip` audit gates
+> ([#164](https://github.com/Taleef7/jobops-copilot/pull/205)) and pinning the agent image
+> ([#168](https://github.com/Taleef7/jobops-copilot/pull/208)) landed under Phase 2's table
+> above but completed during Phase 4 — the CI now also audits the pinned image lock, not
+> just the ranged requirements.
