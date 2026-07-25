@@ -10,7 +10,9 @@
  */
 
 import type { Request } from 'express';
-import rateLimit, { ipKeyGenerator } from 'express-rate-limit';
+import rateLimit, { ipKeyGenerator, type Store } from 'express-rate-limit';
+import { getPool } from './postgres';
+import { PostgresRateLimitStore } from './rate-limit-store.postgres';
 
 const windowMs = Number(process.env.RATE_LIMIT_WINDOW_MS ?? 60_000);
 const globalMax = Number(process.env.RATE_LIMIT_MAX ?? 120);
@@ -21,8 +23,28 @@ export function keyForRequest(request: Pick<Request, 'userId' | 'ip'>): string {
   return request.userId ?? ipKeyGenerator(request.ip ?? '0.0.0.0', 56);
 }
 
-/** Build a limiter with an explicit per-window request `limit`. */
-export function createRateLimiter(limit: number) {
+/**
+ * Pick the counter store. `RATE_LIMIT_STORE=postgres` (with a live pool) shares the
+ * counter across instances so the limit holds under scale-out; otherwise we fall back
+ * to express-rate-limit's per-process MemoryStore (correct for a single instance, and
+ * a safe fail-open if the flag is set but the DB is unavailable). `prefix` namespaces
+ * each limiter's keys in the shared table.
+ */
+function makeStore(prefix: string): Store | undefined {
+  if (process.env.RATE_LIMIT_STORE === 'postgres') {
+    const pool = getPool();
+    if (pool) {
+      const store = new PostgresRateLimitStore(pool);
+      store.prefix = prefix;
+      return store;
+    }
+  }
+  return undefined; // default MemoryStore
+}
+
+/** Build a limiter with an explicit per-window request `limit` and a store namespace. */
+export function createRateLimiter(limit: number, namespace: string) {
+  const store = makeStore(`${namespace}:`);
   return rateLimit({
     windowMs,
     limit,
@@ -30,9 +52,10 @@ export function createRateLimiter(limit: number) {
     legacyHeaders: false,
     keyGenerator: (request: Request) => keyForRequest(request),
     message: { error: 'Too many requests, slow down.' },
+    ...(store ? { store } : {}),
   });
 }
 
 /** Lenient limiter for all routes; strict limiter for the expensive AI/discovery routes. */
-export const globalLimiter = createRateLimiter(globalMax);
-export const strictLimiter = createRateLimiter(aiMax);
+export const globalLimiter = createRateLimiter(globalMax, 'global');
+export const strictLimiter = createRateLimiter(aiMax, 'strict');
