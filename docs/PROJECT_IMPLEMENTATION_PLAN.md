@@ -878,8 +878,9 @@ The system must not:
 > since shipped two follow-on initiatives — the production-grade AI program (epics #43 → #51 → #61 →
 > #70 → #76) and the **product overhaul** (epic #124: truthful data, JobRight-style jobs feed,
 > add-job URL autofill, persistent agent outputs, global assistant widget, Clerk-consolidated
-> profile; all six phases #118–#123 merged). The only remaining items are two owner-gated deploy
-> follow-ups (#141, #142). See `docs/ROADMAP.md` and `docs/IMPLEMENTATION_STATUS.md` for the live
+> profile; all six phases #118–#123 merged). Its two owner-gated deploy follow-ups (#141, #142)
+> are now done. The active workstream is the 2026-07 audit-remediation program (epic #152). See
+> `docs/ROADMAP.md`, `docs/IMPLEMENTATION_STATUS.md`, and `docs/AUDIT_REMEDIATION.md` for the live
 > status of record.
 
 ## Phase 0: Project Foundation

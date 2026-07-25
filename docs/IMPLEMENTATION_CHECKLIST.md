@@ -8,8 +8,8 @@ Phase 7 (Zapier/Make companion flows) is now complete as well — both flows are
 built, tested, and live, with screenshots captured.
 
 The **product overhaul** (epic #124) is also complete — all six phases (#118–#123)
-plus cleanup PR #140 merged to `main` on 2026-06-25. Two owner-gated deploy
-follow-ups (#141, #142) remain; see the bottom of this file.
+plus cleanup PR #140 merged to `main` on 2026-06-25. The two owner-gated deploy
+follow-ups (#141, #142) are now done; see the bottom of this file.
 
 ## Phase 4: n8n Integration
 
@@ -104,7 +104,7 @@ follow-ups (#141, #142) remain; see the bottom of this file.
 
 - [x] PR #140: structured assistant stream returns 503 (not 500) when the agent is disabled.
 
-### Open follow-ups (owner-gated, not done)
+### Deploy follow-ups (done, closed)
 
-- [ ] #141: activate the agent Container App revision that includes `/assistant/chat` and apply migration `009` to the prod DB.
-- [ ] #142: cold-start resilience for the streaming endpoints on the scale-to-zero agent.
+- [x] #141: activated the agent Container App revision that includes `/assistant/chat` and applied migration `009` to the prod DB.
+- [x] #142: cold-start resilience for the streaming endpoints on the scale-to-zero agent.
