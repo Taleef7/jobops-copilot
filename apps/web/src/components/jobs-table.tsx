@@ -118,7 +118,11 @@ export function JobsTable({ jobs, initialQuery = '' }: { jobs: Job[]; initialQue
             value={status}
             onValueChange={setStatus}
             options={statusOptions}
-            className="w-auto min-w-36"
+            // The popup takes the trigger's width, and each item reserves 32px
+            // on the right for the selected-check. At 9rem the longest label
+            // ("Referral requested") ran under that check. Sized for the
+            // longest option instead.
+            className="w-auto min-w-46"
           />
           <OptionSelect
             aria-label="Filter by priority"
