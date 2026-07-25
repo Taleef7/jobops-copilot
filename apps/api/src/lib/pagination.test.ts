@@ -23,6 +23,12 @@ test('non-positive or malformed values fall back to defaults, never throw', () =
   assert.equal(parsePageParams({ offset: 'nope' }).offset, 0);
 });
 
+test('integer-valued floats beyond the safe range are rejected (no bigint OFFSET overflow)', () => {
+  // Number.isInteger(1e100) is true, but binding it to a Postgres OFFSET overflows.
+  assert.equal(parsePageParams({ offset: '1e100' }).offset, 0);
+  assert.equal(parsePageParams({ limit: '1e100' }).limit, undefined);
+});
+
 test('repeated query params (arrays) take the first value', () => {
   assert.equal(parsePageParams({ limit: ['5', '9'] }).limit, 5);
 });

@@ -38,7 +38,8 @@ async function handler(request: NextRequest, context: { params: Promise<{ path: 
   });
 
   const responseHeaders = new Headers();
-  for (const key of ['content-type', 'content-disposition']) {
+  // x-total-count carries the unpaginated list total so the client can page.
+  for (const key of ['content-type', 'content-disposition', 'x-total-count']) {
     const value = upstream.headers.get(key);
     if (value) responseHeaders.set(key, value);
   }

@@ -67,8 +67,10 @@ export async function listWeeklyReports(
   const pool = poolOrThrow();
 
   const params: unknown[] = [userId];
+  // `id` is the final tie-breaker so LIMIT/OFFSET pages are stable when rows share
+  // a created_at / week range (otherwise a client can see duplicates or miss a row).
   let sql =
-    'select * from weekly_reports where user_id = $1 order by created_at desc, week_end desc, week_start desc';
+    'select * from weekly_reports where user_id = $1 order by created_at desc, week_end desc, week_start desc, id desc';
   if (page?.limit !== undefined) {
     params.push(page.limit);
     sql += ` limit $${params.length}`;
@@ -97,8 +99,10 @@ export async function getWeeklyReportById(
   reportId: string,
 ): Promise<WeeklyReportRecord | undefined> {
   const pool = poolOrThrow();
+  // Compare id::text so a non-UUID reportId (e.g. a bad export URL) returns "not
+  // found" instead of raising Postgres 22P02 → a 500. Mirrors getJobById.
   const { rows } = await pool.query<WeeklyReportRow>(
-    'select * from weekly_reports where user_id = $1 and id = $2',
+    'select * from weekly_reports where user_id = $1 and id::text = $2',
     [userId, reportId],
   );
   const row = rows[0];

@@ -25,7 +25,9 @@ function toPositiveInt(raw: unknown): number | undefined {
   const value = Array.isArray(raw) ? raw[0] : raw;
   if (typeof value !== 'string' && typeof value !== 'number') return undefined;
   const n = Number(value);
-  if (!Number.isFinite(n) || !Number.isInteger(n)) return undefined;
+  // isSafeInteger (not isInteger): rejects things like `1e100`, which is an
+  // integer-valued float but overflows Postgres' bigint OFFSET → a 500.
+  if (!Number.isSafeInteger(n)) return undefined;
   return n;
 }
 

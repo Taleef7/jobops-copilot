@@ -170,7 +170,9 @@ export async function listJobs(userId: string, page?: PageParams): Promise<JobRe
   // Paginate the base jobs query; the analysis/outreach fan-out below then scopes
   // to only the page's job ids, so a page never over-fetches the nested rows.
   const params: unknown[] = [userId];
-  let sql = 'select * from jobs where user_id = $1 order by created_at desc';
+  // `id` tie-breaks equal created_at (concurrent creates) so LIMIT/OFFSET pages are
+  // stable — without it a client can see a job twice or miss one across pages.
+  let sql = 'select * from jobs where user_id = $1 order by created_at desc, id desc';
   if (page?.limit !== undefined) {
     params.push(page.limit);
     sql += ` limit $${params.length}`;
