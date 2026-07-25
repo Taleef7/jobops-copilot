@@ -107,3 +107,47 @@ it('restores the current user’s stored thread on open', async () => {
 
   expect(screen.getByText('welcome back')).toBeInTheDocument();
 });
+
+// --- accessibility -----------------------------------------------------------
+
+it('moves focus into the message input when the panel opens', async () => {
+  render(<AssistantWidget />);
+  await userEvent.click(screen.getByRole('button', { name: /open assistant/i }));
+  expect(screen.getByLabelText(/message the assistant/i)).toHaveFocus();
+});
+
+it('exposes completed replies in a polite log region, not token-by-token', async () => {
+  // Tokens stream into the visible bubble for sighted users; the screen reader
+  // hears each *finished* message once from the log (additions), not every token.
+  streamAssistantChat.mockImplementation(async ({ onToken, onDone }) => {
+    onToken('All');
+    onToken(' set');
+    onDone({});
+  });
+
+  render(<AssistantWidget />);
+  await userEvent.click(screen.getByRole('button', { name: /open assistant/i }));
+  await userEvent.type(screen.getByLabelText(/message the assistant/i), 'hi');
+  await userEvent.click(screen.getByRole('button', { name: /^send$/i }));
+
+  const reply = await screen.findByText('All set');
+  const log = screen.getByRole('log');
+  expect(log).toContainElement(reply);
+  expect(log).toHaveAttribute('aria-live', 'polite');
+  expect(log).toHaveAttribute('aria-relevant', 'additions');
+});
+
+it('surfaces a stream error as an assertive alert with a retry action', async () => {
+  streamAssistantChat.mockImplementation(async ({ onError }) => {
+    onError('Network blip');
+  });
+
+  render(<AssistantWidget />);
+  await userEvent.click(screen.getByRole('button', { name: /open assistant/i }));
+  await userEvent.type(screen.getByLabelText(/message the assistant/i), 'hi');
+  await userEvent.click(screen.getByRole('button', { name: /^send$/i }));
+
+  const alert = await screen.findByRole('alert');
+  expect(alert).toHaveTextContent('Network blip');
+  expect(screen.getByRole('button', { name: /retry/i })).toBeInTheDocument();
+});
