@@ -17,15 +17,15 @@ intelligence.
 
 ## Security & audit remediation
 
-A 2026-07 full-stack security + engineering audit (overall grade **B**) is being remediated in
-phases. Phases 1–3 are merged: fail-closed auth (API + agent), the Next.js middleware-CVE
-patch, and crash/resilience guards (P1); cross-tenant RAG scoping, full-suite CI gating,
-real-DB tenancy tests, and SHA-pinned Actions + `npm`/`pip` audit gates (P2); and the
+A 2026-07 full-stack security + engineering audit (overall grade **B**) was remediated in
+four phases, **all merged (2026-07-25)**: fail-closed auth (API + agent), the Next.js
+middleware-CVE patch, and crash/resilience guards (P1); cross-tenant RAG scoping, full-suite
+CI gating, real-DB tenancy tests, and SHA-pinned Actions + `npm`/`pip` audit gates (P2); the
 eval-integrity correction that withdrew the inflated faithfulness claim and produced the
-project's first demonstrated hybrid-retrieval win (P3). Phase 4 (polish/scale) is in progress —
-assistant a11y + route boundaries and a `what-if`-verified faithful Bicep reconcile are merged,
-and the agent Docker image is now pinned by digest with its lock audited in CI. The running
-journal, per-finding PR log, and behavioral notes live in
+project's first demonstrated hybrid-retrieval win (P3); and the polish/scale work — assistant
+a11y + route boundaries, a `what-if`-verified faithful Bicep reconcile, a pinned + lock-audited
+agent image, list pagination, and an opt-in Postgres-backed rate-limiter/cache for scale-out
+(P4). The running journal, per-finding PR log, and behavioral notes live in
 [AUDIT_REMEDIATION.md](AUDIT_REMEDIATION.md) (epic #152).
 
 ## Verified Milestones
@@ -161,10 +161,12 @@ journal, per-finding PR log, and behavioral notes live in
 - **Product-overhaul deploy follow-ups are done** — **#141** (activated the agent Container App
   revision serving `/assistant/chat` and applied migration `009` to the prod DB) and **#142**
   (cold-start resilience for the streaming endpoints on the scale-to-zero agent) are both closed.
-- **Audit remediation (epic #152)** is the active workstream: Phases 1–3 merged; Phase 4
-  (polish/scale) in progress — assistant a11y + boundaries and a faithful Bicep reconcile landed,
-  the agent image is pinned + lock-audited, and pagination + an externalized limiter/cache is the
-  main remaining item. See [AUDIT_REMEDIATION.md](AUDIT_REMEDIATION.md).
+- **Audit remediation (epic #152) is complete** — all four phases merged (2026-07-25):
+  fail-closed auth + crash/resilience (P1), tenancy/gating + supply-chain (P2), eval-integrity
+  + hybrid-retrieval win (P3), and the polish/scale work (P4: assistant a11y + boundaries,
+  faithful Bicep reconcile, pinned + lock-audited agent image, list pagination, and the
+  opt-in Postgres-backed rate-limiter/cache for scale-out). See
+  [AUDIT_REMEDIATION.md](AUDIT_REMEDIATION.md).
 - **Owner-gated optional follow-ups** (by design, not gaps; see `docs/ROADMAP.md`): applying the
   Bicep to a live/greenfield RG, running k6 in CI, and activating the gated e2e CI job (needs
   Clerk repo secrets). Fine-tuning and a larger retrieval gold set remain deferred.
