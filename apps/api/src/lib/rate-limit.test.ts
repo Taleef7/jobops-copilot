@@ -15,7 +15,7 @@ test('keyForRequest falls back to the client IP when unauthenticated', () => {
 
 test('createRateLimiter returns 429 once the limit is exceeded in a window', async () => {
   const app = express();
-  app.use(createRateLimiter(2));
+  app.use(createRateLimiter(2, 'test'));
   app.get('/ping', (_request, response) => response.json({ ok: true }));
 
   const server = http.createServer(app);
