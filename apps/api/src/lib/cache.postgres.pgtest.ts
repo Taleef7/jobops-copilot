@@ -65,5 +65,24 @@ test(
       assert.equal(calls, 2);
       await cache.clear();
     });
+
+    await t.test('a write purges the namespace’s expired rows (bounded growth)', async () => {
+      const purgeNs = `${ns}-purge`;
+      const shortLived = new PostgresTtlCache<number[]>(pool, { ttlMs: 1, namespace: purgeNs });
+      await shortLived.getOrCompute('stale', async () => [1]); // expires ~immediately
+      await new Promise((resolve) => setTimeout(resolve, 25));
+
+      // A fresh write in the same namespace triggers the expired-row purge.
+      const longLived = new PostgresTtlCache<number[]>(pool, { ttlMs: 60_000, namespace: purgeNs });
+      await longLived.getOrCompute('fresh', async () => [2]);
+
+      const { rows } = await pool.query<{ count: number }>(
+        'select count(*)::int as count from cache_entries where key like $1',
+        [`${purgeNs}:%`],
+      );
+      // Only the fresh row remains; the stale one was purged on write.
+      assert.equal(rows[0]?.count, 1);
+      await longLived.clear();
+    });
   },
 );

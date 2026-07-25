@@ -52,7 +52,10 @@ export function createRateLimiter(limit: number, namespace: string) {
     legacyHeaders: false,
     keyGenerator: (request: Request) => keyForRequest(request),
     message: { error: 'Too many requests, slow down.' },
-    ...(store ? { store } : {}),
+    // With the shared Postgres store, a DB outage must not 500 every request (that would
+    // take down DB-independent routes too). passOnStoreError lets the request through —
+    // fail-open on availability, matching the budget guard. MemoryStore never errors.
+    ...(store ? { store, passOnStoreError: true } : {}),
   });
 }
 
