@@ -1,4 +1,6 @@
-FROM python:3.12-slim
+# Base pinned by digest for reproducible builds (#168) — tracks python:3.12-slim.
+# Update the digest deliberately (re-pull python:3.12-slim, `docker inspect`), not silently.
+FROM python:3.12-slim@sha256:57cd7c3a7a273101a6485ba99423ee568157882804b1124b4dd04266317710de
 
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
@@ -6,14 +8,17 @@ ENV PYTHONUNBUFFERED=1 \
 
 WORKDIR /app
 
-COPY requirements.txt requirements-rag.txt ./
+# constraints.txt fully pins the resolved dependency graph (generated from a real build's
+# `pip freeze`); the ranged requirements*.txt stay loose for dev ergonomics. Applying it
+# with `-c` makes `docker build` reproduce the exact same versions every time.
+COPY requirements.txt requirements-rag.txt constraints.txt ./
 # Install the CPU-only torch wheel first so sentence-transformers reuses it.
 # Container Apps (consumption) has no GPU, so the default CUDA build would just
-# bloat the image by ~4 GB and waste memory for no functional gain.
+# bloat the image by ~4 GB and waste memory for no functional gain. Version-pinned.
 RUN pip install --upgrade pip \
-    && pip install -r requirements.txt \
-    && pip install --index-url https://download.pytorch.org/whl/cpu torch \
-    && pip install -r requirements-rag.txt
+    && pip install -r requirements.txt -c constraints.txt \
+    && pip install --index-url https://download.pytorch.org/whl/cpu torch==2.13.0+cpu \
+    && pip install -r requirements-rag.txt -c constraints.txt
 
 # Stamp the build commit into the image so /health can report it and the
 # agent-drift-check workflow can detect a stale (un-activated) deployment.
