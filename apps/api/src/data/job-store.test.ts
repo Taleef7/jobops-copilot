@@ -5,8 +5,10 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
   appendOutreachDraft,
+  countJobs,
   createJob,
   getJobById,
+  listJobs,
   resetJobStoreForTests,
   updateOutreachDraft,
 } from './job-store';
@@ -81,6 +83,40 @@ test('appendOutreachDraft preserves sent outreach history', async () => {
 
     const sent = fetched?.outreach.find((entry) => entry.id === 'outreach-first');
     assert.equal(sent?.status, 'sent');
+  } finally {
+    process.chdir(originalCwd);
+    resetJobStoreForTests();
+    await rm(tempDir, { recursive: true, force: true });
+  }
+});
+
+test('listJobs paginates (opt-in) and stays user-scoped; countJobs reports the total', async () => {
+  const originalCwd = process.cwd();
+  delete process.env.DATABASE_URL; // force the file store
+  const tempDir = await mkdtemp(join(tmpdir(), 'jobops-jobs-page-'));
+
+  try {
+    process.chdir(tempDir);
+    resetJobStoreForTests();
+
+    for (let i = 0; i < 5; i += 1) {
+      await createJob('user-1', {
+        company: `Acme ${i}`,
+        title: `Engineer ${i}`,
+        descriptionText: 'Build things.',
+      });
+    }
+    await createJob('user-2', { company: 'Other', title: 'Dev', descriptionText: 'x' });
+
+    // No page params → full list (backward-compatible), user-scoped.
+    assert.equal((await listJobs('user-1')).length, 5);
+    assert.equal((await listJobs('user-2')).length, 1);
+    assert.equal(await countJobs('user-1'), 5);
+
+    // Opt-in pagination slices the list without leaking across users.
+    assert.equal((await listJobs('user-1', { limit: 2, offset: 0 })).length, 2);
+    assert.equal((await listJobs('user-1', { limit: 2, offset: 4 })).length, 1);
+    assert.equal((await listJobs('user-1', { limit: 2, offset: 99 })).length, 0);
   } finally {
     process.chdir(originalCwd);
     resetJobStoreForTests();

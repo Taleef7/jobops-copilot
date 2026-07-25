@@ -5,6 +5,8 @@ import { join } from 'node:path';
 import test from 'node:test';
 import type { WeeklyReportRecord } from '@/types';
 import {
+  countWeeklyReports,
+  getWeeklyReportById,
   listWeeklyReports,
   resetWeeklyReportStoreForTests,
   saveWeeklyReport,
@@ -87,6 +89,59 @@ test('upserts reports by week range and keeps the latest version first', async (
     assert.equal(latest.weekStart, updatedSave.weekStart);
     assert.equal(latest.jobsApplied, 2);
     assert.equal(latest.createdAt, '2026-05-24T19:30:00.000Z');
+  } finally {
+    process.chdir(originalCwd);
+    await rm(tempDir, { recursive: true, force: true });
+  }
+});
+
+test('list pagination, count, and getById are user-scoped', async () => {
+  const originalCwd = snapshotCwd();
+  const tempDir = await mkdtemp(join(tmpdir(), 'jobops-weekly-report-'));
+
+  try {
+    process.chdir(tempDir);
+    resetWeeklyReportStoreForTests();
+
+    // Three distinct weeks (upsert is keyed on week range), newest createdAt first.
+    const ids: string[] = [];
+    for (let i = 0; i < 3; i += 1) {
+      const saved = await saveWeeklyReport(
+        USER,
+        makeReport({
+          id: `report-${i}`,
+          weekStart: `2026-05-0${i + 1}`,
+          weekEnd: `2026-05-0${i + 2}`,
+          createdAt: `2026-05-2${i}T18:00:00.000Z`,
+        }),
+      );
+      ids.push(saved.id);
+    }
+    await saveWeeklyReport('user_other', makeReport({ id: 'other', weekStart: '2026-06-01', weekEnd: '2026-06-02' }));
+
+    assert.equal(await countWeeklyReports(USER), 3);
+    assert.equal(await countWeeklyReports('user_other'), 1);
+
+    // Full list (no pagination) is unchanged, newest first.
+    const all = await listWeeklyReports(USER);
+    assert.equal(all.length, 3);
+    assert.equal(all[0]?.createdAt, '2026-05-22T18:00:00.000Z');
+
+    // Page: limit 2, then offset 2 → the tail.
+    const firstPage = await listWeeklyReports(USER, { limit: 2, offset: 0 });
+    assert.deepEqual(
+      firstPage.map((r) => r.createdAt),
+      ['2026-05-22T18:00:00.000Z', '2026-05-21T18:00:00.000Z'],
+    );
+    const secondPage = await listWeeklyReports(USER, { limit: 2, offset: 2 });
+    assert.equal(secondPage.length, 1);
+    assert.equal(secondPage[0]?.createdAt, '2026-05-20T18:00:00.000Z');
+
+    // getById is targeted + user-scoped.
+    const one = await getWeeklyReportById(USER, ids[0]!);
+    assert.equal(one?.id, ids[0]);
+    assert.equal(await getWeeklyReportById('user_other', ids[0]!), undefined);
+    assert.equal(await getWeeklyReportById(USER, 'nope'), undefined);
   } finally {
     process.chdir(originalCwd);
     await rm(tempDir, { recursive: true, force: true });

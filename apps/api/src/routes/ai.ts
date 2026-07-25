@@ -122,6 +122,7 @@ aiRouter.post('/score-fit', async (request, response, next) => {
       descriptionText: job.descriptionText,
       resumeText,
       profileText,
+      title: parsed.title,
       requiredSkills: grounding.requiredSkills,
       preferredSkills: grounding.preferredSkills,
       atsKeywords: grounding.atsKeywords,

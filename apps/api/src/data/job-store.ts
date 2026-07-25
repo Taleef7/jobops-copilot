@@ -12,6 +12,7 @@ import type {
 import { validateJobAnalysis } from '@/lib/analysis-core';
 import { deriveOutreachJobUpdate } from '@/lib/outreach-workflow';
 import { hasPostgresConnection } from '@/lib/postgres';
+import { paginateArray, type PageParams } from '@/lib/pagination';
 import * as postgresStore from '@/data/job-store.postgres';
 import { seedJobs } from '@/data/mock-store';
 
@@ -168,13 +169,23 @@ async function runExclusive<T>(operation: () => Promise<T>): Promise<T> {
   }
 }
 
-export async function listJobs(userId: string): Promise<JobRecord[]> {
+export async function listJobs(userId: string, page?: PageParams): Promise<JobRecord[]> {
   if (hasPostgresConnection()) {
-    return postgresStore.listJobs(userId);
+    return postgresStore.listJobs(userId, page);
   }
 
   const jobs = await ensureLoaded();
-  return clone(jobs.filter((entry) => entry.userId === userId));
+  const mine = clone(jobs.filter((entry) => entry.userId === userId));
+  return page ? paginateArray(mine, page) : mine;
+}
+
+export async function countJobs(userId: string): Promise<number> {
+  if (hasPostgresConnection()) {
+    return postgresStore.countJobs(userId);
+  }
+
+  const jobs = await ensureLoaded();
+  return jobs.filter((entry) => entry.userId === userId).length;
 }
 
 export async function getJobById(userId: string, jobId: string): Promise<JobRecord | undefined> {
