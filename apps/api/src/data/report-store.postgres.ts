@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import type { WeeklyReportRecord } from '@/types';
 import { getPool } from '@/lib/postgres';
+import type { PageParams } from '@/lib/pagination';
 import { seedWeeklyReports } from '@/data/mock-store';
 
 type WeeklyReportRow = {
@@ -59,15 +60,49 @@ function mapReport(row: WeeklyReportRow): WeeklyReportRecord {
   };
 }
 
-export async function listWeeklyReports(userId: string): Promise<WeeklyReportRecord[]> {
+export async function listWeeklyReports(
+  userId: string,
+  page?: PageParams,
+): Promise<WeeklyReportRecord[]> {
   const pool = poolOrThrow();
 
-  const { rows } = await pool.query<WeeklyReportRow>(
-    'select * from weekly_reports where user_id = $1 order by created_at desc, week_end desc, week_start desc',
-    [userId],
-  );
+  const params: unknown[] = [userId];
+  let sql =
+    'select * from weekly_reports where user_id = $1 order by created_at desc, week_end desc, week_start desc';
+  if (page?.limit !== undefined) {
+    params.push(page.limit);
+    sql += ` limit $${params.length}`;
+  }
+  if (page && page.offset > 0) {
+    params.push(page.offset);
+    sql += ` offset $${params.length}`;
+  }
+
+  const { rows } = await pool.query<WeeklyReportRow>(sql, params);
 
   return rows.map(mapReport);
+}
+
+export async function countWeeklyReports(userId: string): Promise<number> {
+  const pool = poolOrThrow();
+  const { rows } = await pool.query<{ count: number }>(
+    'select count(*)::int as count from weekly_reports where user_id = $1',
+    [userId],
+  );
+  return rows[0]?.count ?? 0;
+}
+
+export async function getWeeklyReportById(
+  userId: string,
+  reportId: string,
+): Promise<WeeklyReportRecord | undefined> {
+  const pool = poolOrThrow();
+  const { rows } = await pool.query<WeeklyReportRow>(
+    'select * from weekly_reports where user_id = $1 and id = $2',
+    [userId, reportId],
+  );
+  const row = rows[0];
+  return row ? mapReport(row) : undefined;
 }
 
 export async function saveWeeklyReport(userId: string, report: WeeklyReportRecord): Promise<WeeklyReportRecord> {
