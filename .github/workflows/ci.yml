@@ -262,3 +262,13 @@ jobs:
 
       - name: pip-audit (mcp runtime)
         run: pip-audit -r services/mcp/requirements.txt
+
+      # The two steps above audit the *ranged* requirements, which resolve to the latest
+      # patched versions — but the agent image ships the *pinned* constraints.txt, so a
+      # vuln in a pin could pass while the image stays vulnerable (#168 review). Audit the
+      # lock itself. torch's `+cpu` local tag isn't on PyPI, so strip it for the query —
+      # OSV advisories key on the base version. --no-deps: the lock is already the full graph.
+      - name: pip-audit (agent pinned image lock)
+        run: |
+          sed 's/+cpu//' services/agent/constraints.txt > /tmp/agent-image-lock.txt
+          pip-audit -r /tmp/agent-image-lock.txt --no-deps

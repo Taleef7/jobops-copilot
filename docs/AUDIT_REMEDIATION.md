@@ -35,7 +35,8 @@ silently serving unauthenticated. Local dev and tests are unchanged.
 | Cross-tenant RAG: `retrieve(user_id=None)` searched all tenants → scope to `IS NULL`; require `user_id` on `/rag/search` | High | [#161](https://github.com/Taleef7/jobops-copilot/issues/161) | _this PR_ |
 | Gate merges + deploys on the full CI suite | High | [#162](https://github.com/Taleef7/jobops-copilot/issues/162) | _pending_ |
 | Test the Postgres stores + tenancy SQL against a real DB in CI | Medium | [#163](https://github.com/Taleef7/jobops-copilot/issues/163) | _pending_ |
-| Supply chain: SHA-pin Actions, add audit gates, pin the agent image | Medium | [#164](https://github.com/Taleef7/jobops-copilot/issues/164) | _pending_ |
+| Supply chain: SHA-pin Actions, add `npm`/`pip` audit gates | Medium | [#164](https://github.com/Taleef7/jobops-copilot/issues/164) | [#205](https://github.com/Taleef7/jobops-copilot/pull/205) |
+| Pin the agent Docker image for reproducible builds (base digest + `torch==…+cpu` + `constraints.txt`) | Medium | [#168](https://github.com/Taleef7/jobops-copilot/issues/168) | [#208](https://github.com/Taleef7/jobops-copilot/pull/208) |
 
 ## Phase 3 — Make the flagship AI claims true 🚧 in progress
 
