@@ -26,7 +26,7 @@ See the dedicated section below.
 The **product overhaul** (epic #124, merged to `main` 2026-06-25) is also **complete** — its
 six phases (truthful data, JobRight-style jobs feed, add-job URL autofill, persistent agent
 outputs, global assistant widget, Clerk-consolidated profile) all landed. See the dedicated
-section below; two owner-gated deploy follow-ups (#141, #142) remain.
+section below; the two owner-gated deploy follow-ups (#141, #142) are now done.
 
 ## Phase 0: Project Foundation
 
@@ -277,9 +277,9 @@ on Clerk. Six phases (#118 → #123), **all complete and merged**, plus cleanup 
 - Migration `009_drop_display_name.sql` drops `user_profiles.display_name`; identity (name/avatar/
   email) comes from Clerk via `currentUser()`, while `profile_text` grounding is kept.
 
-### Open follow-ups (owner-gated, not done)
+### Deploy follow-ups (done, closed)
 
-- **#141 — Deploy/activate:** activate the agent Container App revision that includes
-  `/assistant/chat`, and apply migration `009` to the production DB.
-- **#142 — Cold-start resilience:** harden the streaming endpoints against cold starts on the
-  scale-to-zero agent.
+- **#141 — Deploy/activate:** ✅ activated the agent Container App revision that includes
+  `/assistant/chat`, and applied migration `009` to the production DB.
+- **#142 — Cold-start resilience:** ✅ hardened the streaming endpoints against cold starts on
+  the scale-to-zero agent.
