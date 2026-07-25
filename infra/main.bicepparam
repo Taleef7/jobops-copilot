@@ -23,6 +23,12 @@ param adzunaAppId = '620bd9be'
 // Set true (and supply postgresAdminPassword) only for a greenfield environment.
 param createPostgres = false
 
+// Default false: the LIVE vault already has the secrets + role assignments (via
+// scripts/azure/provision-keyvault.sh). Set true ONLY for a greenfield vault — it then
+// creates DATABASE-URL / CLERK-SECRET-KEY from `databaseUrl` / `clerkSecretKey` and
+// assigns the apps' identities Key Vault Secrets User.
+param wireKeyVault = false
+
 // ---- Secrets — leave blank here; supply at deploy time (NEVER commit real values) ----
 // App Service DATABASE_URL / CLERK_SECRET_KEY are Key Vault references (jobops-kv), so no
 // value is needed for them. Every secret below is REPLACE-on-deploy: a blank value blanks
@@ -34,6 +40,7 @@ param createPostgres = false
 //        acrAdminPassword="$ACR_ADMIN_PASSWORD"
 // Always `what-if` first.
 param databaseUrl = ''
+param clerkSecretKey = ''
 param agentApiKey = ''
 param n8nWebhookSecret = ''
 param adzunaAppKey = ''

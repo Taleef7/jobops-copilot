@@ -4,11 +4,15 @@ Infrastructure-as-code for the JobOps Copilot Azure footprint. It models the **a
 deployed topology** (reconciled + verified 2026-07-25 via `az deployment group what-if`
 against RG `projects`), so the environment is reviewable, diffable, and reproducible.
 
-The template is now a **faithful** model: a `what-if` shows **zero app-setting or secret
-deletions** on `jobops-web` / `jobops-api`. Every live app setting is present, the
-`DATABASE_URL` / `CLERK_SECRET_KEY` Key Vault references are wired (system-assigned
-identity + a Key Vault Secrets User role assignment per app), and the agent's real
-secrets, env, registry, resources (1 vCPU / 2 GiB), and `/health` probes are modeled.
+The template is now a **faithful** model: against the live RG a `what-if` shows **no creates
+and zero app-setting or secret deletions** on `jobops-web` / `jobops-api`. Every live app
+setting is present; each App Service has a system-assigned identity and resolves
+`DATABASE_URL` / `CLERK_SECRET_KEY` via Key Vault references; and the agent's real secrets,
+env, registry, resources (1 vCPU / 2 GiB), and `/health` probes are modeled. The vault's
+*secrets* and the apps' *role assignments* already exist on live (provisioned by
+`scripts/azure/provision-keyvault.sh`), so they're gated behind `wireKeyVault` (default
+false) — creating them against live would fail `RoleAssignmentExists` or blank a live
+secret. A greenfield vault sets `wireKeyVault=true` to have the template create both.
 
 ## What it provisions
 
@@ -80,14 +84,14 @@ az deployment group create -g projects -f infra/main.bicep -p infra/main.biceppa
   -p databaseUrl="$DATABASE_URL" openAiApiKey="$OPENAI_API_KEY"
 ```
 
-A `what-if` against RG `projects` (verified 2026-07-25) shows **no app-setting or secret
-deletions** on `jobops-web` / `jobops-api` — the reconcile's goal. The only changes are:
-two *Create*s for the Key Vault role assignments (deterministic GUIDs vs the live random
-ones — idempotent RBAC), and a handful of Azure-**computed** property diffs on the agent /
-its environment / the plan (`runningStatus`, `ingress.traffic`, `workloadProfiles`,
-`freeOfferExpirationTime`, …) that ARM recomputes. The ACR and existing Postgres are under
-*Ignore*. (App Service secret *values* are write-only to ARM, so what-if can't show a
-blank-param diff — the secret contract below still governs a real deploy.)
+A `what-if` against RG `projects` (verified 2026-07-25, `wireKeyVault=false`) shows **no
+creates and no app-setting or secret deletions** on `jobops-web` / `jobops-api` — the
+reconcile's goal. The only diffs are Azure-**computed** properties on the agent / its
+environment / the plan (`runningStatus`, `ingress.traffic`, `workloadProfiles`,
+`freeOfferExpirationTime`, …) that ARM recomputes, plus an env array re-ordering on the
+agent (same variables). The ACR and existing Postgres are under *Ignore*. (App Service
+secret *values* are write-only to ARM, so what-if can't show a blank-param diff — the
+secret contract below still governs a real deploy.)
 
 ### Secrets — the deploy contract
 

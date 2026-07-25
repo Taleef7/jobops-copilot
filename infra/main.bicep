@@ -69,7 +69,13 @@ param agentTimeoutMs string = '90000'
 @description('API→agent long-running task timeout (ms).')
 param agentTaskTimeoutMs string = '180000'
 
-@description('Agent LLM provider: anthropic | openai | azure_openai | google_genai.')
+@description('''Agent LLM provider. Restricted to `openai` — that is what the live agent
+runs, and only the OpenAI key + env are wired below. Adding a provider means adding its
+@secure() key param, a Container App secret, and its env var; advertising a provider whose
+credentials aren't wired would boot the agent unconfigured.''')
+@allowed([
+  'openai'
+])
 param llmProvider string = 'openai'
 
 @description('Agent OpenAI model id.')
@@ -88,11 +94,23 @@ param acrUsername string = 'ca9ee6437892acr'
 // KV-backed on App Service (DATABASE_URL, CLERK_SECRET_KEY) so no value flows through
 // the template; the rest are literal secrets the deploy must provide.
 
+@description('''Greenfield Key Vault wiring. Default false: the LIVE vault already holds the
+DATABASE-URL / CLERK-SECRET-KEY secrets and both apps already hold *Key Vault Secrets User*
+(provisioned by scripts/azure/provision-keyvault.sh). Re-creating those role assignments
+under new names fails with RoleAssignmentExists, and re-creating the secrets from blank
+params would blank them — so this is OFF against live. Set true ONLY for a greenfield vault:
+it then creates the two secrets from `databaseUrl` / `clerkSecretKey` and assigns the roles.''')
+param wireKeyVault bool = false
+
 @secure()
 @description('''Full DATABASE_URL. Feeds the agent's `database-url` Container App secret.
-On App Service it is resolved via a Key Vault reference (jobops-kv/DATABASE-URL), so the
-App Service side needs no value here.''')
+On App Service it is resolved via a Key Vault reference (jobops-kv/DATABASE-URL); on a
+greenfield vault (wireKeyVault=true) it also seeds that KV secret.''')
 param databaseUrl string = ''
+
+@secure()
+@description('Clerk secret key — only used to seed the greenfield KV secret (wireKeyVault=true).')
+param clerkSecretKey string = ''
 
 @secure()
 @description('''Server-to-server shared secret for the API->agent hop (QA·A). One value,
@@ -362,9 +380,12 @@ resource apiApp 'Microsoft.Web/sites@2023-12-01' = {
   }
 }
 
-// Grant each app's identity read access to the vault's secrets (RBAC), so the
-// Key Vault references above resolve. Deterministic GUIDs → idempotent re-assert.
-resource webKvSecretsUser 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
+// Greenfield-only Key Vault wiring (wireKeyVault=true). Against the live vault these
+// already exist — re-creating the role assignments under deterministic names would fail
+// RoleAssignmentExists, and re-creating the secrets from blank params would blank them —
+// so both are gated OFF by default (see wireKeyVault). Grant each app's identity read
+// access to the vault's secrets (RBAC) so the Key Vault references resolve.
+resource webKvSecretsUser 'Microsoft.Authorization/roleAssignments@2022-04-01' = if (wireKeyVault) {
   name: guid(keyVault.id, webApp.id, kvSecretsUserRoleId)
   scope: keyVault
   properties: {
@@ -374,13 +395,31 @@ resource webKvSecretsUser 'Microsoft.Authorization/roleAssignments@2022-04-01' =
   }
 }
 
-resource apiKvSecretsUser 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
+resource apiKvSecretsUser 'Microsoft.Authorization/roleAssignments@2022-04-01' = if (wireKeyVault) {
   name: guid(keyVault.id, apiApp.id, kvSecretsUserRoleId)
   scope: keyVault
   properties: {
     principalId: apiApp.identity.principalId
     roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', kvSecretsUserRoleId)
     principalType: 'ServicePrincipal'
+  }
+}
+
+// The two secrets the App Service Key Vault references resolve. Created only on a greenfield
+// vault; against live they already exist and must not be reseeded from params.
+resource kvDatabaseUrl 'Microsoft.KeyVault/vaults/secrets@2023-07-01' = if (wireKeyVault) {
+  parent: keyVault
+  name: 'DATABASE-URL'
+  properties: {
+    value: databaseUrl
+  }
+}
+
+resource kvClerkSecretKey 'Microsoft.KeyVault/vaults/secrets@2023-07-01' = if (wireKeyVault) {
+  parent: keyVault
+  name: 'CLERK-SECRET-KEY'
+  properties: {
+    value: clerkSecretKey
   }
 }
 
