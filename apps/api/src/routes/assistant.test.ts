@@ -110,3 +110,79 @@ test('returns 503 (not 500) when the agent service is disabled', async () => {
     assert.equal(res.status, 503);
   });
 });
+
+test('falls back to the saved resume when the client sends none', async () => {
+  // The /assistant page labels its resume field optional, so this is the normal
+  // path. Passing an empty resume through meant the graph scored the role
+  // against nothing, failed its fit gate, and reported "Your profile didn't
+  // score high enough" — blaming the user for an input we already had.
+  let sent: Record<string, unknown> | undefined;
+  const router = createAssistantStreamRouter({
+    openUpstream: async (payload) => {
+      sent = payload as Record<string, unknown>;
+      return { ok: true, status: 200, body: sseStream(['event: status\ndata: {"node":"parse"}\n\n']) };
+    },
+    loadProfile: async () => ({ resumeText: 'Ava Tester — 8 years of RAG work', profileText: 'Senior AI Engineer' }),
+  });
+
+  await withServer(router, async (baseUrl) => {
+    const response = await fetch(`${baseUrl}/stream`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-User-Id': 'user_1' },
+      body: JSON.stringify({ description_text: 'Senior AI Engineer, RAG + LangGraph' }),
+    });
+    await response.text();
+    assert.equal(response.status, 200);
+  });
+
+  assert.equal(sent?.resume_text, 'Ava Tester — 8 years of RAG work');
+  assert.equal(sent?.profile_text, 'Senior AI Engineer');
+});
+
+test('an explicitly pasted resume overrides the saved one', async () => {
+  let sent: Record<string, unknown> | undefined;
+  const router = createAssistantStreamRouter({
+    openUpstream: async (payload) => {
+      sent = payload as Record<string, unknown>;
+      return { ok: true, status: 200, body: sseStream(['event: status\ndata: {"node":"parse"}\n\n']) };
+    },
+    loadProfile: async () => ({ resumeText: 'saved resume' }),
+  });
+
+  await withServer(router, async (baseUrl) => {
+    const response = await fetch(`${baseUrl}/stream`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-User-Id': 'user_1' },
+      body: JSON.stringify({ description_text: 'A role', resume_text: 'pasted override' }),
+    });
+    await response.text();
+  });
+
+  assert.equal(sent?.resume_text, 'pasted override');
+});
+
+test('a profile lookup failure does not break the run', async () => {
+  // The resume is an enhancement here, not a preconditionfor streaming.
+  let sent: Record<string, unknown> | undefined;
+  const router = createAssistantStreamRouter({
+    openUpstream: async (payload) => {
+      sent = payload as Record<string, unknown>;
+      return { ok: true, status: 200, body: sseStream(['event: status\ndata: {"node":"parse"}\n\n']) };
+    },
+    loadProfile: async () => {
+      throw new Error('db down');
+    },
+  });
+
+  await withServer(router, async (baseUrl) => {
+    const response = await fetch(`${baseUrl}/stream`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-User-Id': 'user_1' },
+      body: JSON.stringify({ description_text: 'A role' }),
+    });
+    assert.equal(response.status, 200);
+    await response.text();
+  });
+
+  assert.equal(sent?.resume_text, undefined);
+});
