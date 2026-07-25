@@ -3,8 +3,9 @@
 # Why this exists: apps/api is an npm workspace whose dependencies are hoisted to
 # the repo-root node_modules. Deploying the workspace folder directly ships no
 # node_modules, so the app crashes with "Cannot find module '@clerk/express'".
-# This workflow assembles a SELF-CONTAINED package (dist + package.json + a local
-# production install) and deploys that, then verifies the live app is healthy.
+# This workflow assembles a SELF-CONTAINED package (dist + package.json + the
+# production dependency tree copied out of the install this run already tested)
+# and deploys that, then verifies the live app is healthy.
 #
 # Preconditions (already configured on the jobops-api App Service):
 #   - App setting WEBSITE_RUN_FROM_PACKAGE=1        (package mounted read-only;
@@ -22,6 +23,10 @@ on:
     paths:
       - 'apps/api/**'
       - '.github/workflows/deploy-api.yml'
+      # The deploy assembles its package via scripts/ci/write-deploy-package.mjs,
+      # so a fix to that helper must be able to trigger a deploy on its own —
+      # otherwise the old packaging stays live until an unrelated API change.
+      - 'scripts/ci/**'
   workflow_dispatch:
 
 permissions:
