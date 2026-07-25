@@ -140,14 +140,18 @@ export function AssistantPanel() {
         />
       </div>
 
-      <Button onClick={run} disabled={running}>
+      <Button onClick={run} disabled={running} aria-busy={running}>
         {running ? <Loader2 className="size-4 animate-spin" /> : <Sparkles className="size-4" />}
         Run assistant
       </Button>
 
       {steps.length > 0 && (
         <>
-          <ol className="space-y-1 text-sm">
+          {/* Each step is appended as the run streams; a polite log announces the
+              additions so a screen-reader user hears progress, not just sighted ones.
+              No aria-busy here: it would defer these incremental announcements until
+              the run ends. The "working" state lives on the Run button instead. */}
+          <ol className="space-y-1 text-sm" role="log" aria-live="polite" aria-relevant="additions">
             {steps.map((step, i) => (
               <li key={i} className="text-muted-foreground flex items-center gap-2">
                 {step.node === 'pass' || step.node === 'below_fit_bar' ? (
@@ -185,7 +189,7 @@ export function AssistantPanel() {
       )}
 
       {draft && (
-        <div className="rounded-lg border p-3">
+        <div className="rounded-lg border p-3" role="status" aria-live="polite">
           <p className="mb-1 text-xs font-medium tracking-wide uppercase">Drafted outreach (review before sending)</p>
           <p className="text-sm whitespace-pre-wrap">{draft}</p>
         </div>

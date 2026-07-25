@@ -211,7 +211,7 @@ export function AssistantWidget() {
             ) : null}
           </header>
 
-          <div className="flex-1 space-y-3 overflow-y-auto p-4" aria-live="polite">
+          <div className="flex-1 space-y-3 overflow-y-auto p-4">
             {empty ? (
               <p className="text-muted-foreground text-sm">
                 Ask anything about your search{jobId ? ' or this job' : ''}. I can advise and draft —
@@ -219,28 +219,38 @@ export function AssistantWidget() {
               </p>
             ) : null}
 
-            {messages.map((message, index) => (
-              <div
-                key={index}
-                className={cn(
-                  'max-w-[85%] rounded-lg px-3 py-2 text-sm whitespace-pre-wrap',
-                  message.role === 'user'
-                    ? 'bg-primary text-primary-foreground ml-auto'
-                    : 'bg-muted',
-                )}
-              >
-                {message.content}
-              </div>
-            ))}
+            {/* Completed turns are a polite log: each finished message is announced
+                once (aria-relevant="additions"). Tokens stream into the separate,
+                aria-hidden bubble below so a screen reader isn't spammed per token.
+                No aria-busy here — it would defer the log's announcements; the
+                "in flight" state lives on the Send button instead. */}
+            <div role="log" aria-live="polite" aria-relevant="additions" className="space-y-3">
+              {messages.map((message, index) => (
+                <div
+                  key={index}
+                  className={cn(
+                    'max-w-[85%] rounded-lg px-3 py-2 text-sm whitespace-pre-wrap',
+                    message.role === 'user'
+                      ? 'bg-primary text-primary-foreground ml-auto'
+                      : 'bg-muted',
+                  )}
+                >
+                  {message.content}
+                </div>
+              ))}
+            </div>
 
             {streaming ? (
-              <div className="bg-muted max-w-[85%] rounded-lg px-3 py-2 text-sm whitespace-pre-wrap">
+              <div
+                aria-hidden="true"
+                className="bg-muted max-w-[85%] rounded-lg px-3 py-2 text-sm whitespace-pre-wrap"
+              >
                 {streaming}
               </div>
             ) : null}
 
             {error ? (
-              <div className="flex items-center gap-2">
+              <div role="alert" className="flex items-center gap-2">
                 <p className="text-destructive text-sm">{error}</p>
                 {retryPayload ? (
                   <button
@@ -285,7 +295,13 @@ export function AssistantWidget() {
               aria-label="Message the assistant"
               autoFocus
             />
-            <Button type="submit" size="icon" disabled={busy || !input.trim()} aria-label="Send">
+            <Button
+              type="submit"
+              size="icon"
+              disabled={busy || !input.trim()}
+              aria-busy={busy}
+              aria-label="Send"
+            >
               {busy ? <Loader2 className="size-4 animate-spin" /> : <Send className="size-4" />}
             </Button>
           </form>
