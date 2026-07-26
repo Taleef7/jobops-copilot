@@ -10,6 +10,7 @@ import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { OptionSelect } from '@/components/ui/option-select';
 import { ApiRequestError, draftOutreach } from '@/lib/api';
 import type { OutreachMessageType } from '@/types/job';
 
@@ -20,9 +21,6 @@ const messageTypeOptions: { label: string; value: OutreachMessageType }[] = [
   { label: 'Follow-up', value: 'follow_up' },
   { label: 'Thank you', value: 'thank_you' },
 ];
-
-const selectClass =
-  'border-input bg-card h-9 w-full rounded-md border px-2.5 text-sm shadow-xs focus-visible:border-ring focus-visible:ring-ring/50 focus-visible:ring-[3px] outline-none disabled:opacity-50';
 
 type FormState = {
   messageType: OutreachMessageType;
@@ -121,21 +119,13 @@ export function JobOutreachActions({
       <div className="grid gap-3 sm:grid-cols-2">
         <div className="space-y-1.5">
           <Label htmlFor="msg-type">Message type</Label>
-          <select
+          <OptionSelect
             id="msg-type"
-            className={selectClass}
             value={form.messageType}
-            onChange={(event) =>
-              updateField('messageType', event.target.value as OutreachMessageType)
-            }
+            onValueChange={(value) => updateField('messageType', value)}
+            options={messageTypeOptions}
             disabled={busy}
-          >
-            {messageTypeOptions.map((option) => (
-              <option key={option.value} value={option.value}>
-                {option.label}
-              </option>
-            ))}
-          </select>
+          />
         </div>
         <div className="space-y-1.5">
           <Label htmlFor="contact-name">Contact name</Label>

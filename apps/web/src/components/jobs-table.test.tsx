@@ -3,6 +3,7 @@ import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { expect, it } from 'vitest';
 import type { Job } from '@/types/job';
+import { chooseOption } from '@/test/select';
 import { JobsTable } from './jobs-table';
 
 function makeJob(overrides: Partial<Job>): Job {
@@ -76,7 +77,7 @@ it('filters by recency on datePosted (falling back to discoveredAt)', async () =
   expect(screen.getByText('Fresh Role')).toBeInTheDocument();
   expect(screen.getByText('Old Role')).toBeInTheDocument();
 
-  await user.selectOptions(screen.getByLabelText(/filter by recency/i), '24h');
+  await chooseOption(user, /filter by recency/i, /last 24h/i);
 
   expect(screen.getByText('Fresh Role')).toBeInTheDocument();
   expect(screen.queryByText('Old Role')).not.toBeInTheDocument();

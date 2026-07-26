@@ -5,30 +5,40 @@ import type { FormEvent } from 'react';
 import { useState } from 'react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { OptionSelect } from '@/components/ui/option-select';
 import { Textarea } from '@/components/ui/textarea';
 import { ApiRequestError, updateJob } from '@/lib/api';
 import { fromDatetimeLocalValue, toDatetimeLocalValue } from '@/lib/format';
 import type { Job } from '@/types/job';
 
-const statusOptions: Job['status'][] = [
-  'discovered',
-  'shortlisted',
-  'applied',
-  'outreach_drafted',
-  'outreach_sent',
-  'referral_requested',
-  'follow_up_due',
-  'interview',
-  'rejected',
-  'offer',
-  'archived',
-];
+const capitalise = (value: string) => value.charAt(0).toUpperCase() + value.slice(1);
 
-const priorityOptions: Job['priority'][] = ['high', 'medium', 'low'];
+/** `outreach_drafted` -> `Outreach drafted`. */
+function formatStatus(status: Job['status']) {
+  return capitalise(status.replaceAll('_', ' '));
+}
 
-const selectClass =
-  'border-input bg-card h-9 w-full rounded-md border px-2.5 text-sm capitalize shadow-xs focus-visible:border-ring focus-visible:ring-ring/50 focus-visible:ring-[3px] outline-none';
+const statusOptions = (
+  [
+    'discovered',
+    'shortlisted',
+    'applied',
+    'outreach_drafted',
+    'outreach_sent',
+    'referral_requested',
+    'follow_up_due',
+    'interview',
+    'rejected',
+    'offer',
+    'archived',
+  ] as const satisfies readonly Job['status'][]
+).map((value) => ({ value, label: formatStatus(value) }));
+
+const priorityOptions = (['high', 'medium', 'low'] as const satisfies readonly Job['priority'][]).map(
+  (value) => ({ value, label: capitalise(value) }),
+);
 
 type FormState = {
   status: Job['status'];
@@ -88,33 +98,21 @@ export function JobEditPanel({ job }: { job: Job }) {
       <div className="grid grid-cols-2 gap-3">
         <div className="space-y-1.5">
           <Label htmlFor="job-status">Status</Label>
-          <select
+          <OptionSelect
             id="job-status"
-            className={selectClass}
             value={form.status}
-            onChange={(event) => updateField('status', event.target.value as Job['status'])}
-          >
-            {statusOptions.map((option) => (
-              <option key={option} value={option}>
-                {option.replaceAll('_', ' ')}
-              </option>
-            ))}
-          </select>
+            onValueChange={(value) => updateField('status', value)}
+            options={statusOptions}
+          />
         </div>
         <div className="space-y-1.5">
           <Label htmlFor="job-priority">Priority</Label>
-          <select
+          <OptionSelect
             id="job-priority"
-            className={selectClass}
             value={form.priority}
-            onChange={(event) => updateField('priority', event.target.value as Job['priority'])}
-          >
-            {priorityOptions.map((option) => (
-              <option key={option} value={option}>
-                {option}
-              </option>
-            ))}
-          </select>
+            onValueChange={(value) => updateField('priority', value)}
+            options={priorityOptions}
+          />
         </div>
       </div>
 
@@ -141,10 +139,9 @@ export function JobEditPanel({ job }: { job: Job }) {
 
       <div className="space-y-1.5">
         <Label htmlFor="job-followup">Follow-up due</Label>
-        <input
+        <Input
           id="job-followup"
           type="datetime-local"
-          className={selectClass}
           value={form.nextActionDue}
           onChange={(event) => updateField('nextActionDue', event.target.value)}
         />
