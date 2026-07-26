@@ -4,19 +4,45 @@ import { Moon, Sun } from 'lucide-react';
 import { useTheme } from 'next-themes';
 import { Button } from '@/components/ui/button';
 
+/**
+ * Theme switch.
+ *
+ * Deliberately renders one button per theme and lets CSS pick which is visible,
+ * rather than deriving a label from `resolvedTheme`. `resolvedTheme` is
+ * undefined during SSR and the first client render, so the label was computed
+ * as "Switch to dark mode" and shipped that way *while already in dark mode* —
+ * the wrong action, announced to assistive tech for the whole session, and it
+ * never corrected itself because nothing re-rendered until the user clicked.
+ *
+ * next-themes sets `class="dark"` on <html> in a blocking script before paint,
+ * so the correct button is visible on first paint with no flash, and `hidden`
+ * keeps the inactive one out of both the tab order and the accessibility tree.
+ */
 export function ModeToggle() {
-  const { setTheme, resolvedTheme } = useTheme();
-  const isDark = resolvedTheme === 'dark';
+  const { setTheme } = useTheme();
 
   return (
-    <Button
-      variant="ghost"
-      size="icon"
-      aria-label={isDark ? 'Switch to light mode' : 'Switch to dark mode'}
-      onClick={() => setTheme(isDark ? 'light' : 'dark')}
-    >
-      <Sun className="size-5 scale-100 rotate-0 transition-all dark:scale-0 dark:-rotate-90" />
-      <Moon className="absolute size-5 scale-0 rotate-90 transition-all dark:scale-100 dark:rotate-0" />
-    </Button>
+    <>
+      <Button
+        variant="ghost"
+        size="icon"
+        className="dark:hidden"
+        aria-label="Switch to dark mode"
+        title="Switch to dark mode"
+        onClick={() => setTheme('dark')}
+      >
+        <Sun className="size-5" />
+      </Button>
+      <Button
+        variant="ghost"
+        size="icon"
+        className="hidden dark:inline-flex"
+        aria-label="Switch to light mode"
+        title="Switch to light mode"
+        onClick={() => setTheme('light')}
+      >
+        <Moon className="size-5" />
+      </Button>
+    </>
   );
 }

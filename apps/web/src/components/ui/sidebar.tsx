@@ -302,9 +302,14 @@ function SidebarRail({ className, ...props }: React.ComponentProps<"button">) {
   )
 }
 
-function SidebarInset({ className, ...props }: React.ComponentProps<"main">) {
+// Upstream shadcn renders this as <main>. It wraps the app header *and* the
+// page content, and the app layout already marks the content region as
+// <main id="main-content"> (the skip-link target) — which produced two main
+// landmarks, nested, on every authenticated page. A document may have only one
+// `main`, so this wrapper is a plain <div> and the inner region stays the main.
+function SidebarInset({ className, ...props }: React.ComponentProps<"div">) {
   return (
-    <main
+    <div
       data-slot="sidebar-inset"
       className={cn(
         "relative flex w-full flex-1 flex-col bg-background md:peer-data-[variant=inset]:m-2 md:peer-data-[variant=inset]:ml-0 md:peer-data-[variant=inset]:rounded-xl md:peer-data-[variant=inset]:shadow-sm md:peer-data-[variant=inset]:peer-data-[state=collapsed]:ml-2",
