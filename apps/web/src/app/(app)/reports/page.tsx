@@ -1,6 +1,7 @@
 import type { Metadata } from 'next';
 import { CircleCheck, Download, Send, Target, Briefcase, CalendarCheck } from 'lucide-react';
 import { EmptyState } from '@/components/empty-state';
+import { isSkillLabelTruncated, skillLabel } from '@/lib/analysis-display';
 import { SectionCard } from '@/components/section-card';
 import { StatTile } from '@/components/stat-tile';
 import { Card } from '@/components/ui/card';
@@ -43,7 +44,6 @@ export default async function ReportsPage() {
   }
 
   const topSkills = snapshot.commonMissingSkills.slice(0, 6);
-  const maxSkill = Math.max(1, topSkills.length);
 
   return (
     <div className="space-y-6">
@@ -85,23 +85,27 @@ export default async function ReportsPage() {
           )}
         </SectionCard>
 
-        <SectionCard title="Recurring missing skills" description="Repeated gaps across your targets.">
+        <SectionCard
+          title="Recurring missing skills"
+          description="Repeated gaps across your targets, most frequent first."
+        >
           {topSkills.length > 0 ? (
-            <div className="space-y-3">
+            // Deliberately a ranked list, not a bar chart: the report carries no
+            // per-skill counts (`commonMissingSkills` is a plain string[]), so any
+            // bar length would be invented. This previously drew bars from the
+            // array index, which looked like data and was not.
+            <ol className="space-y-2.5">
               {topSkills.map((skill, index) => (
-                <div key={skill} className="space-y-1">
-                  <div className="flex items-center justify-between text-sm">
-                    <span>{skill}</span>
-                  </div>
-                  <div className="bg-muted h-2 overflow-hidden rounded-full">
-                    <div
-                      className="bg-primary h-full rounded-full"
-                      style={{ width: `${100 - (index / maxSkill) * 60}%` }}
-                    />
-                  </div>
-                </div>
+                <li key={skill} className="flex items-start gap-3 text-sm">
+                  <span className="bg-muted text-muted-foreground mt-px flex size-5 shrink-0 items-center justify-center rounded-md text-xs font-medium tabular-nums">
+                    {index + 1}
+                  </span>
+                  <span title={isSkillLabelTruncated(skill) ? skill : undefined}>
+                    {skillLabel(skill)}
+                  </span>
+                </li>
               ))}
-            </div>
+            </ol>
           ) : (
             <p className="text-muted-foreground text-sm">No repeated skill gaps yet.</p>
           )}
