@@ -57,6 +57,25 @@ function countSkills(jobs: JobRecord[]) {
     .map(([skill]) => skill);
 }
 
+/**
+ * Shorten a model-authored missing-skill string for use inside a sentence.
+ *
+ * The scorer returns free-form justifications, not tokens, so interpolating one
+ * raw produced recommendations like: `Add one truthful proof point for
+ * "Intelligent automation platforms" (automation is implied via agent
+ * workflows, but the job's wording is not explicitly evidenced) to reduce
+ * repeated screening friction.` Prefer a leading quoted phrase, else drop the
+ * parenthetical aside, else clip.
+ */
+function skillPhrase(raw: string): string {
+  const text = raw.trim();
+  const quoted = text.match(/^["“”']([^"“”']{2,})["“”']/);
+  const base = quoted?.[1]?.trim() || text.replace(/\s*\([^)]*\)\s*$/, '').trim();
+  const firstClause = base.split(/(?<=[.;])\s+/)[0]?.trim() || base;
+  const cleaned = firstClause.replace(/[.;,]+$/, '').trim();
+  return cleaned.length > 60 ? `${cleaned.slice(0, 59).trimEnd()}…` : cleaned;
+}
+
 function buildRecommendations(metrics: WeeklyReportMetrics, commonMissingSkills: string[]) {
   if (
     metrics.jobs_discovered === 0 &&
@@ -82,7 +101,7 @@ function buildRecommendations(metrics: WeeklyReportMetrics, commonMissingSkills:
       ? 'Review the drafted outreach and send or archive the items that are still waiting.'
       : 'Keep outreach drafts aligned to the most promising roles and contacts.',
     commonMissingSkills[0]
-      ? `Add one truthful proof point for ${commonMissingSkills[0]} to reduce repeated screening friction.`
+      ? `Add one truthful proof point for ${skillPhrase(commonMissingSkills[0])} to reduce repeated screening friction.`
       : 'Capture one new proof point from this week so the next report has a stronger story to tell.',
   ];
 
