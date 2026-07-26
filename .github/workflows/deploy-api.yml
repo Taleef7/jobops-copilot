@@ -3,8 +3,9 @@
 # Why this exists: apps/api is an npm workspace whose dependencies are hoisted to
 # the repo-root node_modules. Deploying the workspace folder directly ships no
 # node_modules, so the app crashes with "Cannot find module '@clerk/express'".
-# This workflow assembles a SELF-CONTAINED package (dist + package.json + a local
-# production install) and deploys that, then verifies the live app is healthy.
+# This workflow assembles a SELF-CONTAINED package (dist + package.json + the
+# production dependency tree copied out of the install this run already tested)
+# and deploys that, then verifies the live app is healthy.
 #
 # Preconditions (already configured on the jobops-api App Service):
 #   - App setting WEBSITE_RUN_FROM_PACKAGE=1        (package mounted read-only;
@@ -22,6 +23,10 @@ on:
     paths:
       - 'apps/api/**'
       - '.github/workflows/deploy-api.yml'
+      # The deploy assembles its package via scripts/ci/write-deploy-package.mjs,
+      # so a fix to that helper must be able to trigger a deploy on its own —
+      # otherwise the old packaging stays live until an unrelated API change.
+      - 'scripts/ci/**'
   workflow_dispatch:
 
 permissions:
@@ -81,14 +86,22 @@ jobs:
           rm -rf apps/api/.deploy
           mkdir -p apps/api/.deploy/dist
           cp -r apps/api/dist/. apps/api/.deploy/dist/
-          cp apps/api/package.json apps/api/.deploy/package.json
-          # Copy the repo-root lockfile so the packaged dependencies are the EXACT
-          # versions npm ci installed and tested in this job (deterministic) rather
-          # than a fresh semver re-resolve. npm ci honours the lockfile's pinned
-          # versions; a few hoisted peer packages (e.g. react) come along but the
-          # API never requires them, so they are inert under WEBSITE_RUN_FROM_PACKAGE.
-          cp package-lock.json apps/api/.deploy/package-lock.json
-          ( cd apps/api/.deploy && npm ci --omit=dev --no-audit --no-fund )
+          # Build the package from the dependency tree `npm ci` just installed —
+          # the same one `npm test` exercised — instead of resolving a second one.
+          #
+          # The old approach copied the root lockfile beside apps/api/package.json
+          # and ran `npm ci`, which only works while every api dependency is
+          # hoisted. undici@8 lives at apps/api/node_modules/undici (jsdom +
+          # shadcn hold undici@7 at the root), so npm bailed with "lock file's
+          # undici@7.28.0 does not satisfy undici@8.9.0" and the API stopped
+          # deploying. Re-resolving with exact direct pins is no fix either:
+          # transitive ranges would still float, and pinning the whole closure via
+          # `overrides` is impossible because the api genuinely needs two versions
+          # of some packages (express 5 wants type-is@2 while applicationinsights
+          # wants type-is@1.6.18).
+          node scripts/ci/write-deploy-package.mjs
+          # Assert the assembled tree matches the lockfile exactly before shipping.
+          node scripts/ci/write-deploy-package.mjs --verify
           # Fail fast if any production dependency did not land in the package.
           ( cd apps/api/.deploy && node -e "const d=require('./package.json').dependencies||{};for(const k of Object.keys(d))require.resolve(k);console.log('OK:',Object.keys(d).length,'prod deps resolve');" )
 
