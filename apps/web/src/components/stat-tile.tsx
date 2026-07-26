@@ -6,6 +6,7 @@ import { cn } from '@/lib/utils';
 export function StatTile({
   label,
   value,
+  hint,
   trend,
   trendLabel,
   spark,
@@ -14,6 +15,8 @@ export function StatTile({
 }: {
   label: string;
   value: string | number;
+  /** Small caption under the value — e.g. what the number is measured over. */
+  hint?: string;
   trend?: number;
   trendLabel?: string;
   spark?: number[];
@@ -36,6 +39,7 @@ export function StatTile({
           <Sparkline values={spark} variant={sparkVariant} width={64} height={28} />
         ) : null}
       </div>
+      {hint ? <p className="text-muted-foreground text-xs">{hint}</p> : null}
       {trend != null ? (
         <p
           className={cn(

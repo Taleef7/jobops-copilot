@@ -145,7 +145,9 @@ test('propagates non-duplicate insert errors', async () => {
 
 test('pre-ranks each inserted job with a local-prerank analysis', async () => {
   const { deps, analyses } = makeDeps(
-    [sourced('https://x/1', { descriptionText: 'We use TypeScript and React.' })],
+    // Three recognised skills clears the local-fit evidence floor, so this
+    // posting gets a real estimated number.
+    [sourced('https://x/1', { descriptionText: 'We use TypeScript, React, and Node.js.' })],
     [],
   );
 
@@ -156,6 +158,22 @@ test('pre-ranks each inserted job with a local-prerank analysis', async () => {
   assert.equal(analyses[0]?.jobId, 'job-1');
   assert.equal(analyses[0]?.modelUsed, 'local-prerank');
   assert.equal(typeof analyses[0]?.fitScore, 'number');
+});
+
+test('pre-ranks a thin job-board snippet without inventing a score', async () => {
+  // Adzuna returns 500-char snippets that typically parse to 0–1 skills. The
+  // job is still ingested and analysed; only the fit number is withheld, so the
+  // list renders "not scored" instead of a confident 0 or 100.
+  const { deps, analyses } = makeDeps(
+    [sourced('https://x/1', { descriptionText: 'Exciting AI Engineer role using LLM tooling.' })],
+    [],
+  );
+
+  const result = await runDiscoveryForUser('u', deps);
+
+  assert.equal(result.inserted, 1);
+  assert.equal(analyses[0]?.modelUsed, 'local-prerank');
+  assert.equal(analyses[0]?.fitScore, null);
 });
 
 test('still counts an inserted job when pre-rank persistence fails (best-effort)', async () => {
