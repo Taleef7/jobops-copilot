@@ -15,11 +15,17 @@ const statusBuckets: JobStatus[] = [
 ];
 
 export function getDashboardSummary(jobs: Job[]) {
-  const averageFitScore = jobs.length
-    ? Math.round(
-        jobs.reduce((total, job) => total + (job.fitScore ?? 0), 0) / jobs.length,
-      )
-    : 0;
+  // Average only the jobs that actually carry a score. Counting an unscored job
+  // as 0 dragged the headline number toward zero as soon as discovery pulled in
+  // a batch — it reported "avg fit 32" for a pipeline whose scored jobs averaged
+  // in the 80s. `null` means "not scored yet", never "scored zero".
+  const scoredJobs = jobs.filter(
+    (job): job is Job & { fitScore: number } => typeof job.fitScore === 'number',
+  );
+  const averageFitScore = scoredJobs.length
+    ? Math.round(scoredJobs.reduce((total, job) => total + job.fitScore, 0) / scoredJobs.length)
+    : null;
+  const scoredJobCount = scoredJobs.length;
 
   const statusCounts = Object.fromEntries(
     statusBuckets.map((status) => [status, jobs.filter((job) => job.status === status).length]),
@@ -44,6 +50,7 @@ export function getDashboardSummary(jobs: Job[]) {
   return {
     totalJobs: jobs.length,
     averageFitScore,
+    scoredJobCount,
     statusCounts,
     followUpsDue,
     outreachDrafts,

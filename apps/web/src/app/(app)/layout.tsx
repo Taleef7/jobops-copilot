@@ -33,7 +33,15 @@ export default async function AppLayout({ children }: { children: React.ReactNod
         <Suspense fallback={<div className="h-16 border-b" />}>
           <AppHeader />
         </Suspense>
-        <main id="main-content" tabIndex={-1} className="flex-1 p-4 outline-none md:p-6 lg:p-8">
+        {/* Reserve the strip the fixed assistant FAB occupies (bottom-4 +
+            size-12, bottom-6 from sm) so the end of a page can always be
+            scrolled clear of it. Previously the last row's controls stayed
+            pinned underneath the button with nothing left to scroll. */}
+        <main
+          id="main-content"
+          tabIndex={-1}
+          className="flex-1 p-4 pb-24 outline-none md:p-6 md:pb-24 lg:p-8 lg:pb-28"
+        >
           {children}
         </main>
       </SidebarInset>
