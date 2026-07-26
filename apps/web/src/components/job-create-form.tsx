@@ -8,15 +8,20 @@ import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { OptionSelect } from '@/components/ui/option-select';
 import { Textarea } from '@/components/ui/textarea';
 import { ApiRequestError, createJob, extractJobFromUrl } from '@/lib/api';
 import type { Job } from '@/types/job';
 
-const workplaceTypeOptions: Array<Job['workplaceType']> = ['remote', 'hybrid', 'onsite', 'flexible'];
-const priorityOptions: Array<Job['priority']> = ['high', 'medium', 'low'];
+const capitalise = (value: string) => value.charAt(0).toUpperCase() + value.slice(1);
 
-const selectClass =
-  'border-input bg-card h-9 w-full rounded-md border px-2.5 text-sm capitalize shadow-xs focus-visible:border-ring focus-visible:ring-ring/50 focus-visible:ring-[3px] outline-none';
+const workplaceTypeOptions = (
+  ['remote', 'hybrid', 'onsite', 'flexible'] as const satisfies readonly Job['workplaceType'][]
+).map((value) => ({ value, label: capitalise(value) }));
+
+const priorityOptions = (
+  ['high', 'medium', 'low'] as const satisfies readonly Job['priority'][]
+).map((value) => ({ value, label: capitalise(value) }));
 
 function isHttpUrl(value: string): boolean {
   try {
@@ -296,36 +301,22 @@ export function JobCreateForm() {
         </div>
         <div className="space-y-1.5">
           <Label htmlFor="workplace">Workplace</Label>
-          <select
+          <OptionSelect
             id="workplace"
-            className={selectClass}
             value={form.workplaceType}
-            onChange={(event) =>
-              updateField('workplaceType', event.target.value as Job['workplaceType'])
-            }
+            onValueChange={(value) => updateField('workplaceType', value)}
+            options={workplaceTypeOptions}
             disabled={isExtracting}
-          >
-            {workplaceTypeOptions.map((option) => (
-              <option key={option} value={option}>
-                {option}
-              </option>
-            ))}
-          </select>
+          />
         </div>
         <div className="space-y-1.5">
           <Label htmlFor="priority">Priority</Label>
-          <select
+          <OptionSelect
             id="priority"
-            className={selectClass}
             value={form.priority}
-            onChange={(event) => updateField('priority', event.target.value as Job['priority'])}
-          >
-            {priorityOptions.map((option) => (
-              <option key={option} value={option}>
-                {option}
-              </option>
-            ))}
-          </select>
+            onValueChange={(value) => updateField('priority', value)}
+            options={priorityOptions}
+          />
         </div>
       </div>
 

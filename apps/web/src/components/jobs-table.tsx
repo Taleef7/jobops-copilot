@@ -4,6 +4,7 @@ import { Search } from 'lucide-react';
 import Link from 'next/link';
 import { useState } from 'react';
 import { EmptyState } from '@/components/empty-state';
+import { OptionSelect } from '@/components/ui/option-select';
 import { FitScoreRing } from '@/components/fit-score-ring';
 import { StatusPill } from '@/components/status-pill';
 import { Badge } from '@/components/ui/badge';
@@ -22,31 +23,38 @@ import { isWithinRecency, RECENCY_OPTIONS, recencyDate, type RecencyWindow } fro
 import { cn } from '@/lib/utils';
 import type { Job, JobPriority, JobStatus } from '@/types/job';
 
-const statusOptions: Array<JobStatus | 'all'> = [
-  'all',
-  'discovered',
-  'shortlisted',
-  'outreach_drafted',
-  'outreach_sent',
-  'referral_requested',
-  'follow_up_due',
-  'applied',
-  'interview',
-  'offer',
-  'rejected',
-  'archived',
-];
+/** `outreach_drafted` -> `Outreach drafted`. */
+function titleCase(value: string) {
+  const words = value.replaceAll('_', ' ');
+  return words.charAt(0).toUpperCase() + words.slice(1);
+}
 
-const priorityOptions: Array<JobPriority | 'all'> = ['all', 'high', 'medium', 'low'];
+const statusOptions = (
+  [
+    'all',
+    'discovered',
+    'shortlisted',
+    'outreach_drafted',
+    'outreach_sent',
+    'referral_requested',
+    'follow_up_due',
+    'applied',
+    'interview',
+    'offer',
+    'rejected',
+    'archived',
+  ] as const satisfies readonly (JobStatus | 'all')[]
+).map((value) => ({ value, label: value === 'all' ? 'All statuses' : titleCase(value) }));
+
+const priorityOptions = (
+  ['all', 'high', 'medium', 'low'] as const satisfies readonly (JobPriority | 'all')[]
+).map((value) => ({ value, label: value === 'all' ? 'All priorities' : titleCase(value) }));
 
 const priorityTone: Record<JobPriority, string> = {
   high: 'bg-rose-500',
   medium: 'bg-amber-500',
   low: 'bg-slate-400',
 };
-
-const selectClass =
-  'border-input bg-card h-9 rounded-md border px-2.5 text-sm capitalize shadow-xs focus-visible:border-ring focus-visible:ring-ring/50 focus-visible:ring-[3px] outline-none';
 
 export function JobsTable({ jobs, initialQuery = '' }: { jobs: Job[]; initialQuery?: string }) {
   const [query, setQuery] = useState(initialQuery);
@@ -105,42 +113,31 @@ export function JobsTable({ jobs, initialQuery = '' }: { jobs: Job[]; initialQue
               className="bg-card pl-8"
             />
           </div>
-          <select
+          <OptionSelect
             aria-label="Filter by status"
-            className={selectClass}
             value={status}
-            onChange={(event) => setStatus(event.target.value as JobStatus | 'all')}
-          >
-            {statusOptions.map((option) => (
-              <option key={option} value={option}>
-                {option === 'all' ? 'All statuses' : option.replaceAll('_', ' ')}
-              </option>
-            ))}
-          </select>
-          <select
+            onValueChange={setStatus}
+            options={statusOptions}
+            // The popup takes the trigger's width, and each item reserves 32px
+            // on the right for the selected-check. At 9rem the longest label
+            // ("Referral requested") ran under that check. Sized for the
+            // longest option instead.
+            className="w-auto min-w-46"
+          />
+          <OptionSelect
             aria-label="Filter by priority"
-            className={selectClass}
             value={priority}
-            onChange={(event) => setPriority(event.target.value as JobPriority | 'all')}
-          >
-            {priorityOptions.map((option) => (
-              <option key={option} value={option}>
-                {option === 'all' ? 'All priorities' : option}
-              </option>
-            ))}
-          </select>
-          <select
+            onValueChange={setPriority}
+            options={priorityOptions}
+            className="w-auto min-w-36"
+          />
+          <OptionSelect
             aria-label="Filter by recency"
-            className={selectClass}
             value={recency}
-            onChange={(event) => setRecency(event.target.value as RecencyWindow)}
-          >
-            {RECENCY_OPTIONS.map((option) => (
-              <option key={option.value} value={option.value}>
-                {option.label}
-              </option>
-            ))}
-          </select>
+            onValueChange={setRecency}
+            options={RECENCY_OPTIONS}
+            className="w-auto min-w-32"
+          />
         </div>
       ) : null}
 

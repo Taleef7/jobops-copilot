@@ -5,6 +5,7 @@ import { LoadSampleDataButton } from '@/components/load-sample-data-button';
 import { SectionCard } from '@/components/section-card';
 import { StatTile } from '@/components/stat-tile';
 import { StatusPill } from '@/components/status-pill';
+import { isSkillLabelTruncated, skillLabel } from '@/lib/analysis-display';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { getDashboardSummary } from '@/lib/dashboard';
@@ -90,7 +91,16 @@ export default async function DashboardPage() {
       {/* KPI tiles — real values only (no fabricated trend/sparkline history). */}
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <StatTile label="Jobs tracked" value={summary.totalJobs} icon={Briefcase} />
-        <StatTile label="Avg fit score" value={summary.averageFitScore} icon={Target} />
+        <StatTile
+          label="Avg fit score"
+          value={summary.averageFitScore ?? '—'}
+          hint={
+            summary.averageFitScore == null
+              ? 'No jobs scored yet'
+              : `Across ${summary.scoredJobCount} scored job${summary.scoredJobCount === 1 ? '' : 's'}`
+          }
+          icon={Target}
+        />
         <StatTile label="Outreach drafts" value={summary.outreachDrafts} icon={Send} />
         <StatTile label="Follow-ups due" value={summary.followUpsDue} icon={TimerReset} />
       </div>
@@ -158,9 +168,11 @@ export default async function DashboardPage() {
           <div className="space-y-3">
             {summary.topMissingSkills.map((skill) => (
               <div key={skill.skill} className="space-y-1">
-                <div className="flex items-center justify-between text-sm">
-                  <span>{skill.skill}</span>
-                  <span className="text-muted-foreground tabular-nums">{skill.count}</span>
+                <div className="flex items-start justify-between gap-3 text-sm">
+                  <span title={isSkillLabelTruncated(skill.skill) ? skill.skill : undefined}>
+                    {skillLabel(skill.skill)}
+                  </span>
+                  <span className="text-muted-foreground shrink-0 tabular-nums">{skill.count}</span>
                 </div>
                 <div className="bg-muted h-2 overflow-hidden rounded-full">
                   <div

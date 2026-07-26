@@ -6,6 +6,7 @@ import { useEffect, useRef, useState } from 'react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { ApiRequestError, scoreFit } from '@/lib/api';
+import { isHeuristicAnalysis } from '@/lib/analysis-display';
 
 type JobAnalysisActionsProps = {
   jobId: string;
@@ -29,7 +30,18 @@ export function JobAnalysisActions({ jobId, autoScore = false }: JobAnalysisActi
     setIsScoring(true);
     try {
       const scored = await scoreFit({ jobId });
-      if (!silent) toast.success(`Fit score saved: ${scored.fit_score}/100`);
+      // /score-fit answers 200 whether the agent scored the job or the request
+      // fell through to the rule-based heuristic (agent-client.ts falls back on
+      // any agent failure — a cold start on the scale-to-zero container is the
+      // common case). Without this the two are indistinguishable to the user,
+      // who sees a confident number and no hint that the AI never ran.
+      if (isHeuristicAnalysis(scored.model_used)) {
+        toast.warning(`Estimated fit: ${scored.fit_score}/100`, {
+          description: 'The AI scorer was unavailable, so this is a rule-based estimate. Try again in a moment for a full analysis.',
+        });
+      } else if (!silent) {
+        toast.success(`Fit score saved: ${scored.fit_score}/100`);
+      }
       // Always refresh so the upgraded score is reflected in the UI, even silently.
       router.refresh();
     } catch (error) {
