@@ -1,6 +1,7 @@
 import '@testing-library/jest-dom/vitest';
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
+import { fireEvent } from '@testing-library/react';
 import { afterEach, expect, it, vi } from 'vitest';
 
 const { push, refresh } = vi.hoisted(() => ({ push: vi.fn(), refresh: vi.fn() }));
@@ -13,6 +14,10 @@ const { saveResumeText, uploadResumeFile, createSavedSearch, runDiscovery } = vi
 vi.mock('sonner', () => ({ toast: { error: vi.fn(), success: vi.fn() } }));
 vi.mock('next/navigation', () => ({ useRouter: () => ({ push, refresh }) }));
 vi.mock('@/lib/api', () => ({ saveResumeText, uploadResumeFile, createSavedSearch, runDiscovery }));
+// The step-1 escape hatch renders a real Clerk button, which needs a provider.
+vi.mock('@clerk/nextjs', () => ({
+  SignOutButton: ({ children }: { children: React.ReactNode }) => children,
+}));
 
 import OnboardingPage from './page';
 
@@ -101,4 +106,81 @@ it('lets the user skip discovery and go to the dashboard', async () => {
 
   expect(createSavedSearch).not.toHaveBeenCalled();
   await waitFor(() => expect(push).toHaveBeenCalledWith('/dashboard'));
+});
+
+
+// --- step 1: file intake -----------------------------------------------------
+
+function dropFile(file: File) {
+  const dropzone = screen.getByText(/drop or choose your resume pdf/i).closest('label');
+  if (!dropzone) throw new Error('dropzone not found');
+  // jsdom has no DataTransfer, so hand fireEvent the shape the handler reads.
+  fireEvent.drop(dropzone, { dataTransfer: { files: [file] } });
+}
+
+function pdfFile(name = 'resume.pdf', size = 1024) {
+  const file = new File(['%PDF-1.4'], name, { type: 'application/pdf' });
+  Object.defineProperty(file, 'size', { value: size });
+  return file;
+}
+
+it('tells the user which step of the flow they are on', () => {
+  render(<OnboardingPage />);
+  expect(screen.getByText('Step 1 of 2')).toBeInTheDocument();
+});
+
+it('offers a way out instead of trapping the user on step 1', () => {
+  // A resume is required to pass this step and the app redirects here until a
+  // profile exists, so without an escape a PDF that will not parse locks
+  // someone out of the product entirely.
+  render(<OnboardingPage />);
+  expect(screen.getByRole('button', { name: /sign out/i })).toBeInTheDocument();
+});
+
+it('accepts a dropped PDF', () => {
+  // The copy promised "Drop or choose your resume PDF" but the label carried no
+  // drag handlers, so dropping a file made the browser navigate away to render
+  // the PDF and the half-finished onboarding was lost.
+  render(<OnboardingPage />);
+  dropFile(pdfFile('ava-resume.pdf'));
+  expect(screen.getByText('ava-resume.pdf')).toBeInTheDocument();
+});
+
+it('rejects a dropped non-PDF and says what to do instead', () => {
+  render(<OnboardingPage />);
+  dropFile(new File(['x'], 'notes.docx', { type: 'application/msword' }));
+
+  const alert = screen.getByRole('alert');
+  expect(alert).toHaveTextContent('notes.docx');
+  expect(alert).toHaveTextContent(/paste text/i);
+});
+
+it('rejects a file over the 5 MB API limit and reports the actual size', () => {
+  render(<OnboardingPage />);
+  dropFile(pdfFile('huge.pdf', 6 * 1024 * 1024));
+
+  const alert = screen.getByRole('alert');
+  expect(alert).toHaveTextContent('6.0 MB');
+  expect(alert).toHaveTextContent(/limit is 5 MB/i);
+});
+
+it('lets a user recover by pasting after a PDF upload fails', async () => {
+  // The failure message tells the user to switch to "Paste text". That advice
+  // was previously a dead end: `pendingFile` stayed set, so saveResume kept
+  // preferring uploadResumeFile and retried the same broken PDF forever.
+  uploadResumeFile.mockRejectedValueOnce(new Error('unparseable pdf'));
+  const user = userEvent.setup();
+  render(<OnboardingPage />);
+
+  dropFile(pdfFile('broken.pdf'));
+  await user.click(screen.getByRole('button', { name: /continue/i }));
+  expect(await screen.findByRole('alert')).toHaveTextContent(/paste text/i);
+
+  await user.click(screen.getByRole('tab', { name: /paste text/i }));
+  await user.type(screen.getByPlaceholderText(/paste your resume text/i), 'Ava Tester — AI engineer');
+  await user.click(screen.getByRole('button', { name: /continue/i }));
+
+  await waitFor(() => expect(saveResumeText).toHaveBeenCalledWith('Ava Tester — AI engineer'));
+  // and crucially: the broken file was not retried
+  expect(uploadResumeFile).toHaveBeenCalledTimes(1);
 });
