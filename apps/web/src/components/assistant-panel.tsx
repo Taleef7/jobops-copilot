@@ -4,6 +4,8 @@ import { useState } from 'react';
 import { Check, Loader2, Sparkles, X } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
+import { Label } from '@/components/ui/label';
+import { Textarea } from '@/components/ui/textarea';
 
 interface Step {
   node: string;
@@ -126,18 +128,32 @@ export function AssistantPanel() {
   return (
     <div className="space-y-4">
       <div className="grid gap-3 sm:grid-cols-2">
-        <textarea
-          className="border-input bg-background min-h-32 rounded-lg border p-3 text-sm"
-          placeholder="Paste a job description…"
-          value={description}
-          onChange={(e) => setDescription(e.target.value)}
-        />
-        <textarea
-          className="border-input bg-background min-h-32 rounded-lg border p-3 text-sm"
-          placeholder="Paste your resume (optional)…"
-          value={resume}
-          onChange={(e) => setResume(e.target.value)}
-        />
+        <div className="space-y-1.5">
+          <Label htmlFor="assistant-jd">Job description</Label>
+          <Textarea
+            id="assistant-jd"
+            className="min-h-32"
+            placeholder="Paste a job description…"
+            value={description}
+            onChange={(e) => setDescription(e.target.value)}
+          />
+        </div>
+        <div className="space-y-1.5">
+          <Label htmlFor="assistant-resume">Resume</Label>
+          <Textarea
+            id="assistant-resume"
+            className="min-h-32"
+            placeholder="Leave blank to use your saved resume…"
+            value={resume}
+            onChange={(e) => setResume(e.target.value)}
+          />
+          {/* The old placeholder said "(optional)" while the API sent whatever
+              was typed straight through — so leaving it blank scored the role
+              against nothing and always failed the fit gate. */}
+          <p className="text-muted-foreground text-xs">
+            Optional — the run uses the resume on file unless you paste an override.
+          </p>
+        </div>
       </div>
 
       <Button onClick={run} disabled={running} aria-busy={running}>
@@ -167,9 +183,10 @@ export function AssistantPanel() {
             <div role="status" className="bg-muted mt-3 rounded-md px-3 py-2 text-sm">
               <p className="font-medium">Below the fit threshold</p>
               <p className="text-muted-foreground mt-1">
-                Your profile didn&apos;t score high enough for this role. Common next steps: strengthen
-                your resume for the required skills, or use the <strong>Score fit</strong> button on the
-                job detail page to see exactly what&apos;s missing.
+                This role scored below the bar against your resume, so the run stopped before
+                drafting. Use <strong>Score fit</strong> on the job detail page to see exactly which
+                requirements are missing, or check that the resume on file in{' '}
+                <strong>Settings</strong> is current.
               </p>
             </div>
           ) : null}

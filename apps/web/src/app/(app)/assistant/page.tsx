@@ -16,7 +16,7 @@ export default function AssistantPage() {
       </div>
       <SectionCard
         title="Run the assistant"
-        description="Paste a job description (and optionally your resume) to start a streamed, human-in-the-loop run."
+        description="Paste a job description to start a streamed, human-in-the-loop run. It scores against the resume on file."
       >
         <AssistantPanel />
       </SectionCard>
