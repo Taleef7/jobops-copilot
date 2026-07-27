@@ -685,20 +685,43 @@ export async function saveJobAnalysis(
     ],
   );
 
-  // A scored job must stop telling you to score it. `coalesce` leaves the
-  // column untouched when the derivation declines (a pre-rank, or a next
-  // action that is no longer the creation-time prompt).
-  const nextAction = deriveAnalyzedNextAction(job.nextAction, analysis.modelUsed);
+  // A scored job must stop telling you to score it.
+  const nextAction = deriveAnalyzedNextAction(job.nextAction, analysis.modelUsed, fitScore);
 
+  // The derivation ran against the `job` read above, and the analysis insert
+  // has been awaited since — long enough for the user to have edited the next
+  // action from another request. So the write re-checks the stored value
+  // itself: replace only when the derivation said yes AND the column still
+  // holds the untouched creation-time prompt. `coalesce` alone would not do
+  // this; it only covers the case where the derivation declined.
   if (fitScore !== undefined) {
     await pool.query(
-      'update jobs set fit_score = $2, next_action = coalesce($3, next_action), updated_at = now() where id::text = $1',
-      [jobId, fitScore, nextAction],
+      `
+        update jobs
+        set
+          fit_score = $2,
+          next_action = case
+            when $3::text is not null and btrim(next_action) = $4::text then $3::text
+            else next_action
+          end,
+          updated_at = now()
+        where id::text = $1
+      `,
+      [jobId, fitScore, nextAction, UNSCORED_NEXT_ACTION],
     );
   } else {
     await pool.query(
-      'update jobs set next_action = coalesce($2, next_action), updated_at = now() where id::text = $1',
-      [jobId, nextAction],
+      `
+        update jobs
+        set
+          next_action = case
+            when $2::text is not null and btrim(next_action) = $3::text then $2::text
+            else next_action
+          end,
+          updated_at = now()
+        where id::text = $1
+      `,
+      [jobId, nextAction, UNSCORED_NEXT_ACTION],
     );
   }
 

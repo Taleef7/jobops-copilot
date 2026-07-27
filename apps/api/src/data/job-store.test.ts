@@ -130,7 +130,7 @@ test('listJobs paginates (opt-in) and stays user-scoped; countJobs reports the t
 // The file store takes its own branch in saveJobAnalysis, so the Postgres
 // integration test above it proves nothing here. Before this, a scored job
 // kept telling you to score it.
-test('saveJobAnalysis advances the next action, but not for a pre-rank', async () => {
+test('saveJobAnalysis advances the next action only for a real scoring run', async () => {
   const originalCwd = process.cwd();
   delete process.env.DATABASE_URL; // force the file store
   const tempDir = await mkdtemp(join(tmpdir(), 'jobops-nextaction-'));
@@ -153,6 +153,8 @@ test('saveJobAnalysis advances the next action, but not for a pre-rank', async (
       'a scored job stops asking to be scored',
     );
 
+    // A pre-rank that clears the evidence floor DOES carry a number, so this
+    // must be excluded by its model, not by the absence of a score.
     const estimatedJob = await createJob('user-1', {
       company: 'Hooli',
       title: 'Data Engineer',
@@ -163,12 +165,30 @@ test('saveJobAnalysis advances the next action, but not for a pre-rank', async (
       'user-1',
       estimatedJob.id,
       { ...estimatedJob.analysis, modelUsed: PRERANK_MODEL },
-      null,
+      100,
     );
     assert.equal(
       (await getJobById('user-1', estimatedJob.id))?.nextAction,
       UNSCORED_NEXT_ACTION,
       'discovery’s keyword estimate is not a scoring run',
+    );
+
+    // POST /ai/parse-job saves an analysis with no fitScore at all. That is a
+    // parse, not a scoring run, so the prompt to score has to survive it.
+    const parsedJob = await createJob('user-1', {
+      company: 'Initech',
+      title: 'Platform Engineer',
+      descriptionText: 'Kubernetes and Go.',
+    });
+
+    await saveJobAnalysis('user-1', parsedJob.id, {
+      ...parsedJob.analysis,
+      modelUsed: 'mock-analysis-v1',
+    });
+    assert.equal(
+      (await getJobById('user-1', parsedJob.id))?.nextAction,
+      UNSCORED_NEXT_ACTION,
+      'a parse with no score is not a scoring run',
     );
   } finally {
     process.chdir(originalCwd);

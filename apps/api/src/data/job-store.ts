@@ -410,7 +410,7 @@ export async function saveJobAnalysis(
     }
     // A scored job must stop telling you to score it. Null means "leave it" —
     // a pre-rank, or a next action that is no longer the creation-time prompt.
-    const nextAction = deriveAnalyzedNextAction(job.nextAction, analysis.modelUsed);
+    const nextAction = deriveAnalyzedNextAction(job.nextAction, analysis.modelUsed, fitScore);
     if (nextAction) {
       job.nextAction = nextAction;
     }

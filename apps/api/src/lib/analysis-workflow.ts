@@ -19,21 +19,29 @@ export const ANALYZED_NEXT_ACTION = 'Review the fit summary, then draft outreach
  * analyze this role." The one column meant to say what to do next was
  * describing work already done.
  *
- * Two things it deliberately will not do:
+ * Three things it deliberately will not do:
  *
+ * - Advance without a fit score. `saveJobAnalysis` is called on two very
+ *   different paths: POST /ai/parse-job saves a parse with no score at all,
+ *   POST /ai/score-fit saves one with `scored.fit_score`. Only the second is
+ *   a scoring run. A model-name check cannot tell them apart — the parse
+ *   path's `mock-analysis-v1` is also used for real agent parses and for the
+ *   new-job placeholder — so the presence of an actual number is the signal.
+ * - Advance on a pre-rank. Discovery's keyword estimate is tagged
+ *   `local-prerank`; it can carry a number but is explicitly not a scoring
+ *   run, so the prompt to actually score the role has to survive it.
  * - Overwrite anything other than the untouched creation-time prompt. A next
  *   action the user wrote, or one a later workflow set (see
  *   deriveOutreachJobUpdate), is theirs to keep — scoring a role again must
  *   not rewind "Track the reply window" back to "Review the fit summary".
- * - Advance on a pre-rank. Discovery's keyword estimate is tagged
- *   `local-prerank` and is explicitly not a scoring run, so the prompt to
- *   actually score the role has to survive it.
  */
 export function deriveAnalyzedNextAction(
   currentNextAction: string | null | undefined,
   modelUsed: string,
+  fitScore: number | null | undefined,
 ): string | null {
   if (modelUsed === PRERANK_MODEL) return null;
+  if (typeof fitScore !== 'number') return null;
   if ((currentNextAction ?? '').trim() !== UNSCORED_NEXT_ACTION) return null;
   return ANALYZED_NEXT_ACTION;
 }

@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
 import test from 'node:test';
-import { createJob, getJobById, getStoreMode, listJobs, saveJobAnalysis } from './job-store';
+import { createJob, getJobById, getStoreMode, listJobs, saveJobAnalysis, updateJob } from './job-store';
 import { createSavedSearch, deleteSavedSearch, listSavedSearches } from './saved-search-store';
 import { ANALYZED_NEXT_ACTION, UNSCORED_NEXT_ACTION } from '@/lib/analysis-workflow';
 import { PRERANK_MODEL } from '@/lib/local-fit';
@@ -69,6 +69,8 @@ test(
       assert.equal(scored?.nextAction, ANALYZED_NEXT_ACTION, 'a scored job stops asking to be scored');
     });
 
+    // A pre-rank that clears the evidence floor DOES carry a number, so it has
+    // to be excluded by its model rather than by the absence of a score.
     await t.test('jobs: a pre-rank leaves the next action asking to be scored', async () => {
       const job = await createJob(userA, {
         company: 'Hooli',
@@ -77,13 +79,54 @@ test(
       });
 
       const estimate = { ...job.analysis, modelUsed: PRERANK_MODEL };
-      const prerank = await saveJobAnalysis(userA, job.id, estimate, null);
+      const prerank = await saveJobAnalysis(userA, job.id, estimate, 100);
 
       assert.equal(
         prerank?.nextAction,
         UNSCORED_NEXT_ACTION,
         'discovery’s keyword estimate is not a scoring run',
       );
+    });
+
+    // POST /ai/parse-job saves an analysis with no fitScore at all.
+    await t.test('jobs: a parse with no score leaves the prompt to score', async () => {
+      const job = await createJob(userA, {
+        company: 'Umbrella',
+        title: 'SRE',
+        descriptionText: 'Terraform, incident response',
+      });
+
+      const parsed = await saveJobAnalysis(userA, job.id, {
+        ...job.analysis,
+        modelUsed: 'mock-analysis-v1',
+      });
+
+      assert.equal(parsed?.nextAction, UNSCORED_NEXT_ACTION, 'a parse is not a scoring run');
+    });
+
+    // The write re-checks next_action itself rather than trusting the value
+    // read before the analysis insert, so a next action written in between is
+    // not clobbered. (The read-then-write race is not reproducible from here;
+    // this covers the guard's ordinary path.)
+    await t.test('jobs: scoring does not overwrite a user-written next action', async () => {
+      const job = await createJob(userA, {
+        company: 'Stark',
+        title: 'ML Engineer',
+        descriptionText: 'PyTorch, CUDA',
+      });
+
+      const mine = 'Ping Dana about the referral';
+      await updateJob(userA, job.id, { nextAction: mine });
+
+      const scored = await saveJobAnalysis(
+        userA,
+        job.id,
+        { ...job.analysis, modelUsed: 'gpt-4o' },
+        88,
+      );
+
+      assert.equal(scored?.fitScore, 88, 'the score still lands');
+      assert.equal(scored?.nextAction, mine, 'the user’s next action is theirs to keep');
     });
   },
 );
