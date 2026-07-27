@@ -5,7 +5,22 @@ import { Check, Loader2, Sparkles, X } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
+import { OptionSelect } from '@/components/ui/option-select';
 import { Textarea } from '@/components/ui/textarea';
+
+/**
+ * A job from the pipeline that the assistant can be pointed at. Only jobs that
+ * actually carry a description qualify — the run parses that text, so offering
+ * one without it would just fail at the first step.
+ */
+export type AssistantJobOption = {
+  id: string;
+  label: string;
+  descriptionText: string;
+};
+
+/** Sentinel for "none chosen", so the trigger shows the placeholder. */
+const NO_JOB = '';
 
 interface Step {
   node: string;
@@ -27,9 +42,13 @@ const NODE_LABELS: Record<string, string> = {
   below_fit_bar: 'Below the fit bar — stopping',
 };
 
-export function AssistantPanel() {
+export function AssistantPanel({ jobs = [] }: { jobs?: AssistantJobOption[] }) {
   const [description, setDescription] = useState('');
   const [resume, setResume] = useState('');
+  // Which pipeline job filled the box, or NO_JOB when the text is the user's
+  // own. Typing clears it, so the trigger never claims a job the text no
+  // longer matches.
+  const [sourceJobId, setSourceJobId] = useState<string>(NO_JOB);
   const [steps, setSteps] = useState<Step[]>([]);
   const [threadId, setThreadId] = useState<string | null>(null);
   const [awaiting, setAwaiting] = useState(false);
@@ -125,8 +144,36 @@ export function AssistantPanel() {
     }
   }
 
+  function chooseJob(id: string) {
+    setSourceJobId(id);
+    if (id === NO_JOB) return;
+    const job = jobs.find((entry) => entry.id === id);
+    if (job) setDescription(job.descriptionText);
+  }
+
   return (
     <div className="space-y-4">
+      {/* The pipeline already holds these descriptions. Without this the only
+          way to run the assistant on a job you have already saved was to open
+          it, select the description and paste it back — for every job. */}
+      {jobs.length > 0 ? (
+        <div className="space-y-1.5">
+          <Label htmlFor="assistant-job">Use a job from your pipeline</Label>
+          <OptionSelect
+            id="assistant-job"
+            aria-label="Use a job from your pipeline"
+            value={sourceJobId}
+            onValueChange={chooseJob}
+            placeholder="Choose a saved job…"
+            options={jobs.map((job) => ({ value: job.id, label: job.label }))}
+            className="sm:max-w-md"
+          />
+          <p className="text-muted-foreground text-xs">
+            Fills the description below. You can edit it, or ignore this and paste your own.
+          </p>
+        </div>
+      ) : null}
+
       <div className="grid gap-3 sm:grid-cols-2">
         <div className="space-y-1.5">
           <Label htmlFor="assistant-jd">Job description</Label>
@@ -135,7 +182,11 @@ export function AssistantPanel() {
             className="min-h-32"
             placeholder="Paste a job description…"
             value={description}
-            onChange={(e) => setDescription(e.target.value)}
+            onChange={(e) => {
+              setDescription(e.target.value);
+              // The text is now the user's, not the chosen job's.
+              setSourceJobId(NO_JOB);
+            }}
           />
         </div>
         <div className="space-y-1.5">
