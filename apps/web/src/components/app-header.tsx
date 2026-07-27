@@ -32,11 +32,19 @@ export function AppHeader() {
   const searchParams = useSearchParams();
   const title = deriveTitle(pathname);
 
+  // This box is a shortcut TO the jobs list from elsewhere. On /jobs itself the
+  // list already carries its own search — sitting directly below this one, with
+  // the same icon and the same "Search jobs" label, but filtering live instead
+  // of requiring Enter and a navigation. Two identically-named searchboxes on
+  // one page is both a confusing duplicate and an ambiguous accessible name, so
+  // the redundant (and weaker) one steps aside.
+  const isJobsList = pathname === '/jobs';
+
   // Keep the box in sync with the active jobs query so it reflects deep links
   // and reads back what the user is currently filtering by. Adjusting state
   // during render (vs. an effect) is the React-recommended way to reset on a
   // changing input. https://react.dev/learn/you-might-not-need-an-effect
-  const activeQuery = pathname === '/jobs' ? (searchParams.get('q') ?? '') : '';
+  const activeQuery = isJobsList ? (searchParams.get('q') ?? '') : '';
   const [query, setQuery] = useState(activeQuery);
   const [syncedQuery, setSyncedQuery] = useState(activeQuery);
   if (activeQuery !== syncedQuery) {
@@ -59,19 +67,21 @@ export function AppHeader() {
       <p className="font-heading truncate text-base font-semibold sm:text-lg">{title}</p>
 
       <div className="ml-auto flex items-center gap-1.5 sm:gap-2">
-        <form onSubmit={handleSubmit} role="search" className="relative hidden sm:block">
-          <Search className="text-muted-foreground pointer-events-none absolute top-1/2 left-2.5 size-4 -translate-y-1/2" />
-          <Input
-            type="search"
-            name="q"
-            enterKeyHint="search"
-            value={query}
-            onChange={(event) => setQuery(event.target.value)}
-            placeholder="Search jobs…"
-            aria-label="Search jobs"
-            className="bg-card w-44 pl-8 lg:w-64"
-          />
-        </form>
+        {isJobsList ? null : (
+          <form onSubmit={handleSubmit} role="search" className="relative hidden sm:block">
+            <Search className="text-muted-foreground pointer-events-none absolute top-1/2 left-2.5 size-4 -translate-y-1/2" />
+            <Input
+              type="search"
+              name="q"
+              enterKeyHint="search"
+              value={query}
+              onChange={(event) => setQuery(event.target.value)}
+              placeholder="Search jobs…"
+              aria-label="Search jobs"
+              className="bg-card w-44 pl-8 lg:w-64"
+            />
+          </form>
+        )}
         <ModeToggle />
         <UserButton />
       </div>
