@@ -5,6 +5,7 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 
 vi.mock('sonner', () => ({ toast: { error: vi.fn(), info: vi.fn(), success: vi.fn() } }));
 
+import { chooseOption } from '@/test/select';
 import { AssistantPanel } from './assistant-panel';
 
 /** Minimal fetch Response stand-in that streams pre-baked SSE frames. */
@@ -73,4 +74,47 @@ it('announces the drafted outreach in a live region', async () => {
   const draft = await screen.findByText('Drafted hello');
   // The draft output must sit inside a live region so a screen reader hears it arrive.
   expect(draft.closest('[aria-live]')).not.toBeNull();
+});
+
+// The pipeline already holds these descriptions. Before this, running the
+// assistant on a saved job meant opening it, selecting the description and
+// pasting it back — for every job.
+const pipelineJobs = [
+  { id: 'job-1', label: 'Northwind Labs · AI Automation Engineer', descriptionText: 'Northwind JD body' },
+  { id: 'job-2', label: 'BeaconOps · Solutions Consultant', descriptionText: 'BeaconOps JD body' },
+];
+
+it('fills the description from a job chosen out of the pipeline', async () => {
+  const user = userEvent.setup();
+  render(<AssistantPanel jobs={pipelineJobs} />);
+
+  const description = screen.getByPlaceholderText(/paste a job description/i);
+  expect(description).toHaveValue('');
+
+  await chooseOption(user, /use a job from your pipeline/i, /AI Automation Engineer/i);
+
+  expect(description).toHaveValue('Northwind JD body');
+});
+
+it('hides the picker when no saved job carries a description', () => {
+  render(<AssistantPanel jobs={[]} />);
+
+  expect(
+    screen.queryByRole('combobox', { name: /use a job from your pipeline/i }),
+  ).not.toBeInTheDocument();
+});
+
+it('releases the chosen job once the description is edited by hand', async () => {
+  const user = userEvent.setup();
+  render(<AssistantPanel jobs={pipelineJobs} />);
+
+  await chooseOption(user, /use a job from your pipeline/i, /AI Automation Engineer/i);
+  const trigger = screen.getByRole('combobox', { name: /use a job from your pipeline/i });
+  expect(trigger).toHaveTextContent(/AI Automation Engineer/i);
+
+  // Typing makes the text the user's own, so the trigger must stop claiming a
+  // job whose description is no longer what is in the box.
+  await user.type(screen.getByPlaceholderText(/paste a job description/i), ' plus my notes');
+
+  expect(trigger).not.toHaveTextContent(/AI Automation Engineer/i);
 });

@@ -106,3 +106,51 @@ it('marks an estimated (local-prerank) job and lists its matched skills', () => 
   expect(screen.getAllByText(/estimated/i).some((el) => el.textContent === 'Estimated')).toBe(true);
   expect(screen.getByText(/TypeScript/)).toBeInTheDocument();
 });
+
+// jsdom has no layout engine, so this cannot assert the measured width. It
+// guards the mechanism instead: below `lg` the rows must switch to a grid and
+// stop inheriting the table's `whitespace-nowrap`, which is what let the table
+// reach 1783px at a 375px viewport. Geometry was verified in a real browser.
+it('renders rows as stacked cards below the lg breakpoint', () => {
+  render(<JobsTable jobs={jobs} />);
+
+  const row = screen.getByText('AI Automation Engineer').closest('tr');
+  expect(row).not.toBeNull();
+  expect(row).toHaveClass('max-lg:grid');
+  // `ring`, not `border`: TableBody's `[&_tr:last-child]:border-0` would strip
+  // the last card's outline in a specificity tie.
+  expect(row).toHaveClass('max-lg:ring-1');
+
+  const identityCell = row!.querySelector('td');
+  expect(identityCell).toHaveClass('max-lg:whitespace-normal');
+});
+
+// A find-and-replace moved the header to `lg` but missed the body cell, whose
+// classes weren't contiguous. That left the value reappearing at `md` while its
+// header stayed hidden — an auto-placed, unlabelled third grid row on tablets.
+it('reveals the next-action column at the same breakpoint as its header', () => {
+  render(<JobsTable jobs={jobs} />);
+
+  const headers = screen.getAllByRole('columnheader');
+  const nextActionHeader = headers.find((h) => h.textContent === 'Next action');
+  const row = screen.getByText('AI Automation Engineer').closest('tr');
+  const nextActionCell = row!.querySelectorAll('td')[4];
+
+  expect(nextActionHeader).toHaveClass('lg:table-cell');
+  expect(nextActionCell).toHaveClass('lg:table-cell');
+  expect(nextActionCell).not.toHaveClass('md:table-cell');
+});
+
+// Card mode drops the header row, and `display: grid` drops the table
+// semantics that would have associated it anyway — so these values would be
+// announced with nothing to say what they describe.
+it('labels the status and priority values for screen readers in card mode', () => {
+  render(<JobsTable jobs={jobs} />);
+
+  for (const label of ['Status:', 'Priority:']) {
+    const [node] = screen.getAllByText(label);
+    expect(node).toHaveClass('sr-only');
+    // Removed at lg, where the real column header does the job.
+    expect(node).toHaveClass('lg:hidden');
+  }
+});
