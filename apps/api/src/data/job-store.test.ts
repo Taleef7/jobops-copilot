@@ -10,8 +10,11 @@ import {
   getJobById,
   listJobs,
   resetJobStoreForTests,
+  saveJobAnalysis,
   updateOutreachDraft,
 } from './job-store';
+import { ANALYZED_NEXT_ACTION, UNSCORED_NEXT_ACTION } from '@/lib/analysis-workflow';
+import { PRERANK_MODEL } from '@/lib/local-fit';
 import type { OutreachDraft } from '@/types';
 
 function draft(text: string): OutreachDraft {
@@ -117,6 +120,76 @@ test('listJobs paginates (opt-in) and stays user-scoped; countJobs reports the t
     assert.equal((await listJobs('user-1', { limit: 2, offset: 0 })).length, 2);
     assert.equal((await listJobs('user-1', { limit: 2, offset: 4 })).length, 1);
     assert.equal((await listJobs('user-1', { limit: 2, offset: 99 })).length, 0);
+  } finally {
+    process.chdir(originalCwd);
+    resetJobStoreForTests();
+    await rm(tempDir, { recursive: true, force: true });
+  }
+});
+
+// The file store takes its own branch in saveJobAnalysis, so the Postgres
+// integration test above it proves nothing here. Before this, a scored job
+// kept telling you to score it.
+test('saveJobAnalysis advances the next action only for a real scoring run', async () => {
+  const originalCwd = process.cwd();
+  delete process.env.DATABASE_URL; // force the file store
+  const tempDir = await mkdtemp(join(tmpdir(), 'jobops-nextaction-'));
+
+  try {
+    process.chdir(tempDir);
+    resetJobStoreForTests();
+
+    const scoredJob = await createJob('user-1', {
+      company: 'Acme',
+      title: 'Engineer',
+      descriptionText: 'Build things with TypeScript and React.',
+    });
+    assert.equal(scoredJob.nextAction, UNSCORED_NEXT_ACTION, 'a new job asks to be scored');
+
+    await saveJobAnalysis('user-1', scoredJob.id, { ...scoredJob.analysis, modelUsed: 'gpt-4o' }, 77);
+    assert.equal(
+      (await getJobById('user-1', scoredJob.id))?.nextAction,
+      ANALYZED_NEXT_ACTION,
+      'a scored job stops asking to be scored',
+    );
+
+    // A pre-rank that clears the evidence floor DOES carry a number, so this
+    // must be excluded by its model, not by the absence of a score.
+    const estimatedJob = await createJob('user-1', {
+      company: 'Hooli',
+      title: 'Data Engineer',
+      descriptionText: 'Airflow and dbt.',
+    });
+
+    await saveJobAnalysis(
+      'user-1',
+      estimatedJob.id,
+      { ...estimatedJob.analysis, modelUsed: PRERANK_MODEL },
+      100,
+    );
+    assert.equal(
+      (await getJobById('user-1', estimatedJob.id))?.nextAction,
+      UNSCORED_NEXT_ACTION,
+      'discovery’s keyword estimate is not a scoring run',
+    );
+
+    // POST /ai/parse-job saves an analysis with no fitScore at all. That is a
+    // parse, not a scoring run, so the prompt to score has to survive it.
+    const parsedJob = await createJob('user-1', {
+      company: 'Initech',
+      title: 'Platform Engineer',
+      descriptionText: 'Kubernetes and Go.',
+    });
+
+    await saveJobAnalysis('user-1', parsedJob.id, {
+      ...parsedJob.analysis,
+      modelUsed: 'mock-analysis-v1',
+    });
+    assert.equal(
+      (await getJobById('user-1', parsedJob.id))?.nextAction,
+      UNSCORED_NEXT_ACTION,
+      'a parse with no score is not a scoring run',
+    );
   } finally {
     process.chdir(originalCwd);
     resetJobStoreForTests();

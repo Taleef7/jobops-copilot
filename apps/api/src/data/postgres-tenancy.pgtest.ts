@@ -1,8 +1,10 @@
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
 import test from 'node:test';
-import { createJob, getJobById, getStoreMode, listJobs } from './job-store';
+import { createJob, getJobById, getStoreMode, listJobs, saveJobAnalysis, updateJob } from './job-store';
 import { createSavedSearch, deleteSavedSearch, listSavedSearches } from './saved-search-store';
+import { ANALYZED_NEXT_ACTION, UNSCORED_NEXT_ACTION } from '@/lib/analysis-workflow';
+import { PRERANK_MODEL } from '@/lib/local-fit';
 
 // This suite runs ONLY against a real Postgres. It is named *.pgtest.ts so the file-mode
 // runner (`npm test`, which globs *.test.ts) never picks it up; run it via `npm run test:pg`
@@ -46,6 +48,85 @@ test(
         (await listSavedSearches(userB)).some((s) => s.id === searchB.id),
         'B’s saved search must survive A’s delete attempt',
       );
+    });
+
+    // saveJobAnalysis writes next_action through `coalesce($n, next_action)`,
+    // which only a real database evaluates — the file-mode store takes a
+    // different branch entirely. Before this, a scored job kept telling you to
+    // score it.
+    await t.test('jobs: saving an analysis advances the next action', async () => {
+      const job = await createJob(userA, {
+        company: 'Initech',
+        title: 'Platform Engineer',
+        descriptionText: 'Kubernetes, Go, Postgres',
+      });
+      assert.equal(job.nextAction, UNSCORED_NEXT_ACTION, 'a new job asks to be scored');
+
+      const analysis = { ...job.analysis, modelUsed: 'gpt-4o', fitSummary: 'Strong overlap' };
+      const scored = await saveJobAnalysis(userA, job.id, analysis, 82);
+
+      assert.equal(scored?.fitScore, 82);
+      assert.equal(scored?.nextAction, ANALYZED_NEXT_ACTION, 'a scored job stops asking to be scored');
+    });
+
+    // A pre-rank that clears the evidence floor DOES carry a number, so it has
+    // to be excluded by its model rather than by the absence of a score.
+    await t.test('jobs: a pre-rank leaves the next action asking to be scored', async () => {
+      const job = await createJob(userA, {
+        company: 'Hooli',
+        title: 'Data Engineer',
+        descriptionText: 'Airflow, dbt',
+      });
+
+      const estimate = { ...job.analysis, modelUsed: PRERANK_MODEL };
+      const prerank = await saveJobAnalysis(userA, job.id, estimate, 100);
+
+      assert.equal(
+        prerank?.nextAction,
+        UNSCORED_NEXT_ACTION,
+        'discovery’s keyword estimate is not a scoring run',
+      );
+    });
+
+    // POST /ai/parse-job saves an analysis with no fitScore at all.
+    await t.test('jobs: a parse with no score leaves the prompt to score', async () => {
+      const job = await createJob(userA, {
+        company: 'Umbrella',
+        title: 'SRE',
+        descriptionText: 'Terraform, incident response',
+      });
+
+      const parsed = await saveJobAnalysis(userA, job.id, {
+        ...job.analysis,
+        modelUsed: 'mock-analysis-v1',
+      });
+
+      assert.equal(parsed?.nextAction, UNSCORED_NEXT_ACTION, 'a parse is not a scoring run');
+    });
+
+    // The write re-checks next_action itself rather than trusting the value
+    // read before the analysis insert, so a next action written in between is
+    // not clobbered. (The read-then-write race is not reproducible from here;
+    // this covers the guard's ordinary path.)
+    await t.test('jobs: scoring does not overwrite a user-written next action', async () => {
+      const job = await createJob(userA, {
+        company: 'Stark',
+        title: 'ML Engineer',
+        descriptionText: 'PyTorch, CUDA',
+      });
+
+      const mine = 'Ping Dana about the referral';
+      await updateJob(userA, job.id, { nextAction: mine });
+
+      const scored = await saveJobAnalysis(
+        userA,
+        job.id,
+        { ...job.analysis, modelUsed: 'gpt-4o' },
+        88,
+      );
+
+      assert.equal(scored?.fitScore, 88, 'the score still lands');
+      assert.equal(scored?.nextAction, mine, 'the user’s next action is theirs to keep');
     });
   },
 );

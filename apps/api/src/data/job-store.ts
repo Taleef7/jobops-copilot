@@ -10,6 +10,7 @@ import type {
   UpdateJobBody,
 } from '@/types';
 import { validateJobAnalysis } from '@/lib/analysis-core';
+import { deriveAnalyzedNextAction, UNSCORED_NEXT_ACTION } from '@/lib/analysis-workflow';
 import { deriveOutreachJobUpdate } from '@/lib/outreach-workflow';
 import { hasPostgresConnection } from '@/lib/postgres';
 import { paginateArray, type PageParams } from '@/lib/pagination';
@@ -97,7 +98,7 @@ function createBaseJob(userId: string, body: CreateJobBody): JobRecord {
     priority: body.priority ?? 'medium',
     fitScore: null,
     notes: body.notes?.trim() || undefined,
-    nextAction: 'Run fit scoring to analyze this role.',
+    nextAction: UNSCORED_NEXT_ACTION,
     nextActionDue: undefined,
     analysis: defaultAnalysis(body.descriptionText),
     outreach: [],
@@ -406,6 +407,12 @@ export async function saveJobAnalysis(
     job.analysis = clone(analysis);
     if (fitScore !== undefined) {
       job.fitScore = fitScore;
+    }
+    // A scored job must stop telling you to score it. Null means "leave it" —
+    // a pre-rank, or a next action that is no longer the creation-time prompt.
+    const nextAction = deriveAnalyzedNextAction(job.nextAction, analysis.modelUsed, fitScore);
+    if (nextAction) {
+      job.nextAction = nextAction;
     }
     job.updatedAt = new Date().toISOString();
     await persistJobs();
