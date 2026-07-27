@@ -203,7 +203,7 @@ export function JobsTable({ jobs, initialQuery = '' }: { jobs: Job[]; initialQue
                           on a cell in an auto-layout table is only a hint, so
                           the table widened to fit the longest title and the
                           `truncate` classes below could never engage. */}
-                      <span className="min-w-0 lg:max-w-[28rem]">
+                      <span className="min-w-0 lg:max-w-md">
                         <span className="group-hover:text-primary block truncate font-medium transition-colors">
                           {job.title}
                         </span>
@@ -240,20 +240,33 @@ export function JobsTable({ jobs, initialQuery = '' }: { jobs: Job[]; initialQue
                     </Link>
                   </TableCell>
                   <TableCell className="max-lg:col-start-1 max-lg:row-start-2 max-lg:justify-self-start max-lg:p-0">
+                    {/* In card mode the column headers are gone — and `display:
+                        grid` drops the table semantics that would have
+                        associated them anyway — so "Discovered" would be
+                        announced with nothing to say what it describes. These
+                        carry the label only while the header is absent. */}
+                    <span className="sr-only lg:hidden">Status: </span>
                     <StatusPill status={job.status} />
                   </TableCell>
                   <TableCell className="max-lg:col-start-2 max-lg:row-start-1 max-lg:p-0">
                     <div className="flex justify-center">
+                      {/* FitScoreRing already names itself ("Fit score 81 of
+                          100" / "Not scored yet"), so it needs no prefix. */}
                       <FitScoreRing score={job.fitScore} size={38} strokeWidth={4} />
                     </div>
                   </TableCell>
                   <TableCell className="max-lg:col-start-2 max-lg:row-start-2 max-lg:justify-self-end max-lg:self-center max-lg:p-0">
                     <span className="flex items-center gap-1.5 text-sm capitalize">
                       <span className={cn('size-2 rounded-full', priorityTone[job.priority])} />
+                      <span className="sr-only lg:hidden">Priority: </span>
                       {job.priority}
                     </span>
                   </TableCell>
-                  <TableCell className="text-muted-foreground hidden max-w-[16rem] truncate text-sm md:table-cell">
+                  {/* lg, matching its header. At md–lg the row is a grid, so a
+                      cell that reappeared at `md` became an auto-placed third
+                      row with its header still hidden — an unlabelled field in
+                      every tablet-sized card. */}
+                  <TableCell className="text-muted-foreground hidden max-w-[16rem] truncate text-sm lg:table-cell">
                     {job.nextAction || formatDate(job.nextActionDue ?? job.discoveredAt)}
                   </TableCell>
                 </TableRow>

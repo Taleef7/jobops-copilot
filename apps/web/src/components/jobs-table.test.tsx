@@ -124,3 +124,33 @@ it('renders rows as stacked cards below the lg breakpoint', () => {
   const identityCell = row!.querySelector('td');
   expect(identityCell).toHaveClass('max-lg:whitespace-normal');
 });
+
+// A find-and-replace moved the header to `lg` but missed the body cell, whose
+// classes weren't contiguous. That left the value reappearing at `md` while its
+// header stayed hidden — an auto-placed, unlabelled third grid row on tablets.
+it('reveals the next-action column at the same breakpoint as its header', () => {
+  render(<JobsTable jobs={jobs} />);
+
+  const headers = screen.getAllByRole('columnheader');
+  const nextActionHeader = headers.find((h) => h.textContent === 'Next action');
+  const row = screen.getByText('AI Automation Engineer').closest('tr');
+  const nextActionCell = row!.querySelectorAll('td')[4];
+
+  expect(nextActionHeader).toHaveClass('lg:table-cell');
+  expect(nextActionCell).toHaveClass('lg:table-cell');
+  expect(nextActionCell).not.toHaveClass('md:table-cell');
+});
+
+// Card mode drops the header row, and `display: grid` drops the table
+// semantics that would have associated it anyway — so these values would be
+// announced with nothing to say what they describe.
+it('labels the status and priority values for screen readers in card mode', () => {
+  render(<JobsTable jobs={jobs} />);
+
+  for (const label of ['Status:', 'Priority:']) {
+    const [node] = screen.getAllByText(label);
+    expect(node).toHaveClass('sr-only');
+    // Removed at lg, where the real column header does the job.
+    expect(node).toHaveClass('lg:hidden');
+  }
+});
