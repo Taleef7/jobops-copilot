@@ -62,6 +62,38 @@ npm run dev:api
 
 5. Verify that `GET /api/health` reports `mode: "postgres"`.
 
+## Database migrations
+
+**Production migrates itself.** The API applies every pending migration at boot,
+before it accepts a request (`apps/api/src/lib/migrate-on-boot.ts`). The
+migrations ship inside the deploy package, so the schema and the code that
+expects it are always the same version. `npm run db:init` remains the manual
+path for local and one-off use; it runs the same runner.
+
+Why not a migrate step in CI: a GitHub runner can only reach Azure Postgres by
+opening a firewall rule for an ephemeral IP on every deploy and closing it
+afterwards, and it would need a production `DATABASE_URL` in GitHub Secrets. A
+cleanup that silently fails leaves the database open to the internet — one such
+`firewall-rule delete` has already been observed to no-op. The App Service is
+already inside the firewall and already holds the credential.
+
+What this fixed: production ran **nine migrations behind** for weeks, with
+`agent_outputs`, `ai_usage`, `cache_entries`, `embeddings` and `rate_limit_hits`
+missing entirely. Nothing caught it because a read against a missing table fails
+open with an empty result — `/api/health/ready` reported `db: "ok"` throughout.
+
+- `/api/health/ready` now also reports `migrations`. A reachable database that is
+  behind returns **503** and lists the pending files, and the deploy gate
+  requires `migrations: "ok"`.
+- Concurrent instances are serialised by a Postgres advisory lock, so a
+  scale-out cannot apply the same migration twice.
+- A failing migration **fails the boot** rather than serving a mismatched schema.
+
+**Recovery lever:** if a bad migration wedges startup, set the app setting
+`RUN_MIGRATIONS_ON_BOOT=false` and restart. The API comes back without
+migrating and readiness reports the pending migrations until it is unset — no
+code deploy needed.
+
 ## Cost Controls
 
 - Keep high availability off unless you truly need it.
