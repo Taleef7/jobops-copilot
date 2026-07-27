@@ -44,10 +44,21 @@ it('does not navigate when the query is empty/whitespace', async () => {
   expect(push).not.toHaveBeenCalled();
 });
 
-it('pre-fills the input from ?q= when already on /jobs', () => {
+// The jobs list renders its own live-filtering search with the same icon and
+// the same "Search jobs" label. Two identically-named searchboxes on one page
+// is a confusing duplicate and an ambiguous accessible name, so the header's
+// shortcut yields to the in-page control.
+it('hides its search on /jobs, where the list has its own', () => {
   pathname = '/jobs';
   search = 'q=backend';
   render(<AppHeader />);
 
-  expect(screen.getByRole('searchbox', { name: /search/i })).toHaveValue('backend');
+  expect(screen.queryByRole('searchbox', { name: /search/i })).not.toBeInTheDocument();
+});
+
+it('still shows its search on other pages', () => {
+  pathname = '/outreach';
+  render(<AppHeader />);
+
+  expect(screen.getByRole('searchbox', { name: /search/i })).toBeInTheDocument();
 });
