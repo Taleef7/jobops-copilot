@@ -1,16 +1,23 @@
 import assert from 'node:assert/strict';
-import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import test from 'node:test';
 import type { Pool } from 'pg';
-import { applyMigration, bootstrapIfNeeded } from './db-migrations';
+import {
+  applyMigration,
+  bootstrapIfNeeded,
+  findMigrationDir,
+  pendingMigrations,
+  runMigrations,
+} from './migrations';
+
+type MockResult = { rows: Record<string, unknown>[]; rowCount?: number };
+type MockHandler = (sql: string, params?: unknown[]) => MockResult | Promise<MockResult>;
 
 // Pool whose query() routes through a single handler.
 // Only use when pool.connect() is never called by the function under test.
-function poolQueryOnly(
-  handler: (sql: string, params?: unknown[]) => { rows: Record<string, unknown>[] },
-): Pool {
+function poolQueryOnly(handler: MockHandler): Pool {
   return {
     query: async (sql: string, params?: unknown[]) => handler(sql, params),
     connect: async () => {
@@ -21,10 +28,7 @@ function poolQueryOnly(
 
 // Pool with separate handlers for pool.query (used for the "already recorded?" check)
 // and for each client.query call (BEGIN / SQL / INSERT / COMMIT).
-function poolWithClient(
-  poolHandler: (sql: string, params?: unknown[]) => { rows: Record<string, unknown>[] },
-  clientHandler: (sql: string, params?: unknown[]) => { rows: Record<string, unknown>[] },
-): Pool {
+function poolWithClient(poolHandler: MockHandler, clientHandler: MockHandler): Pool {
   return {
     query: async (sql: string, params?: unknown[]) => poolHandler(sql, params),
     connect: async () => ({
@@ -202,4 +206,154 @@ test('bootstrapIfNeeded does not pre-seed when jobs exists but agent_outputs is 
   });
   await bootstrapIfNeeded(pool, ['/m/001.sql', '/m/008.sql']);
   assert.equal(inserted.length, 0, 'should not pre-seed when schema is only partially initialised');
+});
+
+// ─── findMigrationDir ─────────────────────────────────────────────────────────
+
+test('findMigrationDir walks up to db/migrations from a nested build directory', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'jobops-'));
+  try {
+    // Mirrors the deploy package: .deploy/db/migrations next to .deploy/dist/lib.
+    await mkdir(join(root, 'db', 'migrations'), { recursive: true });
+    await writeFile(join(root, 'db', 'migrations', '001_core.sql'), 'SELECT 1;');
+    await mkdir(join(root, 'dist', 'lib'), { recursive: true });
+
+    assert.equal(findMigrationDir(join(root, 'dist', 'lib')), join(root, 'db', 'migrations'));
+  } finally {
+    await rm(root, { recursive: true });
+  }
+});
+
+test('findMigrationDir ignores a db/migrations directory that holds no .sql files', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'jobops-'));
+  try {
+    // A same-named but empty directory must not shadow the real one further up.
+    await mkdir(join(root, 'db', 'migrations'), { recursive: true });
+    await writeFile(join(root, 'db', 'migrations', '001_core.sql'), 'SELECT 1;');
+    await mkdir(join(root, 'pkg', 'db', 'migrations'), { recursive: true });
+
+    assert.equal(findMigrationDir(join(root, 'pkg')), join(root, 'db', 'migrations'));
+  } finally {
+    await rm(root, { recursive: true });
+  }
+});
+
+test('findMigrationDir returns null when nothing above holds migrations', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'jobops-'));
+  try {
+    assert.equal(findMigrationDir(root), null);
+  } finally {
+    await rm(root, { recursive: true });
+  }
+});
+
+// ─── pendingMigrations ────────────────────────────────────────────────────────
+
+test('pendingMigrations reports files on disk that schema_migrations never recorded', async () => {
+  // Exactly the production state that went unnoticed: the tracker stuck at 002
+  // while the schema had advanced, so everything after it was silently pending.
+  const pool = poolQueryOnly(() => ({
+    rows: [{ filename: '001_core_tables.sql' }, { filename: '002_outreach_gmail_draft_id.sql' }],
+  }));
+
+  const pending = await pendingMigrations(pool, [
+    '/db/migrations/001_core_tables.sql',
+    '/db/migrations/002_outreach_gmail_draft_id.sql',
+    '/db/migrations/003_vector_store.sql',
+    '/db/migrations/008_agent_outputs.sql',
+  ]);
+
+  assert.deepEqual(pending, ['003_vector_store.sql', '008_agent_outputs.sql']);
+});
+
+test('pendingMigrations is empty when every shipped migration is recorded', async () => {
+  const pool = poolQueryOnly(() => ({ rows: [{ filename: '001_core_tables.sql' }] }));
+  const pending = await pendingMigrations(pool, ['/db/migrations/001_core_tables.sql']);
+  assert.deepEqual(pending, []);
+});
+
+// ─── runMigrations ────────────────────────────────────────────────────────────
+
+/** Pool that records every statement, on the pool and on checked-out clients. */
+function recordingPool(alreadyApplied: Set<string>) {
+  const statements: string[] = [];
+  const respond = (sql: string, params?: unknown[]) => {
+    statements.push(sql.trim().split('\n')[0]!.trim());
+    if (sql.includes('WHERE filename')) {
+      return { rows: alreadyApplied.has(String(params?.[0] ?? '')) ? [{ ok: 1 }] : [], rowCount: 0 };
+    }
+    if (sql.includes('count(*)')) return { rows: [{ n: '1' }], rowCount: 1 };
+    if (sql.includes('INSERT INTO schema_migrations')) return { rows: [], rowCount: 1 };
+    return { rows: [], rowCount: 0 };
+  };
+
+  const pool = {
+    query: async (sql: string, params?: unknown[]) => respond(sql, params),
+    connect: async () => ({
+      query: async (sql: string, params?: unknown[]) => respond(sql, params),
+      release: () => {},
+    }),
+  } as unknown as Pool;
+
+  return { pool, statements };
+}
+
+test('runMigrations takes the advisory lock, applies pending files, and releases it', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'jobops-'));
+  try {
+    await writeFile(join(dir, '001_first.sql'), 'SELECT 1;');
+    await writeFile(join(dir, '002_second.sql'), 'SELECT 2;');
+
+    const { pool, statements } = recordingPool(new Set(['001_first.sql']));
+    const result = await runMigrations(pool, dir);
+
+    assert.deepEqual(result, { applied: 1, skipped: 1 }, '001 already recorded, 002 applied');
+
+    const lockAt = statements.findIndex((s) => s.includes('pg_advisory_lock'));
+    const unlockAt = statements.findIndex((s) => s.includes('pg_advisory_unlock'));
+    const insertAt = statements.findIndex((s) => s.includes('INSERT INTO schema_migrations'));
+
+    assert.ok(lockAt >= 0, 'should acquire the advisory lock');
+    assert.ok(unlockAt >= 0, 'should release the advisory lock');
+    assert.ok(
+      statements.some((s) => s.includes('lock_timeout')),
+      'should bound the wait so a wedged peer fails the boot instead of hanging it',
+    );
+    assert.ok(lockAt < insertAt, 'lock must be held before any migration is written');
+    assert.ok(insertAt < unlockAt, 'lock must be held until the last migration is written');
+  } finally {
+    await rm(dir, { recursive: true });
+  }
+});
+
+test('runMigrations releases the advisory lock when a migration throws', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'jobops-'));
+  try {
+    await writeFile(join(dir, '001_boom.sql'), 'SELECT 1;');
+
+    const statements: string[] = [];
+    const pool = {
+      query: async (sql: string) => {
+        statements.push(sql.trim().split('\n')[0]!.trim());
+        if (sql.includes('count(*)')) return { rows: [{ n: '1' }] };
+        return { rows: [] };
+      },
+      connect: async () => ({
+        query: async (sql: string) => {
+          statements.push(sql.trim().split('\n')[0]!.trim());
+          if (sql.includes('SELECT 1;')) throw new Error('syntax error at or near');
+          return { rows: [], rowCount: 1 };
+        },
+        release: () => {},
+      }),
+    } as unknown as Pool;
+
+    await assert.rejects(() => runMigrations(pool, dir), /syntax error/);
+    assert.ok(
+      statements.some((s) => s.includes('pg_advisory_unlock')),
+      'a failed migration must not strand the lock and block every future boot',
+    );
+  } finally {
+    await rm(dir, { recursive: true });
+  }
 });

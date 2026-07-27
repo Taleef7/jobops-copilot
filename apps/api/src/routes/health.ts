@@ -1,25 +1,60 @@
 import { Router } from 'express';
 import { getStoreMode } from '@/data/job-store';
 import { isAgentEnabled } from '@/lib/agent-client';
+import { getMigrationStatus, type MigrationStatus } from '@/lib/migrate-on-boot';
 import { pingDatabase } from '@/lib/postgres';
 
 export const healthRouter = Router();
 
 type Readiness = {
   statusCode: number;
-  body: { status: string; mode: string; db: string };
+  body: { status: string; mode: string; db: string; migrations: string; pending?: string[] };
 };
 
 // Pure decision logic for the readiness probe, kept separate so it is unit-testable
 // without a live database.
-export function computeReadiness(mode: 'postgres' | 'file', dbReachable: boolean): Readiness {
+export function computeReadiness(
+  mode: 'postgres' | 'file',
+  dbReachable: boolean,
+  migrations: MigrationStatus,
+): Readiness {
   if (mode !== 'postgres') {
-    return { statusCode: 200, body: { status: 'ready', mode, db: 'skipped' } };
+    return {
+      statusCode: 200,
+      body: { status: 'ready', mode, db: 'skipped', migrations: 'skipped' },
+    };
   }
 
-  return dbReachable
-    ? { statusCode: 200, body: { status: 'ready', mode, db: 'ok' } }
-    : { statusCode: 503, body: { status: 'not_ready', mode, db: 'error' } };
+  if (!dbReachable) {
+    return {
+      statusCode: 503,
+      body: { status: 'not_ready', mode, db: 'error', migrations: 'unknown' },
+    };
+  }
+
+  // A reachable database running behind its migrations is NOT ready. Reads
+  // against a missing table return empty rather than failing, so the only way
+  // this surfaces is if the probe refuses to go green.
+  if (migrations.state === 'pending') {
+    return {
+      statusCode: 503,
+      body: {
+        status: 'not_ready',
+        mode,
+        db: 'ok',
+        migrations: 'pending',
+        pending: migrations.pending,
+      },
+    };
+  }
+
+  // 'unknown' (schema_migrations unreadable) stays 200: connectivity is proven,
+  // and flapping the probe would have App Service restart a working API. The
+  // deploy gate asserts migrations == "ok", so an unknown still blocks a ship.
+  return {
+    statusCode: 200,
+    body: { status: 'ready', mode, db: 'ok', migrations: migrations.state },
+  };
 }
 
 healthRouter.get('/health', (_request, response) => {
@@ -36,7 +71,10 @@ healthRouter.get('/health', (_request, response) => {
 healthRouter.get('/health/ready', async (_request, response) => {
   const mode = getStoreMode();
   const dbReachable = mode === 'postgres' ? await pingDatabase() : false;
-  const { statusCode, body } = computeReadiness(mode, dbReachable);
+  const migrations: MigrationStatus = dbReachable
+    ? await getMigrationStatus()
+    : { state: 'unknown', reason: 'database unreachable' };
+  const { statusCode, body } = computeReadiness(mode, dbReachable, migrations);
   response.status(statusCode).json(body);
 });
 

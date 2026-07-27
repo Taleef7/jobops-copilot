@@ -3,15 +3,26 @@
 # Why this exists: apps/api is an npm workspace whose dependencies are hoisted to
 # the repo-root node_modules. Deploying the workspace folder directly ships no
 # node_modules, so the app crashes with "Cannot find module '@clerk/express'".
-# This workflow assembles a SELF-CONTAINED package (dist + package.json + the
-# production dependency tree copied out of the install this run already tested)
-# and deploys that, then verifies the live app is healthy.
+# This workflow assembles a SELF-CONTAINED package (dist + db/migrations +
+# package.json + the production dependency tree copied out of the install this
+# run already tested) and deploys that, then verifies the live app is healthy.
+#
+# Migrations ship IN the package and the API applies them at boot
+# (src/lib/migrate-on-boot.ts). There is deliberately no migrate step here: a
+# GitHub runner can only reach the database by opening a Postgres firewall rule
+# for an ephemeral IP on every deploy and closing it after — and it would need
+# a production DATABASE_URL in GitHub Secrets. The App Service is already
+# inside the firewall and already holds the credential, so the schema and the
+# code that expects it travel together and cannot drift. The readiness gate
+# below asserts that.
 #
 # Preconditions (already configured on the jobops-api App Service):
 #   - App setting WEBSITE_RUN_FROM_PACKAGE=1        (package mounted read-only;
 #     avoids the B1 big-node_modules extraction hang)
 #   - App setting SCM_DO_BUILD_DURING_DEPLOYMENT=false  (no Oryx rebuild)
 #   - DB / Clerk / App Insights secrets (or Key Vault references) set
+#   - Recovery lever: app setting RUN_MIGRATIONS_ON_BOOT=false + restart boots
+#     the API without migrating, if a bad migration ever wedges startup.
 # Repo config:
 #   - Variable AZURE_WEBAPP_NAME_API
 #   - Secret   AZURE_WEBAPP_PUBLISH_PROFILE_API
@@ -23,6 +34,9 @@ on:
     paths:
       - 'apps/api/**'
       - '.github/workflows/deploy-api.yml'
+      # A new migration must be able to reach production on its own — the API
+      # applies migrations at boot, so shipping one IS the deploy.
+      - 'db/migrations/**'
       # The deploy assembles its package via scripts/ci/write-deploy-package.mjs,
       # so a fix to that helper must be able to trigger a deploy on its own —
       # otherwise the old packaging stays live until an unrelated API change.
@@ -84,8 +98,14 @@ jobs:
         run: |
           set -euo pipefail
           rm -rf apps/api/.deploy
-          mkdir -p apps/api/.deploy/dist
+          mkdir -p apps/api/.deploy/dist apps/api/.deploy/db/migrations
           cp -r apps/api/dist/. apps/api/.deploy/dist/
+          # The API applies these at boot, so they must travel with the build.
+          # findMigrationDir() walks up from dist/lib and expects them here.
+          cp db/migrations/*.sql apps/api/.deploy/db/migrations/
+          test "$(ls -1 apps/api/.deploy/db/migrations/*.sql | wc -l)" \
+             = "$(ls -1 db/migrations/*.sql | wc -l)" \
+            || { echo "Migration files did not all land in the package." >&2; exit 1; }
           # Build the package from the dependency tree `npm ci` just installed —
           # the same one `npm test` exercised — instead of resolving a second one.
           #
@@ -112,7 +132,7 @@ jobs:
           publish-profile: ${{ secrets.AZURE_WEBAPP_PUBLISH_PROFILE_API }}
           package: apps/api/.deploy
 
-      - name: Health check (readiness — proves DB connectivity)
+      - name: Health check (readiness — proves DB connectivity and schema)
         env:
           API_NAME: ${{ vars.AZURE_WEBAPP_NAME_API }}
         run: |
@@ -120,16 +140,25 @@ jobs:
           # /api/health/ready runs a real "SELECT 1", so it only reports db:ok when
           # Postgres is actually reachable — a broken data path fails this gate
           # instead of going green on a mode flag that only checks DATABASE_URL.
+          #
+          # It also compares the migrations in THIS package against
+          # schema_migrations. db:ok alone is not enough: production once ran
+          # nine migrations behind with five tables missing, and every probe
+          # stayed green because reads against a missing table fail open with an
+          # empty result. Requiring migrations:"ok" is what closes that.
           url="https://${API_NAME}.azurewebsites.net/api/health/ready"
           echo "Polling $url"
           for i in $(seq 1 12); do
             body="$(curl -fsS --max-time 10 "$url" || true)"
             echo "attempt $i: $body"
-            if printf '%s' "$body" | grep -Eq '"db"[[:space:]]*:[[:space:]]*"ok"'; then
-              echo "API ready (database reachable)."
+            if printf '%s' "$body" | grep -Eq '"db"[[:space:]]*:[[:space:]]*"ok"' \
+               && printf '%s' "$body" | grep -Eq '"migrations"[[:space:]]*:[[:space:]]*"ok"'; then
+              echo "API ready (database reachable, schema up to date)."
               exit 0
             fi
             sleep 15
           done
-          echo "API did not report a reachable database (/api/health/ready db:ok) in time." >&2
+          echo "API did not report db:ok AND migrations:ok on /api/health/ready in time." >&2
+          echo "migrations:pending means the schema is behind this build; check the App Service log" >&2
+          echo "stream for the migration that failed, or RUN_MIGRATIONS_ON_BOOT=false to recover." >&2
           exit 1
