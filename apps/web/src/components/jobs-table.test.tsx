@@ -106,3 +106,21 @@ it('marks an estimated (local-prerank) job and lists its matched skills', () => 
   expect(screen.getAllByText(/estimated/i).some((el) => el.textContent === 'Estimated')).toBe(true);
   expect(screen.getByText(/TypeScript/)).toBeInTheDocument();
 });
+
+// jsdom has no layout engine, so this cannot assert the measured width. It
+// guards the mechanism instead: below `lg` the rows must switch to a grid and
+// stop inheriting the table's `whitespace-nowrap`, which is what let the table
+// reach 1783px at a 375px viewport. Geometry was verified in a real browser.
+it('renders rows as stacked cards below the lg breakpoint', () => {
+  render(<JobsTable jobs={jobs} />);
+
+  const row = screen.getByText('AI Automation Engineer').closest('tr');
+  expect(row).not.toBeNull();
+  expect(row).toHaveClass('max-lg:grid');
+  // `ring`, not `border`: TableBody's `[&_tr:last-child]:border-0` would strip
+  // the last card's outline in a specificity tie.
+  expect(row).toHaveClass('max-lg:ring-1');
+
+  const identityCell = row!.querySelector('td');
+  expect(identityCell).toHaveClass('max-lg:whitespace-normal');
+});

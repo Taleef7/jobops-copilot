@@ -156,26 +156,54 @@ export function JobsTable({ jobs, initialQuery = '' }: { jobs: Job[]; initialQue
           onAction={clearFilters}
         />
       ) : (
+        // Below `lg` the same rows become stacked cards — not a second markup
+        // tree, which would double the DOM and make every `getByText` in the
+        // suite ambiguous. The row becomes a 2-column grid and each cell is
+        // placed explicitly, so the fit ring sits beside the title rather than
+        // competing with it for a line.
+        //
+        // `lg` and not `md` because the table needs ~1000px: at exactly 768px
+        // it still measured 996px and scrolled inside its container. The
+        // breakpoint is the width at which the table stops overflowing.
+        //
+        // Dropping TableCell's `whitespace-nowrap` is what actually fixes the
+        // width. An auto-layout table sizes to its content, so `truncate` could
+        // never engage — the table measured 1783px at a 375px viewport.
         <div className="overflow-x-auto">
-          <Table>
-            <TableHeader>
+          <Table className="max-lg:block">
+            <TableHeader className="max-lg:hidden">
               <TableRow>
                 <TableHead>Company &amp; role</TableHead>
                 <TableHead>Status</TableHead>
                 <TableHead className="text-center">Fit</TableHead>
                 <TableHead>Priority</TableHead>
-                <TableHead className="hidden md:table-cell">Next action</TableHead>
+                <TableHead className="hidden lg:table-cell">Next action</TableHead>
               </TableRow>
             </TableHeader>
-            <TableBody>
+            <TableBody className="max-lg:block max-lg:space-y-3">
               {filteredJobs.map((job) => (
-                <TableRow key={job.id} className="group">
-                  <TableCell>
-                    <Link href={`/jobs/${job.id}`} className="flex items-center gap-3">
+                <TableRow
+                  key={job.id}
+                  // `ring` rather than `border` for the card outline: TableBody
+                  // sets `[&_tr:last-child]:border-0`, which would strip the
+                  // last card's frame in a specificity tie.
+                  className="group max-lg:relative max-lg:grid max-lg:grid-cols-[minmax(0,1fr)_auto] max-lg:items-start max-lg:gap-x-3 max-lg:gap-y-3 max-lg:rounded-xl max-lg:border-0 max-lg:p-4 max-lg:ring-1 max-lg:ring-border"
+                >
+                  <TableCell className="max-lg:col-start-1 max-lg:row-start-1 max-lg:min-w-0 max-lg:p-0 max-lg:whitespace-normal">
+                    {/* Stretched link: in card mode the whole card is the tap
+                        target, without nesting interactive elements. */}
+                    <Link
+                      href={`/jobs/${job.id}`}
+                      className="flex items-center gap-3 max-lg:items-start max-lg:after:absolute max-lg:after:inset-0"
+                    >
                       <span className="bg-primary/10 text-primary flex size-9 shrink-0 items-center justify-center rounded-lg text-sm font-semibold">
                         {job.company.slice(0, 1)}
                       </span>
-                      <span className="min-w-0">
+                      {/* The bound belongs here, not on the <td>: `max-width`
+                          on a cell in an auto-layout table is only a hint, so
+                          the table widened to fit the longest title and the
+                          `truncate` classes below could never engage. */}
+                      <span className="min-w-0 lg:max-w-[28rem]">
                         <span className="group-hover:text-primary block truncate font-medium transition-colors">
                           {job.title}
                         </span>
@@ -211,15 +239,15 @@ export function JobsTable({ jobs, initialQuery = '' }: { jobs: Job[]; initialQue
                       </span>
                     </Link>
                   </TableCell>
-                  <TableCell>
+                  <TableCell className="max-lg:col-start-1 max-lg:row-start-2 max-lg:justify-self-start max-lg:p-0">
                     <StatusPill status={job.status} />
                   </TableCell>
-                  <TableCell>
+                  <TableCell className="max-lg:col-start-2 max-lg:row-start-1 max-lg:p-0">
                     <div className="flex justify-center">
                       <FitScoreRing score={job.fitScore} size={38} strokeWidth={4} />
                     </div>
                   </TableCell>
-                  <TableCell>
+                  <TableCell className="max-lg:col-start-2 max-lg:row-start-2 max-lg:justify-self-end max-lg:self-center max-lg:p-0">
                     <span className="flex items-center gap-1.5 text-sm capitalize">
                       <span className={cn('size-2 rounded-full', priorityTone[job.priority])} />
                       {job.priority}
