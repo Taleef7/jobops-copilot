@@ -56,7 +56,10 @@ JobOps Copilot is a monorepo with a clean split between UI, API, data, and workf
 
 - `apps/web` is the dashboard built with Next.js App Router and TypeScript.
 - `apps/api` is the Express API with jobs, health, and AI routes.
-- `db/migrations` contains the PostgreSQL schema.
+- `db/migrations` contains the PostgreSQL schema. The API applies pending migrations **at boot**
+  (`apps/api/src/lib/migrate-on-boot.ts`) from the copy shipped in its deploy package, so the schema
+  can never drift from the code that expects it; `/api/health/ready` reports any gap and the deploy
+  gate blocks on it.
 - `db/seed` contains repeatable sample data.
 - `prompts` contains the prompt templates used by the AI workflows.
 - `workflows` documents the n8n, Zapier, and Make.com plans.

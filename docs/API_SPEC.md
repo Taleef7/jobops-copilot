@@ -28,6 +28,34 @@ Example response:
 
 The `mode` value will be `file` for the local fallback store or `postgres` when `DATABASE_URL` is configured.
 
+`/api/health` is a **liveness** probe: it reports what the process is configured with, not whether
+that configuration works. Use `/api/health/ready` to prove the data path.
+
+### `GET /api/health/ready`
+
+Readiness probe, and the gate the API deploy blocks on. Unlike `/api/health` it runs a real
+`SELECT 1` and compares the migrations shipped in this build against the `schema_migrations`
+table, so it fails on a database that is unreachable **or** behind.
+
+```json
+{ "status": "ready", "mode": "postgres", "db": "ok", "migrations": "ok" }
+```
+
+| `migrations` | Status | Meaning |
+| --- | --- | --- |
+| `ok` | 200 | every migration in this build is recorded as applied |
+| `pending` | **503** | the database is reachable but behind; the response adds a `pending` array naming the files |
+| `unknown` | 200 | `schema_migrations` could not be read (or the database is unreachable, alongside `"db":"error"` and 503) |
+| `skipped` | 200 | file-backed mode — no database to migrate |
+
+Why `pending` is a hard 503: a schema that is behind is invisible from the outside — a read against
+a table or column that is not there returns an *empty result* rather than an error. Production once
+ran nine migrations behind, with its migration runner wedged so nothing new could ship, while this
+endpoint reported `"db":"ok"` the whole time.
+
+`unknown` deliberately stays 200 — a flapping probe would have App Service restart a working API —
+but the deploy gate requires `"migrations":"ok"`, so it still blocks a release.
+
 ## Jobs
 
 ### `GET /api/jobs`

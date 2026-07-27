@@ -98,7 +98,7 @@ shows the full topology. In short: `apps/web` (Next.js) → `apps/api` (Express)
 - `apps/web` — dashboard and product UI (jobs + in-app discovery, outreach, reports, AI agents, telemetry, and the floating assistant widget).
 - `apps/api` — Express API: CRUD, AI proxy routes, job-URL extract, persistent agent outputs, assistant chat/stream, n8n webhooks, telemetry. Delegates AI to the agent service when `AGENT_SERVICE_URL` is set, else uses a mock.
 - `services/agent` — **Python FastAPI** service: real LLM chains, RAG, LangChain agents, and telemetry analysis. See [services/agent/README.md](services/agent/README.md).
-- `db/migrations` — PostgreSQL schema (incl. `pgvector` embeddings table).
+- `db/migrations` — PostgreSQL schema (incl. `pgvector` embeddings table). Applied by the API **at boot** from the copy in its deploy package, so the schema cannot drift from the code; `/api/health/ready` reports any gap.
 - `prompts` — canonical prompt templates.
 - `workflows` — n8n/Zapier/Make automation docs and exports.
 
@@ -108,7 +108,7 @@ A full walkthrough is in **[docs/DEMO.md](docs/DEMO.md)**; design detail in
 ## Tech stack
 
 - **Frontend:** Next.js 16, React 19, TypeScript, Tailwind v4, shadcn/ui (Base UI), next-themes, Clerk auth.
-- **API:** Express 4, TypeScript, `pg`.
+- **API:** Express 5, TypeScript, `pg`.
 - **Agent service:** Python 3.12, FastAPI, LangChain, sentence-transformers (PyTorch), pandas, psycopg/pgvector.
 - **Data/cloud:** Azure Database for PostgreSQL (+ pgvector), Azure Blob Storage, Azure App Service.
 - **Automation:** n8n (primary orchestrator, self-hosted), Make.com (hosted webhook-to-API scenario), Zapier (2-step sidecar).

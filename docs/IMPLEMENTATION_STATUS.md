@@ -167,9 +167,31 @@ agent image, list pagination, and an opt-in Postgres-backed rate-limiter/cache f
   faithful Bicep reconcile, pinned + lock-audited agent image, list pagination, and the
   opt-in Postgres-backed rate-limiter/cache for scale-out). See
   [AUDIT_REMEDIATION.md](AUDIT_REMEDIATION.md).
+- **Live QA + design sweep (2026-07-25 → 27) is complete** — PRs **#215–#229**, all merged and
+  deployed. Truthful fit scores (an evidence floor; the estimator was emitting only 0 or 100),
+  a11y and design-system fixes, a recoverable onboarding flow, and the round of UX work that
+  followed: the jobs table stacks into cards below `lg` (it was 1783px wide at 375px), the
+  duplicate "Search jobs" box is gone from `/jobs`, the auth pages are branded and titled, the
+  assistant can run on a job already in the pipeline, and a scored job stops telling you to score
+  it. See `docs/AUDIT_REMEDIATION.md` for the earlier audit this follows.
+- **The production migration runner was wedged, and migrations are now self-applying** — the sweep
+  uncovered that prod's `schema_migrations` recorded nothing from `003` onward, and every `db:init`
+  died re-attempting `002_weekly_report_storage`, whose global `(week_start, week_end)` unique index
+  cannot be created once `004` has replaced it with a per-user one. **No new migration could reach
+  production at all**; it surfaced only because `011` would not apply. (The tables themselves largely
+  predate migration tracking — `embeddings` holds rows from 2026-06-03 — so this was a broken
+  pipeline rather than a missing schema, but anything new was unshippable and nothing monitored it.)
+  **#222** unblocked the runner, **#224** made the API apply migrations at boot from its own deploy
+  package and made `/api/health/ready` report `migrations`, which the deploy now gates on. See
+  [AZURE_DEPLOYMENT.md](AZURE_DEPLOYMENT.md#database-migrations).
 - **Owner-gated optional follow-ups** (by design, not gaps; see `docs/ROADMAP.md`): applying the
   Bicep to a live/greenfield RG, running k6 in CI, and activating the gated e2e CI job (needs
   Clerk repo secrets). Fine-tuning and a larger retrieval gold set remain deferred.
+- **Known open items:** the landing hero has no product visual (a design decision, not a defect);
+  the TypeScript 7 bump (**#195**) is deferred — TS7 drops `baseUrl` and disallows non-relative
+  `paths`, so the project-wide `@/` alias needs migrating first; and `jobs` still holds 11 rows
+  under five user ids that no longer exist in Clerk (invisible in the UI, but they would skew any
+  global aggregate).
 
 ## How To Verify The Live Stack
 
