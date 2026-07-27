@@ -1,8 +1,10 @@
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
 import test from 'node:test';
-import { createJob, getJobById, getStoreMode, listJobs } from './job-store';
+import { createJob, getJobById, getStoreMode, listJobs, saveJobAnalysis } from './job-store';
 import { createSavedSearch, deleteSavedSearch, listSavedSearches } from './saved-search-store';
+import { ANALYZED_NEXT_ACTION, UNSCORED_NEXT_ACTION } from '@/lib/analysis-workflow';
+import { PRERANK_MODEL } from '@/lib/local-fit';
 
 // This suite runs ONLY against a real Postgres. It is named *.pgtest.ts so the file-mode
 // runner (`npm test`, which globs *.test.ts) never picks it up; run it via `npm run test:pg`
@@ -45,6 +47,42 @@ test(
       assert.ok(
         (await listSavedSearches(userB)).some((s) => s.id === searchB.id),
         'B’s saved search must survive A’s delete attempt',
+      );
+    });
+
+    // saveJobAnalysis writes next_action through `coalesce($n, next_action)`,
+    // which only a real database evaluates — the file-mode store takes a
+    // different branch entirely. Before this, a scored job kept telling you to
+    // score it.
+    await t.test('jobs: saving an analysis advances the next action', async () => {
+      const job = await createJob(userA, {
+        company: 'Initech',
+        title: 'Platform Engineer',
+        descriptionText: 'Kubernetes, Go, Postgres',
+      });
+      assert.equal(job.nextAction, UNSCORED_NEXT_ACTION, 'a new job asks to be scored');
+
+      const analysis = { ...job.analysis, modelUsed: 'gpt-4o', fitSummary: 'Strong overlap' };
+      const scored = await saveJobAnalysis(userA, job.id, analysis, 82);
+
+      assert.equal(scored?.fitScore, 82);
+      assert.equal(scored?.nextAction, ANALYZED_NEXT_ACTION, 'a scored job stops asking to be scored');
+    });
+
+    await t.test('jobs: a pre-rank leaves the next action asking to be scored', async () => {
+      const job = await createJob(userA, {
+        company: 'Hooli',
+        title: 'Data Engineer',
+        descriptionText: 'Airflow, dbt',
+      });
+
+      const estimate = { ...job.analysis, modelUsed: PRERANK_MODEL };
+      const prerank = await saveJobAnalysis(userA, job.id, estimate, null);
+
+      assert.equal(
+        prerank?.nextAction,
+        UNSCORED_NEXT_ACTION,
+        'discovery’s keyword estimate is not a scoring run',
       );
     });
   },

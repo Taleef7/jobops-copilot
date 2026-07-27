@@ -8,6 +8,7 @@ import type {
   UpdateOutreachBody,
 } from '@/types';
 import { getDefaultAnalysis, validateJobAnalysis } from '@/lib/analysis-core';
+import { deriveAnalyzedNextAction, UNSCORED_NEXT_ACTION } from '@/lib/analysis-workflow';
 import { getPool } from '@/lib/postgres';
 import type { PageParams } from '@/lib/pagination';
 import { deriveOutreachJobUpdate } from '@/lib/outreach-workflow';
@@ -249,7 +250,7 @@ export async function createJob(userId: string, body: CreateJobBody): Promise<Jo
   const client = await pool.connect();
   const jobId = randomUUID();
   const timestamp = new Date().toISOString();
-  const nextAction = 'Run fit scoring to analyze this role.';
+  const nextAction = UNSCORED_NEXT_ACTION;
 
   try {
     await client.query('begin');
@@ -684,10 +685,21 @@ export async function saveJobAnalysis(
     ],
   );
 
+  // A scored job must stop telling you to score it. `coalesce` leaves the
+  // column untouched when the derivation declines (a pre-rank, or a next
+  // action that is no longer the creation-time prompt).
+  const nextAction = deriveAnalyzedNextAction(job.nextAction, analysis.modelUsed);
+
   if (fitScore !== undefined) {
-    await pool.query('update jobs set fit_score = $2, updated_at = now() where id::text = $1', [jobId, fitScore]);
+    await pool.query(
+      'update jobs set fit_score = $2, next_action = coalesce($3, next_action), updated_at = now() where id::text = $1',
+      [jobId, fitScore, nextAction],
+    );
   } else {
-    await pool.query('update jobs set updated_at = now() where id::text = $1', [jobId]);
+    await pool.query(
+      'update jobs set next_action = coalesce($2, next_action), updated_at = now() where id::text = $1',
+      [jobId, nextAction],
+    );
   }
 
   return getJobById(userId, jobId);
