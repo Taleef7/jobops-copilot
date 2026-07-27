@@ -2,12 +2,7 @@ import 'dotenv/config';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { Pool } from 'pg';
-import {
-  applyMigration,
-  bootstrapIfNeeded,
-  ensureTrackingTable,
-  listMigrationFiles,
-} from './db-migrations';
+import { runMigrations } from '../src/lib/migrations';
 
 const databaseUrl = process.env.DATABASE_URL?.trim();
 if (!databaseUrl) {
@@ -38,18 +33,9 @@ async function main() {
     console.log(`Connecting to ${describeTarget(databaseUrl)}`);
     await pool.query('SELECT 1');
 
-    await ensureTrackingTable(pool);
-
-    const migrationFiles = await listMigrationFiles(migrationDir);
-    await bootstrapIfNeeded(pool, migrationFiles);
-
-    let applied = 0;
-    let skipped = 0;
-    for (const filePath of migrationFiles) {
-      const wasApplied = await applyMigration(pool, filePath);
-      if (wasApplied) applied++;
-      else skipped++;
-    }
+    // Same runner the API uses at boot (src/lib/migrations), so a manual
+    // bootstrap and a deploy can never disagree about what "applied" means.
+    const { applied, skipped } = await runMigrations(pool, migrationDir);
 
     console.log(`Bootstrap complete: ${applied} applied, ${skipped} skipped.`);
   } finally {
