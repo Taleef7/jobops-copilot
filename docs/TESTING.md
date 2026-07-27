@@ -97,6 +97,8 @@ without a session (`curl <API>/api/reports/<id>/export` → `{"error":"Authentic
 ```bash
 npm test            # API (node:test) + web (Vitest) — QA·I
 npm run check       # lint + typecheck + build (web & api)
+DATABASE_URL=... npm run test:pg --workspace @jobops/api   # *.pgtest.ts against a REAL Postgres
+
 cd services/agent && ./.venv/Scripts/python.exe -m pytest && ./.venv/Scripts/python.exe -m ruff check app evals tests
 cd ../.. && npm run test:e2e     # Playwright e2e (needs Clerk secrets in apps/web/.env)
 gh run list --limit 10           # CI — every recent run green

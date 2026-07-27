@@ -2,15 +2,18 @@
  * Apply pending database migrations when the API starts, and expose the
  * result so a readiness probe can report drift.
  *
- * Why boot and not CI: production sat NINE migrations behind for weeks —
- * `agent_outputs`, `ai_usage`, `embeddings`, `rate_limit_hits` and
- * `cache_entries` simply did not exist, and the code that read them failed
- * open with an empty result instead of an error. Nothing ran `db:init`
- * against production, because nothing could: a GitHub runner reaches the
- * database only by opening a firewall rule for an ephemeral IP on every
- * deploy and closing it after (one such delete has already been observed to
- * silently no-op, which would leave the database open), and it would need a
- * production DATABASE_URL stored in GitHub Secrets.
+ * Why boot and not CI: production's migration runner was wedged, so no new
+ * migration could reach it at all. `schema_migrations` recorded nothing from
+ * 003 onward and every `db:init` died re-attempting 002_weekly_report_storage.
+ * It surfaced only because migration 011 would not apply — a schema that is
+ * behind is invisible from outside, since reads against what is not there come
+ * back empty rather than failing.
+ *
+ * And nothing ran `db:init` against production because nothing could: a GitHub
+ * runner reaches the database only by opening a firewall rule for an ephemeral
+ * IP on every deploy and closing it after (one such delete has already been
+ * observed to silently no-op, which would leave the database open), and it
+ * would need a production DATABASE_URL stored in GitHub Secrets.
  *
  * The App Service is already inside the firewall and already holds the
  * credential, and the migrations ship in the same package as the code that

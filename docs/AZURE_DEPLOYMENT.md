@@ -77,10 +77,17 @@ cleanup that silently fails leaves the database open to the internet — one suc
 `firewall-rule delete` has already been observed to no-op. The App Service is
 already inside the firewall and already holds the credential.
 
-What this fixed: production ran **nine migrations behind** for weeks, with
-`agent_outputs`, `ai_usage`, `cache_entries`, `embeddings` and `rate_limit_hits`
-missing entirely. Nothing caught it because a read against a missing table fails
-open with an empty result — `/api/health/ready` reported `db: "ok"` throughout.
+What this fixed: **the migration runner was wedged, so no new migration could
+reach production at all.** `schema_migrations` recorded nothing from `003`
+onward, and every `db:init` died re-attempting `002_weekly_report_storage` —
+whose global `(week_start, week_end)` unique index cannot be created once `004`
+has replaced it with a per-user one, and prod legitimately had two users sharing
+a week. It surfaced only because migration `011` would not apply; nothing
+monitored the gap, and `/api/health/ready` reported `db: "ok"` throughout.
+
+(The tables themselves largely predate migration tracking, which arrived later —
+`embeddings` holds rows from 2026-06-03 — so this was a broken *pipeline*, not a
+missing schema. The consequence was the same: anything new was unshippable.)
 
 - `/api/health/ready` now also reports `migrations`. A reachable database that is
   behind returns **503** and lists the pending files, and the deploy gate
@@ -152,9 +159,19 @@ GitHub Actions inputs and secrets:
 Deploy workflows (canonical):
 
 - **API** — `.github/workflows/deploy-api.yml` runs on push to `main` under
-  `apps/api/**` (and on manual dispatch). It builds the API, assembles a
-  self-contained package (`dist` + `package.json` + a local `npm install --omit=dev`),
-  deploys it, and gates on a `/api/health` check returning `"mode":"postgres"`.
+  `apps/api/**`, `scripts/ci/**`, or `db/migrations/**` (and on manual dispatch). It
+  builds the API, assembles a self-contained package (`dist` + `db/migrations` +
+  `package.json` + the production dependency tree), deploys it, and gates on
+  `/api/health/ready` reporting **both** `"db":"ok"` and `"migrations":"ok"`.
+  - The dependency tree is **copied out of the install this run already tested**
+    by `scripts/ci/write-deploy-package.mjs`, which walks the root lockfile from
+    the api's production deps; `--verify` re-walks and fails on drift. It is not
+    a second `npm install --omit=dev`: that only worked while every api dependency
+    was hoisted, and broke when `undici@8` landed nested under `apps/api`.
+  - `db/migrations` ships in the package because the API applies migrations at
+    boot (see [Database migrations](#database-migrations)). `db:ok` alone is not
+    enough for the gate — that is exactly what stayed green while production ran
+    nine migrations behind.
 - **Web** — `.github/workflows/deploy-web.yml` runs on push to `main` under
   `apps/web/**` (and on manual dispatch), deploying the Next.js standalone bundle.
 - **Agent** — containerized. Run **`bash scripts/azure/deploy-agent.sh`** (one command:
