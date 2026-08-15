@@ -88,6 +88,37 @@ export function assertProductionAuthConfigured(): void {
   }
 }
 
+/**
+ * Operator allowlist for global, non-tenant-scoped settings (e.g. `agent_configs`, which is
+ * keyed by agent id alone — one user's write changes every user's agents).
+ *
+ * `ADMIN_USER_IDS` is a comma-separated list of Clerk user ids. With no allowlist configured
+ * this fails closed: only a local dev runtime (no Clerk, not production) is treated as the
+ * operator, so a real deploy that forgets the variable denies every write rather than letting
+ * any signed-in user through. Read dynamically so tests and config reloads see changes.
+ */
+export function isAdminUser(userId: string): boolean {
+  const allowlist = (process.env.ADMIN_USER_IDS ?? '')
+    .split(',')
+    .map((entry) => entry.trim())
+    .filter(Boolean);
+  if (allowlist.length > 0) {
+    return allowlist.includes(userId);
+  }
+  return !inProduction() && !process.env.CLERK_SECRET_KEY?.trim();
+}
+
+/** Returns the request user id when it belongs to an operator, else sends 401/403 and null. */
+export function requireAdmin(request: Request, response: Response): string | null {
+  const userId = requireUser(request, response);
+  if (!userId) return null;
+  if (!isAdminUser(userId)) {
+    response.status(403).json({ error: 'Administrator access required' });
+    return null;
+  }
+  return userId;
+}
+
 /** Returns the request user id, or sends 401 and returns null when absent. */
 export function requireUser(request: Request, response: Response): string | null {
   const userId = request.userId;
