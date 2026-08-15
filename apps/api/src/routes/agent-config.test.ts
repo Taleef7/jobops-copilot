@@ -174,6 +174,69 @@ test('PUT /api/agents/:agentId/config 400s a model without a provider prefix', a
   });
 });
 
+// A model string with an empty half satisfies `like '%:%'` but can never resolve through
+// `init_chat_model` — activating one would silently disable every run of that agent.
+for (const model of [':', 'anthropic:', ':claude-haiku-4-5', ' :model', 'provider: ']) {
+  test(`PUT /api/agents/:agentId/config 400s the unusable model string ${JSON.stringify(model)}`, async () => {
+    let inserted = false;
+    await withServer(
+      {
+        insertVersion: async () => {
+          inserted = true;
+          return 2;
+        },
+      },
+      async (baseUrl) => {
+        const response = await fetch(`${baseUrl}/api/agents/resume-tailor/config`, jsonPut({ model }));
+        assert.equal(response.status, 400);
+        assert.equal(inserted, false, 'an unusable model must never reach the store');
+      },
+    );
+  });
+}
+
+test('PUT /api/agents/:agentId/config 403s a non-administrator when an admin allowlist is set', async () => {
+  const previous = process.env.ADMIN_USER_IDS;
+  process.env.ADMIN_USER_IDS = 'user_admin';
+  try {
+    await withServer({}, async (baseUrl) => {
+      const response = await fetch(`${baseUrl}/api/agents/feed-curator/config`, jsonPut({ version: 1 }));
+      assert.equal(response.status, 403);
+    });
+  } finally {
+    if (previous === undefined) delete process.env.ADMIN_USER_IDS;
+    else process.env.ADMIN_USER_IDS = previous;
+  }
+});
+
+test('PUT /api/agents/:agentId/config allows an allowlisted administrator', async () => {
+  const previous = process.env.ADMIN_USER_IDS;
+  process.env.ADMIN_USER_IDS = 'u1, user_admin';
+  try {
+    await withServer({ activateVersion: async () => true }, async (baseUrl) => {
+      const response = await fetch(`${baseUrl}/api/agents/feed-curator/config`, jsonPut({ version: 1 }));
+      assert.equal(response.status, 200);
+    });
+  } finally {
+    if (previous === undefined) delete process.env.ADMIN_USER_IDS;
+    else process.env.ADMIN_USER_IDS = previous;
+  }
+});
+
+test('GET /api/agents/:agentId/config stays readable by a non-administrator', async () => {
+  const previous = process.env.ADMIN_USER_IDS;
+  process.env.ADMIN_USER_IDS = 'user_admin';
+  try {
+    await withServer({ listConfigs: async () => sampleConfigs }, async (baseUrl) => {
+      const response = await fetch(`${baseUrl}/api/agents/feed-curator/config`, authed);
+      assert.equal(response.status, 200);
+    });
+  } finally {
+    if (previous === undefined) delete process.env.ADMIN_USER_IDS;
+    else process.env.ADMIN_USER_IDS = previous;
+  }
+});
+
 test('PUT /api/agents/:agentId/config 400s a body that is neither a version nor a model', async () => {
   await withServer({}, async (baseUrl) => {
     const response = await fetch(`${baseUrl}/api/agents/resume-tailor/config`, jsonPut({ nonsense: true }));

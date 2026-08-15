@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { requireUser } from '@/lib/auth';
+import { requireAdmin, requireUser } from '@/lib/auth';
 import { hasPostgresConnection } from '@/lib/postgres';
 import {
   activateAgentConfigVersion,
@@ -27,6 +27,9 @@ const defaultDeps: AgentConfigDeps = {
   activateVersion: activateAgentConfigVersion,
   insertVersion: insertAgentConfigVersion,
 };
+
+/** `provider:model-id` — neither half may be empty or padded with whitespace. */
+const MODEL_PATTERN = /^\S+:\S+$/;
 
 function asObject(value: unknown): Record<string, unknown> | null {
   if (value === undefined) return {};
@@ -68,8 +71,10 @@ export function createAgentConfigRouter(deps: AgentConfigDeps = defaultDeps) {
     }
   });
 
+  // Writes are operator-only: `agent_configs` is global (keyed by agent id, not user), so an
+  // ordinary signed-in user must not be able to repoint the model every tenant's agents run on.
   router.put('/:agentId/config', async (request, response, next) => {
-    if (!requireUser(request, response)) return;
+    if (!requireAdmin(request, response)) return;
     const agentId = resolveAgent(request.params.agentId ?? '', response);
     if (!agentId) return;
 
@@ -95,9 +100,11 @@ export function createAgentConfigRouter(deps: AgentConfigDeps = defaultDeps) {
       }
 
       if (body.model !== undefined) {
-        // A model is a LangChain `init_chat_model` string, so the provider prefix is required —
-        // a bare model id would silently resolve against whichever provider happened to be default.
-        if (typeof body.model !== 'string' || !body.model.includes(':')) {
+        // A model is a LangChain `init_chat_model` string, so both halves must be present and
+        // non-empty: a bare model id would resolve against whichever provider happened to be
+        // default, and an empty half ('anthropic:', ':haiku') resolves to nothing at all —
+        // activating one would silently disable every run of that agent until a rollback.
+        if (typeof body.model !== 'string' || !MODEL_PATTERN.test(body.model)) {
           response.status(400).json({ error: '`model` must be a "provider:model-id" string.' });
           return;
         }

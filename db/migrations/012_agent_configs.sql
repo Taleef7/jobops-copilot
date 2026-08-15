@@ -10,7 +10,10 @@ create table if not exists agent_configs (
   id uuid primary key default gen_random_uuid(),
   agent_id text not null check (agent_id in ('feed-curator', 'resume-tailor', 'apply-copilot', 'connection-scout')),
   version integer not null check (version >= 1),
-  model text not null check (model like '%:%'),
+  -- "provider:model-id" with both halves non-empty and unpadded: 'anthropic:' or ':haiku'
+  -- would satisfy a plain like '%:%' yet resolve to nothing in init_chat_model, silently
+  -- disabling every run of the agent.
+  model text not null check (model ~ '^\S+:\S+$'),
   params jsonb not null default '{}'::jsonb,
   prompt_overrides jsonb not null default '{}'::jsonb,
   active boolean not null default false,

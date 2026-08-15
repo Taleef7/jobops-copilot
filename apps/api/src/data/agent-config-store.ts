@@ -10,6 +10,7 @@
  * gate on `hasPostgresConnection()` and return 503 when the database is absent.
  */
 
+import type { PoolClient } from 'pg';
 import { getPool } from '@/lib/postgres';
 
 export const AGENT_IDS = ['feed-curator', 'resume-tailor', 'apply-copilot', 'connection-scout'] as const;
@@ -61,6 +62,18 @@ function mapRow(row: AgentConfigRow): AgentConfigRecord {
   };
 }
 
+/**
+ * Serializes config swaps for one agent within the calling transaction.
+ *
+ * Without it two overlapping writes can each deactivate the active row they saw in their own
+ * snapshot and then both insert an active row, and the partial unique index rejects the loser
+ * with a 500. A transaction-scoped advisory lock makes the read-modify-write atomic per agent;
+ * it is released automatically on commit or rollback, and different agents never block.
+ */
+async function lockAgent(client: PoolClient, agentId: AgentId): Promise<void> {
+  await client.query('select pg_advisory_xact_lock(hashtext($1))', [`agent_configs:${agentId}`]);
+}
+
 /** Every stored version for an agent, newest first. */
 export async function listAgentConfigs(agentId: AgentId): Promise<AgentConfigRecord[]> {
   const { rows } = await poolOrThrow().query<AgentConfigRow>(
@@ -88,6 +101,7 @@ export async function activateAgentConfigVersion(agentId: AgentId, version: numb
   const client = await poolOrThrow().connect();
   try {
     await client.query('begin');
+    await lockAgent(client, agentId);
     await client.query('update agent_configs set active = false where agent_id = $1 and active', [agentId]);
     const { rowCount } = await client.query(
       'update agent_configs set active = true where agent_id = $1 and version = $2',
@@ -117,6 +131,7 @@ export async function insertAgentConfigVersion(
   const client = await poolOrThrow().connect();
   try {
     await client.query('begin');
+    await lockAgent(client, agentId);
     await client.query('update agent_configs set active = false where agent_id = $1 and active', [agentId]);
     const { rows } = await client.query<{ version: number }>(
       `insert into agent_configs (agent_id, version, model, params, prompt_overrides, active)

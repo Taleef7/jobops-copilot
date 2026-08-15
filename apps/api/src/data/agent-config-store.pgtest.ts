@@ -61,7 +61,20 @@ test(
         assert.equal(configs.find((config) => config.active)?.version, 1);
       });
 
+      await t.test('overlapping swaps for one agent serialize instead of colliding', async () => {
+        // Without the per-agent advisory lock both transactions deactivate the row they saw
+        // and then both insert an active row, and the partial unique index rejects the loser.
+        const versions = await Promise.all([
+          insertAgentConfigVersion(AGENT, 'anthropic:claude-haiku-4-5', {}, {}),
+          insertAgentConfigVersion(AGENT, 'openai:gpt-5.6-luna', {}, {}),
+          insertAgentConfigVersion(AGENT, 'anthropic:claude-sonnet-4-6', {}, {}),
+        ]);
+        assert.equal(new Set(versions).size, 3, 'each concurrent insert takes its own version');
+        assert.equal(await activeCount(AGENT), 1, 'exactly one config stays active');
+      });
+
       await t.test('repointing to a missing version changes nothing and reports false', async () => {
+        await activateAgentConfigVersion(AGENT, 1);
         assert.equal(await activateAgentConfigVersion(AGENT, 9_999), false);
         assert.equal(await activeCount(AGENT), 1, 'a failed repoint must not leave the agent unconfigured');
         const configs = await listAgentConfigs(AGENT);
