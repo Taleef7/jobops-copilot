@@ -11,6 +11,7 @@ import { assistantStreamRouter } from '@/routes/assistant';
 import { assistantChatRouter } from '@/routes/assistant-chat';
 import { demoRouter } from '@/routes/demo';
 import { healthRouter } from '@/routes/health';
+import { agentConfigRouter } from '@/routes/agent-config';
 import { agentOutputsRouter } from '@/routes/agent-outputs';
 import { jobExtractRouter } from '@/routes/job-extract';
 import { jobsRouter } from '@/routes/jobs';
@@ -91,6 +92,9 @@ export function createApp() {
   // Stricter per-user limit on the expensive AI + discovery routes; the AI routes
   // additionally enforce the per-user daily spend ceiling (discovery has no LLM cost).
   app.use('/api/ai', strictLimiter, enforceDailyBudget, aiRouter);
+  // Per-agent model configuration (read + hot-swap). Later parity tickets mount the agent
+  // stream/resume proxy on the same prefix under distinct sub-paths.
+  app.use('/api/agents', agentConfigRouter);
   app.use('/api/profile', profileRouter);
   app.use('/api/demo', demoRouter);
   app.use('/api/outreach', outreachRouter);

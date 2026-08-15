@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import http from 'node:http';
 import test from 'node:test';
 import express from 'express';
-import { assertProductionAuthConfigured, attachUserId } from './auth';
+import { assertProductionAuthConfigured, attachUserId, isAdminUser } from './auth';
 
 function snapshotEnv(keys: string[]) {
   const snapshot = new Map<string, string | undefined>();
@@ -107,6 +107,46 @@ test('assertProductionAuthConfigured is a no-op in local development', () => {
   delete process.env.WEBSITE_SITE_NAME;
   try {
     assert.doesNotThrow(() => assertProductionAuthConfigured());
+  } finally {
+    restore();
+  }
+});
+
+const ADMIN_ENV = ['ADMIN_USER_IDS', 'CLERK_SECRET_KEY', 'NODE_ENV', 'WEBSITE_SITE_NAME', 'CONTAINER_APP_NAME'];
+
+test('an explicit ADMIN_USER_IDS allowlist decides who may administer', () => {
+  const restore = snapshotEnv(ADMIN_ENV);
+  process.env.ADMIN_USER_IDS = ' user_admin , user_second ';
+  try {
+    assert.equal(isAdminUser('user_admin'), true);
+    assert.equal(isAdminUser('user_second'), true);
+    assert.equal(isAdminUser('user_other'), false);
+  } finally {
+    restore();
+  }
+});
+
+test('with no allowlist, only a local dev runtime administers — a real deploy fails closed', () => {
+  const restore = snapshotEnv(ADMIN_ENV);
+  try {
+    delete process.env.ADMIN_USER_IDS;
+    delete process.env.CLERK_SECRET_KEY;
+    delete process.env.WEBSITE_SITE_NAME;
+    delete process.env.CONTAINER_APP_NAME;
+    process.env.NODE_ENV = 'development';
+    assert.equal(isAdminUser('user_local_dev'), true, 'local dev keeps working offline');
+
+    // A deploy that forgot ADMIN_USER_IDS must deny, not admit every signed-in user.
+    process.env.CLERK_SECRET_KEY = 'sk_test';
+    assert.equal(isAdminUser('user_local_dev'), false, 'Clerk configured means real users exist');
+
+    delete process.env.CLERK_SECRET_KEY;
+    process.env.NODE_ENV = 'production';
+    assert.equal(isAdminUser('user_local_dev'), false, 'production denies without an allowlist');
+
+    process.env.NODE_ENV = 'development';
+    process.env.CONTAINER_APP_NAME = 'jobops-api';
+    assert.equal(isAdminUser('user_local_dev'), false, 'an Azure runtime denies too');
   } finally {
     restore();
   }
