@@ -187,43 +187,49 @@ def _active_config(agent_id: str) -> AgentConfig | None:
     return config
 
 
-def _provider_credentials(provider: str) -> dict | None:
-    """`init_chat_model` credential kwargs, or None for an unsupported provider.
+def _provider_credentials(provider: str) -> tuple[dict, tuple[str, ...]] | None:
+    """``(init_chat_model kwargs, required kwarg names)``, or None for an unsupported provider.
 
     Keys live in pydantic settings rather than `os.environ`, so they must be passed
-    explicitly.
+    explicitly. The required names are called out separately because not every kwarg is a
+    credential: `api_version` has a non-empty default, so "is any value set?" would report
+    Azure as usable on a deployment holding neither an endpoint nor a key.
     """
     if provider == "anthropic":
-        return {"api_key": settings.anthropic_api_key}
+        return {"api_key": settings.anthropic_api_key}, ("api_key",)
     if provider == "openai":
-        return {"api_key": settings.openai_api_key}
+        return {"api_key": settings.openai_api_key}, ("api_key",)
     if provider == "azure_openai":
         return {
             "azure_endpoint": settings.azure_openai_endpoint,
             "api_key": settings.azure_openai_api_key,
             "api_version": settings.azure_openai_api_version,
-        }
+        }, ("azure_endpoint", "api_key")
     if provider == "google_genai":
-        return {"api_key": settings.google_gemini_api_key}
+        return {"api_key": settings.google_gemini_api_key}, ("api_key",)
     return None
 
 
 def _build_model(config: AgentConfig):
     """Construct the chat client for a config row, or None if it is not usable here."""
     provider, _, model_id = config.model.partition(":")
-    credentials = _provider_credentials(provider)
-    if credentials is None:
+    resolved = _provider_credentials(provider)
+    if resolved is None:
         logger.warning(
             "agent %s is configured for unsupported provider %r; using the env model",
             config.agent_id,
             provider,
         )
         return None
-    if not any(credentials.values()):
+
+    credentials, required = resolved
+    missing = [name for name in required if not credentials.get(name)]
+    if missing:
         logger.warning(
-            "agent %s is configured for %s but no credentials are set; using the env model",
+            "agent %s is configured for %s but %s is not set; using the env model",
             config.agent_id,
             provider,
+            ", ".join(missing),
         )
         return None
 
@@ -233,9 +239,18 @@ def _build_model(config: AgentConfig):
             kwargs[name] = config.params[name]
     kwargs.setdefault("temperature", settings.llm_temperature)
 
-    if provider == "azure_openai":
-        return init_chat_model(model_id, model_provider="azure_openai", **kwargs)
-    return init_chat_model(f"{provider}:{model_id}", **kwargs)
+    try:
+        if provider == "azure_openai":
+            return init_chat_model(model_id, model_provider="azure_openai", **kwargs)
+        return init_chat_model(f"{provider}:{model_id}", **kwargs)
+    except Exception:  # noqa: BLE001 - a bad config row must not take the agent down
+        logger.warning(
+            "agent %s could not build model %r; using the env model",
+            config.agent_id,
+            config.model,
+            exc_info=True,
+        )
+        return None
 
 
 def get_model_for_agent(agent_id: str):

@@ -129,6 +129,44 @@ def test_falls_back_when_the_configured_provider_has_no_credentials(monkeypatch,
     assert cfg is None
 
 
+@pytest.mark.parametrize(
+    ("endpoint", "api_key"),
+    [(None, "az-key"), ("https://example.openai.azure.com", None), (None, None)],
+)
+def test_azure_falls_back_unless_both_endpoint_and_key_are_set(
+    monkeypatch, env_model, endpoint, api_key
+):
+    # api_version carries a non-empty default, so "any credential is set" is always true
+    # for Azure — the required pair has to be checked explicitly, or a swap to azure_openai
+    # on a deployment without Azure credentials fails every single call.
+    monkeypatch.setattr(
+        provider, "_fetch_active_config", lambda a: _cfg(model="azure_openai:gpt-4o-mini")
+    )
+    monkeypatch.setattr(provider.settings, "azure_openai_endpoint", endpoint)
+    monkeypatch.setattr(provider.settings, "azure_openai_api_key", api_key)
+
+    chat, label, cfg = get_model_for_agent("feed-curator")
+
+    assert chat is env_model[0]
+    assert label == env_model[1]
+    assert cfg is None
+
+
+def test_a_model_that_cannot_be_constructed_falls_back(monkeypatch, env_model):
+    monkeypatch.setattr(provider.settings, "anthropic_api_key", "sk-test")
+    monkeypatch.setattr(provider, "_fetch_active_config", lambda a: _cfg(model="anthropic:typo"))
+
+    def explode(*_args, **_kwargs):
+        raise ValueError("unknown model")
+
+    monkeypatch.setattr(provider, "init_chat_model", explode)
+
+    chat, label, cfg = get_model_for_agent("feed-curator")
+
+    assert chat is env_model[0]
+    assert cfg is None
+
+
 def test_falls_back_on_an_unsupported_provider(monkeypatch, env_model):
     monkeypatch.setattr(provider, "_fetch_active_config", lambda a: _cfg(model="mystery:model-x"))
 
