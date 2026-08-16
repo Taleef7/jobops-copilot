@@ -16,10 +16,10 @@
 
 ### [Epic 1 — Agent platform foundation (registry, per-agent configs, durable memory, cost guards)](https://github.com/Taleef7/jobops-copilot/issues/244) — #244
 
-- [ ] #251 **agent_configs table + seed tiering + GET/PUT /api/agents/:agentId/config** (M; blocked by: none)
+- [x] #251 **agent_configs table + seed tiering + GET/PUT /api/agents/:agentId/config** (M; blocked by: none) — merged in #299 (migration `012`; writes are operator-only via `ADMIN_USER_IDS`)
 - [ ] #252 **get_model_for_agent(agent_id): hot-swappable per-agent models in provider.py (per-(agent,version) cache, env fallback)** (M; blocked by: #251)
 - [ ] #253 **Four-graph registry + POST /agents/{agent_id}/stream|resume (SSE) + apps/api 3-hop proxy** (L; blocked by: #252)
-- [ ] #254 **Durable AsyncPostgresSaver + AsyncPostgresStore in lifespan, thread/namespace conventions, checkpoint pruning** (L; blocked by: #253)
+- [ ] #254 **Durable AsyncPostgresSaver + AsyncPostgresStore in lifespan, thread/namespace conventions, checkpoint pruning** (L; blocked by: #253) — ⚠️ `RUN_MIGRATIONS_ON_BOOT` does NOT gate this DDL (it is read only by `apps/api`); own an agent-side setup lever and fail closed instead of falling back to the in-memory saver
 - [ ] #255 **Per-agent Langfuse tags, per-run token budget with hard abort, recursion-limit defaults** (M; blocked by: #253)
 - [ ] #256 **Assistant chat gains four specialist tools invoking the registry graphs (subagents pattern)** (M; blocked by: #253)
 - [ ] #257 **langgraph.json for all graphs + local debugging doc (langgraph dev + Studio, LANGSMITH_TRACING=false)** (S; blocked by: #253)
@@ -28,14 +28,14 @@
 
 - [ ] #258 **feat(api): enrich the jobs schema — salary/seniority/sponsorship/liveness columns, salary+seniority parsers, stop discarding Adzuna salary** (L; blocked by: none)
 - [ ] #259 **feat(api): USAJobs + The Muse source adapters; fix the Remotive fallback window; multi-source discovery** (L; blocked by: #258)
-- [ ] #260 **feat(api,web): target_companies table + CRUD + settings section to manage the ATS-board watchlist** (M; blocked by: none)
+- [ ] #260 **feat(api,web): target_companies table + CRUD + settings section to manage the ATS-board watchlist** (M; blocked by: none) — ⚠️ the table needs `user_id` + `unique (user_id, board_type, board_token)`; the spec's original column list omitted it and would have made one shared watchlist for every account
 - [ ] #261 **feat(api): Greenhouse, Lever, and Ashby public-board adapters wired into discovery via target_companies** (L; blocked by: #258, #260)
 - [ ] #262 **feat(api): USCIS H-1B Employer Data Hub import + h1b_sponsors table + sponsor_likelihood matching** (M; blocked by: #258)
 - [ ] #263 **feat(api): fetch full JDs at discovery through the SSRF-hardened fetcher + extend the local prerank** (M; blocked by: #258)
 - [ ] #264 **feat(api,infra): discovery every 20-30 min + daily liveness sweep — internal endpoints + ACA cron jobs (Bicep)** (L; blocked by: #258, #259)
 - [ ] #265 **feat(agent,api): feed-curator graph — immediate cheap-tier scoring with sub-signals, persisted into job_analysis** (L; blocked by: #258, #251, #252)
 - [ ] #266 **feat(agent,api,infra): nightly batch scoring — BatchScorer (Anthropic + OpenAI batch APIs), content_hash skip, cron submit/poll** (L; blocked by: #265, #264)
-- [ ] #267 **feat(api): outcome-feedback view + ranked feed endpoint (GET /api/feed)** (M; blocked by: #258)
+- [ ] #267 **feat(api): outcome-feedback view + ranked feed endpoint (GET /api/feed)** (M; blocked by: #258) — ⚠️ needs the `job_status_events` table from #258; `jobs.status` is overwritten in place, so without transition history the heuristic cannot tell "interviewed then rejected" from "rejected outright" and learns backwards
 - [ ] #268 **feat(web): Today's best ranked feed — salary/seniority/sponsorship filters, sub-signal score chips, freshness badges** (L; blocked by: #267, #265)
 
 ### [Epic 3 — Alerts & notifications (Jobright parity)](https://github.com/Taleef7/jobops-copilot/issues/246) — #246
@@ -52,7 +52,7 @@
 - [ ] #275 **feat(db): structured base-resume data model — migration, shared schema (TS + Python), version store** (M; blocked by: none)
 - [ ] #276 **feat(api): parse the stored resume into the structured model + base-resume CRUD routes** (M; blocked by: #275, #251)
 - [ ] #277 **feat(web): base-resume editor under Settings (import, review, edit, save)** (M; blocked by: #276)
-- [ ] #278 **feat(agent): resume-tailor LangGraph graph — plan/rewrite/groundedness gate/ATS pass/interrupt + zero-invented-facts evals** (L; blocked by: #275, #251, #252)
+- [ ] #278 **feat(agent): resume-tailor LangGraph graph — plan/rewrite/groundedness gate/ATS pass/interrupt + zero-invented-facts evals** (L; blocked by: #275, #251, #252) — ⚠️ persist the draft as a `resume_versions` row (`approved = false`) BEFORE the interrupt, so #280/#281 have a real id to approve or reject
 - [ ] #279 **feat(api): deterministic ATS-safe resume PDF renderer + blob storage + short-lived SAS URLs** (M; blocked by: #275)
 - [ ] #280 **feat(api): resume-studio routes — start tailor run, approve→render→persist, reject-with-feedback, versions, gated download** (L; blocked by: #276, #278, #279)
 - [ ] #281 **feat(web): tailored-resume review UI on job detail — old→new change summary with why, approve / reject-with-feedback, gated download** (M; blocked by: #280)

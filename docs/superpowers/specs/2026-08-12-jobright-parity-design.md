@@ -119,7 +119,9 @@ feed-curator:    prerank ≥ instant-threshold → immediate LLM score; else que
 
 Output extends the existing `job_analysis` shape: 0–100 score, sub-signals (skills, experience, seniority-fit, salary-fit, sponsorship-likelihood), `apply/review/pass`, "why you fit" summary. **Every job gets scored** — the free-tier-Jobright hook JobOps currently lacks.
 
-**Outcome feedback (v1 = heuristics, not ML):** ranking-time adjustments from pipeline history — companies with k+ rejections and no interviews get a penalty; title-families that reached interview/offer get a boost. Implemented as a SQL view over jobs/status history applied at rank time; no new learning infrastructure.
+**Outcome feedback (v1 = heuristics, not ML):** ranking-time adjustments from pipeline history — companies with k+ rejections and no interviews get a penalty; title-families that reached interview/offer get a boost. Implemented as a SQL view over jobs + status history applied at rank time; no new learning infrastructure.
+
+> **Prerequisite (added after review):** `jobs.status` is overwritten in place by `updateJob`, so today's schema cannot answer "did this reach interview before it was rejected?" — a job that interviewed and was then rejected is indistinguishable from a straight rejection, and the heuristic would learn the opposite of the truth. A `job_status_events` append-only table (§5) must land with the schema work in #258 before #267 builds the view; the view reads transitions, never the current `status` alone.
 
 ### 4.2 `resume-tailor` (interactive; interrupt-gated)
 
@@ -130,7 +132,10 @@ plan edits (vs job + feed-curator analysis) → rewrite sections
 → groundedness self-check (reuse services/agent/app/safety/groundedness.py)
 → ATS keyword pass (cover job_analysis.ats_keywords honestly — no keyword stuffing)
 → render request → interrupt(approval)
-   approve → apps/api renders ATS-safe single-column PDF → blob storage → resume_versions row
+   (before the interrupt: persist the draft as a `resume_versions` row with `approved = false`,
+    so the review UI and the approve/reject endpoints have a real `:id` to address)
+   approve → apps/api renders ATS-safe single-column PDF → blob storage → same row gains
+             file_url + approved = true
    reject(feedback) → resume graph with owner notes
 ```
 
@@ -147,7 +152,7 @@ Per job, assembles an **application pack**: approved tailored-resume PDF (+ cove
 **Q&A memory:** unanswerable questions are asked of the owner once (UI or extension prompt), stored in `application_answers`, and pre-filled forever after. The pack builder consults this table first.
 
 **The Chrome extension** (`extensions/chrome`, MV3, loaded unpacked):
-- Detects supported ATS pages (Greenhouse, Lever, Ashby, Workday, iCIMS — in that build order; Workday is the hard one).
+- Detects supported ATS pages: **Greenhouse, Lever, Ashby, Workday** (in that build order; Workday is the hard one). iCIMS is explicitly out of scope for this program — no ticket, no fixtures, and an unknown page must make the extension do nothing (§12) rather than guess.
 - Pulls the matching pack from `apps/api` (job matched by URL/company+title; manual picker fallback), fills fields, highlights what it filled and what it left blank.
 - **Never clicks submit.** On the owner's own submit, detects the confirmation state and POSTs a capture: status → `applied`, timestamp, resume version used, ATS, URL. (Auto-capture — a tracked Jobright parity gap.)
 - Auth: personal access token (PAT) generated in Settings, stored hashed (`token_hash`) server-side, scoped to `/api/ext/*` routes only, revocable. No Clerk flows inside the extension.
@@ -179,7 +184,8 @@ New tables:
 | `h1b_sponsors` | normalized `employer_name`, `fiscal_year`, `approvals`, `denials` (USCIS H-1B Employer Data Hub import; annual refresh script) |
 | `application_answers` | `user_id`, `question_hash`, `question_text`, `answer`, `ats?`, timestamps — the apply Q&A memory |
 | `job_contacts` | `job_id`, `name`, `role_title`, `evidence` JSONB (URLs, required non-empty), `relevance`, `status` (found/outreach_drafted/contacted), timestamps |
-| `target_companies` | `company`, `board_type` (greenhouse/lever/ashby), `board_token`, `enabled` — direct ATS-board polling list |
+| `target_companies` | `user_id`, `company`, `board_type` (greenhouse/lever/ashby), `board_token`, `enabled` — direct ATS-board polling list, owned per user like every other user table (`unique (user_id, board_type, board_token)`); discovery runs per user and reads only that user's rows |
+| `job_status_events` | `job_id`, `user_id`, `from_status?`, `to_status`, `created_at` — append-only pipeline transitions. `jobs.status` is overwritten in place, so this is the only record that a job reached `interview` before `rejected`; the outcome-feedback view (§4.1, #267) reads it |
 | `ext_tokens` | `user_id`, `token_hash`, `label`, `last_used_at`, `revoked_at?` — extension PATs |
 
 Changed tables:
@@ -188,13 +194,13 @@ Changed tables:
 - `user_profiles`: add `preferences` JSONB (salary floor, seniority band, sponsorship_required, company blocklist, title include/exclude, alert threshold, quiet hours, digest hour, channels on/off).
 - `outreach`: extend `message_type` CHECK with `cover_letter`.
 - `resume_versions` (exists, unused): wire it — add `file_url` population (blob), `source_config_version`, keep `approved` gate.
-- LangGraph: `checkpointer.setup()` + `store.setup()` tables via the existing migrate-on-boot path (`RUN_MIGRATIONS_ON_BOOT` lever applies); weekly checkpoint-pruning job (delete checkpoints older than N days, N configurable, default 30).
+- LangGraph: `checkpointer.setup()` + `store.setup()` create their own tables from the **Python agent's lifespan**, not from `apps/api`'s migrate-on-boot path — `RUN_MIGRATIONS_ON_BOOT` is read only by `apps/api/src/lib/migrate-on-boot.ts` and does **not** gate this DDL. #254 therefore owns an agent-side equivalent: a single explicit setup step with its own `AGENT_RUN_SETUP_ON_BOOT` lever, and a failure must surface (fail closed) rather than silently degrading to the in-memory saver, which would make "durable memory" a lie in production. Weekly checkpoint-pruning job (delete checkpoints older than N days, N configurable, default 30).
 
 ---
 
 ## 6. API surface (new/changed, all Clerk-authed unless noted)
 
-**Agents (proxy, 3-hop SSE like `assistant-chat.ts`):** `POST /api/agents/:agentId/stream`, `POST /api/agents/:agentId/resume`, `GET /api/agents/:agentId/runs?jobId=` (history from agent_outputs/checkpoints), `GET/PUT /api/agents/:agentId/config` (agent_configs read/repoint).
+**Agents (proxy, 3-hop SSE like `assistant-chat.ts`):** `POST /api/agents/:agentId/stream`, `POST /api/agents/:agentId/resume`, `GET /api/agents/:agentId/runs?jobId=` (history from agent_outputs/checkpoints), `GET /api/agents/:agentId/config` (any signed-in user) and `PUT /api/agents/:agentId/config` (**operator-only**). `agent_configs` is global — keyed by `agent_id`, with no `user_id` and one active version per agent — so an ordinary user must not be able to repoint the model every other user's agents run on. Writes are gated on an `ADMIN_USER_IDS` allowlist that fails closed when unset on a real deploy (shipped in #251).
 
 **Notifications:** `GET /api/notifications`, `POST /api/notifications/:id/read`, `POST /api/notifications/read-all`, `GET/PUT /api/notification-settings`, `POST /api/notifications/test` (fires all configured channels), `POST /api/push/subscribe` + `DELETE` (web-push subscriptions).
 
