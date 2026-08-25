@@ -52,12 +52,18 @@ export class AgentDisabledError extends Error {
   }
 }
 
+function agentServiceUrl(): string | undefined {
+  return process.env.AGENT_SERVICE_URL?.trim().replace(/\/$/, '') || AGENT_URL;
+}
+
 export function isAgentEnabled(): boolean {
-  return Boolean(AGENT_URL);
+  return Boolean(agentServiceUrl());
 }
 
 async function callAgent<T>(path: string, payload: unknown, timeoutMs = AGENT_TIMEOUT_MS): Promise<T> {
-  const response = await fetch(`${AGENT_URL}${path}`, {
+  const baseUrl = agentServiceUrl();
+  if (!baseUrl) throw new AgentDisabledError();
+  const response = await fetch(`${baseUrl}${path}`, {
     method: 'POST',
     headers: agentHeaders({ 'Content-Type': 'application/json' }),
     body: JSON.stringify(payload),
@@ -152,7 +158,7 @@ export async function streamAssistantUpstream(payload: unknown): Promise<Respons
   // the retry too (the container wakes during the first attempt; the retry still streams),
   // so we pass a fixed-timeout lambda and ignore the attempt number.
   return withColdStartRetry(() =>
-    fetch(`${AGENT_URL}/assistant/stream`, {
+    fetch(`${agentServiceUrl()}/assistant/stream`, {
       method: 'POST',
       headers: agentHeaders({ 'Content-Type': 'application/json' }),
       body: JSON.stringify(payload),
@@ -168,7 +174,7 @@ export async function streamAssistantChatUpstream(payload: unknown): Promise<Res
   }
   // Same cold-start retry as streamAssistantUpstream — see comment there.
   return withColdStartRetry(() =>
-    fetch(`${AGENT_URL}/assistant/chat`, {
+    fetch(`${agentServiceUrl()}/assistant/chat`, {
       method: 'POST',
       headers: agentHeaders({ 'Content-Type': 'application/json' }),
       body: JSON.stringify(payload),
@@ -187,7 +193,7 @@ export async function fetchEvDemoViaAgent(): Promise<TelemetryInsights> {
   if (!isAgentEnabled()) {
     throw new AgentDisabledError();
   }
-  const response = await fetch(`${AGENT_URL}/telemetry/ev-demo`, {
+  const response = await fetch(`${agentServiceUrl()}/telemetry/ev-demo`, {
     headers: agentHeaders(),
     signal: AbortSignal.timeout(AGENT_TASK_TIMEOUT_MS),
   });
@@ -195,6 +201,34 @@ export async function fetchEvDemoViaAgent(): Promise<TelemetryInsights> {
     throw new Error(`agent /telemetry/ev-demo responded with ${response.status}`);
   }
   return (await response.json()) as TelemetryInsights;
+}
+
+/** Open a generic specialist-agent stream and return the raw response for piping. */
+export async function streamAgentUpstream(agentId: string, payload: unknown): Promise<Response> {
+  if (!isAgentEnabled()) throw new AgentDisabledError();
+  const encodedId = encodeURIComponent(agentId);
+  return withColdStartRetry(() =>
+    fetch(`${agentServiceUrl()}/agents/${encodedId}/stream`, {
+      method: 'POST',
+      headers: agentHeaders({ 'Content-Type': 'application/json' }),
+      body: JSON.stringify(payload),
+      signal: AbortSignal.timeout(AGENT_TASK_TIMEOUT_MS),
+    }),
+  );
+}
+
+/** Resume a generic specialist-agent stream and return the raw response for piping. */
+export async function resumeAgentUpstream(agentId: string, payload: unknown): Promise<Response> {
+  if (!isAgentEnabled()) throw new AgentDisabledError();
+  const encodedId = encodeURIComponent(agentId);
+  return withColdStartRetry(() =>
+    fetch(`${agentServiceUrl()}/agents/${encodedId}/resume`, {
+      method: 'POST',
+      headers: agentHeaders({ 'Content-Type': 'application/json' }),
+      body: JSON.stringify(payload),
+      signal: AbortSignal.timeout(AGENT_TASK_TIMEOUT_MS),
+    }),
+  );
 }
 
 export interface ScoreFitInput {
