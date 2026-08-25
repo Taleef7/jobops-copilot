@@ -53,8 +53,15 @@ function requireSharedApiKey(
   next();
 }
 
-export function createApp() {
+export interface AppDependencies {
+  runLimiter?: express.RequestHandler;
+  runBudget?: express.RequestHandler;
+}
+
+export function createApp(dependencies: AppDependencies = {}) {
   const app = express();
+  const runLimiter = dependencies.runLimiter ?? strictLimiter;
+  const runBudget = dependencies.runBudget ?? enforceDailyBudget;
 
   app.disable('x-powered-by');
   // One proxy hop in front of the app (Azure App Service) — needed so `req.ip` is
@@ -97,16 +104,17 @@ export function createApp() {
   // Keep the guards path-aware because this mount shares the /api/agents prefix with the
   // config router below; config GET/PUT must not consume a run budget.
   app.use('/api/agents', (request, response, next) => {
-    if (!request.path.endsWith('/stream') && !request.path.endsWith('/resume')) {
+    const normalizedPath = request.path.replace(/\/+$/, '');
+    if (!normalizedPath.endsWith('/stream') && !normalizedPath.endsWith('/resume')) {
       next();
       return;
     }
-    strictLimiter(request, response, (error?: unknown) => {
+    runLimiter(request, response, (error?: unknown) => {
       if (error) {
         next(error);
         return;
       }
-      enforceDailyBudget(request, response, next);
+      runBudget(request, response, next);
     });
   }, agentsRouter);
   // Per-agent model configuration (read + hot-swap). Later parity tickets mount the agent
