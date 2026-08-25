@@ -12,6 +12,7 @@ import { assistantChatRouter } from '@/routes/assistant-chat';
 import { demoRouter } from '@/routes/demo';
 import { healthRouter } from '@/routes/health';
 import { agentConfigRouter } from '@/routes/agent-config';
+import { agentsRouter } from '@/routes/agents';
 import { agentOutputsRouter } from '@/routes/agent-outputs';
 import { jobExtractRouter } from '@/routes/job-extract';
 import { jobsRouter } from '@/routes/jobs';
@@ -92,6 +93,22 @@ export function createApp() {
   // Stricter per-user limit on the expensive AI + discovery routes; the AI routes
   // additionally enforce the per-user daily spend ceiling (discovery has no LLM cost).
   app.use('/api/ai', strictLimiter, enforceDailyBudget, aiRouter);
+  // Generic specialist streams/resumes are charged independently from config reads/writes.
+  // Keep the guards path-aware because this mount shares the /api/agents prefix with the
+  // config router below; config GET/PUT must not consume a run budget.
+  app.use('/api/agents', (request, response, next) => {
+    if (!request.path.endsWith('/stream') && !request.path.endsWith('/resume')) {
+      next();
+      return;
+    }
+    strictLimiter(request, response, (error?: unknown) => {
+      if (error) {
+        next(error);
+        return;
+      }
+      enforceDailyBudget(request, response, next);
+    });
+  }, agentsRouter);
   // Per-agent model configuration (read + hot-swap). Later parity tickets mount the agent
   // stream/resume proxy on the same prefix under distinct sub-paths.
   app.use('/api/agents', agentConfigRouter);

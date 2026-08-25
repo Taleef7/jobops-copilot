@@ -15,6 +15,7 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import JSONResponse, StreamingResponse
+from langgraph.checkpoint.memory import InMemorySaver
 from langgraph.types import Command
 from pydantic import BaseModel, Field
 
@@ -26,6 +27,7 @@ from app.chains.score_fit import score_fit
 from app.chains.weekly import weekly_recommendations
 from app.config import settings
 from app.graph.assistant import build_assistant_graph
+from app.graph.registry import AGENT_IDS, build_registry, make_thread_id
 from app.llm.provider import LLMNotConfigured, get_model, llm_available, resolve_provider
 from app.obs import traced_config, traced_span
 from app.prompts import CHAT_ASSISTANT_SYSTEM
@@ -89,6 +91,7 @@ _configure_app_insights()
 # all drive the graph through its async API (ainvoke/astream/aget_state).
 _assistant_graph = None
 _checkpointer_pool = None
+_agent_registry = None
 
 
 async def _build_durable_assistant_graph():
@@ -137,7 +140,7 @@ async def _lifespan(_app: FastAPI):
     """Upgrade the assistant graph to the durable Postgres checkpointer on
     startup when DATABASE_URL is set; degrade to the in-memory saver on any
     failure so a checkpointer outage never blocks the service from starting."""
-    global _assistant_graph, _checkpointer_pool
+    global _assistant_graph, _checkpointer_pool, _agent_registry
     # Fail closed: refuse to start on a public cloud runtime with auth disabled.
     assert_auth_configured()
     if settings.database_url:
@@ -150,6 +153,7 @@ async def _lifespan(_app: FastAPI):
                 "(in-flight runs will not survive a restart)",
                 exc_info=True,
             )
+    _agent_registry = build_registry(checkpointer=InMemorySaver())
     try:
         yield
     finally:
@@ -159,6 +163,7 @@ async def _lifespan(_app: FastAPI):
             except Exception:  # noqa: BLE001 - never let teardown raise on shutdown
                 logger.warning("error closing HITL checkpointer pool", exc_info=True)
             _checkpointer_pool = None
+        _agent_registry = None
 
 
 app = FastAPI(
@@ -364,6 +369,14 @@ def _get_assistant_graph():
     return _assistant_graph
 
 
+def _get_agent_registry():
+    """Return the lifespan-built specialist registry, with a test/dev fallback."""
+    global _agent_registry
+    if _agent_registry is None:
+        _agent_registry = build_registry(checkpointer=InMemorySaver())
+    return _agent_registry
+
+
 async def _arun(coro_fn, *args):
     """Await an async graph call, translating provider errors into HTTP errors."""
     try:
@@ -436,6 +449,79 @@ async def assistant_resume_endpoint(req: AssistantResumeRequest) -> dict:
 
 def _sse(event: str, data: dict) -> str:
     return f"event: {event}\ndata: {json.dumps(data)}\n\n"
+
+
+class AgentStreamRequest(BaseModel):
+    user_id: str
+    job_id: str | None = None
+    input: dict = Field(default_factory=dict)
+
+
+class AgentResumeRequest(BaseModel):
+    thread_id: str
+    payload: dict = Field(default_factory=dict)
+
+
+def _agent_response(agent_id: str, thread_id: str, state: dict) -> dict:
+    awaiting = "__interrupt__" in state
+    return {
+        "agent_id": agent_id,
+        "thread_id": thread_id,
+        "status": "awaiting_approval" if awaiting else state.get("status"),
+        "output": state.get("output"),
+    }
+
+
+async def _agent_event_stream(agent_id: str, graph_input, config: dict):
+    graph = _get_agent_registry()[agent_id]
+    thread_id = config["configurable"]["thread_id"]
+    awaiting = False
+    try:
+        async for update in graph.astream(graph_input, config, stream_mode="updates"):
+            for node, delta in update.items():
+                if node == "__interrupt__":
+                    awaiting = True
+                    state = (await graph.aget_state(config)).values
+                    snapshot = _agent_response(agent_id, thread_id, state)
+                    snapshot["status"] = "awaiting_approval"
+                    yield _sse("awaiting_approval", snapshot)
+                else:
+                    status = delta.get("status") if isinstance(delta, dict) else None
+                    yield _sse("status", {"node": node, "status": status})
+        if not awaiting:
+            final = (await graph.aget_state(config)).values
+            yield _sse("result", _agent_response(agent_id, thread_id, final))
+    except Exception as exc:  # noqa: BLE001 - stream failures are represented in-band
+        logger.exception("specialist agent stream failed")
+        yield _sse("error", {"message": str(exc)})
+
+
+def _resolve_agent_or_404(agent_id: str):
+    if agent_id not in AGENT_IDS:
+        raise HTTPException(status_code=404, detail=f"Unknown agent: {agent_id}")
+    return _get_agent_registry()[agent_id]
+
+
+@app.post("/agents/{agent_id}/stream")
+async def agent_stream_endpoint(agent_id: str, req: AgentStreamRequest) -> StreamingResponse:
+    _resolve_agent_or_404(agent_id)
+    thread_id = make_thread_id(req.user_id, agent_id, req.job_id)
+    config = _traced_graph_config(f"agent-{agent_id}-stream", thread_id, req.user_id)
+    payload = {"user_id": req.user_id, "job_id": req.job_id, "input": req.input}
+    return StreamingResponse(
+        _agent_event_stream(agent_id, payload, config), media_type="text/event-stream"
+    )
+
+
+@app.post("/agents/{agent_id}/resume")
+async def agent_resume_endpoint(agent_id: str, req: AgentResumeRequest) -> StreamingResponse:
+    _resolve_agent_or_404(agent_id)
+    user_id = req.thread_id.split(":", 1)[0]
+    config = _traced_graph_config(f"agent-{agent_id}-resume", req.thread_id, user_id)
+    return StreamingResponse(
+        _agent_event_stream(agent_id, Command(resume=req.payload), config),
+        media_type="text/event-stream",
+    )
 
 
 async def _assistant_event_stream(payload: dict, config: dict):

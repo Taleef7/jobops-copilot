@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { agentHeaders, isColdStartError, withColdStartRetry } from './agent-client';
+import { agentHeaders, isColdStartError, withColdStartRetry, streamAgentUpstream, resumeAgentUpstream } from './agent-client';
 
 function timeoutError() {
   const error = new Error('The operation was aborted due to timeout');
@@ -82,4 +82,26 @@ test('withColdStartRetry gives up after a second timeout (so the caller can mock
     /timeout/,
   );
   assert.equal(calls, 2);
+});
+
+test('specialist stream and resume clients URL-encode ids and send agent headers', async () => {
+  const originalFetch = globalThis.fetch;
+  const calls: Array<[string, RequestInit]> = [];
+  process.env.AGENT_SERVICE_URL = 'https://agent.example.test/';
+  process.env.AGENT_API_KEY = 'key';
+  globalThis.fetch = (async (input, init) => {
+    calls.push([String(input), init ?? {}]);
+    return new Response('event: result\\ndata: {}\\n\\n', { status: 200 });
+  }) as typeof fetch;
+  try {
+    await streamAgentUpstream('feed curator', { user_id: 'u1' });
+    await resumeAgentUpstream('resume/tailor', { thread_id: 'u1:resume/tailor', payload: {} });
+  } finally {
+    globalThis.fetch = originalFetch;
+    delete process.env.AGENT_SERVICE_URL;
+    delete process.env.AGENT_API_KEY;
+  }
+  assert.equal(calls[0]?.[0], 'https://agent.example.test/agents/feed%20curator/stream');
+  assert.equal(calls[1]?.[0], 'https://agent.example.test/agents/resume%2Ftailor/resume');
+  assert.equal((calls[0]?.[1].headers as Record<string, string>).Authorization, 'Bearer key');
 });
