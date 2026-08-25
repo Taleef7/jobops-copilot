@@ -15,6 +15,16 @@ function sseStream(frames: string[]): ReadableStream<Uint8Array> {
   });
 }
 
+function erroringSseStream(frame: string): ReadableStream<Uint8Array> {
+  const encoder = new TextEncoder();
+  return new ReadableStream({
+    start(controller) {
+      controller.enqueue(encoder.encode(frame));
+      setTimeout(() => controller.error(new Error('upstream details should stay private')), 0);
+    },
+  });
+}
+
 async function withServer(deps: Partial<AgentsRouterDeps>, run: (baseUrl: string) => Promise<void>) {
   const app = express();
   app.use(express.json());
@@ -87,6 +97,27 @@ test('stream maps body and pipes unbuffered SSE headers', async () => {
     assert.match(text, /event: result/);
   });
   assert.deepEqual(sent, ['feed-curator', { user_id: 'u1', job_id: 'job-1', input: { q: 'python' } }]);
+});
+
+test('stream emits a generic terminal error event when upstream fails after a frame', async () => {
+  await withServer({
+    openStream: async () => ({
+      ok: true,
+      status: 200,
+      body: erroringSseStream('event: status\ndata: {"status":"running"}\n\n'),
+    }),
+  }, async (baseUrl) => {
+    const response = await fetch(`${baseUrl}/api/agents/feed-curator/stream`, {
+      method: 'POST',
+      ...auth,
+    });
+    assert.equal(response.status, 200);
+    const text = await response.text();
+    assert.match(text, /event: status/);
+    assert.match(text, /event: error/);
+    assert.match(text, /Agent stream failed/);
+    assert.doesNotMatch(text, /upstream details should stay private/);
+  });
 });
 
 test('stream preserves upstream non-OK status', async () => {

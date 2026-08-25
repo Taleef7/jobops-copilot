@@ -10,6 +10,7 @@ import type { UpstreamStream } from '@/routes/assistant';
 
 const AGENT_DISABLED_MESSAGE =
   'The AI agent service is not configured. Set AGENT_SERVICE_URL and a provider key to enable the agents.';
+const AGENT_STREAM_ERROR_FRAME = 'event: error\ndata: {"message":"Agent stream failed"}\n\n';
 
 export interface AgentsRouterDeps {
   openStream: (agentId: string, payload: unknown) => Promise<UpstreamStream>;
@@ -49,7 +50,13 @@ async function pipeSse(upstream: UpstreamStream, response: import('express').Res
       response.write(Buffer.from(value));
     }
   } catch {
-    // Client disconnects and mid-stream upstream failures end the pipe quietly.
+    if (!response.destroyed && !response.writableEnded) {
+      try {
+        response.write(AGENT_STREAM_ERROR_FRAME);
+      } catch {
+        // The downstream may disconnect between the state check and write.
+      }
+    }
   } finally {
     response.end();
   }
