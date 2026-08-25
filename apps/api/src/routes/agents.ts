@@ -26,8 +26,12 @@ function isObject(value: unknown): value is Record<string, unknown> {
 }
 
 async function pipeSse(upstream: UpstreamStream, response: import('express').Response) {
-  if (!upstream.ok || !upstream.body) {
+  if (!upstream.ok) {
     response.status(upstream.status || 502).json({ error: 'Agent stream unavailable' });
+    return;
+  }
+  if (!upstream.body) {
+    response.status(502).json({ error: 'Agent stream unavailable' });
     return;
   }
 

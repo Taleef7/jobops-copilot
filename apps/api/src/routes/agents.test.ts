@@ -96,6 +96,19 @@ test('stream preserves upstream non-OK status', async () => {
   });
 });
 
+test('stream returns 502 when an otherwise-successful upstream has no body', async () => {
+  await withServer(
+    { openStream: async () => ({ ok: true, status: 200, body: null }) },
+    async (baseUrl) => {
+      const response = await fetch(`${baseUrl}/api/agents/feed-curator/stream`, {
+        method: 'POST',
+        ...auth,
+      });
+      assert.equal(response.status, 502);
+    },
+  );
+});
+
 test('resume validates thread tenancy and payload before upstream', async () => {
   let calls = 0;
   await withServer({ openResume: async () => { calls += 1; return { ok: true, status: 200, body: sseStream([]) }; } }, async (baseUrl) => {
@@ -106,6 +119,27 @@ test('resume validates thread tenancy and payload before upstream', async () => 
       assert.ok([400, 403].includes(response.status), `${threadId}: ${response.status}`);
     }
   });
+  assert.equal(calls, 0);
+});
+
+test('resume requires a missing threadId and does not contact upstream', async () => {
+  let calls = 0;
+  await withServer(
+    {
+      openResume: async () => {
+        calls += 1;
+        return { ok: true, status: 200, body: sseStream([]) };
+      },
+    },
+    async (baseUrl) => {
+      const response = await fetch(`${baseUrl}/api/agents/feed-curator/resume`, {
+        method: 'POST',
+        headers: { ...auth.headers, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ payload: {} }),
+      });
+      assert.equal(response.status, 400);
+    },
+  );
   assert.equal(calls, 0);
 });
 
