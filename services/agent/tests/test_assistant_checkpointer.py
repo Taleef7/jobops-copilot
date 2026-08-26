@@ -122,6 +122,9 @@ def test_open_durable_backends_closes_pool_when_setup_fails(monkeypatch):
         async def open(self):
             pass
 
+        async def wait(self):
+            pass
+
         async def close(self):
             closed["value"] = True
 
@@ -164,6 +167,9 @@ def test_open_durable_backends_keeps_strict_msgpack_serializer(monkeypatch):
             pass
 
         async def open(self):
+            pass
+
+        async def wait(self):
             pass
 
         async def close(self):

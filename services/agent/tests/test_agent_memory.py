@@ -75,6 +75,9 @@ def test_open_durable_backends_uses_one_pool_and_runs_both_setups(monkeypatch):
         async def open(self):
             calls["opened"] = True
 
+        async def wait(self):
+            calls["waited"] = True
+
         async def close(self):
             self.closed += 1
             calls["closed"] = self.closed
@@ -112,6 +115,7 @@ def test_open_durable_backends_uses_one_pool_and_runs_both_setups(monkeypatch):
     )
 
     assert calls["opened"] is True
+    assert calls["waited"] is True
     assert calls["saver_pool"] is pool
     assert calls["store_pool"] is pool
     assert calls["saver_setup"] == 1
@@ -126,6 +130,101 @@ def test_open_durable_backends_uses_one_pool_and_runs_both_setups(monkeypatch):
     assert "untrusted" in decoded
     assert not isinstance(decoded, Exception)
     assert saver is not store
+
+
+def test_open_durable_backends_waits_for_pool_when_setup_is_disabled(monkeypatch):
+    checkpoint_aio = pytest.importorskip("langgraph.checkpoint.postgres.aio")
+    store_aio = pytest.importorskip("langgraph.store.postgres.aio")
+    psycopg_pool = pytest.importorskip("psycopg_pool")
+
+    calls: list[str] = []
+
+    class FakePool:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        async def open(self):
+            calls.append("open")
+
+        async def wait(self):
+            calls.append("wait")
+
+        async def close(self):
+            calls.append("close")
+
+    class FakeSaver:
+        def __init__(self, pool, serde=None):
+            calls.append("saver")
+
+        async def setup(self):
+            calls.append("saver_setup")
+
+    class FakeStore:
+        def __init__(self, pool):
+            calls.append("store")
+
+        async def setup(self):
+            calls.append("store_setup")
+
+    monkeypatch.setattr(psycopg_pool, "AsyncConnectionPool", FakePool)
+    monkeypatch.setattr(checkpoint_aio, "AsyncPostgresSaver", FakeSaver)
+    monkeypatch.setattr(store_aio, "AsyncPostgresStore", FakeStore)
+
+    from app.graph.memory import open_durable_backends
+
+    asyncio.run(
+        open_durable_backends(
+            "postgresql://example/db",
+            agent_run_setup_on_boot=False,
+        )
+    )
+
+    assert calls == ["open", "wait", "saver", "store"]
+
+
+def test_open_durable_backends_closes_pool_when_readiness_fails(monkeypatch):
+    checkpoint_aio = pytest.importorskip("langgraph.checkpoint.postgres.aio")
+    store_aio = pytest.importorskip("langgraph.store.postgres.aio")
+    psycopg_pool = pytest.importorskip("psycopg_pool")
+
+    state = {"closed": 0}
+
+    class FakePool:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        async def open(self):
+            pass
+
+        async def wait(self):
+            raise RuntimeError("pool readiness failed")
+
+        async def close(self):
+            state["closed"] += 1
+
+    class FakeSaver:
+        def __init__(self, pool, serde=None):
+            raise AssertionError("backends must not be built before readiness")
+
+    class FakeStore:
+        def __init__(self, pool):
+            raise AssertionError("backends must not be built before readiness")
+
+    monkeypatch.setattr(psycopg_pool, "AsyncConnectionPool", FakePool)
+    monkeypatch.setattr(checkpoint_aio, "AsyncPostgresSaver", FakeSaver)
+    monkeypatch.setattr(store_aio, "AsyncPostgresStore", FakeStore)
+
+    from app.graph.memory import open_durable_backends
+
+    with pytest.raises(RuntimeError, match="pool readiness failed"):
+        asyncio.run(
+            open_durable_backends(
+                "postgresql://example/db",
+                agent_run_setup_on_boot=False,
+            )
+        )
+
+    assert state["closed"] == 1
 
 
 def test_pruning_counts_rows_without_fetching_deleted_keys():
@@ -275,6 +374,9 @@ def test_open_durable_backends_skips_setup_when_disabled(monkeypatch):
         async def open(self):
             pass
 
+        async def wait(self):
+            pass
+
         async def close(self):
             self.closed += 1
 
@@ -317,6 +419,9 @@ def test_open_durable_backends_closes_before_propagating_setup_failure(monkeypat
             pass
 
         async def open(self):
+            pass
+
+        async def wait(self):
             pass
 
         async def close(self):
@@ -643,6 +748,127 @@ def test_postgres_pruning_preserves_current_checkpoint_data():
                             "DELETE FROM checkpoints WHERE thread_id IN (%s, %s, %s)",
                             (old_thread, new_thread, orphan_thread),
                         )
+            await pool.close()
+
+    _run(run())
+
+
+@pytest.mark.postgres
+def test_postgres_pruning_preserves_parent_writes_referenced_by_child():
+    if not os.getenv("DATABASE_URL"):
+        pytest.skip("needs a real Postgres (DATABASE_URL)")
+
+    from app.graph.memory import open_durable_backends, prune_checkpoints
+
+    async def run():
+        suffix = uuid.uuid4().hex
+        thread_id = f"prune-parent-child-{suffix}"
+        parent_id = f"parent-{suffix}"
+        child_id = f"child-{suffix}"
+        orphan_id = f"orphan-{suffix}"
+        pool, _saver, _store = await open_durable_backends(
+            os.environ["DATABASE_URL"],
+            agent_run_setup_on_boot=True,
+        )
+        try:
+            async with pool.connection() as conn:
+                async with conn.transaction():
+                    async with conn.cursor() as cur:
+                        await cur.execute(
+                            """
+                            INSERT INTO checkpoints
+                                (thread_id, checkpoint_ns, checkpoint_id,
+                                 parent_checkpoint_id, checkpoint, metadata)
+                            VALUES
+                                (%s, '', %s, NULL, %s::jsonb, '{}'::jsonb),
+                                (%s, '', %s, %s, %s::jsonb, '{}'::jsonb)
+                            """,
+                            (
+                                thread_id,
+                                parent_id,
+                                '{"v":3,"ts":"2020-01-01T00:00:00+00:00",'
+                                '"channel_versions":{}}',
+                                thread_id,
+                                child_id,
+                                parent_id,
+                                '{"v":3,"ts":"2999-01-01T00:00:00+00:00",'
+                                '"channel_versions":{}}',
+                            ),
+                        )
+                        await cur.execute(
+                            """
+                            INSERT INTO checkpoint_writes
+                                (thread_id, checkpoint_ns, checkpoint_id, task_id, idx,
+                                 channel, type, blob)
+                            VALUES
+                                (%s, '', %s, 'parent-task', 0, '__pregel_tasks', 'json', %s),
+                                (%s, '', %s, 'child-task', 0, 'channel', 'json', %s),
+                                (%s, '', %s, 'orphan-task', 0, 'channel', 'json', %s)
+                            """,
+                            (
+                                thread_id,
+                                parent_id,
+                                b"parent-write",
+                                thread_id,
+                                child_id,
+                                b"child-write",
+                                thread_id,
+                                orphan_id,
+                                b"orphan-write",
+                            ),
+                        )
+
+            result = await prune_checkpoints(
+                pool,
+                30,
+                now=datetime(2025, 1, 1, tzinfo=UTC),
+            )
+            assert result == {
+                "checkpoints_deleted": 1,
+                "writes_deleted": 1,
+                "blobs_deleted": 0,
+                "retention_days": 30,
+            }
+
+            async with pool.connection() as conn:
+                async with conn.cursor() as cur:
+                    await cur.execute(
+                        """
+                        SELECT checkpoint_id
+                        FROM checkpoints
+                        WHERE thread_id = %s
+                        ORDER BY checkpoint_id
+                        """,
+                        (thread_id,),
+                    )
+                    assert await cur.fetchall() == [{"checkpoint_id": child_id}]
+
+                    await cur.execute(
+                        """
+                        SELECT checkpoint_id, blob
+                        FROM checkpoint_writes
+                        WHERE thread_id = %s
+                        ORDER BY checkpoint_id
+                        """,
+                        (thread_id,),
+                    )
+                    assert await cur.fetchall() == [
+                        {"checkpoint_id": child_id, "blob": b"child-write"},
+                        {"checkpoint_id": parent_id, "blob": b"parent-write"},
+                    ]
+        finally:
+            async with pool.connection() as conn:
+                async with conn.transaction():
+                    async with conn.cursor() as cur:
+                        for table in (
+                            "checkpoints",
+                            "checkpoint_blobs",
+                            "checkpoint_writes",
+                        ):
+                            await cur.execute(
+                                f"DELETE FROM {table} WHERE thread_id = %s",
+                                (thread_id,),
+                            )
             await pool.close()
 
     _run(run())

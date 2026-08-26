@@ -87,6 +87,7 @@ async def open_durable_backends(
             },
         )
         await pool.open()
+        await pool.wait()
 
         # Restrict checkpoint deserialization to LangGraph's safe built-in types;
         # the permissive serializer would allow arbitrary msgpack modules.
@@ -190,12 +191,17 @@ async def prune_checkpoints(
                     WHERE writes.ctid IN (
                         SELECT candidate.ctid
                         FROM checkpoint_writes AS candidate
+                        -- Legacy LangGraph checkpoints can load pending sends
+                        -- from a surviving child's parent checkpoint.
                         WHERE NOT EXISTS (
                             SELECT 1
                             FROM checkpoints AS checkpoints
                             WHERE checkpoints.thread_id = candidate.thread_id
                               AND checkpoints.checkpoint_ns = candidate.checkpoint_ns
-                              AND checkpoints.checkpoint_id = candidate.checkpoint_id
+                              AND (
+                                  checkpoints.checkpoint_id = candidate.checkpoint_id
+                                  OR checkpoints.parent_checkpoint_id = candidate.checkpoint_id
+                              )
                         )
                         ORDER BY candidate.thread_id, candidate.checkpoint_ns,
                                  candidate.checkpoint_id, candidate.task_id,
