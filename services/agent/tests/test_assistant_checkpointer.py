@@ -194,4 +194,9 @@ def test_open_durable_backends_keeps_strict_msgpack_serializer(monkeypatch):
     from langgraph.checkpoint.serde.jsonplus import JsonPlusSerializer
 
     assert isinstance(captured["serde"], JsonPlusSerializer)
-    assert captured["serde"]._allowed_msgpack_modules is not True
+    unsafe_serializer = JsonPlusSerializer(allowed_msgpack_modules=True)
+    type_tag, payload = unsafe_serializer.dumps_typed(Exception("untrusted"))
+    decoded = captured["serde"].loads_typed((type_tag, payload))
+    assert isinstance(decoded, str)
+    assert "untrusted" in decoded
+    assert not isinstance(decoded, Exception)

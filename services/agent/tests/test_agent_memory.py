@@ -119,8 +119,148 @@ def test_open_durable_backends_uses_one_pool_and_runs_both_setups(monkeypatch):
     assert calls["pool_kwargs"]["open"] is False
     assert calls["pool_kwargs"]["kwargs"]["autocommit"] is True
     assert calls["pool_kwargs"]["kwargs"]["prepare_threshold"] == 0
-    assert calls["serde"]._allowed_msgpack_modules is not True
+    unsafe_serializer = calls["serde"].__class__(allowed_msgpack_modules=True)
+    type_tag, payload = unsafe_serializer.dumps_typed(Exception("untrusted"))
+    decoded = calls["serde"].loads_typed((type_tag, payload))
+    assert isinstance(decoded, str)
+    assert "untrusted" in decoded
+    assert not isinstance(decoded, Exception)
     assert saver is not store
+
+
+def test_pruning_counts_rows_without_fetching_deleted_keys():
+    from app.graph.memory import _delete_in_batches
+
+    class FakeCursor:
+        def __init__(self):
+            self.rowcount = 2
+            self.execute_calls = 0
+
+        async def execute(self, _statement, _params):
+            self.execute_calls += 1
+            if self.execute_calls == 2:
+                self.rowcount = 0
+
+        async def fetchall(self):
+            raise AssertionError("pruning must count on the server, not fetch keys")
+
+    cursor = FakeCursor()
+    count = asyncio.run(_delete_in_batches(cursor, "DELETE ...", (), batch_size=2))
+
+    assert count == 2
+    assert cursor.execute_calls == 2
+
+
+def test_pruning_uses_saver_compatible_checkpoint_lock_order():
+    from app.graph.memory import prune_checkpoints
+
+    class FakeCursor:
+        def __init__(self):
+            self.statements = []
+            self.rowcount = 0
+
+        async def execute(self, statement, _params=()):
+            self.statements.append(statement)
+
+        async def fetchall(self):
+            return []
+
+    class CursorContext:
+        def __init__(self, cursor):
+            self.cursor = cursor
+
+        async def __aenter__(self):
+            return self.cursor
+
+        async def __aexit__(self, *_args):
+            return False
+
+    class TransactionContext(CursorContext):
+        pass
+
+    class FakeConnection:
+        def __init__(self, cursor):
+            self.cursor_value = cursor
+
+        def transaction(self):
+            return TransactionContext(self.cursor_value)
+
+        def cursor(self):
+            return CursorContext(self.cursor_value)
+
+    class ConnectionContext:
+        def __init__(self, connection):
+            self.connection_value = connection
+
+        async def __aenter__(self):
+            return self.connection_value
+
+        async def __aexit__(self, *_args):
+            return False
+
+    cursor = FakeCursor()
+    connection = FakeConnection(cursor)
+
+    class FakePool:
+        def connection(self):
+            return ConnectionContext(connection)
+
+    asyncio.run(prune_checkpoints(FakePool(), 30))
+
+    lock_statement = cursor.statements[0]
+    assert lock_statement.index("checkpoints") < lock_statement.index("checkpoint_blobs")
+    assert lock_statement.index("checkpoint_blobs") < lock_statement.index("checkpoint_writes")
+
+
+@pytest.mark.postgres
+def test_postgres_pruning_and_saver_deletion_complete_concurrently():
+    if not os.getenv("DATABASE_URL"):
+        pytest.skip("needs a real Postgres (DATABASE_URL)")
+
+    from app.graph.memory import open_durable_backends, prune_checkpoints
+
+    async def run():
+        thread_id = f"concurrent-delete:{uuid.uuid4().hex}"
+        pool, saver, _store = await open_durable_backends(
+            os.environ["DATABASE_URL"],
+            agent_run_setup_on_boot=True,
+        )
+        try:
+            async with pool.connection() as conn:
+                async with conn.transaction():
+                    async with conn.cursor() as cur:
+                        await cur.execute(
+                            """
+                            INSERT INTO checkpoints
+                                (thread_id, checkpoint_ns, checkpoint_id, checkpoint, metadata)
+                            VALUES (%s, '', 'checkpoint', %s::jsonb, '{}'::jsonb)
+                            """,
+                            (
+                                thread_id,
+                                '{"ts":"2999-01-01T00:00:00+00:00",'
+                                '"channel_versions":{}}',
+                            ),
+                        )
+
+            await asyncio.wait_for(
+                asyncio.gather(
+                    prune_checkpoints(pool, 30, now=datetime(2025, 1, 1, tzinfo=UTC)),
+                    saver.adelete_thread(thread_id),
+                ),
+                timeout=10,
+            )
+        finally:
+            async with pool.connection() as conn:
+                async with conn.transaction():
+                    async with conn.cursor() as cur:
+                        for table in ("checkpoints", "checkpoint_blobs", "checkpoint_writes"):
+                            await cur.execute(
+                                f"DELETE FROM {table} WHERE thread_id = %s",
+                                (thread_id,),
+                            )
+            await pool.close()
+
+    _run(run())
 
 
 def test_open_durable_backends_skips_setup_when_disabled(monkeypatch):
@@ -557,6 +697,19 @@ def test_postgres_interrupt_resumes_through_a_new_pool_and_graph():
             resumed = await build(saver).ainvoke(Command(resume={"approved": True}), config)
             assert resumed["approved"] is True
         finally:
+            thread_id = config["configurable"]["thread_id"]
+            async with pool.connection() as conn:
+                async with conn.transaction():
+                    async with conn.cursor() as cur:
+                        for table in (
+                            "checkpoints",
+                            "checkpoint_blobs",
+                            "checkpoint_writes",
+                        ):
+                            await cur.execute(
+                                f"DELETE FROM {table} WHERE thread_id = %s",
+                                (thread_id,),
+                            )
             await pool.close()
 
     _run(run())

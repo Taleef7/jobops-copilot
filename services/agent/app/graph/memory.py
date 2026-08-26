@@ -18,6 +18,8 @@ __all__ = [
     "prune_checkpoints",
 ]
 
+_PRUNE_BATCH_SIZE = 1_000
+
 
 def profile_namespace(user_id: str) -> tuple[str, str, str]:
     """Return the shared profile namespace.
@@ -101,11 +103,27 @@ async def open_durable_backends(
         raise
 
 
-async def _delete_returning_count(cursor: Any, statement: str, params: tuple[Any, ...]) -> int:
-    """Execute a DELETE...RETURNING statement and count deleted rows."""
+async def _delete_in_batches(
+    cursor: Any,
+    statement: str,
+    params: tuple[Any, ...],
+    *,
+    batch_size: int = _PRUNE_BATCH_SIZE,
+) -> int:
+    """Delete bounded batches and count rows from the server-provided rowcount."""
 
-    await cursor.execute(statement, params)
-    return len(await cursor.fetchall())
+    if batch_size <= 0:
+        raise ValueError("batch_size must be positive")
+
+    deleted_total = 0
+    while True:
+        await cursor.execute(statement, (*params, batch_size))
+        deleted = cursor.rowcount
+        if deleted is None or deleted < 0:
+            raise RuntimeError("database did not provide a DELETE row count")
+        deleted_total += deleted
+        if deleted < batch_size:
+            return deleted_total
 
 
 async def prune_checkpoints(
@@ -142,51 +160,70 @@ async def prune_checkpoints(
                 # SHARE ROW EXCLUSIVE conflicts with the ROW EXCLUSIVE locks
                 # taken by saver INSERT/UPDATE statements and with another
                 # maintenance run. All three tables are included because writes
-                # can be persisted independently via ``aput_writes``.
-                # Match the saver's blob -> checkpoint write order to avoid a
-                # lock-order cycle when a checkpoint is being persisted while
-                # maintenance starts.
+                # can be persisted independently via ``aput_writes``. Keep this
+                # order identical to AsyncPostgresSaver.adelete_thread
+                # (checkpoints, blobs, writes), so concurrent maintenance and
+                # thread deletion cannot form a lock-order cycle.
                 await cursor.execute(
-                    "LOCK TABLE checkpoint_blobs, checkpoints, checkpoint_writes "
+                    "LOCK TABLE checkpoints, checkpoint_blobs, checkpoint_writes "
                     "IN SHARE ROW EXCLUSIVE MODE"
                 )
-                checkpoints_deleted = await _delete_returning_count(
+                checkpoints_deleted = await _delete_in_batches(
                     cursor,
                     """
-                    DELETE FROM checkpoints
-                    WHERE (checkpoint->>'ts')::timestamptz < %s
-                    RETURNING thread_id, checkpoint_ns, checkpoint_id
+                    DELETE FROM checkpoints AS checkpoints
+                    WHERE checkpoints.ctid IN (
+                        SELECT candidate.ctid
+                        FROM checkpoints AS candidate
+                        WHERE (candidate.checkpoint->>'ts')::timestamptz < %s
+                        ORDER BY candidate.thread_id, candidate.checkpoint_ns,
+                                 candidate.checkpoint_id
+                        LIMIT %s
+                    )
                     """,
                     (cutoff,),
                 )
-                writes_deleted = await _delete_returning_count(
+                writes_deleted = await _delete_in_batches(
                     cursor,
                     """
                     DELETE FROM checkpoint_writes AS writes
-                    WHERE NOT EXISTS (
-                        SELECT 1
-                        FROM checkpoints AS checkpoints
-                        WHERE checkpoints.thread_id = writes.thread_id
-                          AND checkpoints.checkpoint_ns = writes.checkpoint_ns
-                          AND checkpoints.checkpoint_id = writes.checkpoint_id
+                    WHERE writes.ctid IN (
+                        SELECT candidate.ctid
+                        FROM checkpoint_writes AS candidate
+                        WHERE NOT EXISTS (
+                            SELECT 1
+                            FROM checkpoints AS checkpoints
+                            WHERE checkpoints.thread_id = candidate.thread_id
+                              AND checkpoints.checkpoint_ns = candidate.checkpoint_ns
+                              AND checkpoints.checkpoint_id = candidate.checkpoint_id
+                        )
+                        ORDER BY candidate.thread_id, candidate.checkpoint_ns,
+                                 candidate.checkpoint_id, candidate.task_id,
+                                 candidate.idx
+                        LIMIT %s
                     )
-                    RETURNING thread_id, checkpoint_ns, checkpoint_id, task_id, idx
                     """,
                     (),
                 )
-                blobs_deleted = await _delete_returning_count(
+                blobs_deleted = await _delete_in_batches(
                     cursor,
                     """
                     DELETE FROM checkpoint_blobs AS blobs
-                    WHERE NOT EXISTS (
-                        SELECT 1
-                        FROM checkpoints AS checkpoints
-                        WHERE checkpoints.thread_id = blobs.thread_id
-                          AND checkpoints.checkpoint_ns = blobs.checkpoint_ns
-                          AND checkpoints.checkpoint->'channel_versions'->>blobs.channel
-                              = blobs.version
+                    WHERE blobs.ctid IN (
+                        SELECT candidate.ctid
+                        FROM checkpoint_blobs AS candidate
+                        WHERE NOT EXISTS (
+                            SELECT 1
+                            FROM checkpoints AS checkpoints
+                            WHERE checkpoints.thread_id = candidate.thread_id
+                              AND checkpoints.checkpoint_ns = candidate.checkpoint_ns
+                              AND checkpoints.checkpoint->'channel_versions'->>
+                                  candidate.channel = candidate.version
+                        )
+                        ORDER BY candidate.thread_id, candidate.checkpoint_ns,
+                                 candidate.channel, candidate.version
+                        LIMIT %s
                     )
-                    RETURNING thread_id, checkpoint_ns, channel, version
                     """,
                     (),
                 )
