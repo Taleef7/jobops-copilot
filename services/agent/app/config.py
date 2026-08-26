@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from typing import Literal
 
+from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -38,6 +39,10 @@ class Settings(BaseSettings):
 
     # Shared
     database_url: str | None = None
+    # LangGraph durable-memory setup. When a database is configured, startup
+    # fails closed if either backend cannot be opened or compiled.
+    agent_run_setup_on_boot: bool = True
+    checkpoint_retention_days: int = Field(default=30, gt=0)
     request_timeout: int = 60
     llm_temperature: float = 0.2
 

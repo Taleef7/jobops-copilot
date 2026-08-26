@@ -27,6 +27,7 @@ from app.chains.score_fit import score_fit
 from app.chains.weekly import weekly_recommendations
 from app.config import settings
 from app.graph.assistant import build_assistant_graph
+from app.graph.memory import open_durable_backends, prune_checkpoints
 from app.graph.registry import AGENT_IDS, build_registry, make_thread_id
 from app.llm.provider import LLMNotConfigured, get_model, llm_available, resolve_provider
 from app.obs import traced_config, traced_span
@@ -82,88 +83,63 @@ def _configure_app_insights() -> bool:
 _configure_app_insights()
 
 
-# --- Assistant graph + durable HITL checkpointer (QA·D) ---------------------
-# The assistant graph is checkpointed so a run can pause at the human-review
-# interrupt and resume later — possibly on a different instance or after a
-# restart. With DATABASE_URL set we persist those checkpoints in Postgres
-# (durable); otherwise we fall back to an in-memory saver (lost on restart).
-# The Postgres saver is async-only, so the assistant run/resume/stream paths
-# all drive the graph through its async API (ainvoke/astream/aget_state).
+# --- Graphs + shared durable memory ------------------------------------------
+# The assistant and specialist graphs share one checkpointer for the lifetime
+# of the service. With DATABASE_URL set it is an AsyncPostgresSaver backed by
+# one pool, alongside one AsyncPostgresStore; local/light-CI runs use an
+# InMemorySaver and no Store.
 _assistant_graph = None
 _checkpointer_pool = None
+_checkpointer_saver = None
+_agent_store = None
 _agent_registry = None
-
-
-async def _build_durable_assistant_graph():
-    """Build the assistant graph backed by a Postgres checkpointer.
-
-    Returns ``(graph, pool)``; the caller owns closing ``pool`` on shutdown.
-    Postgres deps are imported lazily so the light CI test job (which runs
-    without DATABASE_URL and omits requirements-rag.txt) never imports them.
-    Raises on any connection/setup failure so callers can fall back to memory.
-    """
-    from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
-    from langgraph.checkpoint.serde.jsonplus import JsonPlusSerializer
-    from psycopg.rows import dict_row
-    from psycopg_pool import AsyncConnectionPool
-
-    # The saver requires autocommit + dict rows + no server-side prepared
-    # statements (the latter keeps it pgbouncer-safe). open=False so we can
-    # await .open() explicitly and surface connection errors here.
-    pool = AsyncConnectionPool(
-        conninfo=settings.database_url,
-        max_size=10,
-        open=False,
-        kwargs={"autocommit": True, "prepare_threshold": 0, "row_factory": dict_row},
-    )
-    await pool.open()
-    # If setup() fails after a successful open() (e.g. the role can't CREATE
-    # TABLE), close the pool here — the caller never receives it, so its
-    # `finally` can't, and the open connections would otherwise leak.
-    try:
-        # Strict msgpack: restrict checkpoint deserialization to a built-in
-        # allowlist of safe types. The default is permissive, which lets anyone
-        # who can write checkpoint rows trigger code execution on resume. Our
-        # graph only persists JSON-native state plus langgraph control types
-        # (Interrupt/Command/…), all of which are in the safe allowlist.
-        serde = JsonPlusSerializer(allowed_msgpack_modules=None)
-        saver = AsyncPostgresSaver(pool, serde=serde)
-        await saver.setup()  # idempotent: creates the checkpoint tables if absent
-        return build_assistant_graph(checkpointer=saver), pool
-    except Exception:
-        await pool.close()
-        raise
 
 
 @asynccontextmanager
 async def _lifespan(_app: FastAPI):
-    """Upgrade the assistant graph to the durable Postgres checkpointer on
-    startup when DATABASE_URL is set; degrade to the in-memory saver on any
-    failure so a checkpointer outage never blocks the service from starting."""
-    global _assistant_graph, _checkpointer_pool, _agent_registry
+    """Build all graphs with one shared saver/Store and close one pool."""
+    global _assistant_graph, _checkpointer_pool, _checkpointer_saver, _agent_store, _agent_registry
+    # Reset state before every startup so repeated lifespan tests and reloads do
+    # not accidentally reuse graphs tied to an old event loop or pool.
+    _assistant_graph = None
+    _checkpointer_pool = None
+    _checkpointer_saver = None
+    _agent_store = None
+    _agent_registry = None
     # Fail closed: refuse to start on a public cloud runtime with auth disabled.
     assert_auth_configured()
-    if settings.database_url:
-        try:
-            _assistant_graph, _checkpointer_pool = await _build_durable_assistant_graph()
-            logger.info("assistant HITL checkpointer: durable (Postgres)")
-        except Exception:  # noqa: BLE001 - degrade gracefully, never block startup
-            logger.warning(
-                "durable HITL checkpointer unavailable; using in-memory saver "
-                "(in-flight runs will not survive a restart)",
-                exc_info=True,
-            )
-    _agent_registry = build_registry(checkpointer=InMemorySaver())
     try:
+        if settings.database_url:
+            (
+                _checkpointer_pool,
+                _checkpointer_saver,
+                _agent_store,
+            ) = await open_durable_backends(
+                settings.database_url,
+                agent_run_setup_on_boot=settings.agent_run_setup_on_boot,
+            )
+            logger.info("assistant and specialist checkpointer: durable (Postgres)")
+        else:
+            _checkpointer_saver = InMemorySaver()
+
+        _assistant_graph = build_assistant_graph(checkpointer=_checkpointer_saver)
+        _agent_registry = build_registry(
+            checkpointer=_checkpointer_saver,
+            store=_agent_store,
+        )
         yield
     finally:
-        if _checkpointer_pool is not None:
+        pool = _checkpointer_pool
+        _assistant_graph = None
+        _checkpointer_pool = None
+        _checkpointer_saver = None
+        _agent_store = None
+        _agent_registry = None
+        if pool is not None:
             try:
-                await _checkpointer_pool.close()
+                await pool.close()
             except Exception:  # noqa: BLE001 - never let teardown raise on shutdown
                 logger.warning("error closing HITL checkpointer pool", exc_info=True)
-            _checkpointer_pool = None
-        _agent_registry = None
 
 
 app = FastAPI(
@@ -189,6 +165,18 @@ async def _enforce_agent_key(request: Request, call_next):
         )
         return JSONResponse(status_code=401, content={"detail": "Unauthorized"})
     return await call_next(request)
+
+
+@app.post("/maintenance/prune-checkpoints")
+async def prune_checkpoints_endpoint() -> dict[str, int]:
+    """Prune expired durable checkpoints; require an active shared pool."""
+
+    if _checkpointer_pool is None:
+        raise HTTPException(
+            status_code=503,
+            detail="Checkpoint pruning requires an active durable Postgres backend.",
+        )
+    return await prune_checkpoints(_checkpointer_pool, settings.checkpoint_retention_days)
 
 
 def _require_llm() -> None:

@@ -1,9 +1,4 @@
-"""QA·D — durable HITL checkpointer wiring + graceful fallback.
-
-The real Postgres saver can't run in CI, so these tests exercise the lifespan
-logic around it: durable when DATABASE_URL + build succeed, in-memory fallback
-when it's unset or the build fails, and the pool always closed on shutdown.
-"""
+"""Assistant checkpointer wiring after the shared-memory foundation refactor."""
 
 import asyncio
 
@@ -11,142 +6,203 @@ import pytest
 from fastapi.testclient import TestClient
 
 import app.main as main
+from app.config import settings
 
 
 @pytest.fixture(autouse=True)
-def _restore_singleton():
-    """Lifespan mutates module globals; isolate each test from the others."""
-    graph, pool = main._assistant_graph, main._checkpointer_pool
-    main._assistant_graph, main._checkpointer_pool = None, None
+def _restore_singletons():
+    saved = (
+        main._assistant_graph,
+        main._checkpointer_pool,
+        main._checkpointer_saver,
+        main._agent_store,
+        main._agent_registry,
+    )
+    main._assistant_graph = None
+    main._checkpointer_pool = None
+    main._checkpointer_saver = None
+    main._agent_store = None
+    main._agent_registry = None
     yield
-    main._assistant_graph, main._checkpointer_pool = graph, pool
+    (
+        main._assistant_graph,
+        main._checkpointer_pool,
+        main._checkpointer_saver,
+        main._agent_store,
+        main._agent_registry,
+    ) = saved
 
 
-def test_no_database_url_falls_back_to_in_memory(monkeypatch):
-    monkeypatch.setattr(main.settings, "database_url", None)
+def test_no_database_url_builds_in_memory_assistant_and_specialists(monkeypatch):
+    captured = {}
+
+    monkeypatch.setattr(settings, "database_url", None)
+    monkeypatch.setattr(
+        main,
+        "build_assistant_graph",
+        lambda **kwargs: captured.setdefault("assistant", kwargs) or object(),
+    )
+    monkeypatch.setattr(
+        main,
+        "build_registry",
+        lambda **kwargs: captured.setdefault("registry", kwargs) or {"feed-curator": object()},
+    )
+
     with TestClient(main.app):
-        # Lifespan ran but built nothing durable.
-        assert main._assistant_graph is None
         assert main._checkpointer_pool is None
-        # The lazy fallback still yields a working (in-memory) graph.
-        assert hasattr(main._get_assistant_graph(), "ainvoke")
+        assert captured["assistant"]["checkpointer"] is captured["registry"]["checkpointer"]
+        assert captured["registry"]["store"] is None
 
 
-def test_durable_graph_used_when_available(monkeypatch):
-    sentinel_graph = object()
-
-    class _FakePool:
+def test_durable_saver_is_shared_by_assistant_and_registry(monkeypatch):
+    class FakePool:
         def __init__(self):
-            self.closed = False
+            self.close_calls = 0
 
         async def close(self):
-            self.closed = True
+            self.close_calls += 1
 
-    pool = _FakePool()
+    pool = FakePool()
+    saver = object()
+    store = object()
+    captured = {}
 
-    async def _fake_build():
-        return sentinel_graph, pool
+    async def fake_open(database_url, *, agent_run_setup_on_boot):
+        captured["open"] = (database_url, agent_run_setup_on_boot)
+        return pool, saver, store
 
-    monkeypatch.setattr(main.settings, "database_url", "postgresql://x/db")
-    monkeypatch.setattr(main, "_build_durable_assistant_graph", _fake_build)
+    monkeypatch.setattr(settings, "database_url", "postgresql://x/db")
+    monkeypatch.setattr(settings, "agent_run_setup_on_boot", False)
+    monkeypatch.setattr(main, "open_durable_backends", fake_open)
+    monkeypatch.setattr(
+        main,
+        "build_assistant_graph",
+        lambda **kwargs: captured.setdefault("assistant", kwargs) or object(),
+    )
+    monkeypatch.setattr(
+        main,
+        "build_registry",
+        lambda **kwargs: captured.setdefault("registry", kwargs) or {"feed-curator": object()},
+    )
 
     with TestClient(main.app):
-        assert main._assistant_graph is sentinel_graph
-        assert main._get_assistant_graph() is sentinel_graph
+        assert captured["open"] == ("postgresql://x/db", False)
+        assert captured["assistant"] == {"checkpointer": saver}
+        assert captured["registry"] == {"checkpointer": saver, "store": store}
 
-    # Pool closed and reset on shutdown.
-    assert pool.closed is True
+    assert pool.close_calls == 1
     assert main._checkpointer_pool is None
 
 
-def test_degrades_when_durable_build_fails(monkeypatch):
-    async def _boom():
+def test_configured_database_failure_fails_startup_instead_of_downgrading(monkeypatch):
+    async def boom(*_args, **_kwargs):
         raise RuntimeError("postgres unreachable")
 
-    monkeypatch.setattr(main.settings, "database_url", "postgresql://x/db")
-    monkeypatch.setattr(main, "_build_durable_assistant_graph", _boom)
+    monkeypatch.setattr(settings, "database_url", "postgresql://x/db")
+    monkeypatch.setattr(main, "open_durable_backends", boom)
 
-    with TestClient(main.app) as client:
-        # Startup did not crash; service still serves.
-        assert client.get("/health").status_code == 200
-        # No durable graph -> lazy in-memory fallback applies.
-        assert main._assistant_graph is None
-        assert main._checkpointer_pool is None
+    with pytest.raises(RuntimeError, match="postgres unreachable"):
+        with TestClient(main.app):
+            pass
+    assert main._assistant_graph is None
+    assert main._checkpointer_pool is None
 
 
-def test_build_closes_pool_when_setup_fails(monkeypatch):
-    """If the pool opens but setup() fails, the build must close the pool
-    itself — the caller never receives it, so it can't be torn down later."""
-    # Skip on the light CI job, which omits requirements-rag.txt (no PG deps).
+def test_open_durable_backends_closes_pool_when_setup_fails(monkeypatch):
     pg_aio = pytest.importorskip("langgraph.checkpoint.postgres.aio")
+    store_aio = pytest.importorskip("langgraph.store.postgres.aio")
     psycopg_pool = pytest.importorskip("psycopg_pool")
 
     closed = {"value": False}
 
-    class _FakePool:
+    class FakePool:
         def __init__(self, *args, **kwargs):
             pass
 
         async def open(self):
             pass
 
+        async def wait(self):
+            pass
+
         async def close(self):
             closed["value"] = True
 
-    class _FakeSaver:
+    class FakeSaver:
         def __init__(self, pool, serde=None):
             pass
 
         async def setup(self):
             raise RuntimeError("role cannot CREATE TABLE")
 
-    monkeypatch.setattr(main.settings, "database_url", "postgresql://x/db")
-    monkeypatch.setattr(psycopg_pool, "AsyncConnectionPool", _FakePool)
-    monkeypatch.setattr(pg_aio, "AsyncPostgresSaver", _FakeSaver)
+    class FakeStore:
+        def __init__(self, pool):
+            pass
 
-    with pytest.raises(RuntimeError):
-        asyncio.run(main._build_durable_assistant_graph())
+    monkeypatch.setattr(psycopg_pool, "AsyncConnectionPool", FakePool)
+    monkeypatch.setattr(pg_aio, "AsyncPostgresSaver", FakeSaver)
+    monkeypatch.setattr(store_aio, "AsyncPostgresStore", FakeStore)
+
+    from app.graph.memory import open_durable_backends
+
+    with pytest.raises(RuntimeError, match="role cannot CREATE TABLE"):
+        asyncio.run(
+            open_durable_backends(
+                "postgresql://x/db",
+                agent_run_setup_on_boot=True,
+            )
+        )
     assert closed["value"] is True
 
 
-def test_build_uses_strict_msgpack_serializer(monkeypatch):
-    """The durable saver must be built with a strict (allowlisted) serializer,
-    so tampered checkpoint rows can't trigger code execution on resume."""
-    # Skip on the light CI job, which omits requirements-rag.txt (no PG deps).
+def test_open_durable_backends_keeps_strict_msgpack_serializer(monkeypatch):
     pg_aio = pytest.importorskip("langgraph.checkpoint.postgres.aio")
+    store_aio = pytest.importorskip("langgraph.store.postgres.aio")
     psycopg_pool = pytest.importorskip("psycopg_pool")
-    from langgraph.checkpoint.serde.jsonplus import JsonPlusSerializer
 
     captured = {}
 
-    class _FakePool:
+    class FakePool:
         def __init__(self, *args, **kwargs):
             pass
 
         async def open(self):
             pass
 
+        async def wait(self):
+            pass
+
         async def close(self):
             pass
 
-    class _FakeSaver:
+    class FakeSaver:
         def __init__(self, pool, serde=None):
             captured["serde"] = serde
 
         async def setup(self):
             pass
 
-    monkeypatch.setattr(main.settings, "database_url", "postgresql://x/db")
-    monkeypatch.setattr(psycopg_pool, "AsyncConnectionPool", _FakePool)
-    monkeypatch.setattr(pg_aio, "AsyncPostgresSaver", _FakeSaver)
-    # Bypass compile-time checkpointer validation (our fake saver isn't a real
-    # BaseCheckpointSaver); the serde is already captured at saver construction.
-    monkeypatch.setattr(main, "build_assistant_graph", lambda checkpointer=None: object())
+    class FakeStore:
+        def __init__(self, pool):
+            pass
 
-    asyncio.run(main._build_durable_assistant_graph())
+        async def setup(self):
+            pass
 
-    serde = captured["serde"]
-    assert isinstance(serde, JsonPlusSerializer)
-    # Permissive (default, unsafe) mode keeps the marker `True`; strict mode
-    # narrows it to a built-in allowlist (here, None == SAFE_MSGPACK_TYPES only).
-    assert serde._allowed_msgpack_modules is not True
+    monkeypatch.setattr(psycopg_pool, "AsyncConnectionPool", FakePool)
+    monkeypatch.setattr(pg_aio, "AsyncPostgresSaver", FakeSaver)
+    monkeypatch.setattr(store_aio, "AsyncPostgresStore", FakeStore)
+
+    from app.graph.memory import open_durable_backends
+
+    asyncio.run(open_durable_backends("postgresql://x/db"))
+
+    from langgraph.checkpoint.serde.jsonplus import JsonPlusSerializer
+
+    assert isinstance(captured["serde"], JsonPlusSerializer)
+    unsafe_serializer = JsonPlusSerializer(allowed_msgpack_modules=True)
+    type_tag, payload = unsafe_serializer.dumps_typed(Exception("untrusted"))
+    decoded = captured["serde"].loads_typed((type_tag, payload))
+    assert isinstance(decoded, str)
+    assert "untrusted" in decoded
+    assert not isinstance(decoded, Exception)

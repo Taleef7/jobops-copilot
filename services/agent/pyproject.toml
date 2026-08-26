@@ -18,3 +18,6 @@ select = ["E", "F", "I", "UP", "B"]
 [tool.pytest.ini_options]
 addopts = "-q"
 testpaths = ["tests"]
+markers = [
+    "postgres: requires a configured Postgres database",
+]
