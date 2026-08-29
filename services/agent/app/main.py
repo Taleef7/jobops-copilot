@@ -652,7 +652,9 @@ async def _chat_event_stream(req: ChatRequest):
 
         from app.agents.specialist_tools import build_specialist_tools
 
-        tools = build_specialist_tools(_get_agent_registry(), req.user_id or "anonymous")
+        tools = build_specialist_tools(
+            _get_agent_registry(), req.user_id or "anonymous", default_job_id=req.job_id
+        )
         tools_by_name = {t.name: t for t in tools}
         bound = (
             model.bind_tools(tools)

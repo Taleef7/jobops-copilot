@@ -180,6 +180,8 @@ class ChatRequest(BaseModel):
     context: str | None = None
     # Scopes any future per-user grounding; carried through for traceability.
     user_id: str | None = None
+    # Scopes specialist tool executions to the current job (e.g. tailor, apply, scout).
+    job_id: str | None = None
 
 
 # --- Phase 11 telemetry -----------------------------------------------------

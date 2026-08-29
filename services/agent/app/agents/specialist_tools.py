@@ -56,6 +56,7 @@ async def _run_specialist(registry: dict, agent_id: str, user_id: str, payload: 
 def build_specialist_tools(
     registry: dict | None = None,
     user_id: str = "anonymous",
+    default_job_id: str | None = None,
 ) -> list[BaseTool]:
     """The four specialist tools closed over the graph registry and user_id."""
     if isinstance(registry, str) and not isinstance(user_id, dict):
@@ -75,18 +76,27 @@ def build_specialist_tools(
     async def tailor_resume(job_id: str = "") -> str:
         """Start tailoring the user's resume for one job (job_id from the pipeline).
         The tailored resume always requires the user's explicit approval before render."""
-        return await _run_specialist(registry, "resume-tailor", user_id, {"job_id": job_id})
+        effective_job_id = (job_id or "").strip() or (default_job_id or "").strip()
+        return await _run_specialist(
+            registry, "resume-tailor", user_id, {"job_id": effective_job_id}
+        )
 
     @tool
     async def build_application_pack(job_id: str = "") -> str:
         """Assemble the application pack (resume, cover letter, ATS answers) for one job."""
-        return await _run_specialist(registry, "apply-copilot", user_id, {"job_id": job_id})
+        effective_job_id = (job_id or "").strip() or (default_job_id or "").strip()
+        return await _run_specialist(
+            registry, "apply-copilot", user_id, {"job_id": effective_job_id}
+        )
 
     @tool
     async def scout_connections(job_id: str = "") -> str:
         """Find publicly-verifiable people (recruiters, hiring managers, teammates)
         relevant to one job. Public web only; nothing is contacted."""
-        return await _run_specialist(registry, "connection-scout", user_id, {"job_id": job_id})
+        effective_job_id = (job_id or "").strip() or (default_job_id or "").strip()
+        return await _run_specialist(
+            registry, "connection-scout", user_id, {"job_id": effective_job_id}
+        )
 
     return [run_feed_curation, tailor_resume, build_application_pack, scout_connections]
 

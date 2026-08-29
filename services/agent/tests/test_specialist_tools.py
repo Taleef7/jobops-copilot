@@ -90,3 +90,40 @@ async def test_thread_id_format():
     # Suffix should be unique / non-empty
     suffix = thread_id.split("user_42:apply-copilot:chat-")[1]
     assert len(suffix) >= 4
+
+
+@pytest.mark.anyio
+async def test_job_scoped_tools_fallback_to_default_job_id():
+    from app.agents.specialist_tools import build_specialist_tools
+
+    captured_payloads = []
+
+    class _CaptureGraph:
+        async def ainvoke(self, payload, config=None):
+            captured_payloads.append(payload)
+            return {"status": "done", "output": payload}
+
+    fake_registry = {
+        "resume-tailor": _CaptureGraph(),
+        "apply-copilot": _CaptureGraph(),
+        "connection-scout": _CaptureGraph(),
+    }
+
+    tools = build_specialist_tools(
+        registry=fake_registry,
+        user_id="u1",
+        default_job_id="default-job-42",
+    )
+    tools_map = {t.name: t for t in tools}
+
+    # 1. When job_id is not passed, falls back to default_job_id
+    await tools_map["tailor_resume"].ainvoke({})
+    assert captured_payloads[-1]["input"]["job_id"] == "default-job-42"
+
+    # 2. When empty job_id is passed, falls back to default_job_id
+    await tools_map["build_application_pack"].ainvoke({"job_id": "   "})
+    assert captured_payloads[-1]["input"]["job_id"] == "default-job-42"
+
+    # 3. When explicit job_id is passed, explicit takes precedence
+    await tools_map["scout_connections"].ainvoke({"job_id": "explicit-job-99"})
+    assert captured_payloads[-1]["input"]["job_id"] == "explicit-job-99"
