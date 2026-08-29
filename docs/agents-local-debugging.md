@@ -2,8 +2,8 @@
 
 The agent service exposes five LangGraph graphs (assistant + feed-curator,
 resume-tailor, apply-copilot, connection-scout). You can step through any of
-them visually in the free, local LangGraph Studio — no hosted platform, no
-LangSmith account, nothing leaves your machine.
+them visually in the free, local LangGraph Studio — no hosted platform,
+no LangSmith account required.
 
 ## One-time setup
 
@@ -21,8 +21,9 @@ LangSmith account, nothing leaves your machine.
 http://127.0.0.1:2024, and prints a Studio URL of the form
 `https://smith.langchain.com/studio/?baseUrl=http://127.0.0.1:2024`.
 The Studio *UI* is served from that domain but talks only to your local
-server; with `LANGSMITH_TRACING=false` no traces are uploaded anywhere.
-Langfuse remains the project's only observability plane (spec section 10).
+server; with `LANGSMITH_TRACING=false` application execution traces are not
+uploaded to LangSmith. Langfuse remains the project's only observability
+plane (spec section 10).
 
 ## Notes
 
