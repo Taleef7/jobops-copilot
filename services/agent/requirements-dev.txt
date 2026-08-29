@@ -2,3 +2,7 @@
 pytest>=8.0,<9
 ruff>=0.15.22,<1
 httpx>=0.28.1,<1
+
+# Local graph debugging: `langgraph dev` + free LangGraph Studio (Epic 1).
+# Dev-only — never imported by app code, never installed in the image.
+langgraph-cli[inmem]>=0.2,<1

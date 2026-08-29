@@ -1,0 +1,11 @@
+{
+  "dependencies": ["."],
+  "graphs": {
+    "assistant": "./app/graph/assistant.py:build_assistant_graph",
+    "feed-curator": "./app/graph/registry.py:build_feed_curator_graph",
+    "resume-tailor": "./app/graph/registry.py:build_resume_tailor_graph",
+    "apply-copilot": "./app/graph/registry.py:build_apply_copilot_graph",
+    "connection-scout": "./app/graph/registry.py:build_connection_scout_graph"
+  },
+  "env": ".env"
+}
