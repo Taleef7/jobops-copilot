@@ -106,4 +106,5 @@ def test_untraced_config_still_yields_a_usable_graph_config(monkeypatch):
 
     merged = main._traced_graph_config("assistant-run", thread_id="t1", user_id="u1")
 
-    assert merged == {"configurable": {"thread_id": "t1"}}
+    assert merged["configurable"] == {"thread_id": "t1"}
+    assert merged["recursion_limit"] == main.settings.agent_recursion_limit_pipeline

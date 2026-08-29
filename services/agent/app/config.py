@@ -43,6 +43,9 @@ class Settings(BaseSettings):
     # fails closed if either backend cannot be opened or compiled.
     agent_run_setup_on_boot: bool = True
     checkpoint_retention_days: int = Field(default=30, gt=0)
+    agent_run_token_budget: int = Field(default=60_000, gt=0)
+    agent_recursion_limit_pipeline: int = Field(default=12, gt=0)
+    agent_recursion_limit_chat: int = Field(default=30, gt=0)
     request_timeout: int = 60
     llm_temperature: float = 0.2
 

@@ -56,3 +56,23 @@ def test_stream_weak_fit_emits_result(monkeypatch):
     assert res.status_code == 200
     assert "event: result" in res.text
     assert "event: awaiting_approval" not in res.text
+
+
+def test_assistant_stream_token_budget_exceeded(monkeypatch):
+    from app.graph.budget import TokenBudgetExceeded
+
+    class _BudgetExceededGraph:
+        async def astream(self, payload, config, stream_mode=None):
+            raise TokenBudgetExceeded("Assistant budget exhausted", budget=1000, tokens_used=1200)
+            yield  # pragma: no cover
+
+        async def aget_state(self, config):
+            raise AssertionError("aget_state should not be called")
+
+    monkeypatch.setattr(main, "llm_available", lambda: True)
+    monkeypatch.setattr(main, "_get_assistant_graph", lambda: _BudgetExceededGraph())
+
+    res = client.post("/assistant/stream", json={"description_text": "d"})
+    assert res.status_code == 200
+    assert "event: error" in res.text
+    assert '"code": "budget_exceeded"' in res.text

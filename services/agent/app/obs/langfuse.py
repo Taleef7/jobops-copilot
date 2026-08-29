@@ -112,12 +112,18 @@ def traced_span(name: str, **input_attrs):
         yield span
 
 
-def traced_config(name: str, session_id: str | None = None, user_id: str | None = None) -> dict:
+def traced_config(
+    name: str,
+    session_id: str | None = None,
+    user_id: str | None = None,
+    tags: list[str] | None = None,
+) -> dict:
     """Build a LangChain ``config`` that traces the run in Langfuse.
 
     ``name`` becomes the trace name; ``session_id``/``user_id`` (when given) group
-    traces in the Langfuse UI. Returns an empty dict when tracing is disabled, so
-    callers can always write ``chain.invoke(messages, config=traced_config(...) or None)``.
+    traces in the Langfuse UI; ``tags`` tag the trace. Returns an empty dict when
+    tracing is disabled, so callers can always write
+    ``chain.invoke(messages, config=traced_config(...) or None)``.
     """
     handler = _handler()
     if handler is None:
@@ -129,6 +135,9 @@ def traced_config(name: str, session_id: str | None = None, user_id: str | None 
         metadata["langfuse_session_id"] = session_id
     if user_id:
         metadata["langfuse_user_id"] = user_id
+    if tags:
+        metadata["langfuse_tags"] = tags
+        config["tags"] = tags
     if metadata:
         config["metadata"] = metadata
     return config

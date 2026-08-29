@@ -104,3 +104,123 @@ def test_agent_routes_require_the_shared_key(monkeypatch):
             headers={"Authorization": "Bearer secret"},
         )
     assert response.status_code == 200
+
+
+def test_stream_config_includes_recursion_limit(monkeypatch):
+    captured = {}
+
+    class FakeGraph:
+        async def astream(self, payload, config, stream_mode=None):
+            captured["config"] = config
+            yield {"echo": {"status": "done"}}
+
+        async def aget_state(self, config):
+            class _S:
+                values = {"status": "done", "output": {"agent_id": "feed-curator"}}
+
+            return _S()
+
+    monkeypatch.setattr(settings, "agent_api_key", None)
+    monkeypatch.setattr(main, "build_registry", lambda **_kwargs: {"feed-curator": FakeGraph()})
+
+    with TestClient(main.app) as client:
+        response = client.post(
+            "/agents/feed-curator/stream",
+            json={"user_id": "u1", "job_id": "job-7", "input": {}},
+        )
+
+    assert response.status_code == 200
+    assert "recursion_limit" in captured["config"]
+    assert captured["config"]["recursion_limit"] == settings.agent_recursion_limit_pipeline
+
+
+def test_resume_config_includes_recursion_limit(monkeypatch):
+    captured = {}
+
+    class FakeGraph:
+        async def astream(self, payload, config, stream_mode=None):
+            captured["config"] = config
+            yield {"echo": {"status": "done"}}
+
+        async def aget_state(self, config):
+            class _S:
+                values = {"status": "done", "output": {"agent_id": "feed-curator"}}
+
+            return _S()
+
+    monkeypatch.setattr(settings, "agent_api_key", None)
+    monkeypatch.setattr(main, "build_registry", lambda **_kwargs: {"feed-curator": FakeGraph()})
+
+    with TestClient(main.app) as client:
+        response = client.post(
+            "/agents/feed-curator/resume",
+            json={"thread_id": "u1:feed-curator:job-7", "payload": {"approved": True}},
+        )
+
+    assert response.status_code == 200
+    assert "recursion_limit" in captured["config"]
+    assert captured["config"]["recursion_limit"] == settings.agent_recursion_limit_pipeline
+
+
+def test_stream_token_budget_exceeded_yields_sse_error(monkeypatch):
+    from app.graph.budget import TokenBudgetExceeded
+
+    class FakeBudgetExceededGraph:
+        async def astream(self, payload, config, stream_mode=None):
+            raise TokenBudgetExceeded(
+                "Per-run token budget exceeded: 1200 > 1000",
+                budget=1000,
+                tokens_used=1200,
+            )
+            yield  # pragma: no cover
+
+        async def aget_state(self, config):
+            raise AssertionError("aget_state should not be called when astream aborts on budget")
+
+    monkeypatch.setattr(settings, "agent_api_key", None)
+    monkeypatch.setattr(
+        main, "build_registry", lambda **_kwargs: {"feed-curator": FakeBudgetExceededGraph()}
+    )
+
+    with TestClient(main.app) as client:
+        response = client.post(
+            "/agents/feed-curator/stream",
+            json={"user_id": "u1", "job_id": "job-7", "input": {}},
+        )
+
+    assert response.status_code == 200
+    assert "event: error" in response.text
+    assert '"code": "budget_exceeded"' in response.text
+    assert "token budget exceeded" in response.text.lower()
+
+
+def test_resume_token_budget_exceeded_yields_sse_error(monkeypatch):
+    from app.graph.budget import TokenBudgetExceeded
+
+    class FakeBudgetExceededGraph:
+        async def astream(self, payload, config, stream_mode=None):
+            raise TokenBudgetExceeded(
+                "Per-run token budget exceeded: 1200 > 1000",
+                budget=1000,
+                tokens_used=1200,
+            )
+            yield  # pragma: no cover
+
+        async def aget_state(self, config):
+            raise AssertionError("aget_state should not be called when astream aborts on budget")
+
+    monkeypatch.setattr(settings, "agent_api_key", None)
+    monkeypatch.setattr(
+        main, "build_registry", lambda **_kwargs: {"feed-curator": FakeBudgetExceededGraph()}
+    )
+
+    with TestClient(main.app) as client:
+        response = client.post(
+            "/agents/feed-curator/resume",
+            json={"thread_id": "u1:feed-curator:job-7", "payload": {"approved": True}},
+        )
+
+    assert response.status_code == 200
+    assert "event: error" in response.text
+    assert '"code": "budget_exceeded"' in response.text
+    assert "token budget exceeded" in response.text.lower()

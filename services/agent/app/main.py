@@ -27,10 +27,12 @@ from app.chains.score_fit import score_fit
 from app.chains.weekly import weekly_recommendations
 from app.config import settings
 from app.graph.assistant import build_assistant_graph
+from app.graph.budget import TokenBudgetExceeded
 from app.graph.memory import open_durable_backends, prune_checkpoints
 from app.graph.registry import AGENT_IDS, build_registry, make_thread_id
 from app.llm.provider import LLMNotConfigured, get_model, llm_available, resolve_provider
 from app.obs import traced_config, traced_span
+from app.obs.agent_tags import tags_for
 from app.prompts import CHAT_ASSISTANT_SYSTEM
 from app.rag.store import ingest_document, rag_available, retrieve, retrieve_resume_evidence
 from app.safety.injection import (
@@ -389,7 +391,13 @@ def _assistant_response(thread_id: str, state: dict) -> dict:
     }
 
 
-def _traced_graph_config(name: str, thread_id: str, user_id: str | None) -> dict:
+def _traced_graph_config(
+    name: str,
+    thread_id: str,
+    user_id: str | None,
+    tags: list[str] | None = None,
+    recursion_limit: int | None = None,
+) -> dict:
     """A LangGraph config that is both checkpointed and traced.
 
     The assistant paths need `configurable.thread_id` (the durable HITL checkpointer
@@ -401,10 +409,18 @@ def _traced_graph_config(name: str, thread_id: str, user_id: str | None) -> dict
     flow are separate HTTP requests, so without it the resumed turn would trace as an
     orphan root instead of joining its run (#204 review).
     """
-    return {
-        **traced_config(name, session_id=thread_id, user_id=user_id),
+    traced_kwargs: dict = {"session_id": thread_id, "user_id": user_id}
+    if tags is not None:
+        traced_kwargs["tags"] = tags
+    config = {
+        **traced_config(name, **traced_kwargs),
         "configurable": {"thread_id": thread_id},
     }
+    rec_limit = (
+        settings.agent_recursion_limit_pipeline if recursion_limit is None else recursion_limit
+    )
+    config["recursion_limit"] = rec_limit
+    return config
 
 
 @app.post("/assistant/run")
@@ -479,6 +495,9 @@ async def _agent_event_stream(agent_id: str, graph_input, config: dict):
         if not awaiting:
             final = (await graph.aget_state(config)).values
             yield _sse("result", _agent_response(agent_id, thread_id, final))
+    except TokenBudgetExceeded as exc:
+        logger.warning("agent run aborted: token budget exhausted (%s/%s)", exc.used, exc.budget)
+        yield _sse("error", {"message": str(exc), "code": "budget_exceeded"})
     except Exception as exc:  # noqa: BLE001 - stream failures are represented in-band
         logger.exception("specialist agent stream failed")
         yield _sse("error", {"message": str(exc)})
@@ -494,7 +513,13 @@ def _resolve_agent_or_404(agent_id: str):
 async def agent_stream_endpoint(agent_id: str, req: AgentStreamRequest) -> StreamingResponse:
     _resolve_agent_or_404(agent_id)
     thread_id = make_thread_id(req.user_id, agent_id, req.job_id)
-    config = _traced_graph_config(f"agent-{agent_id}-stream", thread_id, req.user_id)
+    config = _traced_graph_config(
+        f"agent-{agent_id}",
+        thread_id,
+        req.user_id,
+        tags=tags_for(agent_id),
+        recursion_limit=settings.agent_recursion_limit_pipeline,
+    )
     payload = {"user_id": req.user_id, "job_id": req.job_id, "input": req.input}
     return StreamingResponse(
         _agent_event_stream(agent_id, payload, config), media_type="text/event-stream"
@@ -505,7 +530,13 @@ async def agent_stream_endpoint(agent_id: str, req: AgentStreamRequest) -> Strea
 async def agent_resume_endpoint(agent_id: str, req: AgentResumeRequest) -> StreamingResponse:
     _resolve_agent_or_404(agent_id)
     user_id = req.thread_id.split(":", 1)[0]
-    config = _traced_graph_config(f"agent-{agent_id}-resume", req.thread_id, user_id)
+    config = _traced_graph_config(
+        f"agent-{agent_id}",
+        req.thread_id,
+        user_id,
+        tags=tags_for(agent_id),
+        recursion_limit=settings.agent_recursion_limit_pipeline,
+    )
     return StreamingResponse(
         _agent_event_stream(agent_id, Command(resume=req.payload), config),
         media_type="text/event-stream",
@@ -533,6 +564,11 @@ async def _assistant_event_stream(payload: dict, config: dict):
         if not awaiting:
             final = (await graph.aget_state(config)).values
             yield _sse("result", _assistant_response(thread_id, final))
+    except TokenBudgetExceeded as exc:
+        logger.warning(
+            "assistant run aborted: token budget exhausted (%s/%s)", exc.used, exc.budget
+        )
+        yield _sse("error", {"message": str(exc), "code": "budget_exceeded"})
     except Exception as exc:  # noqa: BLE001 - surface streaming failures as an SSE error
         logger.exception("assistant stream failed")
         yield _sse("error", {"message": str(exc)})
@@ -608,7 +644,8 @@ async def _chat_event_stream(req: ChatRequest):
         # Trace the chat turn like every other LLM call. `user_id` groups a user's
         # conversations in Langfuse; annotate_trace surfaces a flagged-but-allowed
         # injection verdict (INJECTION_ACTION=flag) that refusal above let through.
-        config = traced_config("assistant-chat", user_id=req.user_id)
+        config = traced_config("assistant-chat", user_id=req.user_id, tags=["assistant"])
+        config["recursion_limit"] = settings.agent_recursion_limit_chat
         annotate_trace(config, verdict)
         async for chunk in model.astream(messages, config=config or None):
             text = _chunk_text(chunk)
