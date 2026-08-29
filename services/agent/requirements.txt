@@ -2,23 +2,23 @@
 # RAG deps (psycopg, pgvector, sentence-transformers) are added in Phase 10,
 # telemetry deps (pandas) in Phase 11.
 # fastapi >=0.137 allows Starlette 1.x, which the MCP SDK (Phase 3 · N) requires.
-fastapi>=0.140.0,<0.141
-uvicorn[standard]>=0.30,<0.40
+fastapi>=0.141.1,<0.142
+uvicorn[standard]>=0.52.4,<0.53
 pydantic>=2.7,<3
-pydantic-settings>=2.3,<3
-python-dotenv>=1.2.2,<2
+pydantic-settings>=2.15.0,<3
+python-dotenv>=1.2.3,<2
 
 # LangChain provider-agnostic layer
-langchain>=1.0,<2
-langchain-anthropic>=1.0,<2
-langchain-openai>=1.0,<2
-langchain-google-genai>=4.3.1,<5
+langchain>=1.3.17,<2
+langchain-anthropic>=1.6.1,<2
+langchain-openai>=1.6.0,<2
+langchain-google-genai>=4.3.5,<5
 
 # LangGraph application-assistant orchestration (Phase 3 · Workstream K).
-langgraph>=1.2.9,<2
+langgraph>=1.2.11,<2
 
 # Agent-as-MCP-client: load external MCP tools into the research agent (Phase 3 · N).
-langchain-mcp-adapters>=0.3,<1
+langchain-mcp-adapters>=0.3.2,<1
 
 # HTTP client for agent tools (web search)
 httpx>=0.28.1,<1
@@ -31,4 +31,4 @@ numpy>=1.26,<3
 azure-monitor-opentelemetry>=1.8.9,<2
 
 # LLM tracing/observability (Phase 1 LLMOps). No-op when unconfigured.
-langfuse>=4.14.1,<5
+langfuse>=4.14.5,<5
