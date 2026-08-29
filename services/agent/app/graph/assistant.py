@@ -18,6 +18,7 @@ from app.chains.draft_outreach import draft_outreach
 from app.chains.parse_job import parse_job
 from app.chains.score_fit import score_fit
 from app.config import settings
+from app.graph.budget import charge_tokens
 from app.graph.state import AssistantState
 from app.schemas import DraftOutreachRequest, ResearchRequest, ScoreFitRequest
 
@@ -36,11 +37,13 @@ def route_after_review(state: dict) -> str:
 
 
 def parse_node(state: AssistantState) -> dict:
+    delta = charge_tokens(state, None)
     parsed = parse_job(state["description_text"])
-    return {"parsed": parsed.model_dump(), "status": "parsed"}
+    return {"parsed": parsed.model_dump(), "status": "parsed", **delta}
 
 
 def score_node(state: AssistantState) -> dict:
+    delta = charge_tokens(state, None)
     req = ScoreFitRequest(
         description_text=state["description_text"],
         resume_text=state.get("resume_text", ""),
@@ -48,10 +51,11 @@ def score_node(state: AssistantState) -> dict:
         user_id=state.get("user_id"),
     )
     fit = score_fit(req)
-    return {"fit": fit.model_dump(), "status": "scored"}
+    return {"fit": fit.model_dump(), "status": "scored", **delta}
 
 
 def research_node(state: AssistantState) -> dict:
+    delta = charge_tokens(state, None)
     parsed = state.get("parsed") or {}
     brief = run_research(
         ResearchRequest(
@@ -60,7 +64,7 @@ def research_node(state: AssistantState) -> dict:
             context=state["description_text"],
         )
     )
-    return {"research": brief.model_dump(), "status": "researched"}
+    return {"research": brief.model_dump(), "status": "researched", **delta}
 
 
 def review_node(state: AssistantState) -> dict:
@@ -73,6 +77,7 @@ def review_node(state: AssistantState) -> dict:
 
 
 def draft_node(state: AssistantState) -> dict:
+    delta = charge_tokens(state, None)
     parsed = state.get("parsed") or {}
     req = DraftOutreachRequest(
         message_type="recruiter_email",
@@ -81,7 +86,7 @@ def draft_node(state: AssistantState) -> dict:
         resume_summary=state.get("resume_text") or state.get("profile_text"),
     )
     draft = draft_outreach(req)
-    return {"draft": draft.model_dump(), "status": "drafted"}
+    return {"draft": draft.model_dump(), "status": "drafted", **delta}
 
 
 def pass_node(state: AssistantState) -> dict:

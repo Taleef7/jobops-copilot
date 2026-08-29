@@ -40,6 +40,14 @@ def usage_tokens(message: Any) -> int:
     or response_metadata."""
     if message is None or not isinstance(message, object):
         return 0
+    if isinstance(message, dict):
+        usage = message.get("usage_metadata") or message.get("usage") or message
+        if isinstance(usage, dict):
+            total = usage.get("total_tokens")
+            if total is None:
+                total = (usage.get("input_tokens") or 0) + (usage.get("output_tokens") or 0)
+            return int(total or 0)
+        return 0
     usage = getattr(message, "usage_metadata", None)
     if isinstance(usage, dict):
         total = usage.get("total_tokens")

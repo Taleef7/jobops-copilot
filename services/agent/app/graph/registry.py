@@ -13,6 +13,7 @@ from typing import Any
 from langgraph.graph import END, START, StateGraph
 
 from app.graph.agent_state import AgentRunState
+from app.graph.budget import charge_tokens
 from app.llm.provider import get_model_for_agent
 
 AGENT_IDS = ("feed-curator", "resume-tailor", "apply-copilot", "connection-scout")
@@ -25,6 +26,7 @@ def make_thread_id(user_id: str, agent_id: str, job_id: str | None = None) -> st
 
 def _echo_node(agent_id: str) -> Callable[[AgentRunState], dict[str, Any]]:
     def echo(state: AgentRunState) -> dict[str, Any]:
+        delta = charge_tokens(state, state.get("input", {}).get("message"))
         # Resolving a configured model records the eventual model label without ever
         # invoking it. Keyless CI/local runs intentionally use an explicit fallback label.
         try:
@@ -34,6 +36,7 @@ def _echo_node(agent_id: str) -> Callable[[AgentRunState], dict[str, Any]]:
         return {
             "output": {"agent_id": agent_id, "echo": state.get("input", {}), "model": model_label},
             "status": "done",
+            **delta,
         }
 
     return echo

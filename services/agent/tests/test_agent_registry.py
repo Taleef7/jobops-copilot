@@ -224,3 +224,38 @@ def test_resume_token_budget_exceeded_yields_sse_error(monkeypatch):
     assert "event: error" in response.text
     assert '"code": "budget_exceeded"' in response.text
     assert "token budget exceeded" in response.text.lower()
+
+
+def test_real_specialist_graph_enforces_budget():
+    import pytest
+
+    from app.graph.budget import TokenBudgetExceeded
+
+    registry = build_registry()
+    graph = registry["feed-curator"]
+
+    with pytest.raises(TokenBudgetExceeded) as exc_info:
+        graph.invoke({"input": {}, "tokens_used": 70_000})
+
+    assert exc_info.value.code == "budget_exceeded"
+    assert exc_info.value.used == 70_000
+
+
+def test_real_specialist_stream_endpoint_emits_budget_exceeded_sse(monkeypatch):
+    monkeypatch.setattr(settings, "agent_api_key", None)
+    monkeypatch.setattr(settings, "agent_run_token_budget", 500)
+
+    with TestClient(main.app) as client:
+        response = client.post(
+            "/agents/feed-curator/stream",
+            json={
+                "user_id": "u1",
+                "job_id": "job-7",
+                "input": {"message": {"usage_metadata": {"total_tokens": 600}}},
+            },
+        )
+
+    assert response.status_code == 200
+    assert "event: error" in response.text
+    assert '"code": "budget_exceeded"' in response.text
+    assert "600/500" in response.text or "budget exhausted" in response.text.lower()
