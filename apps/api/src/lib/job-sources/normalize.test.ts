@@ -11,6 +11,8 @@ test('normalizeAdzuna maps and trims an Adzuna result', () => {
     description: 'Build agents',
     created: '2026-06-01T00:00:00Z',
     contract_time: 'full_time',
+    salary_min: 110000,
+    salary_max: 140001,
   });
 
   assert.equal(job.source, 'adzuna');
@@ -22,6 +24,9 @@ test('normalizeAdzuna maps and trims an Adzuna result', () => {
   assert.equal(job.workplaceType, 'remote');
   assert.equal(job.datePosted, '2026-06-01T00:00:00Z');
   assert.equal(job.descriptionText, 'Build agents');
+  assert.equal(job.salaryMin, 110000);
+  assert.equal(job.salaryMax, 140001);
+  assert.equal(job.salaryCurrency, 'USD');
 });
 
 test('normalizeAdzuna falls back to safe defaults for missing fields', () => {
@@ -33,6 +38,9 @@ test('normalizeAdzuna falls back to safe defaults for missing fields', () => {
   assert.equal(job.workplaceType, 'onsite');
   assert.equal(job.jobUrl, undefined);
   assert.equal(job.descriptionText, '');
+  assert.equal(job.salaryMin, undefined);
+  assert.equal(job.salaryMax, undefined);
+  assert.equal(job.salaryCurrency, undefined);
 });
 
 test('normalizeAdzuna infers workplaceType (onsite default, hybrid/remote from text)', () => {

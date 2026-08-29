@@ -13,6 +13,8 @@ import type {
   WeeklyReportRecord,
 } from '@/types';
 
+import { computeContentHash, parseSalaryFromText, parseSeniority } from '@/lib/job-enrich';
+
 const now = () => new Date().toISOString();
 
 function clamp(value: number, min: number, max: number) {
@@ -66,6 +68,24 @@ function extractKeywords(text: string): string[] {
 function createBaseJob(body: CreateJobBody): JobRecord {
   const timestamp = now();
   const workplaceType = body.workplaceType ?? 'remote';
+  const parsedSalary =
+    body.salaryMin == null && body.salaryMax == null
+      ? parseSalaryFromText(body.descriptionText)
+      : null;
+  const salaryMin = body.salaryMin ?? parsedSalary?.min ?? null;
+  const salaryMax = body.salaryMax ?? parsedSalary?.max ?? null;
+  const salaryCurrency = body.salaryCurrency ?? (parsedSalary ? parsedSalary.currency : null);
+  const seniority = body.seniority ?? parseSeniority(body.title, body.descriptionText);
+  const contentHash =
+    body.contentHash ??
+    computeContentHash({
+      company: body.company,
+      title: body.title,
+      descriptionText: body.descriptionText,
+    });
+  const lastSeenAt = body.lastSeenAt ?? timestamp;
+  const liveness = body.liveness ?? 'active';
+  const sponsorLikelihood = body.sponsorLikelihood ?? null;
 
   return {
     id: randomUUID(),
@@ -87,6 +107,14 @@ function createBaseJob(body: CreateJobBody): JobRecord {
     nextActionDue: undefined,
     analysis: defaultAnalysis(body.descriptionText),
     outreach: [],
+    salaryMin,
+    salaryMax,
+    salaryCurrency,
+    seniority,
+    sponsorLikelihood,
+    contentHash,
+    lastSeenAt,
+    liveness,
     createdAt: timestamp,
     updatedAt: timestamp,
   };

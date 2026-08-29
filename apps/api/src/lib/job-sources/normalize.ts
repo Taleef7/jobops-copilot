@@ -12,6 +12,9 @@ export interface AdzunaRaw {
   description?: string;
   created?: string;
   contract_time?: string;
+  salary_min?: number;
+  salary_max?: number;
+  salary_is_predicted?: string;
 }
 
 /** Raw Remotive `/remote-jobs` result (only the fields we use). */
@@ -51,6 +54,7 @@ function inferWorkplaceType(...fields: Array<string | undefined>): JobWorkplaceT
 }
 
 export function normalizeAdzuna(raw: AdzunaRaw): SourcedJob {
+  const hasSalary = typeof raw.salary_min === 'number' || typeof raw.salary_max === 'number';
   return {
     jobUrl: clean(raw.redirect_url) || undefined,
     source: 'adzuna',
@@ -61,6 +65,9 @@ export function normalizeAdzuna(raw: AdzunaRaw): SourcedJob {
     workplaceType: inferWorkplaceType(raw.title, raw.location?.display_name, raw.description),
     datePosted: clean(raw.created) || undefined,
     descriptionText: clean(raw.description),
+    salaryMin: typeof raw.salary_min === 'number' ? Math.round(raw.salary_min) : undefined,
+    salaryMax: typeof raw.salary_max === 'number' ? Math.round(raw.salary_max) : undefined,
+    salaryCurrency: hasSalary ? 'USD' : undefined,
   };
 }
 

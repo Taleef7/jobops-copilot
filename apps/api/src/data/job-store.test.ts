@@ -196,3 +196,38 @@ test('saveJobAnalysis advances the next action only for a real scoring run', asy
     await rm(tempDir, { recursive: true, force: true });
   }
 });
+
+test('createJob round-trips enriched schema fields (salary, seniority, contentHash, liveness)', async () => {
+  const originalCwd = process.cwd();
+  delete process.env.DATABASE_URL; // force the file store
+  const tempDir = await mkdtemp(join(tmpdir(), 'jobops-enriched-'));
+
+  try {
+    process.chdir(tempDir);
+    resetJobStoreForTests();
+
+    const created = await createJob('user-1', {
+      company: 'Acme Corp',
+      title: 'Senior Engineer',
+      descriptionText: 'Lead team building scalable APIs.',
+      salaryMin: 150000,
+      salaryMax: 180000,
+      salaryCurrency: 'USD',
+      seniority: 'senior',
+      contentHash: 'a'.repeat(64),
+      liveness: 'active',
+    });
+
+    const fetched = await getJobById('user-1', created.id);
+    assert.equal(fetched?.salaryMin, 150000);
+    assert.equal(fetched?.salaryMax, 180000);
+    assert.equal(fetched?.salaryCurrency, 'USD');
+    assert.equal(fetched?.seniority, 'senior');
+    assert.equal(fetched?.contentHash, 'a'.repeat(64));
+    assert.equal(fetched?.liveness, 'active');
+  } finally {
+    process.chdir(originalCwd);
+    resetJobStoreForTests();
+    await rm(tempDir, { recursive: true, force: true });
+  }
+});
