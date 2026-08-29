@@ -39,6 +39,7 @@ async function buildJobContext(
 
   const { analysis } = job;
   const lines = [
+    `Job ID: ${job.id}`,
     `Title: ${job.title}`,
     `Company: ${job.company}`,
     `Location: ${job.location} (${job.workplaceType})`,
@@ -89,11 +90,14 @@ export function createAssistantChatRouter(deps: AssistantChatDeps = defaultDeps)
       return;
     }
 
+    const jobId =
+      typeof body.jobId === 'string' && body.jobId.trim() ? body.jobId.trim() : undefined;
+
     // Context build must never break the chat — a failure just omits it.
     let context: string | undefined;
-    if (typeof body.jobId === 'string' && body.jobId.trim()) {
+    if (jobId) {
       try {
-        context = await buildJobContext(deps.getJob, userId, body.jobId.trim());
+        context = await buildJobContext(deps.getJob, userId, jobId);
       } catch {
         context = undefined;
       }
@@ -101,7 +105,12 @@ export function createAssistantChatRouter(deps: AssistantChatDeps = defaultDeps)
 
     let upstream: UpstreamStream;
     try {
-      upstream = await deps.openUpstream({ messages: body.messages, context, user_id: userId });
+      upstream = await deps.openUpstream({
+        messages: body.messages,
+        context,
+        user_id: userId,
+        job_id: jobId,
+      });
     } catch (error) {
       // A disabled agent service (no AGENT_SERVICE_URL) is an expected
       // misconfiguration, not a server fault — surface it as 503 (which the

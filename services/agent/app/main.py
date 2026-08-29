@@ -647,10 +647,51 @@ async def _chat_event_stream(req: ChatRequest):
         config = traced_config("assistant-chat", user_id=req.user_id, tags=["assistant"])
         config["recursion_limit"] = settings.agent_recursion_limit_chat
         annotate_trace(config, verdict)
-        async for chunk in model.astream(messages, config=config or None):
-            text = _chunk_text(chunk)
-            if text:
-                yield _sse("token", {"text": text})
+
+        from langchain_core.messages import ToolMessage
+
+        from app.agents.specialist_tools import build_specialist_tools
+
+        tools = build_specialist_tools(
+            _get_agent_registry(), req.user_id or "anonymous", default_job_id=req.job_id
+        )
+        tools_by_name = {t.name: t for t in tools}
+        bound = (
+            model.bind_tools(tools)
+            if hasattr(model, "bind_tools") and _get_agent_registry()
+            else model
+        )
+
+        MAX_TOOL_ROUNDS = 3
+        for _round in range(MAX_TOOL_ROUNDS + 1):
+            response = None
+            async for chunk in bound.astream(messages, config=config or None):
+                if response is None:
+                    response = chunk
+                else:
+                    try:
+                        response = response + chunk
+                    except TypeError:
+                        response = chunk
+                text = _chunk_text(chunk)
+                if text:
+                    yield _sse("token", {"text": text})
+            tool_calls = getattr(response, "tool_calls", None) or []
+            if not tool_calls or _round == MAX_TOOL_ROUNDS:
+                break
+            messages.append(response)
+            for call in tool_calls:
+                tool_fn = tools_by_name.get(call["name"])
+                yield _sse("status", {"tool": call["name"], "state": "running"})
+                if tool_fn is None:
+                    result = json.dumps({"error": f"unknown tool {call['name']}"})
+                else:
+                    try:
+                        result = await tool_fn.ainvoke(call["args"])
+                    except Exception as exc:  # noqa: BLE001 - tool failure must not kill the chat
+                        logger.exception("specialist tool %s failed", call["name"])
+                        result = json.dumps({"error": str(exc)})
+                messages.append(ToolMessage(content=result, tool_call_id=call["id"]))
         yield _sse("done", {"model_used": label})
     except Exception as exc:  # noqa: BLE001 - surface streaming failures as an SSE error
         logger.exception("assistant chat stream failed")

@@ -114,3 +114,83 @@ def test_chat_refuses_injection_hidden_in_an_earlier_turn(monkeypatch):
     assert res.status_code == 200
     assert "event: done" in res.text
     assert "event: error" not in res.text
+
+
+def test_chat_tool_calling_executes_and_streams_answer(monkeypatch):
+    from langchain_core.messages import AIMessageChunk, ToolCall
+
+    rounds = {"count": 0}
+
+    class _ToolCapableModel:
+        def bind_tools(self, tools):
+            self.tools = tools
+            return self
+
+        async def astream(self, messages, config=None):
+            rounds["count"] += 1
+            if rounds["count"] == 1:
+                chunk = AIMessageChunk(
+                    content="",
+                    tool_calls=[
+                        ToolCall(
+                            name="run_feed_curation",
+                            args={"query": "python"},
+                            id="call_feed_1",
+                        )
+                    ],
+                )
+                yield chunk
+            else:
+                yield _Chunk("Here are the curated feed results.")
+
+    monkeypatch.setattr(main, "llm_available", lambda: True)
+    monkeypatch.setattr(main, "get_model", lambda: (_ToolCapableModel(), "fake:tool-model"))
+
+    res = client.post(
+        "/assistant/chat",
+        json={"messages": [{"role": "user", "content": "Curate my feed"}]},
+    )
+
+    assert res.status_code == 200
+    assert "event: status" in res.text
+    assert "run_feed_curation" in res.text
+    assert "event: token" in res.text
+    assert "Here are the curated feed results." in res.text
+    assert "event: done" in res.text
+    assert rounds["count"] == 2
+
+
+def test_chat_tool_loop_stops_at_max_rounds(monkeypatch):
+    from langchain_core.messages import AIMessageChunk, ToolCall
+
+    rounds = {"count": 0}
+
+    class _InfiniteToolModel:
+        def bind_tools(self, tools):
+            return self
+
+        async def astream(self, messages, config=None):
+            rounds["count"] += 1
+            yield AIMessageChunk(
+                content="",
+                tool_calls=[
+                    ToolCall(
+                        name="run_feed_curation",
+                        args={"query": f"python_{rounds['count']}"},
+                        id=f"call_{rounds['count']}",
+                    )
+                ],
+            )
+
+    monkeypatch.setattr(main, "llm_available", lambda: True)
+    monkeypatch.setattr(main, "get_model", lambda: (_InfiniteToolModel(), "fake:loop-model"))
+
+    res = client.post(
+        "/assistant/chat",
+        json={"messages": [{"role": "user", "content": "Infinite tool loop"}]},
+    )
+
+    assert res.status_code == 200
+    assert "event: done" in res.text
+    # Should stop after MAX_TOOL_ROUNDS (default 3)
+    assert rounds["count"] <= 4

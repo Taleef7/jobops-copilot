@@ -129,7 +129,7 @@ test('rejects an empty messages list', async () => {
 });
 
 test('builds ownership-checked job context from jobId', async () => {
-  let captured: { context?: string } = {};
+  let captured: { context?: string; job_id?: string } = {};
   const calls: Array<[string, string]> = [];
   const router = createAssistantChatRouter({
     getJob: async (userId, jobId) => {
@@ -137,7 +137,7 @@ test('builds ownership-checked job context from jobId', async () => {
       return fakeJob();
     },
     openUpstream: async (payload) => {
-      captured = payload as { context?: string };
+      captured = payload as { context?: string; job_id?: string };
       return okStream();
     },
   });
@@ -149,6 +149,8 @@ test('builds ownership-checked job context from jobId', async () => {
     });
   });
   assert.deepEqual(calls, [['u1', 'job-1']]);
+  assert.equal(captured.job_id, 'job-1');
+  assert.ok(captured.context?.includes('Job ID: job-1'));
   assert.ok(captured.context?.includes('Staff Engineer'));
   assert.ok(captured.context?.includes('Missing skills: Rust'));
 });

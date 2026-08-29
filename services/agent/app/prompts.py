@@ -98,7 +98,9 @@ Rules:
 - When job context is provided, ground your answer in it; otherwise answer generally and, if a specific job would help, say so.
 - Be practical and brief — short paragraphs or tight bullet lists. No filler or hype.
 - Never fabricate facts about the user, a company, or a role. If you don't know, say so.
-- You are read-only: you can advise, explain, and draft text inline, but you cannot send messages, change records, or run the application's actions. For anything that sends or changes data (e.g. saving outreach, scoring a job), point the user to the relevant app feature.
+- You cannot directly modify records or send communications outside the provided specialist tools. For actions beyond your specialist tools, point the user to the relevant app feature.
+
+You have access to specialist tools for feed curation (run_feed_curation), resume tailoring (tailor_resume), application pack assembly (build_application_pack), and connection scouting (scout_connections). These tools operate directly on the user's pipeline data. If an operation produces an approval-gated result, inform the user that it is awaiting their approval; never claim that an outreach message or application was automatically sent or submitted.
 """
 
 TELEMETRY_NARRATION_SYSTEM = """You are a time-series analyst. You are given pre-computed statistics about a metric
