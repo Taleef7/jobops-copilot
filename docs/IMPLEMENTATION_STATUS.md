@@ -150,6 +150,7 @@ agent image, list pagination, and an opt-in Postgres-backed rate-limiter/cache f
 
 ## What Is Still Pending
 
+- **Jobright Parity Program (Epic #244 — Agent platform foundation):** In progress. Shipped specialist agent registry (#253), per-agent model configs (#251/#252), and durable checkpointing/memory (#254). Implemented per-agent Langfuse tags, per-run token budget with hard abort (`TokenBudgetExceeded`), and recursion-limit defaults on stream/resume configs (#255). Specialist agent graph implementations (Epics 2, 4, 5, 6) remain pending.
 - Nothing blocking. All planned phases (0–11) plus the optional Phase 6
   hardening (App Insights, Key Vault) are complete. The agent Container App
   keeps its native secret store by design (Key Vault covers App Service only).

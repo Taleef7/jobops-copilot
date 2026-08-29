@@ -71,3 +71,21 @@ def test_weak_fit_passes_without_research_or_draft(monkeypatch):
     assert result["status"] == "passed"
     assert result.get("research") is None and result.get("draft") is None
     assert "__interrupt__" not in result
+
+
+def test_assistant_graph_enforces_budget_and_raises(monkeypatch):
+    import pytest
+
+    from app.graph.budget import TokenBudgetExceeded
+
+    _patch_nodes(monkeypatch, fit_score=80)
+    monkeypatch.setattr(A.settings, "agent_run_token_budget", 50)
+    graph = A.build_assistant_graph()
+    cfg = {"configurable": {"thread_id": "t-budget"}}
+
+    inputs = {**_inputs(), "tokens_used": 100}
+    with pytest.raises(TokenBudgetExceeded) as exc_info:
+        graph.invoke(inputs, cfg)
+
+    assert exc_info.value.code == "budget_exceeded"
+    assert exc_info.value.used == 100

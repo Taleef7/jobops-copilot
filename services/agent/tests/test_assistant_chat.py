@@ -45,6 +45,7 @@ def test_chat_streams_tokens_then_done(monkeypatch):
     body = res.text
     assert "event: token" in body and "Hello" in body and "world" in body
     assert "event: done" in body and "fake:model" in body
+    assert captured["config"]["recursion_limit"] == main.settings.agent_recursion_limit_chat
 
 
 def test_chat_injects_job_context_into_system_message(monkeypatch):

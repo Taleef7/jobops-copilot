@@ -18,3 +18,4 @@ class AssistantState(TypedDict, total=False):
     draft: dict
     approved: bool
     status: str
+    tokens_used: int
