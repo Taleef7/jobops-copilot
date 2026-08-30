@@ -431,3 +431,34 @@ test('prerank runs on upgraded text so saveAnalysis receives non-null fitScore',
   assert.notEqual(analyses[0]?.fitScore, null);
   assert.equal(analyses[0]?.fitScore, 100);
 });
+
+test('runDiscoveryForUser stops attempting JD upgrades when upgrade time budget is exhausted', async () => {
+  const originalBudget = process.env.DISCOVERY_JD_UPGRADE_BUDGET_MS;
+  process.env.DISCOVERY_JD_UPGRADE_BUDGET_MS = '0';
+
+  try {
+    const jobs: SourcedJob[] = Array.from({ length: 5 }, (_, i) => ({
+      source: 'adzuna',
+      company: `Company ${i}`,
+      title: `Software Engineer ${i}`,
+      descriptionText: 'Snippet',
+      jobUrl: `https://example.com/job/${i}`,
+    }));
+
+    let upgradeCalls = 0;
+    const { deps } = makeDeps(jobs, []);
+    deps.upgradeJd = async (job) => {
+      upgradeCalls += 1;
+      return { job, upgraded: false };
+    };
+
+    await runDiscoveryForUser('u', deps);
+    assert.equal(upgradeCalls, 0);
+  } finally {
+    if (originalBudget !== undefined) {
+      process.env.DISCOVERY_JD_UPGRADE_BUDGET_MS = originalBudget;
+    } else {
+      delete process.env.DISCOVERY_JD_UPGRADE_BUDGET_MS;
+    }
+  }
+});

@@ -63,6 +63,8 @@ function isDuplicateKeyError(error: unknown): boolean {
  */
 export async function runDiscoveryForUser(userId: string, deps: DiscoveryDeps): Promise<DiscoveryResult> {
   const JD_FETCH_CAP = Number(process.env.DISCOVERY_JD_FETCH_CAP ?? 25);
+  const JD_UPGRADE_TIME_BUDGET_MS = Number(process.env.DISCOVERY_JD_UPGRADE_BUDGET_MS ?? 15_000);
+  const jdUpgradeDeadline = Date.now() + JD_UPGRADE_TIME_BUDGET_MS;
   const searches = await deps.listSavedSearches(userId);
   const seen = new Set((await deps.listJobs(userId)).flatMap(keysFor));
   const resume = await deps.getResume(userId);
@@ -89,9 +91,18 @@ export async function runDiscoveryForUser(userId: string, deps: DiscoveryDeps): 
     for (const k of keysFor(job)) seen.add(k);
     try {
       const currentDesc = job.descriptionText ?? '';
-      if (deps.upgradeJd && job.jobUrl && currentDesc.length < FULL_JD_MIN_CHARS && jdFetchAttempts < JD_FETCH_CAP) {
+      const remainingBudgetMs = jdUpgradeDeadline - Date.now();
+      if (
+        deps.upgradeJd &&
+        job.jobUrl &&
+        currentDesc.length < FULL_JD_MIN_CHARS &&
+        jdFetchAttempts < JD_FETCH_CAP &&
+        remainingBudgetMs > 500
+      ) {
         jdFetchAttempts += 1;
-        const { job: upgraded } = await deps.upgradeJd(job);
+        const { job: upgraded } = await deps.upgradeJd(job, {}, {
+          timeoutMs: Math.min(8_000, remainingBudgetMs),
+        });
         job = upgraded;
       }
 
