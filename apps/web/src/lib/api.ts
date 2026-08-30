@@ -428,6 +428,49 @@ export async function deleteSavedSearch(id: string): Promise<void> {
   await requestJson<{ deleted: boolean }>(`/api/saved-searches/${id}`, { method: 'DELETE' });
 }
 
+export type TargetCompanyBoardType = 'greenhouse' | 'lever' | 'ashby';
+
+export interface TargetCompanyItem {
+  id: string;
+  company: string;
+  boardType: TargetCompanyBoardType;
+  boardToken: string;
+  enabled: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export async function fetchTargetCompanies(): Promise<TargetCompanyItem[]> {
+  const response = await requestJson<{ targetCompanies: TargetCompanyItem[] }>('/api/target-companies', {
+    cache: 'no-store',
+  });
+  return response.targetCompanies;
+}
+
+export async function createTargetCompany(payload: {
+  company: string;
+  boardType: TargetCompanyBoardType;
+  boardToken: string;
+}): Promise<TargetCompanyItem> {
+  const response = await requestJson<{ targetCompany: TargetCompanyItem }>('/api/target-companies', {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  });
+  return response.targetCompany;
+}
+
+export async function setTargetCompanyEnabled(id: string, enabled: boolean): Promise<TargetCompanyItem> {
+  const response = await requestJson<{ targetCompany: TargetCompanyItem }>(`/api/target-companies/${id}`, {
+    method: 'PATCH',
+    body: JSON.stringify({ enabled }),
+  });
+  return response.targetCompany;
+}
+
+export async function deleteTargetCompany(id: string): Promise<void> {
+  await requestJson<{ deleted: boolean }>(`/api/target-companies/${id}`, { method: 'DELETE' });
+}
+
 export interface DiscoveryRunResult {
   inserted: number;
   skipped: number;

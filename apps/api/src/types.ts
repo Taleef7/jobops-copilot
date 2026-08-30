@@ -214,3 +214,22 @@ export interface CreateSavedSearchBody {
   location?: string;
   remoteOnly?: boolean;
 }
+
+export type BoardType = 'greenhouse' | 'lever' | 'ashby';
+
+export interface TargetCompany {
+  id: string;
+  userId: string;
+  company: string;
+  boardType: BoardType;
+  boardToken: string;
+  enabled: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface CreateTargetCompanyBody {
+  company: string;
+  boardType: BoardType;
+  boardToken: string;
+}

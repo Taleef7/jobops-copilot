@@ -23,6 +23,7 @@ import { outreachRouter } from '@/routes/outreach';
 import { telemetryRouter } from '@/routes/telemetry';
 import { discoveryRouter, discoverySweepRouter } from '@/routes/discovery';
 import { savedSearchesRouter } from '@/routes/saved-searches';
+import { targetCompaniesRouter } from '@/routes/target-companies';
 
 const mutatingMethods = new Set(['POST', 'PATCH', 'PUT', 'DELETE']);
 
@@ -129,6 +130,7 @@ export function createApp(dependencies: AppDependencies = {}) {
   app.use('/api/telemetry', strictLimiter, telemetryRouter);
   app.use('/api/discovery', strictLimiter, discoveryRouter);
   app.use('/api/saved-searches', savedSearchesRouter);
+  app.use('/api/target-companies', targetCompaniesRouter);
   // Mounted before '/api/n8n' so this more specific path wins; it inherits the
   // shared-API-key exemption (path starts with /api/n8n) and uses the n8n secret.
   app.use('/api/n8n/discover', discoverySweepRouter);

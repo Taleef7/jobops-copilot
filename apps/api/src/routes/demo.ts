@@ -3,6 +3,7 @@ import { clearUserData, seedDemoData } from '@/data/job-store';
 import { clearUserReports, seedDemoReports } from '@/data/report-store';
 import { deleteUserProfile } from '@/data/profile-store';
 import { clearUserSavedSearches } from '@/data/saved-search-store';
+import { clearUserTargetCompanies } from '@/data/target-company-store';
 import { requireUser } from '@/lib/auth';
 
 export const demoRouter = Router();
@@ -29,6 +30,7 @@ demoRouter.post('/clear', async (request, response, next) => {
     await clearUserReports(userId);
     await deleteUserProfile(userId);
     await clearUserSavedSearches(userId);
+    await clearUserTargetCompanies(userId);
     response.json({ ok: true });
   } catch (error) {
     next(error);
