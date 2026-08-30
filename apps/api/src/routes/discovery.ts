@@ -4,7 +4,7 @@ import { createJob, listJobs, saveJobAnalysis } from '@/data/job-store';
 import { getUserProfile } from '@/data/profile-store';
 import { listSavedSearches, listUsersWithSavedSearches } from '@/data/saved-search-store';
 import { listTargetCompanies, listUsersWithEnabledTargetCompanies } from '@/data/target-company-store';
-import { getJobSource } from '@/lib/job-sources';
+import { getJobSources } from '@/lib/job-sources';
 import { fetchTargetCompanyBoards } from '@/lib/job-sources/boards';
 import { requireN8nWebhookSecret } from '@/lib/n8n';
 import { runDiscoveryForUser, type DiscoveryResult } from '@/lib/discovery';
@@ -18,7 +18,7 @@ export interface DiscoveryRouterDeps {
 const defaultDeps: DiscoveryRouterDeps = {
   runDiscovery: (userId) =>
     runDiscoveryForUser(userId, {
-      source: getJobSource(),
+      sources: getJobSources(),
       listJobs,
       createJob,
       listSavedSearches,

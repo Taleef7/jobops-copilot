@@ -3,6 +3,8 @@ import { PostgresTtlCache } from '../cache.postgres';
 import { getPool } from '../postgres';
 import { createAdzunaSource } from './adzuna';
 import { createRemotiveSource } from './remotive';
+import { createUsaJobsSource, usaJobsConfigured } from './usajobs';
+import { createTheMuseSource } from './themuse';
 import type { SourcedJob } from './normalize';
 import type { JobSearchOptions, JobSource } from './types';
 
@@ -52,8 +54,10 @@ export function jobSearchCacheKey(
   query: string,
   opts: JobSearchOptions,
   country: string,
+  sourceName?: string,
 ): string {
   return JSON.stringify({
+    source: sourceName ?? null,
     q: query.trim().toLowerCase(),
     country,
     remoteOnly: Boolean(opts.remoteOnly),
@@ -77,8 +81,9 @@ export function withCachedSearch(
       return source.name;
     },
     async search(query, opts = {}) {
-      const results = await cache.getOrCompute(jobSearchCacheKey(query, opts, country()), () =>
-        source.search(query, opts),
+      const results = await cache.getOrCompute(
+        jobSearchCacheKey(query, opts, country(), source.name),
+        () => source.search(query, opts),
       );
       // Copy so a caller mutating results in place can't poison the shared
       // cached array (the cache is a process-local singleton across requests).
@@ -102,6 +107,24 @@ export function getJobSource(): JobSource {
     jobSearchCache,
     () => process.env.ADZUNA_COUNTRY?.trim() || 'us',
   );
+}
+
+/**
+ * Returns all available job sources: Adzuna/Remotive composite (or Remotive fallback),
+ * USAJobs (if configured), and The Muse.
+ */
+export function getJobSources(): JobSource[] {
+  const country = () => process.env.ADZUNA_COUNTRY?.trim() || 'us';
+  const primary = getJobSource();
+  const sources: JobSource[] = [primary];
+
+  if (usaJobsConfigured()) {
+    sources.push(withCachedSearch(createUsaJobsSource(), jobSearchCache, country));
+  }
+
+  sources.push(withCachedSearch(createTheMuseSource(), jobSearchCache, country));
+
+  return sources;
 }
 
 function createComposite(): JobSource {

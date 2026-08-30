@@ -17,7 +17,8 @@ export interface DiscoveryResult {
 }
 
 export interface DiscoveryDeps {
-  source: JobSource;
+  source?: JobSource;
+  sources?: JobSource[];
   listJobs: typeof listJobsStore;
   createJob: typeof createJobStore;
   listSavedSearches: typeof listSavedSearchesStore;
@@ -62,8 +63,15 @@ export async function runDiscoveryForUser(userId: string, deps: DiscoveryDeps): 
   const seen = new Set((await deps.listJobs(userId)).flatMap(keysFor));
   const resume = await deps.getResume(userId);
 
+  const sources: JobSource[] = deps.sources && deps.sources.length > 0
+    ? deps.sources
+    : deps.source
+      ? [deps.source]
+      : [];
+
   let inserted = 0;
   let skipped = 0;
+  const contributingSources = new Set<string>();
 
   async function insertIfNew(job: SourcedJob): Promise<void> {
     const key = dedupKey(job);
@@ -101,19 +109,22 @@ export async function runDiscoveryForUser(userId: string, deps: DiscoveryDeps): 
   }
 
   for (const search of searches) {
-    let found;
-    try {
-      found = await deps.source.search(search.query, {
-        location: search.location,
-        remoteOnly: search.remoteOnly,
-        limit: 20,
-      });
-    } catch {
-      continue;
-    }
+    for (const src of sources) {
+      let found: SourcedJob[];
+      try {
+        found = await src.search(search.query, {
+          location: search.location,
+          remoteOnly: search.remoteOnly,
+          limit: 20,
+        });
+        contributingSources.add(src.name);
+      } catch {
+        continue;
+      }
 
-    for (const job of found) {
-      await insertIfNew(job);
+      for (const job of found) {
+        await insertIfNew(job);
+      }
     }
   }
 
@@ -127,7 +138,11 @@ export async function runDiscoveryForUser(userId: string, deps: DiscoveryDeps): 
   }
 
   const boardSources = Array.from(new Set(targets.filter((t) => t.enabled).map((t) => t.boardType))).sort();
-  const source = boardSources.length > 0 ? [deps.source.name, ...boardSources].join('+') : deps.source.name;
+  const searchSourceList = contributingSources.size > 0
+    ? Array.from(contributingSources)
+    : sources.map((s) => s.name);
+  const combined = [...searchSourceList, ...boardSources];
+  const source = combined.length > 0 ? combined.join('+') : 'unknown';
 
   return { inserted, skipped, source };
 }

@@ -277,3 +277,77 @@ test('does not call fetchBoards when targets are only disabled', async () => {
   assert.equal(fetchBoardsCalled, false);
   assert.equal(result.source, 'adzuna');
 });
+
+test('handles multiple sources when the second throws: completes, inserts first jobs, source reflects only contributing one', async () => {
+  const created: CreateJobBody[] = [];
+  let n = 0;
+  const src1 = {
+    name: 'adzuna',
+    search: async () => [sourced('https://x/1', { source: 'adzuna' })],
+  };
+  const src2 = {
+    name: 'usajobs',
+    search: async () => {
+      throw new Error('USAJobs upstream failure');
+    },
+  };
+
+  const deps: DiscoveryDeps = {
+    sources: [src1, src2],
+    listJobs: async () => [],
+    createJob: async (_userId, body) => {
+      created.push(body);
+      n += 1;
+      return { ...(body as object), id: `job-${n}` } as unknown as JobRecord;
+    },
+    listSavedSearches: async () => [SEARCH],
+    getResume: async () => 'resume',
+    saveAnalysis: async () => undefined,
+  };
+
+  const result = await runDiscoveryForUser('u', deps);
+
+  assert.equal(result.inserted, 1);
+  assert.equal(result.skipped, 0);
+  assert.equal(result.source, 'adzuna');
+  assert.equal(created.length, 1);
+  assert.equal(created[0]?.jobUrl, 'https://x/1');
+});
+
+test('deduplicates jobs across multiple sources by URL: duplicate URL inserts once', async () => {
+  const created: CreateJobBody[] = [];
+  let n = 0;
+  const src1 = {
+    name: 'adzuna',
+    search: async () => [sourced('https://shared/1', { source: 'adzuna', title: 'Adzuna Version' })],
+  };
+  const src2 = {
+    name: 'themuse',
+    search: async () => [
+      sourced('https://shared/1', { source: 'themuse', title: 'TheMuse Duplicate' }),
+      sourced('https://unique/2', { source: 'themuse', title: 'TheMuse Unique' }),
+    ],
+  };
+
+  const deps: DiscoveryDeps = {
+    sources: [src1, src2],
+    listJobs: async () => [],
+    createJob: async (_userId, body) => {
+      created.push(body);
+      n += 1;
+      return { ...(body as object), id: `job-${n}` } as unknown as JobRecord;
+    },
+    listSavedSearches: async () => [SEARCH],
+    getResume: async () => 'resume',
+    saveAnalysis: async () => undefined,
+  };
+
+  const result = await runDiscoveryForUser('u', deps);
+
+  assert.equal(result.inserted, 2);
+  assert.equal(result.skipped, 1);
+  assert.equal(result.source, 'adzuna+themuse');
+  assert.equal(created.length, 2);
+  assert.equal(created[0]?.jobUrl, 'https://shared/1');
+  assert.equal(created[1]?.jobUrl, 'https://unique/2');
+});
