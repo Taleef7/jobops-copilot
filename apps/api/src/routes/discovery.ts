@@ -3,7 +3,7 @@ import { requireUser } from '@/lib/auth';
 import { createJob, listJobs, saveJobAnalysis } from '@/data/job-store';
 import { getUserProfile } from '@/data/profile-store';
 import { listSavedSearches, listUsersWithSavedSearches } from '@/data/saved-search-store';
-import { listTargetCompanies } from '@/data/target-company-store';
+import { listTargetCompanies, listUsersWithEnabledTargetCompanies } from '@/data/target-company-store';
 import { getJobSource } from '@/lib/job-sources';
 import { fetchTargetCompanyBoards } from '@/lib/job-sources/boards';
 import { requireN8nWebhookSecret } from '@/lib/n8n';
@@ -12,6 +12,7 @@ import { runDiscoveryForUser, type DiscoveryResult } from '@/lib/discovery';
 export interface DiscoveryRouterDeps {
   runDiscovery: (userId: string) => Promise<DiscoveryResult>;
   listUsersWithSavedSearches: typeof listUsersWithSavedSearches;
+  listSweepUsers?: () => Promise<string[]>;
 }
 
 const defaultDeps: DiscoveryRouterDeps = {
@@ -27,6 +28,13 @@ const defaultDeps: DiscoveryRouterDeps = {
       fetchBoards: fetchTargetCompanyBoards,
     }),
   listUsersWithSavedSearches,
+  listSweepUsers: async () => {
+    const [searchUsers, boardUsers] = await Promise.all([
+      listUsersWithSavedSearches(),
+      listUsersWithEnabledTargetCompanies(),
+    ]);
+    return [...new Set([...searchUsers, ...boardUsers])];
+  },
 };
 
 /** User-facing discovery: `POST /api/discovery/run`. */
@@ -49,7 +57,7 @@ export function createDiscoveryRouter(deps: DiscoveryRouterDeps = defaultDeps) {
 /**
  * Service-to-service scheduled sweep: `POST /api/n8n/discover`. Mounted under
  * `/api/n8n` so it inherits the shared-API-key exemption; guarded by the n8n
- * webhook secret. Iterates every user with saved searches.
+ * webhook secret. Iterates every user with saved searches or enabled target companies.
  */
 export function createDiscoverySweepRouter(deps: DiscoveryRouterDeps = defaultDeps) {
   const router = Router();
@@ -57,7 +65,7 @@ export function createDiscoverySweepRouter(deps: DiscoveryRouterDeps = defaultDe
 
   router.post('/', async (_request, response, next) => {
     try {
-      const userIds = await deps.listUsersWithSavedSearches();
+      const userIds = await (deps.listSweepUsers ? deps.listSweepUsers() : deps.listUsersWithSavedSearches());
       let inserted = 0;
       let skipped = 0;
       const perUser: Array<{ user_id: string } & DiscoveryResult> = [];
@@ -75,7 +83,7 @@ export function createDiscoverySweepRouter(deps: DiscoveryRouterDeps = defaultDe
         inserted,
         skipped,
         per_user: perUser,
-        notification: `Discovery swept ${userIds.length} saved-search user(s): ${inserted} new, ${skipped} skipped.`,
+        notification: `Discovery swept ${userIds.length} user(s): ${inserted} new, ${skipped} skipped.`,
       });
     } catch (error) {
       next(error);

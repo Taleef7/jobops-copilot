@@ -1,4 +1,3 @@
-import { parse } from 'node-html-parser';
 import { parseSalaryFromText } from '@/lib/job-enrich';
 import type { TargetCompany } from '@/types';
 import {
@@ -63,10 +62,39 @@ export interface AshbyRawJob {
   workplaceType?: string;
 }
 
+function decodeEntities(str: string): string {
+  return str
+    .replace(/&lt;/gi, '<')
+    .replace(/&gt;/gi, '>')
+    .replace(/&quot;/gi, '"')
+    .replace(/&#39;|&apos;/gi, "'")
+    .replace(/&nbsp;/gi, ' ')
+    .replace(/&amp;/gi, '&');
+}
+
 export function htmlToText(html: string): string {
   if (!html) return '';
-  const unescaped = parse(html).textContent;
-  return parse(unescaped).textContent.trim();
+  // Pass 1: Decode entities (twice if needed for double-encoded inputs like Greenhouse)
+  let text = decodeEntities(html);
+  if (/&(?:[a-z]+|#\d+);/i.test(text)) {
+    text = decodeEntities(text);
+  }
+
+  // Pass 2: Insert whitespace and structure around block-level HTML tags
+  text = text
+    .replace(/<\s*(?:br|hr)\s*\/?>/gi, '\n')
+    .replace(/<\s*\/\s*(?:p|div|tr|h[1-6]|section|article)\s*>/gi, '\n')
+    .replace(/<\s*li\b[^>]*>/gi, '\n• ')
+    .replace(/<\s*\/\s*li\s*>/gi, '')
+    .replace(/<[^>]+>/g, '');
+
+  // Pass 3: Normalize whitespace and collapse excess blank lines
+  return text
+    .split('\n')
+    .map((line) => line.trim())
+    .filter((line, idx, arr) => line.length > 0 || (idx > 0 && arr[idx - 1]?.length !== 0))
+    .join('\n')
+    .trim();
 }
 
 export function normalizeGreenhouse(raw: GreenhouseRawJob, company?: string): SourcedJob {

@@ -19,6 +19,11 @@ describe('boards job source', () => {
     assert.equal(htmlToText(''), '');
   });
 
+  it('htmlToText preserves block separators between paragraphs and list elements', () => {
+    assert.equal(htmlToText('<p>First.</p><p>Second.</p>'), 'First.\nSecond.');
+    assert.equal(htmlToText('<ul><li>React</li><li>Node.js</li></ul>'), '• React\n• Node.js');
+  });
+
   it('normalizes Greenhouse raw job, unescaping entities and stripping HTML tags while extracting salary', () => {
     const raw: GreenhouseRawJob = {
       id: 12345,

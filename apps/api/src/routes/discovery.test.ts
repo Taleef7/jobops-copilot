@@ -162,3 +162,34 @@ test('POST /api/n8n/discover is guarded by the n8n webhook secret', async () => 
     restore();
   }
 });
+
+test('POST /api/n8n/discover uses listSweepUsers to include board-only users', async () => {
+  const restore = snapshotEnv(['N8N_WEBHOOK_SECRET']);
+  process.env.N8N_WEBHOOK_SECRET = 'n8n-secret';
+  try {
+    const sweptUsers: string[] = [];
+    const router = createDiscoverySweepRouter({
+      runDiscovery: async (uid) => {
+        sweptUsers.push(uid);
+        return { inserted: 1, skipped: 0, source: 'greenhouse' };
+      },
+      listUsersWithSavedSearches: async () => ['search_user'],
+      listSweepUsers: async () => ['search_user', 'board_user'],
+    });
+    await withServer(
+      (app) => app.use('/api/n8n/discover', router),
+      async (baseUrl) => {
+        const response = await fetch(`${baseUrl}/api/n8n/discover`, {
+          method: 'POST',
+          headers: { 'X-N8N-Webhook-Secret': 'n8n-secret' },
+        });
+        assert.equal(response.status, 200);
+        const data = (await response.json()) as { users: number };
+        assert.equal(data.users, 2);
+        assert.deepEqual(sweptUsers, ['search_user', 'board_user']);
+      },
+    );
+  } finally {
+    restore();
+  }
+});
