@@ -8,6 +8,7 @@ import { getJobSources } from '@/lib/job-sources';
 import { fetchTargetCompanyBoards } from '@/lib/job-sources/boards';
 import { requireN8nWebhookSecret } from '@/lib/n8n';
 import { runDiscoveryForUser, type DiscoveryResult } from '@/lib/discovery';
+import { upgradeToFullJd } from '@/lib/jd-upgrade';
 import { lookupSponsorLikelihood } from '@/lib/sponsorship';
 
 export interface DiscoveryRouterDeps {
@@ -28,6 +29,7 @@ const defaultDeps: DiscoveryRouterDeps = {
       listTargetCompanies,
       fetchBoards: fetchTargetCompanyBoards,
       lookupSponsor: lookupSponsorLikelihood,
+      upgradeJd: upgradeToFullJd,
     }),
   listUsersWithSavedSearches,
   listSweepUsers: async () => {

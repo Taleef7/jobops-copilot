@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { groundingFromParsed, type ParsedJobOutput } from './analysis-core';
+import { groundingFromParsed, keywordCatalog, type ParsedJobOutput } from './analysis-core';
 
 const fallback = {
   requiredSkills: ['Python'],
@@ -38,4 +38,10 @@ test('groundingFromParsed falls back to the stored analysis when the parse is in
   assert.deepEqual(grounding.requiredSkills, ['Python']);
   assert.deepEqual(grounding.preferredSkills, ['SQL']);
   assert.deepEqual(grounding.atsKeywords, ['Python', 'SQL']);
+});
+
+test('keywordCatalog has no duplicates and contains at least 50 entries', () => {
+  assert.ok(keywordCatalog.length >= 50, `Expected keywordCatalog to have >= 50 items, but got ${keywordCatalog.length}`);
+  const uniqueKeywords = new Set(keywordCatalog.map((k) => k.toLowerCase()));
+  assert.equal(uniqueKeywords.size, keywordCatalog.length, 'keywordCatalog contains duplicate keywords (case-insensitive)');
 });
