@@ -75,14 +75,16 @@ export function withCachedSearch(
   source: JobSource,
   cache: AsyncTtlCache<SourcedJob[]>,
   country: () => string,
+  cacheNamespace?: string,
 ): JobSource {
+  const namespace = cacheNamespace ?? source.name;
   return {
     get name() {
       return source.name;
     },
     async search(query, opts = {}) {
       const results = await cache.getOrCompute(
-        jobSearchCacheKey(query, opts, country(), source.name),
+        jobSearchCacheKey(query, opts, country(), namespace),
         () => source.search(query, opts),
       );
       // Copy so a caller mutating results in place can't poison the shared
@@ -101,11 +103,13 @@ export function withCachedSearch(
  * source); the authoritative per-job provider is each job's `source` field.
  */
 export function getJobSource(): JobSource {
-  const base = adzunaConfigured() ? createComposite() : createRemotiveSource();
+  const isAdzuna = adzunaConfigured();
+  const base = isAdzuna ? createComposite() : createRemotiveSource();
   return withCachedSearch(
     base,
     jobSearchCache,
     () => process.env.ADZUNA_COUNTRY?.trim() || 'us',
+    isAdzuna ? 'adzuna' : 'remotive',
   );
 }
 

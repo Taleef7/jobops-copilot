@@ -85,7 +85,9 @@ export function createTheMuseSource(): JobSource {
       }
 
       const location = opts.location?.trim().toLowerCase();
-      if (location && !NON_GEOGRAPHIC.has(location)) {
+      if (opts.remoteOnly || (location && NON_GEOGRAPHIC.has(location))) {
+        jobs = jobs.filter((job) => job.workplaceType === 'remote');
+      } else if (location) {
         jobs = jobs.filter((job) => (job.location ?? '').toLowerCase().includes(location));
       }
 

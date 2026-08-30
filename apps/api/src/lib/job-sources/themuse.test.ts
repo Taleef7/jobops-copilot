@@ -81,3 +81,51 @@ test('createTheMuseSource applies AND-filter across query terms', async () => {
     globalThis.fetch = originalFetch;
   }
 });
+
+test('createTheMuseSource honors remoteOnly option', async () => {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = (async (input: Parameters<typeof fetch>[0]) => {
+    const url = new URL(String(input));
+    if (url.searchParams.get('page') === '0') {
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({
+          results: [
+            {
+              id: 1,
+              name: 'Remote Engineer',
+              contents: '<p>Remote work from home</p>',
+              company: { name: 'Acme' },
+              locations: [{ name: 'Flexible / Remote' }],
+              refs: { landing_page: 'https://themuse/1' },
+            },
+            {
+              id: 2,
+              name: 'Onsite Engineer',
+              contents: '<p>In-office physical role</p>',
+              company: { name: 'Globex' },
+              locations: [{ name: 'New York, NY' }],
+              refs: { landing_page: 'https://themuse/2' },
+            },
+          ],
+        }),
+      } as Response;
+    }
+    return {
+      ok: true,
+      status: 200,
+      json: async () => ({ results: [] }),
+    } as Response;
+  }) as typeof fetch;
+
+  try {
+    const source = createTheMuseSource();
+    const results = await source.search('', { remoteOnly: true });
+    assert.equal(results.length, 1);
+    assert.equal(results[0]?.title, 'Remote Engineer');
+    assert.equal(results[0]?.workplaceType, 'remote');
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
