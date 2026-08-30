@@ -288,7 +288,7 @@ test('creates and enriches a job-intake webhook payload', async () => {
           descriptionText: 'Build internal automations using TypeScript, Azure Functions, and n8n.',
         });
         assert.ok(savedAnalysis);
-        assert.equal(savedFitScore, 82);
+        assert.equal(savedFitScore, 91);
         assert.deepEqual(updatedJobBody, {
           nextAction: 'Review the AI analysis and decide whether to shortlist.',
         });

@@ -85,3 +85,22 @@ test('prerankAnalysis leaves the score unset when evidence is thin', () => {
   assert.equal(analysis.modelUsed, PRERANK_MODEL);
   assert.deepEqual(analysis.matchedSkills, ['TypeScript']);
 });
+
+test('realistic 1500-char JD mentioning Python, PostgreSQL, Docker, Kubernetes, Terraform clears evidence floor', () => {
+  const intro = 'We are seeking an experienced Platform Engineer to scale our infrastructure. ';
+  const requirements = 'Key technologies required: Python, PostgreSQL, Docker, Kubernetes, Terraform. ';
+  const details = 'You will be responsible for building reliable deployment pipelines, designing robust backend services, monitoring cluster health, collaborating with product engineers, conducting architecture reviews, optimizing database queries, and participating in on-call rotations. We value clean code, strong testing practices, and clear documentation across all engineering workflows. '.repeat(4);
+  const fullJd = (intro + requirements + details).slice(0, 1500);
+
+  assert.equal(fullJd.length, 1500);
+
+  // Resume contains three of them: Docker, Kubernetes, Terraform
+  const resume = 'Experienced Platform Engineer skilled in Docker containerization, Kubernetes orchestration, and Terraform infrastructure.';
+
+  const { score, matchedSkills } = computeLocalFit(fullJd, resume);
+
+  assert.notEqual(score, null);
+  assert.equal(typeof score, 'number');
+  assert.equal(score, 60); // 3 of 5 (Python, PostgreSQL, Docker, Kubernetes, Terraform) = 60%
+  assert.deepEqual(matchedSkills.sort(), ['Docker', 'Kubernetes', 'Terraform']);
+});

@@ -8,6 +8,7 @@ import { prerankAnalysis } from '@/lib/local-fit';
 import type { JobSource } from '@/lib/job-sources';
 import { dedupKey, fingerprintKey, type SourcedJob } from '@/lib/job-sources/normalize';
 import { fetchTargetCompanyBoards } from '@/lib/job-sources/boards';
+import { FULL_JD_MIN_CHARS, type upgradeToFullJd } from '@/lib/jd-upgrade';
 import type { SponsorLikelihood, TargetCompany } from '@/types';
 
 export interface DiscoveryResult {
@@ -27,6 +28,7 @@ export interface DiscoveryDeps {
   listTargetCompanies?: (userId: string) => Promise<TargetCompany[]>;
   fetchBoards?: typeof fetchTargetCompanyBoards;
   lookupSponsor?: (company: string) => Promise<SponsorLikelihood | null>;
+  upgradeJd?: typeof upgradeToFullJd;
 }
 
 /**
@@ -60,6 +62,9 @@ function isDuplicateKeyError(error: unknown): boolean {
  * the run). A single failing search is skipped rather than aborting the run.
  */
 export async function runDiscoveryForUser(userId: string, deps: DiscoveryDeps): Promise<DiscoveryResult> {
+  const JD_FETCH_CAP = Number(process.env.DISCOVERY_JD_FETCH_CAP ?? 25);
+  const JD_UPGRADE_TIME_BUDGET_MS = Number(process.env.DISCOVERY_JD_UPGRADE_BUDGET_MS ?? 15_000);
+  const jdUpgradeDeadline = Date.now() + JD_UPGRADE_TIME_BUDGET_MS;
   const searches = await deps.listSavedSearches(userId);
   const seen = new Set((await deps.listJobs(userId)).flatMap(keysFor));
   const resume = await deps.getResume(userId);
@@ -72,6 +77,7 @@ export async function runDiscoveryForUser(userId: string, deps: DiscoveryDeps): 
 
   let inserted = 0;
   let skipped = 0;
+  let jdFetchAttempts = 0;
   const contributingSources = new Set<string>();
 
   async function insertIfNew(job: SourcedJob): Promise<void> {
@@ -84,6 +90,22 @@ export async function runDiscoveryForUser(userId: string, deps: DiscoveryDeps): 
     // copy in the same run is recognised as a duplicate.
     for (const k of keysFor(job)) seen.add(k);
     try {
+      const currentDesc = job.descriptionText ?? '';
+      const remainingBudgetMs = jdUpgradeDeadline - Date.now();
+      if (
+        deps.upgradeJd &&
+        job.jobUrl &&
+        currentDesc.length < FULL_JD_MIN_CHARS &&
+        jdFetchAttempts < JD_FETCH_CAP &&
+        remainingBudgetMs > 500
+      ) {
+        jdFetchAttempts += 1;
+        const { job: upgraded } = await deps.upgradeJd(job, {}, {
+          timeoutMs: Math.min(8_000, remainingBudgetMs),
+        });
+        job = upgraded;
+      }
+
       const sponsor = deps.lookupSponsor ? await deps.lookupSponsor(job.company) : null;
       const createdJob = await deps.createJob(userId, {
         ...job,

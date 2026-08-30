@@ -370,3 +370,95 @@ test('passes sponsorLikelihood to createJob when lookupSponsor returns a known s
     denials: 1,
   });
 });
+
+test('with DISCOVERY_JD_FETCH_CAP unset, calls upgradeJd stub exactly 25 times for 30 eligible snippet jobs', async () => {
+  const originalEnv = process.env.DISCOVERY_JD_FETCH_CAP;
+  delete process.env.DISCOVERY_JD_FETCH_CAP;
+
+  try {
+    const snippetJobs = Array.from({ length: 30 }, (_, i) =>
+      sourced(`https://example.com/job/${i}`, {
+        company: `Company ${i}`,
+        title: `Engineer ${i}`,
+        descriptionText: 'Short snippet description',
+      }),
+    );
+
+    let upgradeCalls = 0;
+    const { deps } = makeDeps(snippetJobs, []);
+    deps.upgradeJd = async (job) => {
+      upgradeCalls += 1;
+      return { job, upgraded: false };
+    };
+
+    await runDiscoveryForUser('u', deps);
+
+    assert.equal(upgradeCalls, 25);
+  } finally {
+    if (originalEnv !== undefined) {
+      process.env.DISCOVERY_JD_FETCH_CAP = originalEnv;
+    } else {
+      delete process.env.DISCOVERY_JD_FETCH_CAP;
+    }
+  }
+});
+
+test('prerank runs on upgraded text so saveAnalysis receives non-null fitScore', async () => {
+  // Original snippet has no catalog keywords -> prerank would produce null score.
+  const snippetJob = sourced('https://example.com/job/prerank', {
+    company: 'Upgraded Tech',
+    title: 'Software Engineer',
+    descriptionText: 'Just a brief snippet.',
+  });
+
+  // Resume has TypeScript, React, and Node.js
+  const resume = 'Senior engineer with TypeScript, React, and Node.js experience.';
+  const { deps, analyses } = makeDeps([snippetJob], [], resume);
+
+  deps.upgradeJd = async (job) => {
+    return {
+      job: {
+        ...job,
+        descriptionText: 'Full JD: We use TypeScript, React, and Node.js daily to build products.',
+      },
+      upgraded: true,
+    };
+  };
+
+  await runDiscoveryForUser('u', deps);
+
+  assert.equal(analyses.length, 1);
+  assert.notEqual(analyses[0]?.fitScore, null);
+  assert.equal(analyses[0]?.fitScore, 100);
+});
+
+test('runDiscoveryForUser stops attempting JD upgrades when upgrade time budget is exhausted', async () => {
+  const originalBudget = process.env.DISCOVERY_JD_UPGRADE_BUDGET_MS;
+  process.env.DISCOVERY_JD_UPGRADE_BUDGET_MS = '0';
+
+  try {
+    const jobs: SourcedJob[] = Array.from({ length: 5 }, (_, i) => ({
+      source: 'adzuna',
+      company: `Company ${i}`,
+      title: `Software Engineer ${i}`,
+      descriptionText: 'Snippet',
+      jobUrl: `https://example.com/job/${i}`,
+    }));
+
+    let upgradeCalls = 0;
+    const { deps } = makeDeps(jobs, []);
+    deps.upgradeJd = async (job) => {
+      upgradeCalls += 1;
+      return { job, upgraded: false };
+    };
+
+    await runDiscoveryForUser('u', deps);
+    assert.equal(upgradeCalls, 0);
+  } finally {
+    if (originalBudget !== undefined) {
+      process.env.DISCOVERY_JD_UPGRADE_BUDGET_MS = originalBudget;
+    } else {
+      delete process.env.DISCOVERY_JD_UPGRADE_BUDGET_MS;
+    }
+  }
+});
