@@ -22,6 +22,9 @@ export type OutreachMessageType =
 
 export type JobPriority = 'high' | 'medium' | 'low';
 export type WorkplaceType = 'remote' | 'hybrid' | 'onsite' | 'flexible';
+export type JobSeniority = 'junior' | 'mid' | 'senior' | 'lead' | 'unknown';
+export type SponsorLikelihood = 'likely' | 'possible' | 'unlikely' | 'unknown';
+export type JobLiveness = 'active' | 'stale' | 'expired';
 
 export interface JobAnalysis {
   requiredSkills: string[];
@@ -73,6 +76,14 @@ export interface Job {
   nextActionDue?: string;
   analysis: JobAnalysis;
   outreach: OutreachDraft[];
+  salaryMin?: number | null;
+  salaryMax?: number | null;
+  salaryCurrency?: string | null;
+  seniority?: JobSeniority;
+  sponsorLikelihood?: SponsorLikelihood | null;
+  contentHash?: string | null;
+  lastSeenAt?: string | null;
+  liveness?: JobLiveness;
   createdAt?: string;
   updatedAt?: string;
 }

@@ -39,6 +39,14 @@ export interface CreateJobPayload {
   priority?: Job['priority'];
   notes?: string;
   descriptionText: string;
+  salaryMin?: number | null;
+  salaryMax?: number | null;
+  salaryCurrency?: string | null;
+  seniority?: Job['seniority'];
+  sponsorLikelihood?: Job['sponsorLikelihood'];
+  contentHash?: string | null;
+  lastSeenAt?: string | null;
+  liveness?: Job['liveness'];
 }
 
 export interface UpdateJobPayload {

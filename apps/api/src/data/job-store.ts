@@ -16,6 +16,7 @@ import { hasPostgresConnection } from '@/lib/postgres';
 import { paginateArray, type PageParams } from '@/lib/pagination';
 import * as postgresStore from '@/data/job-store.postgres';
 import { seedJobs } from '@/data/mock-store';
+import { computeContentHash, parseSalaryFromText, parseSeniority } from '@/lib/job-enrich';
 
 // Resolved per call (not once at import) so tests can redirect the store with chdir.
 function dataDir() {
@@ -35,18 +36,19 @@ function clone<T>(value: T): T {
 }
 
 function defaultAnalysis(descriptionText: string): JobAnalysis {
-  const keywords = extractKeywords(descriptionText);
+  const matched = extractKeywords(descriptionText);
 
   return {
-    requiredSkills: keywords.slice(0, 5),
-    preferredSkills: keywords.slice(5, 8),
-    matchedSkills: [],
-    missingSkills: keywords.slice(0, 3),
-    atsKeywords: keywords.slice(0, 6),
-    fitSummary: 'Initial placeholder analysis waiting for AI processing.',
-    recommendedResumeAngle: 'Emphasize truthful, relevant experience from the current resume.',
-    applyRecommendation: 'Review manually before deciding whether to apply.',
-    confidenceScore: 48,
+    requiredSkills: matched.slice(0, 4),
+    preferredSkills: matched.slice(4, 6),
+    matchedSkills: matched.slice(0, 3),
+    missingSkills: matched.slice(3, 5),
+    atsKeywords: matched,
+    fitSummary:
+      'Initial baseline fit generated at job intake. Re-run analysis or score fit for full evaluation.',
+    recommendedResumeAngle: 'Highlight transferable delivery and full-stack ownership.',
+    applyRecommendation: 'review',
+    confidenceScore: 0.65,
     modelUsed: 'mock-analysis-v1',
   };
 }
@@ -80,6 +82,24 @@ function extractKeywords(text: string): string[] {
 
 function createBaseJob(userId: string, body: CreateJobBody): JobRecord {
   const timestamp = new Date().toISOString();
+  const parsedSalary =
+    body.salaryMin == null && body.salaryMax == null
+      ? parseSalaryFromText(body.descriptionText)
+      : null;
+  const salaryMin = body.salaryMin ?? parsedSalary?.min ?? null;
+  const salaryMax = body.salaryMax ?? parsedSalary?.max ?? null;
+  const salaryCurrency = body.salaryCurrency ?? (parsedSalary ? parsedSalary.currency : null);
+  const seniority = body.seniority ?? parseSeniority(body.title, body.descriptionText);
+  const contentHash =
+    body.contentHash ??
+    computeContentHash({
+      company: body.company,
+      title: body.title,
+      descriptionText: body.descriptionText,
+    });
+  const lastSeenAt = body.lastSeenAt ?? timestamp;
+  const liveness = body.liveness ?? 'active';
+  const sponsorLikelihood = body.sponsorLikelihood ?? null;
 
   return {
     id: randomUUID(),
@@ -102,6 +122,14 @@ function createBaseJob(userId: string, body: CreateJobBody): JobRecord {
     nextActionDue: undefined,
     analysis: defaultAnalysis(body.descriptionText),
     outreach: [],
+    salaryMin,
+    salaryMax,
+    salaryCurrency,
+    seniority,
+    sponsorLikelihood,
+    contentHash,
+    lastSeenAt,
+    liveness,
     createdAt: timestamp,
     updatedAt: timestamp,
   };

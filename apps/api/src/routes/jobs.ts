@@ -8,11 +8,22 @@ import {
 } from '@/data/job-store';
 import { requireUser } from '@/lib/auth';
 import { parsePageParams } from '@/lib/pagination';
-import type { CreateJobBody, JobPriority, JobStatus, UpdateJobBody } from '@/types';
+import type {
+  CreateJobBody,
+  JobLiveness,
+  JobPriority,
+  JobSeniority,
+  JobStatus,
+  SponsorLikelihood,
+  UpdateJobBody,
+} from '@/types';
 
 export const jobsRouter = Router();
 
 const allowedPriorities = new Set<JobPriority>(['high', 'medium', 'low']);
+const allowedSeniorities = new Set<JobSeniority>(['junior', 'mid', 'senior', 'lead', 'unknown']);
+const allowedSponsorLikelihoods = new Set<SponsorLikelihood>(['likely', 'possible', 'unlikely', 'unknown']);
+const allowedLivenesses = new Set<JobLiveness>(['active', 'stale', 'expired']);
 const allowedStatuses = new Set<JobStatus>([
   'discovered',
   'shortlisted',
@@ -83,6 +94,21 @@ jobsRouter.post('/', async (request, response, next) => {
     if (body.workplaceType && !['remote', 'hybrid', 'onsite', 'flexible'].includes(body.workplaceType)) {
       errors.workplaceType = 'Workplace type must be remote, hybrid, onsite, or flexible.';
     }
+    if (body.seniority && !allowedSeniorities.has(body.seniority)) {
+      errors.seniority = 'Seniority must be junior, mid, senior, lead, or unknown.';
+    }
+    if (body.sponsorLikelihood && !allowedSponsorLikelihoods.has(body.sponsorLikelihood)) {
+      errors.sponsorLikelihood = 'Sponsor likelihood must be likely, possible, unlikely, or unknown.';
+    }
+    if (body.liveness && !allowedLivenesses.has(body.liveness)) {
+      errors.liveness = 'Liveness must be active, stale, or expired.';
+    }
+    if (body.salaryMin !== undefined && body.salaryMin !== null && (typeof body.salaryMin !== 'number' || Number.isNaN(body.salaryMin))) {
+      errors.salaryMin = 'Salary min must be a valid number.';
+    }
+    if (body.salaryMax !== undefined && body.salaryMax !== null && (typeof body.salaryMax !== 'number' || Number.isNaN(body.salaryMax))) {
+      errors.salaryMax = 'Salary max must be a valid number.';
+    }
 
     if (Object.keys(errors).length > 0) {
       response.status(400).json({ error: 'Invalid job payload', fields: errors });
@@ -101,6 +127,14 @@ jobsRouter.post('/', async (request, response, next) => {
       datePosted: body.datePosted || undefined,
       priority: body.priority,
       notes: body.notes?.trim() || undefined,
+      salaryMin: body.salaryMin,
+      salaryMax: body.salaryMax,
+      salaryCurrency: body.salaryCurrency?.trim() || undefined,
+      seniority: body.seniority,
+      sponsorLikelihood: body.sponsorLikelihood,
+      contentHash: body.contentHash?.trim() || undefined,
+      lastSeenAt: body.lastSeenAt || undefined,
+      liveness: body.liveness,
     });
 
     response.status(201).json({ job });

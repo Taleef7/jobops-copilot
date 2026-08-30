@@ -13,6 +13,7 @@ import { getPool } from '@/lib/postgres';
 import type { PageParams } from '@/lib/pagination';
 import { deriveOutreachJobUpdate } from '@/lib/outreach-workflow';
 import { seedJobs } from '@/data/mock-store';
+import { computeContentHash, parseSalaryFromText, parseSeniority } from '@/lib/job-enrich';
 
 type JobRow = {
   id: string;
@@ -32,6 +33,14 @@ type JobRow = {
   notes: string | null;
   next_action: string | null;
   next_action_due: string | null;
+  salary_min: number | null;
+  salary_max: number | null;
+  salary_currency: string | null;
+  seniority: string | null;
+  sponsor_likelihood: string | null;
+  content_hash: string | null;
+  last_seen_at: string | null;
+  liveness: string;
   created_at: string;
   updated_at: string;
 };
@@ -160,6 +169,14 @@ function mapJob(row: JobRow, analysisRow?: JobAnalysisRow, outreachRows: Outreac
     nextActionDue: toIsoString(row.next_action_due),
     analysis: mapAnalysis(analysisRow, row.description_text),
     outreach: outreachRows.map(mapOutreach),
+    salaryMin: row.salary_min ?? null,
+    salaryMax: row.salary_max ?? null,
+    salaryCurrency: row.salary_currency ?? null,
+    seniority: (row.seniority as JobRecord['seniority']) ?? undefined,
+    sponsorLikelihood: (row.sponsor_likelihood as JobRecord['sponsorLikelihood']) ?? null,
+    contentHash: row.content_hash ?? null,
+    lastSeenAt: toIsoString(row.last_seen_at),
+    liveness: (row.liveness as JobRecord['liveness']) ?? 'active',
     createdAt: toIsoString(row.created_at) ?? row.created_at,
     updatedAt: toIsoString(row.updated_at) ?? row.updated_at,
   };
@@ -252,6 +269,25 @@ export async function createJob(userId: string, body: CreateJobBody): Promise<Jo
   const timestamp = new Date().toISOString();
   const nextAction = UNSCORED_NEXT_ACTION;
 
+  const parsedSalary =
+    body.salaryMin == null && body.salaryMax == null
+      ? parseSalaryFromText(body.descriptionText)
+      : null;
+  const salaryMin = body.salaryMin ?? parsedSalary?.min ?? null;
+  const salaryMax = body.salaryMax ?? parsedSalary?.max ?? null;
+  const salaryCurrency = body.salaryCurrency ?? (parsedSalary ? parsedSalary.currency : null);
+  const seniority = body.seniority ?? parseSeniority(body.title, body.descriptionText);
+  const contentHash =
+    body.contentHash ??
+    computeContentHash({
+      company: body.company,
+      title: body.title,
+      descriptionText: body.descriptionText,
+    });
+  const lastSeenAt = body.lastSeenAt ?? timestamp;
+  const liveness = body.liveness ?? 'active';
+  const sponsorLikelihood = body.sponsorLikelihood ?? null;
+
   try {
     await client.query('begin');
 
@@ -275,10 +311,18 @@ export async function createJob(userId: string, body: CreateJobBody): Promise<Jo
           fit_score,
           notes,
           next_action,
+          salary_min,
+          salary_max,
+          salary_currency,
+          seniority,
+          sponsor_likelihood,
+          content_hash,
+          last_seen_at,
+          liveness,
           created_at,
           updated_at
         ) values (
-          $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19
+          $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27
         )
         returning *
       `,
@@ -300,6 +344,14 @@ export async function createJob(userId: string, body: CreateJobBody): Promise<Jo
         null,
         body.notes?.trim() || null,
         nextAction,
+        salaryMin,
+        salaryMax,
+        salaryCurrency,
+        seniority,
+        sponsorLikelihood,
+        contentHash,
+        lastSeenAt,
+        liveness,
         timestamp,
         timestamp,
       ],
@@ -797,8 +849,13 @@ export async function seedDemoData(userId: string): Promise<void> {
         `insert into jobs (
           id, user_id, job_url, source, company, title, location, employment_type,
           workplace_type, date_posted, discovered_at, description_text, status, priority,
-          fit_score, notes, next_action, next_action_due, created_at, updated_at
-        ) values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20)`,
+          fit_score, notes, next_action, next_action_due,
+          salary_min, salary_max, salary_currency, seniority, sponsor_likelihood,
+          content_hash, last_seen_at, liveness,
+          created_at, updated_at
+        ) values (
+          $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28
+        )`,
         [
           jobId,
           userId,
@@ -818,6 +875,14 @@ export async function seedDemoData(userId: string): Promise<void> {
           job.notes ?? null,
           job.nextAction ?? null,
           job.nextActionDue ?? null,
+          job.salaryMin ?? null,
+          job.salaryMax ?? null,
+          job.salaryCurrency ?? null,
+          job.seniority ?? null,
+          job.sponsorLikelihood ?? null,
+          job.contentHash ?? null,
+          job.lastSeenAt ?? job.discoveredAt,
+          job.liveness ?? 'active',
           job.createdAt,
           job.updatedAt,
         ],
