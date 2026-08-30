@@ -4,6 +4,8 @@ import { currentUser } from '@clerk/nextjs/server';
 import { Database, FileText, Webhook } from 'lucide-react';
 import { SectionCard } from '@/components/section-card';
 import { DemoDataActions, ExportDataButton, ResumeReupload } from '@/components/settings-actions';
+import { SavedSearchesManager } from '@/components/saved-searches';
+import { TargetCompaniesManager } from '@/components/target-companies';
 import { Badge } from '@/components/ui/badge';
 import { Card } from '@/components/ui/card';
 import { fetchProfile, fetchStatus } from '@/lib/api';
@@ -156,6 +158,14 @@ export default async function SettingsPage() {
           {status?.agent.rag_enabled ? <Badge variant="secondary">pgvector enabled</Badge> : null}
           <ExportDataButton />
         </div>
+      </SectionCard>
+
+      <SectionCard title="Saved searches" description="Keyword searches used for job discovery.">
+        <SavedSearchesManager />
+      </SectionCard>
+
+      <SectionCard title="Target companies" description="ATS boards to poll for new openings.">
+        <TargetCompaniesManager />
       </SectionCard>
 
       <SectionCard title="Demo" description="Explore with sample data or start clean.">
