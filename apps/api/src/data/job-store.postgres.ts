@@ -150,11 +150,14 @@ function mapOutreach(row: OutreachRow): OutreachDraft {
 
 function parseSponsorLikelihood(raw: string | null): JobRecord['sponsorLikelihood'] {
   if (!raw) return null;
-  try {
-    return JSON.parse(raw) as JobRecord['sponsorLikelihood'];
-  } catch {
-    return raw as JobRecord['sponsorLikelihood'];
+  if (raw.startsWith('{')) {
+    try {
+      return JSON.parse(raw) as JobRecord['sponsorLikelihood'];
+    } catch {
+      return raw as JobRecord['sponsorLikelihood'];
+    }
   }
+  return raw as JobRecord['sponsorLikelihood'];
 }
 
 function mapJob(row: JobRow, analysisRow?: JobAnalysisRow, outreachRows: OutreachRow[] = []): JobRecord {
@@ -296,10 +299,10 @@ export async function createJob(userId: string, body: CreateJobBody): Promise<Jo
   const lastSeenAt = body.lastSeenAt ?? timestamp;
   const liveness = body.liveness ?? 'active';
   const sponsorLikelihood =
-    body.sponsorLikelihood !== undefined
-      ? body.sponsorLikelihood
+    body.sponsorLikelihood !== undefined && body.sponsorLikelihood !== null
+      ? typeof body.sponsorLikelihood === 'object'
         ? JSON.stringify(body.sponsorLikelihood)
-        : null
+        : body.sponsorLikelihood
       : null;
 
   try {
