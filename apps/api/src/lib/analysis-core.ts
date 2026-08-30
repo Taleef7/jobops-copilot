@@ -112,8 +112,22 @@ function unique(values: string[]) {
   return [...new Set(values.map((value) => value.trim()).filter(Boolean))];
 }
 
+function escapeRegex(str: string): string {
+  return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+const keywordRegexes = keywordCatalog.map((keyword) => {
+  const escaped = escapeRegex(keyword);
+  // Match keyword bounded by non-alphanumeric characters or string ends,
+  // treating # and + as word-like characters so C# and C++ aren't truncated.
+  const regex = new RegExp(`(^|[^a-zA-Z0-9#+])(${escaped})($|[^a-zA-Z0-9#+])`, 'i');
+  return { keyword, regex };
+});
+
 export function extractKeywords(text: string): string[] {
-  return keywordCatalog.filter((keyword) => text.toLowerCase().includes(keyword.toLowerCase()));
+  return keywordRegexes
+    .filter(({ regex }) => regex.test(text))
+    .map(({ keyword }) => keyword);
 }
 
 function inferCompany(description: string) {

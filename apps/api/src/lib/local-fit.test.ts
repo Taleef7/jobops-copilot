@@ -101,6 +101,6 @@ test('realistic 1500-char JD mentioning Python, PostgreSQL, Docker, Kubernetes, 
 
   assert.notEqual(score, null);
   assert.equal(typeof score, 'number');
-  assert.equal(score, 50); // 3 of 6 (Python, PostgreSQL, SQL, Docker, Kubernetes, Terraform) = 50%
+  assert.equal(score, 60); // 3 of 5 (Python, PostgreSQL, Docker, Kubernetes, Terraform) = 60%
   assert.deepEqual(matchedSkills.sort(), ['Docker', 'Kubernetes', 'Terraform']);
 });
