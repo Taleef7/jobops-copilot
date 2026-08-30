@@ -152,6 +152,17 @@ export async function deleteTargetCompany(userId: string, id: string): Promise<b
   });
 }
 
+export async function clearUserTargetCompanies(userId: string): Promise<void> {
+  if (hasPostgresConnection()) {
+    return postgresStore.clearUserTargetCompanies(userId);
+  }
+  return runExclusive(async () => {
+    const all = await ensureLoaded();
+    cache = all.filter((entry) => entry.userId !== userId);
+    await persist();
+  });
+}
+
 export function resetTargetCompanyStoreForTests() {
   cache = null;
   loadPromise = null;

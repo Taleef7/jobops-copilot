@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
 import {
+  clearUserTargetCompanies,
   createTargetCompany,
   deleteTargetCompany,
   listEnabledTargetCompanies,
@@ -70,6 +71,29 @@ test('setTargetCompanyEnabled returns undefined for unknown id', async () => {
 
     const result = await setTargetCompanyEnabled(USER, 'does-not-exist', false);
     assert.equal(result, undefined);
+  } finally {
+    process.chdir(originalCwd);
+    await rm(tempDir, { recursive: true, force: true });
+  }
+});
+
+test('clearUserTargetCompanies removes only the target user records', async () => {
+  const originalCwd = process.cwd();
+  const tempDir = await mkdtemp(join(tmpdir(), 'jobops-tc-store-clear-'));
+  try {
+    process.chdir(tempDir);
+    resetTargetCompanyStoreForTests();
+
+    await createTargetCompany(USER, { company: 'Stripe', boardType: 'greenhouse', boardToken: 'stripe' });
+    await createTargetCompany('other_user', { company: 'Linear', boardType: 'ashby', boardToken: 'linear' });
+
+    assert.equal((await listTargetCompanies(USER)).length, 1);
+    assert.equal((await listTargetCompanies('other_user')).length, 1);
+
+    await clearUserTargetCompanies(USER);
+
+    assert.equal((await listTargetCompanies(USER)).length, 0);
+    assert.equal((await listTargetCompanies('other_user')).length, 1);
   } finally {
     process.chdir(originalCwd);
     await rm(tempDir, { recursive: true, force: true });

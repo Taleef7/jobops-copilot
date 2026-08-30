@@ -82,3 +82,7 @@ export async function deleteTargetCompany(userId: string, id: string): Promise<b
   );
   return (rowCount ?? 0) > 0;
 }
+
+export async function clearUserTargetCompanies(userId: string): Promise<void> {
+  await poolOrThrow().query('delete from target_companies where user_id = $1', [userId]);
+}
