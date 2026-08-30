@@ -76,6 +76,30 @@ test('POST /api/jobs accepts and returns enriched schema fields', async () => {
       assert.equal(data.job.liveness, 'active');
       assert.match(data.job.contentHash ?? '', /^[0-9a-f]{64}$/);
     });
+
+    await withServer((app) => app.use('/api/jobs', jobsRouter), async (baseUrl) => {
+      const response = await fetch(`${baseUrl}/api/jobs`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-User-Id': 'test-user',
+        },
+        body: JSON.stringify({
+          company: 'Acme AI',
+          title: 'Staff Engineer',
+          descriptionText: 'Staff level cloud distributed systems.',
+          sponsorLikelihood: { status: 'known_sponsor', approvals: 15, denials: 2 },
+        }),
+      });
+
+      assert.equal(response.status, 201);
+      const data = (await response.json()) as { job: JobRecord };
+      assert.deepEqual(data.job.sponsorLikelihood, {
+        status: 'known_sponsor',
+        approvals: 15,
+        denials: 2,
+      });
+    });
   } finally {
     process.chdir(originalCwd);
     resetJobStoreForTests();

@@ -14,7 +14,6 @@ import type {
   JobPriority,
   JobSeniority,
   JobStatus,
-  SponsorLikelihood,
   UpdateJobBody,
 } from '@/types';
 
@@ -22,7 +21,7 @@ export const jobsRouter = Router();
 
 const allowedPriorities = new Set<JobPriority>(['high', 'medium', 'low']);
 const allowedSeniorities = new Set<JobSeniority>(['junior', 'mid', 'senior', 'lead', 'unknown']);
-const allowedSponsorLikelihoods = new Set<SponsorLikelihood>(['likely', 'possible', 'unlikely', 'unknown']);
+const allowedSponsorLikelihoodStrings = new Set<string>(['likely', 'possible', 'unlikely', 'unknown']);
 const allowedLivenesses = new Set<JobLiveness>(['active', 'stale', 'expired']);
 const allowedStatuses = new Set<JobStatus>([
   'discovered',
@@ -97,8 +96,30 @@ jobsRouter.post('/', async (request, response, next) => {
     if (body.seniority && !allowedSeniorities.has(body.seniority)) {
       errors.seniority = 'Seniority must be junior, mid, senior, lead, or unknown.';
     }
-    if (body.sponsorLikelihood && !allowedSponsorLikelihoods.has(body.sponsorLikelihood)) {
-      errors.sponsorLikelihood = 'Sponsor likelihood must be likely, possible, unlikely, or unknown.';
+    if (body.sponsorLikelihood) {
+      if (typeof body.sponsorLikelihood === 'string') {
+        if (!allowedSponsorLikelihoodStrings.has(body.sponsorLikelihood)) {
+          errors.sponsorLikelihood = 'Sponsor likelihood must be likely, possible, unlikely, or unknown.';
+        }
+      } else if (
+        typeof body.sponsorLikelihood === 'object' &&
+        body.sponsorLikelihood !== null
+      ) {
+        const s = body.sponsorLikelihood as { status?: unknown; approvals?: unknown; denials?: unknown };
+        if (
+          s.status !== 'known_sponsor' ||
+          typeof s.approvals !== 'number' ||
+          typeof s.denials !== 'number' ||
+          Number.isNaN(s.approvals) ||
+          Number.isNaN(s.denials)
+        ) {
+          errors.sponsorLikelihood =
+            'Sponsor likelihood object must have status "known_sponsor" with numeric approvals and denials.';
+        }
+      } else {
+        errors.sponsorLikelihood =
+          'Sponsor likelihood must be a valid status string or known_sponsor object.';
+      }
     }
     if (body.liveness && !allowedLivenesses.has(body.liveness)) {
       errors.liveness = 'Liveness must be active, stale, or expired.';
