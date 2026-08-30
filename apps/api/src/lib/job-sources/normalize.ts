@@ -28,12 +28,12 @@ export interface RemotiveRaw {
   job_type?: string;
 }
 
-function clean(value: unknown, fallback = ''): string {
+export function clean(value: unknown, fallback = ''): string {
   return typeof value === 'string' && value.trim() ? value.trim() : fallback;
 }
 
 /** Map a source's free-form employment string to the app's display labels. */
-function employmentLabel(raw: unknown): string {
+export function employmentLabel(raw: unknown): string {
   const value = clean(raw).toLowerCase();
   if (value.includes('part')) return 'Part-time';
   if (value.includes('contract')) return 'Contract';
@@ -46,7 +46,7 @@ function employmentLabel(raw: unknown): string {
  * `onsite` — important because the job stores default an *omitted* workplaceType
  * to `remote`, which would mislabel physical-location roles.
  */
-function inferWorkplaceType(...fields: Array<string | undefined>): JobWorkplaceType {
+export function inferWorkplaceType(...fields: Array<string | undefined>): JobWorkplaceType {
   const text = fields.map((field) => clean(field).toLowerCase()).join(' ');
   if (text.includes('hybrid')) return 'hybrid';
   if (/\bremote\b|work from home|\bwfh\b/.test(text)) return 'remote';

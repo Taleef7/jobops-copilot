@@ -150,7 +150,7 @@ agent image, list pagination, and an opt-in Postgres-backed rate-limiter/cache f
 
 ## What Is Still Pending
 
-- **Jobright Parity Program (Epic #244 — Agent platform foundation):** Epic 1 is complete (#251–#257). Epic 2 (Discovery & Feed Curation) is underway: shipped enriched jobs schema and normalization (#258) with salary range parsing, seniority inference, content hashing, and liveness tracking (migration 013), and target_companies watchlist table, CRUD, and settings UI (#260, migration 014). Specialist agent graph implementations (remaining Epics 2, 4, 5, 6) remain pending.
+- **Jobright Parity Program (Epic #244 — Agent platform foundation):** Epic 1 is complete (#251–#257). Epic 2 (Discovery & Feed Curation) is underway: shipped enriched jobs schema and normalization (#258) with salary range parsing, seniority inference, content hashing, and liveness tracking (migration 013), target_companies watchlist table, CRUD, and settings UI (#260, migration 014), and Greenhouse/Lever/Ashby board adapters wired into discovery (#261). Specialist agent graph implementations (remaining Epics 2, 4, 5, 6) remain pending.
 - Nothing blocking. All planned phases (0–11) plus the optional Phase 6
   hardening (App Insights, Key Vault) are complete. The agent Container App
   keeps its native secret store by design (Key Vault covers App Service only).

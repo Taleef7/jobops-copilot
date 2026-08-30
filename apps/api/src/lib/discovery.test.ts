@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import type { CreateJobBody, JobRecord, SavedSearch } from '@/types';
+import type { CreateJobBody, JobRecord, SavedSearch, TargetCompany } from '@/types';
 import { runDiscoveryForUser, type DiscoveryDeps } from './discovery';
 import type { SourcedJob } from '@/lib/job-sources/normalize';
 
@@ -198,4 +198,82 @@ test('still counts an inserted job when pre-rank persistence fails (best-effort)
 
   assert.equal(result.inserted, 1);
   assert.equal(created.length, 1);
+});
+
+test('discovers jobs from enabled target company boards and deduplicates against saved-search jobs', async () => {
+  const target: TargetCompany = {
+    id: 'tc-1',
+    userId: 'u',
+    company: 'Acme',
+    boardType: 'greenhouse',
+    boardToken: 'acme',
+    enabled: true,
+    createdAt: '2026-06-01T00:00:00.000Z',
+    updatedAt: '2026-06-01T00:00:00.000Z',
+  };
+
+  const searchJobs = [sourced('https://x/search-1')];
+  const boardJobs: SourcedJob[] = [
+    sourced('https://x/search-1', { source: 'greenhouse' }),
+    sourced('https://x/board-unique', { source: 'greenhouse', title: 'Board Job' }),
+  ];
+
+  const created: CreateJobBody[] = [];
+  let n = 0;
+  const deps: DiscoveryDeps = {
+    source: { name: 'adzuna', search: async () => searchJobs },
+    listJobs: async () => [],
+    createJob: async (_userId, body) => {
+      created.push(body);
+      n += 1;
+      return { ...(body as object), id: `job-${n}` } as unknown as JobRecord;
+    },
+    listSavedSearches: async () => [SEARCH],
+    getResume: async () => 'resume',
+    saveAnalysis: async () => undefined,
+    listTargetCompanies: async () => [target],
+    fetchBoards: async () => boardJobs,
+  };
+
+  const result = await runDiscoveryForUser('u', deps);
+
+  assert.equal(result.inserted, 2);
+  assert.equal(result.skipped, 1);
+  assert.equal(result.source, 'adzuna+greenhouse');
+  assert.equal(created.length, 2);
+  assert.equal(created[0]?.jobUrl, 'https://x/search-1');
+  assert.equal(created[1]?.jobUrl, 'https://x/board-unique');
+});
+
+test('does not call fetchBoards when targets are only disabled', async () => {
+  const disabledTarget: TargetCompany = {
+    id: 'tc-2',
+    userId: 'u',
+    company: 'DisabledCorp',
+    boardType: 'lever',
+    boardToken: 'disabled',
+    enabled: false,
+    createdAt: '2026-06-01T00:00:00.000Z',
+    updatedAt: '2026-06-01T00:00:00.000Z',
+  };
+
+  let fetchBoardsCalled = false;
+  const deps: DiscoveryDeps = {
+    source: { name: 'adzuna', search: async () => [] },
+    listJobs: async () => [],
+    createJob: async () => ({ id: 'job-1' }) as unknown as JobRecord,
+    listSavedSearches: async () => [SEARCH],
+    getResume: async () => 'resume',
+    saveAnalysis: async () => undefined,
+    listTargetCompanies: async () => [disabledTarget],
+    fetchBoards: async () => {
+      fetchBoardsCalled = true;
+      return [];
+    },
+  };
+
+  const result = await runDiscoveryForUser('u', deps);
+
+  assert.equal(fetchBoardsCalled, false);
+  assert.equal(result.source, 'adzuna');
 });

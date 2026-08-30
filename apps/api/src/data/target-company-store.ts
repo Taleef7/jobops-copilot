@@ -163,6 +163,14 @@ export async function clearUserTargetCompanies(userId: string): Promise<void> {
   });
 }
 
+export async function listUsersWithEnabledTargetCompanies(): Promise<string[]> {
+  if (hasPostgresConnection()) {
+    return postgresStore.listUsersWithEnabledTargetCompanies();
+  }
+  const all = await ensureLoaded();
+  return [...new Set(all.filter((entry) => entry.enabled).map((entry) => entry.userId))];
+}
+
 export function resetTargetCompanyStoreForTests() {
   cache = null;
   loadPromise = null;

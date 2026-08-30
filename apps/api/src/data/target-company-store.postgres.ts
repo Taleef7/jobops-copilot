@@ -86,3 +86,10 @@ export async function deleteTargetCompany(userId: string, id: string): Promise<b
 export async function clearUserTargetCompanies(userId: string): Promise<void> {
   await poolOrThrow().query('delete from target_companies where user_id = $1', [userId]);
 }
+
+export async function listUsersWithEnabledTargetCompanies(): Promise<string[]> {
+  const { rows } = await poolOrThrow().query<{ user_id: string }>(
+    'select distinct user_id from target_companies where enabled = true',
+  );
+  return rows.map((row) => row.user_id);
+}
