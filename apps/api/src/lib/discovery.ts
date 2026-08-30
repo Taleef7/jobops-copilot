@@ -8,7 +8,7 @@ import { prerankAnalysis } from '@/lib/local-fit';
 import type { JobSource } from '@/lib/job-sources';
 import { dedupKey, fingerprintKey, type SourcedJob } from '@/lib/job-sources/normalize';
 import { fetchTargetCompanyBoards } from '@/lib/job-sources/boards';
-import type { TargetCompany } from '@/types';
+import type { SponsorLikelihood, TargetCompany } from '@/types';
 
 export interface DiscoveryResult {
   inserted: number;
@@ -26,6 +26,7 @@ export interface DiscoveryDeps {
   saveAnalysis: typeof saveJobAnalysisStore;
   listTargetCompanies?: (userId: string) => Promise<TargetCompany[]>;
   fetchBoards?: typeof fetchTargetCompanyBoards;
+  lookupSponsor?: (company: string) => Promise<SponsorLikelihood | null>;
 }
 
 /**
@@ -83,7 +84,11 @@ export async function runDiscoveryForUser(userId: string, deps: DiscoveryDeps): 
     // copy in the same run is recognised as a duplicate.
     for (const k of keysFor(job)) seen.add(k);
     try {
-      const createdJob = await deps.createJob(userId, job);
+      const sponsor = deps.lookupSponsor ? await deps.lookupSponsor(job.company) : null;
+      const createdJob = await deps.createJob(userId, {
+        ...job,
+        sponsorLikelihood: sponsor ?? job.sponsorLikelihood,
+      });
       inserted += 1;
       // Pre-rank is best-effort: the job is already inserted and counted, so a
       // transient failure persisting the estimated fit must not abort the whole

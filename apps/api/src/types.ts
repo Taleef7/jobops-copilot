@@ -16,7 +16,18 @@ export type JobPriority = 'high' | 'medium' | 'low';
 export type JobWorkplaceType = 'remote' | 'hybrid' | 'onsite' | 'flexible';
 
 export type JobSeniority = 'junior' | 'mid' | 'senior' | 'lead' | 'unknown';
-export type SponsorLikelihood = 'likely' | 'possible' | 'unlikely' | 'unknown';
+export interface KnownSponsorLikelihood {
+  status: 'known_sponsor';
+  approvals: number;
+  denials: number;
+}
+
+export type SponsorLikelihood =
+  | 'likely'
+  | 'possible'
+  | 'unlikely'
+  | 'unknown'
+  | KnownSponsorLikelihood;
 export type JobLiveness = 'active' | 'stale' | 'expired';
 
 export type MessageType =

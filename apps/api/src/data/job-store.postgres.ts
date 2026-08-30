@@ -148,6 +148,15 @@ function mapOutreach(row: OutreachRow): OutreachDraft {
   };
 }
 
+function parseSponsorLikelihood(raw: string | null): JobRecord['sponsorLikelihood'] {
+  if (!raw) return null;
+  try {
+    return JSON.parse(raw) as JobRecord['sponsorLikelihood'];
+  } catch {
+    return raw as JobRecord['sponsorLikelihood'];
+  }
+}
+
 function mapJob(row: JobRow, analysisRow?: JobAnalysisRow, outreachRows: OutreachRow[] = []): JobRecord {
   return {
     id: row.id,
@@ -173,7 +182,7 @@ function mapJob(row: JobRow, analysisRow?: JobAnalysisRow, outreachRows: Outreac
     salaryMax: row.salary_max ?? null,
     salaryCurrency: row.salary_currency ?? null,
     seniority: (row.seniority as JobRecord['seniority']) ?? undefined,
-    sponsorLikelihood: (row.sponsor_likelihood as JobRecord['sponsorLikelihood']) ?? null,
+    sponsorLikelihood: parseSponsorLikelihood(row.sponsor_likelihood),
     contentHash: row.content_hash ?? null,
     lastSeenAt: toIsoString(row.last_seen_at),
     liveness: (row.liveness as JobRecord['liveness']) ?? 'active',
@@ -286,7 +295,12 @@ export async function createJob(userId: string, body: CreateJobBody): Promise<Jo
     });
   const lastSeenAt = body.lastSeenAt ?? timestamp;
   const liveness = body.liveness ?? 'active';
-  const sponsorLikelihood = body.sponsorLikelihood ?? null;
+  const sponsorLikelihood =
+    body.sponsorLikelihood !== undefined
+      ? body.sponsorLikelihood
+        ? JSON.stringify(body.sponsorLikelihood)
+        : null
+      : null;
 
   try {
     await client.query('begin');
@@ -879,7 +893,11 @@ export async function seedDemoData(userId: string): Promise<void> {
           job.salaryMax ?? null,
           job.salaryCurrency ?? null,
           job.seniority ?? null,
-          job.sponsorLikelihood ?? null,
+          job.sponsorLikelihood
+            ? typeof job.sponsorLikelihood === 'object'
+              ? JSON.stringify(job.sponsorLikelihood)
+              : job.sponsorLikelihood
+            : null,
           job.contentHash ?? null,
           job.lastSeenAt ?? job.discoveredAt,
           job.liveness ?? 'active',

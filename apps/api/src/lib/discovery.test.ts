@@ -351,3 +351,22 @@ test('deduplicates jobs across multiple sources by URL: duplicate URL inserts on
   assert.equal(created[0]?.jobUrl, 'https://shared/1');
   assert.equal(created[1]?.jobUrl, 'https://unique/2');
 });
+
+test('passes sponsorLikelihood to createJob when lookupSponsor returns a known sponsor', async () => {
+  const { deps, created } = makeDeps([sourced('https://x/sponsor', { company: 'Acme Corp' })], []);
+  deps.lookupSponsor = async (company: string) => {
+    if (company === 'Acme Corp') {
+      return { status: 'known_sponsor', approvals: 10, denials: 1 };
+    }
+    return null;
+  };
+
+  await runDiscoveryForUser('u', deps);
+
+  assert.equal(created.length, 1);
+  assert.deepEqual(created[0]?.sponsorLikelihood, {
+    status: 'known_sponsor',
+    approvals: 10,
+    denials: 1,
+  });
+});
