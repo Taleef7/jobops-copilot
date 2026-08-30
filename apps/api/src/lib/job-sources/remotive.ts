@@ -1,7 +1,20 @@
-import { normalizeRemotive, type RemotiveRaw, type SourcedJob } from './normalize';
+import {
+  filterByQueryTerms,
+  normalizeRemotive,
+  type RemotiveRaw,
+  type SourcedJob,
+} from './normalize';
 import type { JobSearchOptions, JobSource } from './types';
 
 const NON_GEOGRAPHIC = new Set(['remote', 'anywhere', 'worldwide', 'global']);
+const DEFAULT_FETCH_WINDOW = 200;
+
+function fetchWindow(): number {
+  const raw = process.env.REMOTIVE_FETCH_LIMIT;
+  if (!raw) return DEFAULT_FETCH_WINDOW;
+  const parsed = Number(raw);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : DEFAULT_FETCH_WINDOW;
+}
 
 /**
  * Remotive job source — no API key required. Used as the always-available
@@ -17,7 +30,7 @@ export function createRemotiveSource(): JobSource {
     async search(query: string, opts: JobSearchOptions = {}): Promise<SourcedJob[]> {
       const url = new URL('https://remotive.com/api/remote-jobs');
       if (query) url.searchParams.set('search', query);
-      url.searchParams.set('limit', String(opts.limit ?? 50));
+      url.searchParams.set('limit', String(fetchWindow()));
 
       const response = await fetch(url, { signal: AbortSignal.timeout(15_000) });
       if (!response.ok) {
@@ -26,12 +39,8 @@ export function createRemotiveSource(): JobSource {
       const data = (await response.json()) as { jobs?: RemotiveRaw[] };
       let jobs = (data.jobs ?? []).map(normalizeRemotive);
 
-      const terms = query.trim().toLowerCase().split(/\s+/).filter(Boolean);
-      if (terms.length > 0) {
-        jobs = jobs.filter((job) => {
-          const haystack = `${job.title} ${job.company} ${job.descriptionText}`.toLowerCase();
-          return terms.some((term) => haystack.includes(term));
-        });
+      if (query) {
+        jobs = filterByQueryTerms(jobs, query);
       }
 
       const location = opts.location?.trim().toLowerCase();
@@ -39,7 +48,7 @@ export function createRemotiveSource(): JobSource {
         jobs = jobs.filter((job) => (job.location ?? '').toLowerCase().includes(location));
       }
 
-      return jobs;
+      return jobs.slice(0, opts.limit ?? 50);
     },
   };
 }

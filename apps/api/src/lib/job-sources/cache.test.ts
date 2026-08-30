@@ -94,3 +94,12 @@ test('the same query in a different country is a distinct key', () => {
   // case/whitespace-insensitive on the query itself
   assert.equal(jobSearchCacheKey('  Python ', {}, 'us'), jobSearchCacheKey('python', {}, 'us'));
 });
+
+test('the same query for different sources produces distinct cache keys', () => {
+  const adzunaKey = jobSearchCacheKey('python', {}, 'us', 'adzuna');
+  const museKey = jobSearchCacheKey('python', {}, 'us', 'themuse');
+  const usajobsKey = jobSearchCacheKey('python', {}, 'us', 'usajobs');
+  assert.notEqual(adzunaKey, museKey);
+  assert.notEqual(museKey, usajobsKey);
+  assert.notEqual(adzunaKey, usajobsKey);
+});

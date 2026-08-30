@@ -131,3 +131,15 @@ export function dedupKey(job: SourcedJob): string {
   if (job.jobUrl) return job.jobUrl.toLowerCase();
   return fingerprintKey(job);
 }
+
+/**
+ * Filter jobs using AND-terms matching across company, title, and descriptionText.
+ */
+export function filterByQueryTerms(jobs: SourcedJob[], query: string): SourcedJob[] {
+  const terms = query.trim().toLowerCase().split(/\s+/).filter(Boolean);
+  if (terms.length === 0) return jobs;
+  return jobs.filter((job) => {
+    const haystack = `${job.company} ${job.title} ${job.descriptionText}`.toLowerCase();
+    return terms.every((term) => haystack.includes(term));
+  });
+}
