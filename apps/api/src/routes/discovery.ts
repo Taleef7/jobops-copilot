@@ -3,7 +3,9 @@ import { requireUser } from '@/lib/auth';
 import { createJob, listJobs, saveJobAnalysis } from '@/data/job-store';
 import { getUserProfile } from '@/data/profile-store';
 import { listSavedSearches, listUsersWithSavedSearches } from '@/data/saved-search-store';
+import { listTargetCompanies } from '@/data/target-company-store';
 import { getJobSource } from '@/lib/job-sources';
+import { fetchTargetCompanyBoards } from '@/lib/job-sources/boards';
 import { requireN8nWebhookSecret } from '@/lib/n8n';
 import { runDiscoveryForUser, type DiscoveryResult } from '@/lib/discovery';
 
@@ -21,6 +23,8 @@ const defaultDeps: DiscoveryRouterDeps = {
       listSavedSearches,
       getResume: async (uid) => (await getUserProfile(uid))?.resumeText ?? '',
       saveAnalysis: saveJobAnalysis,
+      listTargetCompanies,
+      fetchBoards: fetchTargetCompanyBoards,
     }),
   listUsersWithSavedSearches,
 };

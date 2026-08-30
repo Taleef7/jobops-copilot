@@ -6,7 +6,9 @@ import {
 import { listSavedSearches as listSavedSearchesStore } from '@/data/saved-search-store';
 import { prerankAnalysis } from '@/lib/local-fit';
 import type { JobSource } from '@/lib/job-sources';
-import { dedupKey, fingerprintKey } from '@/lib/job-sources/normalize';
+import { dedupKey, fingerprintKey, type SourcedJob } from '@/lib/job-sources/normalize';
+import { fetchTargetCompanyBoards } from '@/lib/job-sources/boards';
+import type { TargetCompany } from '@/types';
 
 export interface DiscoveryResult {
   inserted: number;
@@ -21,6 +23,8 @@ export interface DiscoveryDeps {
   listSavedSearches: typeof listSavedSearchesStore;
   getResume: (userId: string) => Promise<string>;
   saveAnalysis: typeof saveJobAnalysisStore;
+  listTargetCompanies?: (userId: string) => Promise<TargetCompany[]>;
+  fetchBoards?: typeof fetchTargetCompanyBoards;
 }
 
 /**
@@ -61,6 +65,41 @@ export async function runDiscoveryForUser(userId: string, deps: DiscoveryDeps): 
   let inserted = 0;
   let skipped = 0;
 
+  async function insertIfNew(job: SourcedJob): Promise<void> {
+    const key = dedupKey(job);
+    if (seen.has(key)) {
+      skipped += 1;
+      return;
+    }
+    // Reserve every key this posting occupies so a later URL-less/URL-backed
+    // copy in the same run is recognised as a duplicate.
+    for (const k of keysFor(job)) seen.add(k);
+    try {
+      const createdJob = await deps.createJob(userId, job);
+      inserted += 1;
+      // Pre-rank is best-effort: the job is already inserted and counted, so a
+      // transient failure persisting the estimated fit must not abort the whole
+      // sweep. The real LLM score still runs when the user first opens the job;
+      // until then an unranked job simply sorts as having no score.
+      try {
+        const { fitScore, analysis } = prerankAnalysis(job.descriptionText ?? '', resume);
+        await deps.saveAnalysis(userId, createdJob.id, analysis, fitScore);
+      } catch {
+        // Leave the job unranked rather than failing the discovery run.
+      }
+    } catch (error) {
+      // A concurrent discovery run (manual click + n8n sweep, or two API
+      // instances) can insert the same posting between building `seen` and
+      // this insert; Postgres' per-user (user_id, job_url) unique index then
+      // rejects it. Count the race as a skip instead of failing the request.
+      if (isDuplicateKeyError(error)) {
+        skipped += 1;
+        return;
+      }
+      throw error;
+    }
+  }
+
   for (const search of searches) {
     let found;
     try {
@@ -74,40 +113,21 @@ export async function runDiscoveryForUser(userId: string, deps: DiscoveryDeps): 
     }
 
     for (const job of found) {
-      const key = dedupKey(job);
-      if (seen.has(key)) {
-        skipped += 1;
-        continue;
-      }
-      // Reserve every key this posting occupies so a later URL-less/URL-backed
-      // copy in the same run is recognised as a duplicate.
-      for (const k of keysFor(job)) seen.add(k);
-      try {
-        const createdJob = await deps.createJob(userId, job);
-        inserted += 1;
-        // Pre-rank is best-effort: the job is already inserted and counted, so a
-        // transient failure persisting the estimated fit must not abort the whole
-        // sweep. The real LLM score still runs when the user first opens the job;
-        // until then an unranked job simply sorts as having no score.
-        try {
-          const { fitScore, analysis } = prerankAnalysis(job.descriptionText ?? '', resume);
-          await deps.saveAnalysis(userId, createdJob.id, analysis, fitScore);
-        } catch {
-          // Leave the job unranked rather than failing the discovery run.
-        }
-      } catch (error) {
-        // A concurrent discovery run (manual click + n8n sweep, or two API
-        // instances) can insert the same posting between building `seen` and
-        // this insert; Postgres' per-user (user_id, job_url) unique index then
-        // rejects it. Count the race as a skip instead of failing the request.
-        if (isDuplicateKeyError(error)) {
-          skipped += 1;
-          continue;
-        }
-        throw error;
-      }
+      await insertIfNew(job);
     }
   }
 
-  return { inserted, skipped, source: deps.source.name };
+  const targets = deps.listTargetCompanies ? await deps.listTargetCompanies(userId) : [];
+  if (targets?.some((t) => t.enabled)) {
+    const fetchBoards = deps.fetchBoards ?? fetchTargetCompanyBoards;
+    const boardJobs = await fetchBoards(targets);
+    for (const job of boardJobs) {
+      await insertIfNew(job);
+    }
+  }
+
+  const boardSources = Array.from(new Set(targets.filter((t) => t.enabled).map((t) => t.boardType))).sort();
+  const source = boardSources.length > 0 ? [deps.source.name, ...boardSources].join('+') : deps.source.name;
+
+  return { inserted, skipped, source };
 }
