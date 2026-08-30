@@ -1,4 +1,4 @@
-import { normalizeAdzuna, type AdzunaRaw, type SourcedJob } from './normalize';
+import { adzunaCountryCurrency, normalizeAdzuna, type AdzunaRaw, type SourcedJob } from './normalize';
 import type { JobSearchOptions, JobSource } from './types';
 
 const BASE = 'https://api.adzuna.com/v1/api/jobs';
@@ -43,7 +43,8 @@ export function createAdzunaSource(): JobSource {
         throw new Error(`Adzuna request failed: ${response.status}`);
       }
       const data = (await response.json()) as { results?: AdzunaRaw[] };
-      return (data.results ?? []).map(normalizeAdzuna);
+      const currency = adzunaCountryCurrency(country);
+      return (data.results ?? []).map((raw) => normalizeAdzuna(raw, currency));
     },
   };
 }

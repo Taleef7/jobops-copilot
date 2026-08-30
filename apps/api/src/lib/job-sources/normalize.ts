@@ -53,7 +53,32 @@ function inferWorkplaceType(...fields: Array<string | undefined>): JobWorkplaceT
   return 'onsite';
 }
 
-export function normalizeAdzuna(raw: AdzunaRaw): SourcedJob {
+/**
+ * Maps an Adzuna country code (e.g. `us`, `gb`, `ca`, `au`) to its currency code.
+ * Falls back to `'USD'` for unmapped or unknown country codes.
+ */
+export function adzunaCountryCurrency(country: string): string {
+  const map: Record<string, string> = {
+    us: 'USD',
+    gb: 'GBP',
+    ca: 'CAD',
+    au: 'AUD',
+    de: 'EUR',
+    fr: 'EUR',
+    nl: 'EUR',
+    be: 'EUR',
+    at: 'EUR',
+    in: 'INR',
+    sg: 'SGD',
+    nz: 'NZD',
+    za: 'ZAR',
+    br: 'BRL',
+    mx: 'MXN',
+  };
+  return map[country.toLowerCase()] ?? 'USD';
+}
+
+export function normalizeAdzuna(raw: AdzunaRaw, currency = 'USD'): SourcedJob {
   const hasSalary = typeof raw.salary_min === 'number' || typeof raw.salary_max === 'number';
   return {
     jobUrl: clean(raw.redirect_url) || undefined,
@@ -67,7 +92,7 @@ export function normalizeAdzuna(raw: AdzunaRaw): SourcedJob {
     descriptionText: clean(raw.description),
     salaryMin: typeof raw.salary_min === 'number' ? Math.round(raw.salary_min) : undefined,
     salaryMax: typeof raw.salary_max === 'number' ? Math.round(raw.salary_max) : undefined,
-    salaryCurrency: hasSalary ? 'USD' : undefined,
+    salaryCurrency: hasSalary ? currency : undefined,
   };
 }
 
