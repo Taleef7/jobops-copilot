@@ -289,6 +289,39 @@ test('PATCH /api/target-companies/:id toggles enabled', async () => {
   }
 });
 
+test('PATCH /api/target-companies/:id rejects non-boolean enabled with 400', async () => {
+  const originalCwd = process.cwd();
+  delete process.env.DATABASE_URL;
+  const tempDir = await mkdtemp(join(tmpdir(), 'jobops-tc-patch400-'));
+  try {
+    process.chdir(tempDir);
+    resetTargetCompanyStoreForTests();
+    await withServer(async (baseUrl) => {
+      const cr = await fetch(`${baseUrl}/api/target-companies`, {
+        method: 'POST', headers: hdrs(USER),
+        body: JSON.stringify({ company: 'Stripe', boardType: 'greenhouse', boardToken: 'stripe' }),
+      });
+      const { targetCompany } = (await cr.json()) as { targetCompany: { id: string } };
+
+      const res1 = await fetch(`${baseUrl}/api/target-companies/${targetCompany.id}`, {
+        method: 'PATCH', headers: hdrs(USER),
+        body: JSON.stringify({}),
+      });
+      assert.equal(res1.status, 400);
+
+      const res2 = await fetch(`${baseUrl}/api/target-companies/${targetCompany.id}`, {
+        method: 'PATCH', headers: hdrs(USER),
+        body: JSON.stringify({ enabled: 'false' }),
+      });
+      assert.equal(res2.status, 400);
+    });
+  } finally {
+    process.chdir(originalCwd);
+    resetTargetCompanyStoreForTests();
+    await rm(tempDir, { recursive: true, force: true });
+  }
+});
+
 test('PATCH /api/target-companies/:id 404 unknown id', async () => {
   const originalCwd = process.cwd();
   delete process.env.DATABASE_URL;

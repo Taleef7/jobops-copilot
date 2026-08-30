@@ -68,7 +68,7 @@ export async function setTargetCompanyEnabled(
   enabled: boolean,
 ): Promise<TargetCompany | undefined> {
   const { rows } = await poolOrThrow().query<TargetCompanyRow>(
-    'update target_companies set enabled = $1 where user_id = $2 and id = $3 returning *',
+    'update target_companies set enabled = $1 where user_id = $2 and id::text = $3 returning *',
     [enabled, userId, id],
   );
   const row = rows[0];
@@ -77,7 +77,7 @@ export async function setTargetCompanyEnabled(
 
 export async function deleteTargetCompany(userId: string, id: string): Promise<boolean> {
   const { rowCount } = await poolOrThrow().query(
-    'delete from target_companies where user_id = $1 and id = $2',
+    'delete from target_companies where user_id = $1 and id::text = $2',
     [userId, id],
   );
   return (rowCount ?? 0) > 0;

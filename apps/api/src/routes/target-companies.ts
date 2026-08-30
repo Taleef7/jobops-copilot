@@ -98,8 +98,15 @@ export function createTargetCompaniesRouter(deps: TargetCompanyDeps = defaultDep
     const userId = requireUser(request, response);
     if (!userId) return;
 
-    const body = request.body as { enabled?: boolean };
-    const enabled = Boolean(body.enabled);
+    const body = request.body as { enabled?: unknown };
+    if (typeof body?.enabled !== 'boolean') {
+      response.status(400).json({
+        error: 'Invalid target company payload',
+        fields: { enabled: 'enabled must be a boolean.' },
+      });
+      return;
+    }
+    const enabled = body.enabled;
 
     try {
       const updated = await deps.setTargetCompanyEnabled(userId, request.params.id, enabled);
