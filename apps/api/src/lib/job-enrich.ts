@@ -82,11 +82,17 @@ export function parseSalaryFromText(text: string): ParsedSalary | null {
     const hasCurrency = Boolean(curr1 || curr2 || curr3);
     const isK = k1 || k2;
 
-    // Reject bare number ranges (e.g. "3 - 5 years of experience") unless in salary context
-    if (!hasCurrency && !isK) {
+    // When no currency is attached, require salary context in nearby prefix or suffix,
+    // even for k-suffixed ranges (e.g. "serves 10k-20k users daily").
+    if (!hasCurrency) {
       const matchIndex = m.index ?? 0;
+      const matchLength = m[0].length;
       const prefix = cleaned.slice(Math.max(0, matchIndex - 30), matchIndex).toLowerCase();
-      if (!/\b(salary|pay|compensation|comp|rate)\b/.test(prefix)) {
+      const suffix = cleaned.slice(matchIndex + matchLength, matchIndex + matchLength + 30).toLowerCase();
+      if (
+        !/\b(salary|pay|compensation|comp|rate)\b/.test(prefix) &&
+        !/\b(salary|pay|compensation|comp|rate)\b/.test(suffix)
+      ) {
         continue;
       }
     }

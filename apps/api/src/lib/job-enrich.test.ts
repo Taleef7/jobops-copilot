@@ -27,6 +27,12 @@ describe('parseSalaryFromText', () => {
       { min: 120000, max: 150000, currency: 'USD' },
     );
   });
+  it('ignores bare k-suffixed metric ranges without salary context', () => {
+    assert.equal(
+      parseSalaryFromText('Our platform serves 10k-20k users daily.'),
+      null,
+    );
+  });
 });
 
 describe('parseSeniority', () => {
