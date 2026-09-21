@@ -53,7 +53,7 @@
 - [x] #276 **feat(api): parse the stored resume into the structured model + base-resume CRUD routes** (M; blocked by: #275, #251)
 - [x] #277 **feat(web): base-resume editor under Settings (import, review, edit, save)** (M; blocked by: #276)
 - [x] #278 **feat(agent): resume-tailor LangGraph graph — plan/rewrite/groundedness gate/ATS pass/interrupt + zero-invented-facts evals** (L; blocked by: #275, #251, #252) — ⚠️ persist the draft as a `resume_versions` row (`approved = false`) BEFORE the interrupt, so #280/#281 have a real id to approve or reject
-- [ ] #279 **feat(api): deterministic ATS-safe resume PDF renderer + blob storage + short-lived SAS URLs** (M; blocked by: #275)
+- [x] #279 **feat(api): deterministic ATS-safe resume PDF renderer + blob storage + short-lived SAS URLs** (M; blocked by: #275)
 - [ ] #280 **feat(api): resume-studio routes — start tailor run, approve→render→persist, reject-with-feedback, versions, gated download** (L; blocked by: #276, #278, #279)
 - [ ] #281 **feat(web): tailored-resume review UI on job detail — old→new change summary with why, approve / reject-with-feedback, gated download** (M; blocked by: #280)
 - [ ] #282 **feat(outreach): cover letters — draft via the moderated outreach chain, render to PDF with the shared pipeline** (M; blocked by: #275, #279)
