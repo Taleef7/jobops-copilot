@@ -11,6 +11,7 @@ import { Card } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { OptionSelect } from '@/components/ui/option-select';
+import { CoverLetterDownloadButton } from '@/components/cover-letter-download-button';
 import { ApiRequestError, draftOutreach } from '@/lib/api';
 import type { OutreachMessageType } from '@/types/job';
 
@@ -20,6 +21,7 @@ const messageTypeOptions: { label: string; value: OutreachMessageType }[] = [
   { label: 'Referral request', value: 'referral_request' },
   { label: 'Follow-up', value: 'follow_up' },
   { label: 'Thank you', value: 'thank_you' },
+  { label: 'Cover letter', value: 'cover_letter' },
 ];
 
 type FormState = {
@@ -34,6 +36,8 @@ type Result = {
   draftText: string;
   safetyNotes: string;
   gmailDraftStatus: 'created' | 'skipped' | 'failed';
+  outreachId?: string;
+  messageType: OutreachMessageType;
 };
 
 export function JobOutreachActions({
@@ -79,6 +83,8 @@ export function JobOutreachActions({
         // The live agent can omit safety_notes; default to '' so .trim() never crashes.
         safetyNotes: draft.safety_notes ?? '',
         gmailDraftStatus: draft.gmail_draft_status,
+        outreachId: draft.outreach_id,
+        messageType: form.messageType,
       });
       toast.success('Draft created — review it in the inbox before sending.');
       router.refresh();
@@ -179,6 +185,9 @@ export function JobOutreachActions({
                 >
                   <Copy className="size-3.5" /> Email
                 </Button>
+              ) : null}
+              {result.messageType === 'cover_letter' && result.outreachId ? (
+                <CoverLetterDownloadButton outreachId={result.outreachId} />
               ) : null}
               <Button
                 type="button"

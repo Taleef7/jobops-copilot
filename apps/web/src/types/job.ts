@@ -18,7 +18,8 @@ export type OutreachMessageType =
   | 'linkedin_connection'
   | 'referral_request'
   | 'follow_up'
-  | 'thank_you';
+  | 'thank_you'
+  | 'cover_letter';
 
 export type JobPriority = 'high' | 'medium' | 'low';
 export type WorkplaceType = 'remote' | 'hybrid' | 'onsite' | 'flexible';

@@ -486,6 +486,26 @@ export async function downloadResumeVersion(versionId: string, filename?: string
   document.body.removeChild(a);
 }
 
+/**
+ * Trigger browser download for a rendered cover letter PDF.
+ */
+export async function downloadCoverLetterPdf(outreachId: string, filename?: string): Promise<void> {
+  const res = await fetch(`/api/proxy/api/outreach/${outreachId}/download-pdf`);
+  if (!res.ok) {
+    const errorData = await res.json().catch(() => ({ error: 'Download failed' }));
+    throw new Error(errorData.error || `Download failed with status ${res.status}`);
+  }
+  const blob = await res.blob();
+  const url = window.URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename || `cover-letter-${outreachId}.pdf`;
+  document.body.appendChild(a);
+  a.click();
+  window.URL.revokeObjectURL(url);
+  document.body.removeChild(a);
+}
+
 export async function seedDemoData(): Promise<void> {
   await requestJson('/api/demo/seed', { method: 'POST', body: '{}' });
 }

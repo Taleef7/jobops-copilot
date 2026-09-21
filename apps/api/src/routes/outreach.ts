@@ -1,6 +1,9 @@
 import { Router } from 'express';
-import { updateOutreachDraft } from '@/data/job-store';
+import { getOutreachDraft, updateOutreachDraft } from '@/data/job-store';
+import { getUserProfile } from '@/data/profile-store';
+import { getBaseResumeVersion } from '@/data/resume-version-store';
 import { requireUser } from '@/lib/auth';
+import { renderCoverLetterPdf } from '@/lib/cover-letter-pdf';
 import type { OutreachStatus } from '@/types';
 
 export const outreachRouter = Router();
@@ -77,3 +80,78 @@ outreachRouter.patch('/:id', async (request, response, next) => {
     next(error);
   }
 });
+
+/**
+ * GET /api/outreach/:id
+ *
+ * Retrieves a specific outreach draft and its associated job details.
+ */
+outreachRouter.get('/:id', async (request, response, next) => {
+  try {
+    const userId = requireUser(request, response);
+    if (!userId) return;
+
+    const result = await getOutreachDraft(userId, request.params.id);
+    if (!result) {
+      return response.status(404).json({ error: 'Outreach draft not found' });
+    }
+
+    return response.json({ draft: result.draft, job: result.job });
+  } catch (error) {
+    next(error);
+  }
+});
+
+/**
+ * GET /api/outreach/:id/download-pdf
+ *
+ * Renders a cover letter draft into an ATS-compliant PDF and streams it.
+ */
+outreachRouter.get('/:id/download-pdf', async (request, response, next) => {
+  try {
+    const userId = requireUser(request, response);
+    if (!userId) return;
+
+    const result = await getOutreachDraft(userId, request.params.id);
+    if (!result) {
+      return response.status(404).json({ error: 'Outreach draft not found' });
+    }
+
+    const { draft, job } = result;
+
+    // Resolve candidate details from base resume or profile
+    const baseVersion = await getBaseResumeVersion(userId);
+    const profile = await getUserProfile(userId);
+    const candidateBasics = baseVersion?.structuredResume?.basics || profile?.baseResume?.basics;
+
+    const candidateName = candidateBasics?.name || 'Candidate';
+    const candidateEmail = candidateBasics?.email;
+    const candidatePhone = candidateBasics?.phone;
+    const candidateLocation = candidateBasics?.location?.city
+      ? [candidateBasics.location.city, candidateBasics.location.region].filter(Boolean).join(', ')
+      : undefined;
+
+    const pdfBuffer = renderCoverLetterPdf({
+      candidateName,
+      candidateEmail,
+      candidatePhone,
+      candidateLocation,
+      recipientName: draft.contactName,
+      recipientRole: draft.contactRole,
+      companyName: job?.company,
+      subject: job ? `${job.title} at ${job.company}` : undefined,
+      bodyText: draft.draftText,
+    });
+
+    const safeCandidateName = candidateName.replace(/\s+/g, '_');
+    const safeCompanyName = (job?.company || 'Company').replace(/\s+/g, '_');
+    const filename = `Cover_Letter_${safeCandidateName}_${safeCompanyName}.pdf`;
+
+    response.setHeader('Content-Type', 'application/pdf');
+    response.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+    return response.send(pdfBuffer);
+  } catch (error) {
+    next(error);
+  }
+});
+

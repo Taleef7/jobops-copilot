@@ -447,6 +447,32 @@ export async function updateOutreachDraft(
   });
 }
 
+export async function getOutreachDraft(
+  userId: string,
+  outreachId: string,
+): Promise<{ draft: OutreachDraft; job: JobRecord } | undefined> {
+  if (hasPostgresConnection()) {
+    return postgresStore.getOutreachDraft(userId, outreachId);
+  }
+
+  return runExclusive(async () => {
+    const jobs = await ensureLoaded();
+
+    for (const job of jobs) {
+      if (job.userId !== userId) {
+        continue;
+      }
+
+      const draft = job.outreach.find((entry) => entry.id === outreachId);
+      if (draft) {
+        return { draft: clone(draft), job: clone(job) };
+      }
+    }
+
+    return undefined;
+  });
+}
+
 export async function updateOutreachGmailDraftId(
   userId: string,
   outreachId: string,

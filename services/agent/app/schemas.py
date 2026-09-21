@@ -21,6 +21,7 @@ MessageType = Literal[
     "referral_request",
     "follow_up",
     "thank_you",
+    "cover_letter",
 ]
 
 

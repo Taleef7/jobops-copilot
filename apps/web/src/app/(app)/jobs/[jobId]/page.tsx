@@ -2,6 +2,7 @@ import type { Metadata } from 'next';
 import { ArrowLeft } from 'lucide-react';
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
+import { CoverLetterDownloadButton } from '@/components/cover-letter-download-button';
 import { FitScoreRing } from '@/components/fit-score-ring';
 import { JobAgentsPanel } from '@/components/job-agents-panel';
 import { JobAnalysisActions } from '@/components/job-analysis-actions';
@@ -219,7 +220,16 @@ export default async function JobDetailPage({ params }: JobDetailParams) {
                         <p className="text-sm font-medium">
                           {draft.contactName || 'Contact'} · {draft.contactRole || draft.messageType.replaceAll('_', ' ')}
                         </p>
-                        <StatusPill status={draft.status} />
+                        <div className="flex items-center gap-2">
+                          {draft.messageType === 'cover_letter' ? (
+                            <CoverLetterDownloadButton
+                              outreachId={draft.id}
+                              company={job.company}
+                              candidateName={resumeVersions[0]?.structuredResume?.basics?.name}
+                            />
+                          ) : null}
+                          <StatusPill status={draft.status} />
+                        </div>
                       </div>
                       <p className="text-sm whitespace-pre-wrap">{draft.draftText}</p>
                     </div>

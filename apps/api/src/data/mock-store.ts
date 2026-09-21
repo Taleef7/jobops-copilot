@@ -477,6 +477,7 @@ export function scoreFitBody(payload: ScoreFitBody) {
 export function draftOutreachBody(payload: DraftOutreachBody) {
   const subjectMap: Record<MessageType, string> = {
     recruiter_email: 'Interest in the role and a quick introduction',
+    cover_letter: 'Application for Role - Cover Letter',
     linkedin_connection: 'Thanks for connecting',
     referral_request: 'Quick follow-up on the referral intro',
     follow_up: 'Following up on the application',

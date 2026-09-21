@@ -6,6 +6,8 @@
  * parsers easily ingest without bounding-box confusion.
  */
 import type { StructuredResume } from '@/types';
+export { renderCoverLetterPdf } from '@/lib/cover-letter-pdf';
+export type { CoverLetterPdfOptions } from '@/lib/cover-letter-pdf';
 
 function escapePdfString(str: string): string {
   return str
