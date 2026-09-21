@@ -60,7 +60,7 @@
 
 ### [Epic 5 — Apply copilot & Chrome extension](https://github.com/Taleef7/jobops-copilot/issues/248) — #248
 
-- [ ] #283 **Apply-copilot data model: application_answers + ext_tokens tables, application_pack output kind, answers API** (M; blocked by: none)
+- [x] #283 **Apply-copilot data model: application_answers + ext_tokens tables, application_pack output kind, answers API** (M; blocked by: none)
 - [ ] #284 **Apply-copilot agent: application-pack builder + POST/GET /api/jobs/:id/application-pack** (L; blocked by: #283)
 - [ ] #285 **Job-detail application-pack view + flagged-question answer loop (web UI)** (M; blocked by: #284)
 - [ ] #286 **Extension PAT auth: token issue/revoke API + Settings UI + /api/ext/* middleware with rate limiting** (M; blocked by: #283)
