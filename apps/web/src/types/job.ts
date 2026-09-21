@@ -58,6 +58,31 @@ export interface JobAnalysis {
   subSignals?: JobAnalysisSubSignals;
 }
 
+export interface FeedItem {
+  job: Job;
+  fitScore: number | null;
+  adjustedScore: number | null;
+  subSignals: JobAnalysisSubSignals;
+  rankReasons: string[];
+}
+
+export interface FeedResult {
+  items: FeedItem[];
+  total: number;
+  limit: number;
+  offset: number;
+}
+
+export interface FeedQueryOptions {
+  limit?: number;
+  offset?: number;
+  minScore?: number;
+  seniority?: JobSeniority;
+  sponsorOnly?: boolean;
+  status?: JobStatus;
+  workplaceType?: WorkplaceType;
+}
+
 export interface OutreachDraft {
   id: string;
   jobId?: string;

@@ -25,6 +25,7 @@ import { discoveryRouter, discoverySweepRouter } from '@/routes/discovery';
 import { savedSearchesRouter } from '@/routes/saved-searches';
 import { targetCompaniesRouter } from '@/routes/target-companies';
 import { internalRouter } from '@/routes/internal';
+import { feedRouter } from '@/routes/feed';
 
 const mutatingMethods = new Set(['POST', 'PATCH', 'PUT', 'DELETE']);
 
@@ -93,6 +94,7 @@ export function createApp(dependencies: AppDependencies = {}) {
   app.use('/api/jobs/extract', strictLimiter, jobExtractRouter);
   app.use('/api/jobs', agentOutputsRouter);
   app.use('/api/jobs', jobsRouter);
+  app.use('/api/feed', feedRouter);
   // SSE assistant stream: mounted at the exact path (before the AI router) so it pipes
   // unbuffered and doesn't double-apply the AI guards to /assistant/run|resume.
   app.use('/api/ai/assistant/stream', strictLimiter, enforceDailyBudget, assistantStreamRouter);

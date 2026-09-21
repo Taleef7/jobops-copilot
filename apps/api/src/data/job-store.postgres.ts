@@ -1,8 +1,12 @@
 import { randomUUID } from 'node:crypto';
 import type {
   CreateJobBody,
+  FeedQueryOptions,
+  FeedResult,
   JobAnalysis,
   JobRecord,
+  JobStatus,
+  JobStatusEvent,
   OutreachDraft,
   UpdateJobBody,
   UpdateOutreachBody,
@@ -14,6 +18,7 @@ import type { PageParams } from '@/lib/pagination';
 import { deriveOutreachJobUpdate } from '@/lib/outreach-workflow';
 import { seedJobs } from '@/data/mock-store';
 import { computeContentHash, parseSalaryFromText, parseSeniority } from '@/lib/job-enrich';
+import { buildOutcomeStats, rankFeedJobs } from '@/lib/feed-ranking';
 
 type JobRow = {
   id: string;
@@ -989,4 +994,41 @@ export async function touchJobsSeen(userId: string, jobIds: string[]): Promise<v
     `update jobs set last_seen_at = now(), liveness = 'active' where user_id = $1 and id = any($2::uuid[])`,
     [userId, jobIds],
   );
+}
+
+export async function getJobStatusEvents(userId: string): Promise<JobStatusEvent[]> {
+  const pool = getPool();
+  if (!pool) return [];
+  try {
+    const { rows } = await pool.query<{
+      id: string;
+      job_id: string;
+      user_id: string;
+      from_status: string | null;
+      to_status: string;
+      created_at: string;
+    }>(
+      `select id, job_id, user_id, from_status, to_status, created_at from job_status_events where user_id = $1 order by created_at asc`,
+      [userId],
+    );
+    return rows.map((r) => ({
+      id: String(r.id),
+      jobId: r.job_id,
+      userId: r.user_id,
+      fromStatus: (r.from_status as JobStatus) || null,
+      toStatus: r.to_status as JobStatus,
+      createdAt: new Date(r.created_at).toISOString(),
+    }));
+  } catch {
+    return [];
+  }
+}
+
+export async function getRankedFeed(
+  userId: string,
+  options: FeedQueryOptions = {},
+): Promise<FeedResult> {
+  const [jobs, events] = await Promise.all([listJobs(userId), getJobStatusEvents(userId)]);
+  const stats = buildOutcomeStats(jobs, events);
+  return rankFeedJobs(jobs, stats, options);
 }

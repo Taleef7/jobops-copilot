@@ -60,6 +60,40 @@ export interface JobAnalysis {
   subSignals?: JobAnalysisSubSignals;
 }
 
+export interface JobStatusEvent {
+  id: string;
+  jobId: string;
+  userId: string;
+  fromStatus: JobStatus | null;
+  toStatus: JobStatus;
+  createdAt: string;
+}
+
+export interface FeedItem {
+  job: JobRecord;
+  fitScore: number | null;
+  adjustedScore: number | null;
+  subSignals: JobAnalysisSubSignals;
+  rankReasons: string[];
+}
+
+export interface FeedResult {
+  items: FeedItem[];
+  total: number;
+  limit: number;
+  offset: number;
+}
+
+export interface FeedQueryOptions {
+  limit?: number;
+  offset?: number;
+  minScore?: number;
+  seniority?: JobSeniority;
+  sponsorOnly?: boolean;
+  status?: JobStatus;
+  workplaceType?: JobWorkplaceType;
+}
+
 export interface OutreachDraft {
   id: string;
   jobId?: string;

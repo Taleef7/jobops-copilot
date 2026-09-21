@@ -3,8 +3,11 @@ import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import type {
   CreateJobBody,
+  FeedQueryOptions,
+  FeedResult,
   JobAnalysis,
   JobRecord,
+  JobStatusEvent,
   OutreachDraft,
   UpdateOutreachBody,
   UpdateJobBody,
@@ -17,6 +20,7 @@ import { paginateArray, type PageParams } from '@/lib/pagination';
 import * as postgresStore from '@/data/job-store.postgres';
 import { seedJobs } from '@/data/mock-store';
 import { computeContentHash, parseSalaryFromText, parseSeniority } from '@/lib/job-enrich';
+import { buildOutcomeStats, rankFeedJobs } from '@/lib/feed-ranking';
 
 // Resolved per call (not once at import) so tests can redirect the store with chdir.
 function dataDir() {
@@ -30,6 +34,7 @@ function dataFile() {
 let jobsCache: JobRecord[] | null = null;
 let loadPromise: Promise<JobRecord[]> | null = null;
 let mutationQueue: Promise<void> = Promise.resolve();
+const inMemoryStatusEvents: JobStatusEvent[] = [];
 
 function clone<T>(value: T): T {
   return JSON.parse(JSON.stringify(value)) as T;
@@ -235,6 +240,14 @@ export async function createJob(userId: string, body: CreateJobBody): Promise<Jo
   return runExclusive(async () => {
     const jobs = await ensureLoaded();
     const job = createBaseJob(userId, body);
+    inMemoryStatusEvents.push({
+      id: randomUUID(),
+      jobId: job.id,
+      userId,
+      fromStatus: null,
+      toStatus: job.status,
+      createdAt: job.updatedAt,
+    });
     jobs.unshift(job);
     await persistJobs();
     return clone(job);
@@ -258,7 +271,15 @@ export async function updateJob(
       return undefined;
     }
 
-    if (typeof body.status !== 'undefined') {
+    if (typeof body.status !== 'undefined' && body.status !== job.status) {
+      inMemoryStatusEvents.push({
+        id: randomUUID(),
+        jobId: job.id,
+        userId,
+        fromStatus: job.status,
+        toStatus: body.status,
+        createdAt: new Date().toISOString(),
+      });
       job.status = body.status;
     }
     if (typeof body.priority !== 'undefined') {
@@ -505,8 +526,28 @@ export async function touchJobsSeen(userId: string, jobIds: string[]): Promise<v
   });
 }
 
+export async function getJobStatusEvents(userId: string): Promise<JobStatusEvent[]> {
+  if (hasPostgresConnection()) {
+    return postgresStore.getJobStatusEvents(userId);
+  }
+  return clone(inMemoryStatusEvents.filter((entry) => entry.userId === userId));
+}
+
+export async function getRankedFeed(
+  userId: string,
+  options: FeedQueryOptions = {},
+): Promise<FeedResult> {
+  if (hasPostgresConnection()) {
+    return postgresStore.getRankedFeed(userId, options);
+  }
+  const [jobs, events] = await Promise.all([listJobs(userId), getJobStatusEvents(userId)]);
+  const stats = buildOutcomeStats(jobs, events);
+  return rankFeedJobs(jobs, stats, options);
+}
+
 export function resetJobStoreForTests() {
   jobsCache = null;
   loadPromise = null;
   mutationQueue = Promise.resolve();
+  inMemoryStatusEvents.length = 0;
 }
