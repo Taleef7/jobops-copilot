@@ -14,8 +14,9 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { ApplicationPackView } from '@/components/application-pack-view';
 import { TailoredResumeReview } from '@/components/tailored-resume-review';
-import { fetchAgentOutputs, fetchJobResumeVersions, fetchProfile } from '@/lib/api';
+import { fetchAgentOutputs, fetchJobApplicationPack, fetchJobResumeVersions, fetchProfile } from '@/lib/api';
 import { isHeuristicAnalysis, isPrerankAnalysis } from '@/lib/analysis-display';
 import { formatDate } from '@/lib/format';
 import { loadJob } from '@/lib/job-data';
@@ -35,11 +36,12 @@ export default async function JobDetailPage({ params }: JobDetailParams) {
   const { jobId } = await params;
   // Fetch the profile + persisted agent outputs alongside the job. Neither is
   // load-bearing for the page, so a failure of either must not break it.
-  const [{ job, source }, profile, agentOutputs, resumeVersions] = await Promise.all([
+  const [{ job, source }, profile, agentOutputs, resumeVersions, applicationPack] = await Promise.all([
     loadJob(jobId),
     fetchProfile().catch(() => null),
     fetchAgentOutputs(jobId).catch(() => []),
     fetchJobResumeVersions(jobId).catch(() => []),
+    fetchJobApplicationPack(jobId).catch(() => null),
   ]);
   if (!job) notFound();
 
@@ -99,6 +101,7 @@ export default async function JobDetailPage({ params }: JobDetailParams) {
             <TabsList>
               <TabsTrigger value="analysis">Analysis</TabsTrigger>
               <TabsTrigger value="resume">Resume studio</TabsTrigger>
+              <TabsTrigger value="apply-pack">Apply pack</TabsTrigger>
               <TabsTrigger value="agents">AI agents</TabsTrigger>
               <TabsTrigger value="outreach">Outreach</TabsTrigger>
             </TabsList>
@@ -236,6 +239,15 @@ export default async function JobDetailPage({ params }: JobDetailParams) {
                   ))}
                 </Card>
               ) : null}
+            </TabsContent>
+
+            <TabsContent value="apply-pack" className="space-y-4">
+              <ApplicationPackView
+                jobId={job.id}
+                company={job.company}
+                initialPack={applicationPack}
+                hasResume={profile?.hasResume}
+              />
             </TabsContent>
           </Tabs>
         </div>
