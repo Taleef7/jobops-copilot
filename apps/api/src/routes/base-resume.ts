@@ -253,7 +253,7 @@ baseResumeRouter.get('/versions/:id/download', async (request, response, next) =
     response.setHeader('Content-Type', 'application/pdf');
     response.setHeader(
       'Content-Disposition',
-      `attachment; filename="resume_${version.basics?.name || 'document'}_${version.id}.pdf"`,
+      `attachment; filename="resume_${version.structuredResume.basics?.name || 'document'}_${version.id}.pdf"`,
     );
     return response.send(pdfBuffer);
   } catch (error) {
