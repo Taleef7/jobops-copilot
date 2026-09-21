@@ -57,6 +57,7 @@ type JobAnalysisRow = {
   apply_recommendation: string;
   confidence_score: number | null;
   model_used: string;
+  sub_signals?: unknown;
   created_at: string;
 };
 
@@ -113,6 +114,11 @@ function mapAnalysis(row: JobAnalysisRow | undefined, descriptionText: string): 
     return getDefaultAnalysis(descriptionText);
   }
 
+  const subSignals =
+    row.sub_signals && typeof row.sub_signals === 'object' && !Array.isArray(row.sub_signals)
+      ? (row.sub_signals as JobAnalysis['subSignals'])
+      : undefined;
+
   const analysis = {
     requiredSkills: toTextArray(row.required_skills),
     preferredSkills: toTextArray(row.preferred_skills),
@@ -124,6 +130,7 @@ function mapAnalysis(row: JobAnalysisRow | undefined, descriptionText: string): 
     applyRecommendation: row.apply_recommendation,
     confidenceScore: row.confidence_score ?? 0,
     modelUsed: row.model_used,
+    subSignals,
   } satisfies JobAnalysis;
 
   return validateJobAnalysis(analysis) ? analysis : getDefaultAnalysis(descriptionText);
@@ -720,9 +727,10 @@ export async function saveJobAnalysis(
         apply_recommendation,
         confidence_score,
         model_used,
+        sub_signals,
         created_at
       ) values (
-        $1, $2, $3::jsonb, $4::jsonb, $5::jsonb, $6::jsonb, $7::jsonb, $8, $9, $10, $11, $12, $13
+        $1, $2, $3::jsonb, $4::jsonb, $5::jsonb, $6::jsonb, $7::jsonb, $8, $9, $10, $11, $12, $13::jsonb, $14
       )
       on conflict (job_id) do update set
         required_skills = excluded.required_skills,
@@ -735,6 +743,7 @@ export async function saveJobAnalysis(
         apply_recommendation = excluded.apply_recommendation,
         confidence_score = excluded.confidence_score,
         model_used = excluded.model_used,
+        sub_signals = excluded.sub_signals,
         created_at = excluded.created_at
     `,
     [
@@ -750,6 +759,7 @@ export async function saveJobAnalysis(
       analysis.applyRecommendation,
       analysis.confidenceScore,
       analysis.modelUsed,
+      JSON.stringify(analysis.subSignals ?? {}),
       timestamp,
     ],
   );

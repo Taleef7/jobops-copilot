@@ -118,6 +118,31 @@ export default async function JobDetailPage({ params }: JobDetailParams) {
                     {heuristic ? 'Heuristic fallback' : `Model: ${job.analysis.modelUsed}`}
                   </Badge>
                 </div>
+                {job.analysis.subSignals && (
+                  <div>
+                    <p className="text-muted-foreground mb-2 text-xs font-medium tracking-wide uppercase">
+                      Match Signals
+                    </p>
+                    <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+                      <div className="bg-muted/40 rounded-lg p-2.5 text-center">
+                        <p className="text-muted-foreground text-xs">Skills Match</p>
+                        <p className="font-heading text-base font-semibold">{job.analysis.subSignals.skillsMatch ?? '—'}%</p>
+                      </div>
+                      <div className="bg-muted/40 rounded-lg p-2.5 text-center">
+                        <p className="text-muted-foreground text-xs">Title & Seniority</p>
+                        <p className="font-heading text-base font-semibold">{job.analysis.subSignals.titleSeniority ?? '—'}%</p>
+                      </div>
+                      <div className="bg-muted/40 rounded-lg p-2.5 text-center">
+                        <p className="text-muted-foreground text-xs">Salary Fit</p>
+                        <p className="font-heading text-base font-semibold">{job.analysis.subSignals.salaryFit ?? '—'}%</p>
+                      </div>
+                      <div className="bg-muted/40 rounded-lg p-2.5 text-center">
+                        <p className="text-muted-foreground text-xs">Sponsorship</p>
+                        <p className="font-heading text-base font-semibold">{job.analysis.subSignals.sponsorshipLikelihood ?? '—'}%</p>
+                      </div>
+                    </div>
+                  </div>
+                )}
                 <div>
                   <p className="text-muted-foreground mb-1 text-xs font-medium tracking-wide uppercase">
                     Fit summary

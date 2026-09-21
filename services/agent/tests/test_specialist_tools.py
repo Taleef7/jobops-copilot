@@ -28,14 +28,23 @@ async def test_tool_invokes_registry_stub():
     registry = build_registry()
     tools = create_specialist_tools(user_id="u1", registry=registry)
 
-    feed_tool = tools[0]
-    raw_res = await feed_tool.ainvoke({"query": "python jobs"})
+    tailor_tool = tools[1]
+    raw_res = await tailor_tool.ainvoke({"job_id": "job-123"})
     res = json.loads(raw_res) if isinstance(raw_res, str) else raw_res
 
     assert res.get("status") == "done"
     assert "output" in res
-    assert res["output"]["agent_id"] == "feed-curator"
-    assert res["output"]["echo"] == {"query": "python jobs"}
+    assert res["output"]["agent_id"] == "resume-tailor"
+    assert res["output"]["echo"] == {"job_id": "job-123"}
+
+    feed_tool = tools[0]
+    raw_feed = await feed_tool.ainvoke({"query": "python jobs"})
+    res_feed = json.loads(raw_feed) if isinstance(raw_feed, str) else raw_feed
+
+    assert res_feed.get("status") == "done"
+    assert "output" in res_feed
+    assert res_feed["output"]["agent_id"] == "feed-curator"
+    assert "fit_score" in res_feed["output"]
 
 
 @pytest.mark.anyio

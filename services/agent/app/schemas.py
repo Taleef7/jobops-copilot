@@ -61,6 +61,45 @@ class FitScoreLLM(BaseModel):
     confidence_score: int = Field(default=50, description="Confidence, 0-100.")
 
 
+class SubSignals(BaseModel):
+    """Component sub-signals that contribute to the overall fit score."""
+
+    skills_match: int = Field(
+        default=50,
+        description="Match between candidate skills and required/preferred skills, 0-100.",
+    )
+    title_seniority: int = Field(
+        default=50,
+        description="Match between role title/seniority level and candidate background, 0-100.",
+    )
+    salary_fit: int = Field(
+        default=50,
+        description="Alignment between posting compensation and candidate preferences, 0-100.",
+    )
+    sponsorship_likelihood: int = Field(
+        default=50,
+        description="Likelihood of H-1B or visa sponsorship if required by candidate, 0-100.",
+    )
+
+
+class FeedCuratorAnalysis(BaseModel):
+    """Structured curation assessment produced by the feed-curator specialist graph."""
+
+    fit_score: int = Field(description="Overall fit score, 0-100.")
+    sub_signals: SubSignals = Field(default_factory=SubSignals)
+    matched_skills: list[str] = Field(default_factory=list)
+    missing_skills: list[str] = Field(default_factory=list)
+    ats_keywords: list[str] = Field(default_factory=list)
+    fit_summary: str = Field(
+        default="", description="Concise rationale explaining the fit assessment."
+    )
+    recommended_resume_angle: str = Field(
+        default="", description="Strategic angle to highlight in applications."
+    )
+    apply_recommendation: ApplyRecommendation = "review"
+    confidence_score: int = Field(default=50, description="Confidence in this assessment, 0-100.")
+
+
 class OutreachDraftLLM(BaseModel):
     """Fields the model produces for an outreach message."""
 

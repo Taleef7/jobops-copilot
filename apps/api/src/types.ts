@@ -39,6 +39,13 @@ export type MessageType =
 
 export type OutreachStatus = 'drafted' | 'approved' | 'sent' | 'skipped';
 
+export interface JobAnalysisSubSignals {
+  skillsMatch?: number;
+  titleSeniority?: number;
+  salaryFit?: number;
+  sponsorshipLikelihood?: number;
+}
+
 export interface JobAnalysis {
   requiredSkills: string[];
   preferredSkills: string[];
@@ -50,6 +57,7 @@ export interface JobAnalysis {
   applyRecommendation: string;
   confidenceScore: number;
   modelUsed: string;
+  subSignals?: JobAnalysisSubSignals;
 }
 
 export interface OutreachDraft {

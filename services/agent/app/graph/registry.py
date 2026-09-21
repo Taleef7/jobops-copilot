@@ -50,8 +50,7 @@ def _build_graph(agent_id: str, checkpointer=None, store=None):
     return builder.compile(checkpointer=checkpointer, store=store, name=agent_id)
 
 
-def build_feed_curator_graph(checkpointer=None, store=None):
-    return _build_graph("feed-curator", checkpointer, store)
+from app.graph.feed_curator import build_feed_curator_graph
 
 
 def build_resume_tailor_graph(checkpointer=None, store=None):

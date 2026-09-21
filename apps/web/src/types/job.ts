@@ -37,6 +37,13 @@ export type SponsorLikelihood =
   | KnownSponsorLikelihood;
 export type JobLiveness = 'active' | 'stale' | 'expired';
 
+export interface JobAnalysisSubSignals {
+  skillsMatch?: number;
+  titleSeniority?: number;
+  salaryFit?: number;
+  sponsorshipLikelihood?: number;
+}
+
 export interface JobAnalysis {
   requiredSkills: string[];
   preferredSkills: string[];
@@ -48,6 +55,7 @@ export interface JobAnalysis {
   applyRecommendation: string;
   confidenceScore: number;
   modelUsed: string;
+  subSignals?: JobAnalysisSubSignals;
 }
 
 export interface OutreachDraft {
