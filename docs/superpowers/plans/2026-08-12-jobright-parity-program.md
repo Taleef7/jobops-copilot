@@ -56,7 +56,7 @@
 - [x] #279 **feat(api): deterministic ATS-safe resume PDF renderer + blob storage + short-lived SAS URLs** (M; blocked by: #275)
 - [x] #280 **feat(api): resume-studio routes — start tailor run, approve→render→persist, reject-with-feedback, versions, gated download** (L; blocked by: #276, #278, #279)
 - [x] #281 **feat(web): tailored-resume review UI on job detail — old→new change summary with why, approve / reject-with-feedback, gated download** (M; blocked by: #280)
-- [ ] #282 **feat(outreach): cover letters — draft via the moderated outreach chain, render to PDF with the shared pipeline** (M; blocked by: #275, #279)
+- [x] #282 **feat(outreach): cover letters — draft via the moderated outreach chain, render to PDF with the shared pipeline** (M; blocked by: #275, #279)
 
 ### [Epic 5 — Apply copilot & Chrome extension](https://github.com/Taleef7/jobops-copilot/issues/248) — #248
 
