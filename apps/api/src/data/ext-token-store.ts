@@ -140,6 +140,20 @@ export async function revokeExtToken(userId: string, tokenId: string): Promise<b
   });
 }
 
+export async function verifyAndTouchExtToken(rawToken: string): Promise<ExtTokenRecord | null> {
+  if (hasPostgresConnection()) {
+    return postgresStore.verifyAndTouchExtToken(rawToken);
+  }
+  const hash = postgresStore.hashToken(rawToken);
+  const record = await findExtTokenByHash(hash);
+  if (!record || record.revokedAt) {
+    return null;
+  }
+  await touchExtToken(hash);
+  record.lastUsedAt = new Date().toISOString();
+  return record;
+}
+
 export async function _resetExtTokenStoreForTests(initial: ExtTokenRecord[] = []) {
   cache = clone(initial);
   loadPromise = null;

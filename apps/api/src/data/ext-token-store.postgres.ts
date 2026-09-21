@@ -89,3 +89,14 @@ export async function revokeExtToken(userId: string, tokenId: string): Promise<b
   );
   return (rowCount ?? 0) > 0;
 }
+
+export async function verifyAndTouchExtToken(rawToken: string): Promise<ExtTokenRecord | null> {
+  const hash = hashToken(rawToken);
+  const record = await findExtTokenByHash(hash);
+  if (!record || record.revokedAt) {
+    return null;
+  }
+  await touchExtToken(hash);
+  record.lastUsedAt = new Date().toISOString();
+  return record;
+}

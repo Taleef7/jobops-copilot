@@ -1,5 +1,7 @@
 import type {
   ApplicationPackPayload,
+  CreateExtTokenResponse,
+  ExtTokenItem,
   FeedQueryOptions,
   FeedResult,
   Job,
@@ -570,6 +572,26 @@ export async function saveApplicationAnswer(payload: {
     body: JSON.stringify(payload),
   });
   return response.answer;
+}
+
+export async function fetchExtTokens(): Promise<ExtTokenItem[]> {
+  const response = await requestJson<{ tokens: ExtTokenItem[] }>('/api/ext-tokens', {
+    cache: 'no-store',
+  });
+  return response.tokens;
+}
+
+export async function createExtToken(label?: string): Promise<CreateExtTokenResponse> {
+  return requestJson<CreateExtTokenResponse>('/api/ext-tokens', {
+    method: 'POST',
+    body: JSON.stringify({ label }),
+  });
+}
+
+export async function revokeExtToken(id: string): Promise<void> {
+  await requestJson(`/api/ext-tokens/${id}`, {
+    method: 'DELETE',
+  });
 }
 
 export async function seedDemoData(): Promise<void> {

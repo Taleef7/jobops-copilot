@@ -10,6 +10,7 @@ import {
   findExtTokenByHash,
   touchExtToken,
   revokeExtToken,
+  verifyAndTouchExtToken,
   _resetExtTokenStoreForTests,
 } from './ext-token-store';
 
@@ -79,5 +80,25 @@ test('revoking a token prevents finding it by hash', async () => {
     // Revoking again returns false
     const revokedAgain = await revokeExtToken('u1', record.id);
     assert.equal(revokedAgain, false);
+  });
+});
+
+test('verifyAndTouchExtToken validates active token, touches timestamp, and rejects revoked', async () => {
+  await withTempStore(async () => {
+    const { token, record } = await createExtToken('u1', 'Test Token');
+    const verified = await verifyAndTouchExtToken(token);
+    assert.ok(verified);
+    assert.equal(verified?.id, record.id);
+    assert.equal(verified?.userId, 'u1');
+    assert.ok(verified?.lastUsedAt);
+
+    // Invalid token fails
+    const invalid = await verifyAndTouchExtToken('jop_invalid_token');
+    assert.equal(invalid, null);
+
+    // Revoked token fails
+    await revokeExtToken('u1', record.id);
+    const afterRevoke = await verifyAndTouchExtToken(token);
+    assert.equal(afterRevoke, null);
   });
 });

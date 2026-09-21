@@ -7,9 +7,10 @@ import { DemoDataActions, ExportDataButton, ResumeReupload } from '@/components/
 import { BaseResumeEditor } from '@/components/base-resume-editor';
 import { SavedSearchesManager } from '@/components/saved-searches';
 import { TargetCompaniesManager } from '@/components/target-companies';
+import { ExtTokensManager } from '@/components/ext-tokens-manager';
 import { Badge } from '@/components/ui/badge';
 import { Card } from '@/components/ui/card';
-import { fetchBaseResume, fetchProfile, fetchStatus } from '@/lib/api';
+import { fetchBaseResume, fetchExtTokens, fetchProfile, fetchStatus } from '@/lib/api';
 import { cn } from '@/lib/utils';
 
 export const metadata: Metadata = { title: 'Settings' };
@@ -28,11 +29,12 @@ const PROVIDER_LABELS: Record<string, string> = {
 
 export default async function SettingsPage() {
   // Identity (name + avatar) comes from Clerk — the single source (Phase 6).
-  const [user, profile, status, baseResume] = await Promise.all([
+  const [user, profile, status, baseResume, extTokens] = await Promise.all([
     currentUser().catch(() => null),
     fetchProfile().catch(() => null),
     fetchStatus().catch(() => null),
     fetchBaseResume().catch(() => null),
+    fetchExtTokens().catch(() => []),
   ]);
   const fullName = user?.fullName ?? user?.firstName ?? null;
 
@@ -178,6 +180,13 @@ export default async function SettingsPage() {
 
       <SectionCard title="Target companies" description="ATS boards to poll for new openings.">
         <TargetCompaniesManager />
+      </SectionCard>
+
+      <SectionCard
+        title="Chrome extension access tokens"
+        description="Personal access tokens (PAT) for authenticating the JobOps Chrome extension for ATS autofill and application capture."
+      >
+        <ExtTokensManager initialTokens={extTokens} />
       </SectionCard>
 
       <SectionCard title="Demo" description="Explore with sample data or start clean.">
