@@ -2,7 +2,7 @@
 
 import { useState, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
-import { Loader2, Plus, Sparkles, Save, Trash2, GripVertical, Briefcase, GraduationCap, Wrench, FolderKanban, Award } from 'lucide-react';
+import { Loader2, Plus, Sparkles, Save, Trash2, Briefcase, GraduationCap, Wrench, FolderKanban, Award } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
