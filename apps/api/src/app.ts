@@ -26,6 +26,7 @@ import { savedSearchesRouter } from '@/routes/saved-searches';
 import { targetCompaniesRouter } from '@/routes/target-companies';
 import { internalRouter } from '@/routes/internal';
 import { feedRouter } from '@/routes/feed';
+import { baseResumeRouter } from '@/routes/base-resume';
 
 const mutatingMethods = new Set(['POST', 'PATCH', 'PUT', 'DELETE']);
 
@@ -124,6 +125,7 @@ export function createApp(dependencies: AppDependencies = {}) {
   // Per-agent model configuration (read + hot-swap). Later parity tickets mount the agent
   // stream/resume proxy on the same prefix under distinct sub-paths.
   app.use('/api/agents', agentConfigRouter);
+  app.use('/api/profile/base-resume', baseResumeRouter);
   app.use('/api/profile', profileRouter);
   app.use('/api/demo', demoRouter);
   app.use('/api/outreach', outreachRouter);
