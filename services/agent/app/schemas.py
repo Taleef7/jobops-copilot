@@ -370,3 +370,54 @@ class TailoredResumeOutput(BaseModel):
 
 class ParseResumeRequest(BaseModel):
     resume_text: str = Field(description="Raw resume text to parse into a structured model")
+
+
+
+class ApplicationPackQuestionAnswer(BaseModel):
+    question_text: str
+    question_hash: str
+    answer: str
+    category: str = "custom"  # work_authorization | salary | why_us | behavioral | custom
+    source: str = "generated"  # qa_memory | profile | preferences | research | generated | unanswerable
+    flagged: bool = False
+
+
+class ApplicationPackContactBlock(BaseModel):
+    name: str = ""
+    email: str = ""
+    phone: str = ""
+    location: str = ""
+    linkedin: str = ""
+    github: str = ""
+    portfolio: str = ""
+
+
+class ApplicationPackOutput(BaseModel):
+    job_id: str
+    company: str
+    title: str
+    resume_version_id: str | None = None
+    resume_file_url: str | None = None
+    cover_letter_id: str | None = None
+    cover_letter_text: str | None = None
+    contact_block: ApplicationPackContactBlock = Field(default_factory=ApplicationPackContactBlock)
+    answers: list[ApplicationPackQuestionAnswer] = Field(default_factory=list)
+    flagged_questions: list[str] = Field(default_factory=list)
+    generated_at: str = ""
+
+
+class BuildApplicationPackRequest(BaseModel):
+    job_id: str
+    company: str
+    title: str
+    description_text: str = ""
+    base_resume: StructuredResume | None = None
+    profile_text: str | None = None
+    preferences: dict[str, Any] = Field(default_factory=dict)
+    qa_memory: list[dict[str, Any]] = Field(default_factory=list)
+    research_output: dict[str, Any] | None = None
+    resume_version_id: str | None = None
+    resume_file_url: str | None = None
+    cover_letter_id: str | None = None
+    cover_letter_text: str | None = None
+

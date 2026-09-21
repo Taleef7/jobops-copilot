@@ -422,3 +422,37 @@ export interface CreateExtTokenResult {
   record: ExtTokenRecord;
 }
 
+export interface ApplicationPackContactBlock {
+  name?: string;
+  email?: string;
+  phone?: string;
+  location?: string;
+  linkedin?: string;
+  github?: string;
+  portfolio?: string;
+}
+
+export interface ApplicationPackQuestionAnswer {
+  questionText: string;
+  questionHash: string;
+  answer: string;
+  category: 'work_authorization' | 'salary' | 'why_us' | 'behavioral' | 'custom';
+  source: 'qa_memory' | 'profile' | 'preferences' | 'research' | 'generated' | 'unanswerable';
+  flagged?: boolean;
+}
+
+export interface ApplicationPackPayload {
+  jobId: string;
+  company: string;
+  title: string;
+  resumeVersionId?: string | null;
+  resumeFileUrl?: string | null;
+  coverLetterId?: string | null;
+  coverLetterText?: string | null;
+  contactBlock?: ApplicationPackContactBlock;
+  answers: ApplicationPackQuestionAnswer[];
+  flaggedQuestions: string[];
+  generatedAt: string;
+}
+
+
