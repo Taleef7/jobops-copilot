@@ -33,10 +33,10 @@
 - [x] #262 **feat(api): USCIS H-1B Employer Data Hub import + h1b_sponsors table + sponsor_likelihood matching** (M; blocked by: #258)
 - [x] #263 **feat(api): fetch full JDs at discovery through the SSRF-hardened fetcher + extend the local prerank** (M; blocked by: #258)
 - [x] #264 **feat(api,infra): discovery every 20-30 min + daily liveness sweep — internal endpoints + ACA cron jobs (Bicep)** (L; blocked by: #258, #259)
-- [ ] #265 **feat(agent,api): feed-curator graph — immediate cheap-tier scoring with sub-signals, persisted into job_analysis** (L; blocked by: #258, #251, #252)
-- [ ] #266 **feat(agent,api,infra): nightly batch scoring — BatchScorer (Anthropic + OpenAI batch APIs), content_hash skip, cron submit/poll** (L; blocked by: #265, #264)
-- [ ] #267 **feat(api): outcome-feedback view + ranked feed endpoint (GET /api/feed)** (M; blocked by: #258) — ⚠️ needs the `job_status_events` table from #258; `jobs.status` is overwritten in place, so without transition history the heuristic cannot tell "interviewed then rejected" from "rejected outright" and learns backwards
-- [ ] #268 **feat(web): Today's best ranked feed — salary/seniority/sponsorship filters, sub-signal score chips, freshness badges** (L; blocked by: #267, #265)
+- [x] #265 **feat(agent,api): feed-curator graph — immediate cheap-tier scoring with sub-signals, persisted into job_analysis** (L; blocked by: #258, #251, #252)
+- [x] #266 **feat(agent,api,infra): nightly batch scoring — BatchScorer (Anthropic + OpenAI batch APIs), content_hash skip, cron submit/poll** (L; blocked by: #265, #264)
+- [x] #267 **feat(api): outcome-feedback view + ranked feed endpoint (GET /api/feed)** (M; blocked by: #258) — ⚠️ needs the `job_status_events` table from #258; `jobs.status` is overwritten in place, so without transition history the heuristic cannot tell "interviewed then rejected" from "rejected outright" and learns backwards
+- [x] #268 **feat(web): Today's best ranked feed — salary/seniority/sponsorship filters, sub-signal score chips, freshness badges** (L; blocked by: #267, #265)
 
 ### [Epic 3 — Alerts & notifications (Jobright parity)](https://github.com/Taleef7/jobops-copilot/issues/246) — #246
 

@@ -42,6 +42,10 @@ export interface JobAnalysisSubSignals {
   titleSeniority?: number;
   salaryFit?: number;
   sponsorshipLikelihood?: number;
+  skills_match?: number;
+  title_seniority?: number;
+  salary_fit?: number;
+  sponsorship_likelihood?: number;
 }
 
 export interface JobAnalysis {
