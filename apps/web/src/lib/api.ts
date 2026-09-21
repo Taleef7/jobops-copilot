@@ -1,4 +1,4 @@
-import type { FeedQueryOptions, FeedResult, Job, OutreachMessageType, OutreachStatus, StructuredResume, WeeklyReport } from '@/types/job';
+import type { FeedQueryOptions, FeedResult, Job, OutreachMessageType, OutreachStatus, ResumeVersionRecord, StructuredResume, WeeklyReport } from '@/types/job';
 
 const apiBaseUrl = (process.env.NEXT_PUBLIC_API_BASE_URL ?? 'http://127.0.0.1:4000').replace(/\/$/, '');
 
@@ -416,6 +416,74 @@ export async function parseResumeToStructured(
     },
   );
   return response.structuredResume;
+}
+
+/** Fetch all tailored resume versions for a specific job. */
+export async function fetchJobResumeVersions(jobId: string): Promise<ResumeVersionRecord[]> {
+  const response = await requestJson<{ versions: ResumeVersionRecord[] }>(
+    `/api/jobs/${jobId}/resume-versions`,
+    { cache: 'no-store' },
+  );
+  return response.versions;
+}
+
+/** Initiate an interactive tailoring run for a specific job. */
+export async function tailorResumeForJob(
+  jobId: string,
+  options?: { targetRole?: string },
+): Promise<ResumeVersionRecord> {
+  const response = await requestJson<{ version: ResumeVersionRecord }>(
+    `/api/jobs/${jobId}/tailor`,
+    {
+      method: 'POST',
+      body: JSON.stringify(options ?? {}),
+    },
+  );
+  return response.version;
+}
+
+/** Approve a tailored resume draft version. */
+export async function approveResumeVersion(
+  versionId: string,
+): Promise<{ version: ResumeVersionRecord; fileUrl?: string; approved: boolean }> {
+  return await requestJson<{ version: ResumeVersionRecord; fileUrl?: string; approved: boolean }>(
+    `/api/resume-versions/${versionId}/approve`,
+    { method: 'POST', body: '{}' },
+  );
+}
+
+/** Reject a tailored resume draft version with user feedback. */
+export async function rejectResumeVersion(
+  versionId: string,
+  feedback?: string,
+): Promise<{ version: ResumeVersionRecord; approved: boolean; feedback: string | null }> {
+  return await requestJson<{ version: ResumeVersionRecord; approved: boolean; feedback: string | null }>(
+    `/api/resume-versions/${versionId}/reject`,
+    {
+      method: 'POST',
+      body: JSON.stringify(feedback ? { feedback } : {}),
+    },
+  );
+}
+
+/**
+ * Trigger gated browser download for an approved resume version PDF.
+ */
+export async function downloadResumeVersion(versionId: string, filename?: string): Promise<void> {
+  const res = await fetch(`/api/proxy/api/resume-versions/${versionId}/download`);
+  if (!res.ok) {
+    const errorData = await res.json().catch(() => ({ error: 'Download failed' }));
+    throw new Error(errorData.error || `Download failed with status ${res.status}`);
+  }
+  const blob = await res.blob();
+  const url = window.URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename || `tailored-resume-${versionId}.pdf`;
+  document.body.appendChild(a);
+  a.click();
+  window.URL.revokeObjectURL(url);
+  document.body.removeChild(a);
 }
 
 export async function seedDemoData(): Promise<void> {

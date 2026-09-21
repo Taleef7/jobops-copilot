@@ -243,6 +243,8 @@ export interface ResumeVersionRecord {
   id: string;
   userId: string;
   jobId?: string | null;
+  versionNumber?: number;
+  groundednessScore?: number;
   baseResumeFileUrl?: string | null;
   tailoredResumeFileUrl?: string | null;
   changeSummary: string;

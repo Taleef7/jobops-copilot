@@ -13,7 +13,8 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { fetchAgentOutputs, fetchProfile } from '@/lib/api';
+import { TailoredResumeReview } from '@/components/tailored-resume-review';
+import { fetchAgentOutputs, fetchJobResumeVersions, fetchProfile } from '@/lib/api';
 import { isHeuristicAnalysis, isPrerankAnalysis } from '@/lib/analysis-display';
 import { formatDate } from '@/lib/format';
 import { loadJob } from '@/lib/job-data';
@@ -33,10 +34,11 @@ export default async function JobDetailPage({ params }: JobDetailParams) {
   const { jobId } = await params;
   // Fetch the profile + persisted agent outputs alongside the job. Neither is
   // load-bearing for the page, so a failure of either must not break it.
-  const [{ job, source }, profile, agentOutputs] = await Promise.all([
+  const [{ job, source }, profile, agentOutputs, resumeVersions] = await Promise.all([
     loadJob(jobId),
     fetchProfile().catch(() => null),
     fetchAgentOutputs(jobId).catch(() => []),
+    fetchJobResumeVersions(jobId).catch(() => []),
   ]);
   if (!job) notFound();
 
@@ -95,6 +97,7 @@ export default async function JobDetailPage({ params }: JobDetailParams) {
           <Tabs defaultValue="analysis" className="gap-4">
             <TabsList>
               <TabsTrigger value="analysis">Analysis</TabsTrigger>
+              <TabsTrigger value="resume">Resume studio</TabsTrigger>
               <TabsTrigger value="agents">AI agents</TabsTrigger>
               <TabsTrigger value="outreach">Outreach</TabsTrigger>
             </TabsList>
@@ -180,6 +183,15 @@ export default async function JobDetailPage({ params }: JobDetailParams) {
                   <p className="text-sm">{job.analysis.applyRecommendation}</p>
                 </div>
               </Card>
+            </TabsContent>
+
+            <TabsContent value="resume" className="space-y-4">
+              <TailoredResumeReview
+                jobId={job.id}
+                jobTitle={job.title}
+                jobCompany={job.company}
+                initialVersions={resumeVersions}
+              />
             </TabsContent>
 
             <TabsContent value="agents">
