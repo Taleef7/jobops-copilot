@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { requireUser } from '@/lib/auth';
-import { createJob, listJobs, saveJobAnalysis } from '@/data/job-store';
+import { createJob, listJobs, saveJobAnalysis, touchJobsSeen } from '@/data/job-store';
 import { getUserProfile } from '@/data/profile-store';
 import { listSavedSearches, listUsersWithSavedSearches } from '@/data/saved-search-store';
 import { listTargetCompanies, listUsersWithEnabledTargetCompanies } from '@/data/target-company-store';
@@ -17,7 +17,7 @@ export interface DiscoveryRouterDeps {
   listSweepUsers?: () => Promise<string[]>;
 }
 
-const defaultDeps: DiscoveryRouterDeps = {
+export const defaultDeps: DiscoveryRouterDeps = {
   runDiscovery: (userId) =>
     runDiscoveryForUser(userId, {
       sources: getJobSources(),
@@ -30,6 +30,7 @@ const defaultDeps: DiscoveryRouterDeps = {
       fetchBoards: fetchTargetCompanyBoards,
       lookupSponsor: lookupSponsorLikelihood,
       upgradeJd: upgradeToFullJd,
+      touchSeen: touchJobsSeen,
     }),
   listUsersWithSavedSearches,
   listSweepUsers: async () => {
@@ -58,6 +59,29 @@ export function createDiscoveryRouter(deps: DiscoveryRouterDeps = defaultDeps) {
   return router;
 }
 
+export async function runDiscoverySweep(deps: DiscoveryRouterDeps) {
+  const userIds = await (deps.listSweepUsers ? deps.listSweepUsers() : deps.listUsersWithSavedSearches());
+  let inserted = 0;
+  let skipped = 0;
+  const perUser: Array<{ user_id: string } & DiscoveryResult> = [];
+
+  for (const userId of userIds) {
+    const result = await deps.runDiscovery(userId);
+    inserted += result.inserted;
+    skipped += result.skipped;
+    perUser.push({ user_id: userId, ...result });
+  }
+
+  return {
+    workflow: 'discover',
+    users: userIds.length,
+    inserted,
+    skipped,
+    per_user: perUser,
+    notification: `Discovery swept ${userIds.length} user(s): ${inserted} new, ${skipped} skipped.`,
+  };
+}
+
 /**
  * Service-to-service scheduled sweep: `POST /api/n8n/discover`. Mounted under
  * `/api/n8n` so it inherits the shared-API-key exemption; guarded by the n8n
@@ -69,26 +93,7 @@ export function createDiscoverySweepRouter(deps: DiscoveryRouterDeps = defaultDe
 
   router.post('/', async (_request, response, next) => {
     try {
-      const userIds = await (deps.listSweepUsers ? deps.listSweepUsers() : deps.listUsersWithSavedSearches());
-      let inserted = 0;
-      let skipped = 0;
-      const perUser: Array<{ user_id: string } & DiscoveryResult> = [];
-
-      for (const userId of userIds) {
-        const result = await deps.runDiscovery(userId);
-        inserted += result.inserted;
-        skipped += result.skipped;
-        perUser.push({ user_id: userId, ...result });
-      }
-
-      response.json({
-        workflow: 'discover',
-        users: userIds.length,
-        inserted,
-        skipped,
-        per_user: perUser,
-        notification: `Discovery swept ${userIds.length} user(s): ${inserted} new, ${skipped} skipped.`,
-      });
+      response.json(await runDiscoverySweep(deps));
     } catch (error) {
       next(error);
     }

@@ -573,6 +573,102 @@ resource agentApp 'Microsoft.App/containerApps@2024-03-01' = {
   }
 }
 
+// ---- ACA Cron Jobs: Discovery Sweep (every 25m) & Liveness (daily) ----------
+
+resource discoveryCronJob 'Microsoft.App/jobs@2024-03-01' = {
+  name: '${namePrefix}-discovery-job'
+  location: platformLocation
+  properties: {
+    environmentId: agentEnv.id
+    configuration: {
+      triggerType: 'Schedule'
+      replicaTimeout: 300
+      replicaRetryLimit: 1
+      scheduleTriggerConfig: {
+        cronExpression: '*/25 * * * *'
+        parallelism: 1
+        replicaCompletionCount: 1
+      }
+      secrets: [
+        {
+          name: 'n8n-webhook-secret'
+          value: n8nWebhookSecret
+        }
+      ]
+    }
+    template: {
+      containers: [
+        {
+          name: 'discovery-runner'
+          image: 'mcr.microsoft.com/cbl-mariner/base/core:2.0'
+          command: [
+            '/bin/sh'
+            '-c'
+            'curl -fsS -X POST "https://${apiAppName}.azurewebsites.net/internal/discovery/run" -H "X-N8N-Webhook-Secret: $N8N_WEBHOOK_SECRET"'
+          ]
+          env: [
+            {
+              name: 'N8N_WEBHOOK_SECRET'
+              secretRef: 'n8n-webhook-secret'
+            }
+          ]
+          resources: {
+            cpu: json('0.25')
+            memory: '0.5Gi'
+          }
+        }
+      ]
+    }
+  }
+}
+
+resource livenessCronJob 'Microsoft.App/jobs@2024-03-01' = {
+  name: '${namePrefix}-liveness-job'
+  location: platformLocation
+  properties: {
+    environmentId: agentEnv.id
+    configuration: {
+      triggerType: 'Schedule'
+      replicaTimeout: 300
+      replicaRetryLimit: 1
+      scheduleTriggerConfig: {
+        cronExpression: '0 4 * * *'
+        parallelism: 1
+        replicaCompletionCount: 1
+      }
+      secrets: [
+        {
+          name: 'n8n-webhook-secret'
+          value: n8nWebhookSecret
+        }
+      ]
+    }
+    template: {
+      containers: [
+        {
+          name: 'liveness-runner'
+          image: 'mcr.microsoft.com/cbl-mariner/base/core:2.0'
+          command: [
+            '/bin/sh'
+            '-c'
+            'curl -fsS -X POST "https://${apiAppName}.azurewebsites.net/internal/liveness/run" -H "X-N8N-Webhook-Secret: $N8N_WEBHOOK_SECRET"'
+          ]
+          env: [
+            {
+              name: 'N8N_WEBHOOK_SECRET'
+              secretRef: 'n8n-webhook-secret'
+            }
+          ]
+          resources: {
+            cpu: json('0.25')
+            memory: '0.5Gi'
+          }
+        }
+      ]
+    }
+  }
+}
+
 // ---- Postgres Flexible Server (mexicocentral, opt-in) ----------------------
 
 resource postgres 'Microsoft.DBforPostgreSQL/flexibleServers@2023-12-01-preview' = if (createPostgres) {

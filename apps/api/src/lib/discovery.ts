@@ -29,6 +29,7 @@ export interface DiscoveryDeps {
   fetchBoards?: typeof fetchTargetCompanyBoards;
   lookupSponsor?: (company: string) => Promise<SponsorLikelihood | null>;
   upgradeJd?: typeof upgradeToFullJd;
+  touchSeen?: (userId: string, jobIds: string[]) => Promise<void>;
 }
 
 /**
@@ -66,7 +67,15 @@ export async function runDiscoveryForUser(userId: string, deps: DiscoveryDeps): 
   const JD_UPGRADE_TIME_BUDGET_MS = Number(process.env.DISCOVERY_JD_UPGRADE_BUDGET_MS ?? 15_000);
   const jdUpgradeDeadline = Date.now() + JD_UPGRADE_TIME_BUDGET_MS;
   const searches = await deps.listSavedSearches(userId);
-  const seen = new Set((await deps.listJobs(userId)).flatMap(keysFor));
+  const existingJobs = await deps.listJobs(userId);
+  const seen = new Set(existingJobs.flatMap(keysFor));
+  const existingJobIdByKey = new Map<string, string>();
+  for (const job of existingJobs) {
+    for (const k of keysFor(job)) {
+      existingJobIdByKey.set(k, job.id);
+    }
+  }
+  const reSeenJobIds = new Set<string>();
   const resume = await deps.getResume(userId);
 
   const sources: JobSource[] = deps.sources && deps.sources.length > 0
@@ -83,6 +92,10 @@ export async function runDiscoveryForUser(userId: string, deps: DiscoveryDeps): 
   async function insertIfNew(job: SourcedJob): Promise<void> {
     const key = dedupKey(job);
     if (seen.has(key)) {
+      const existingId = existingJobIdByKey.get(key);
+      if (existingId) {
+        reSeenJobIds.add(existingId);
+      }
       skipped += 1;
       return;
     }
@@ -170,6 +183,14 @@ export async function runDiscoveryForUser(userId: string, deps: DiscoveryDeps): 
     : sources.map((s) => s.name);
   const combined = [...searchSourceList, ...boardSources];
   const source = combined.length > 0 ? combined.join('+') : 'unknown';
+
+  if (reSeenJobIds.size > 0 && deps.touchSeen) {
+    try {
+      await deps.touchSeen(userId, [...reSeenJobIds]);
+    } catch {
+      // Ignore error
+    }
+  }
 
   return { inserted, skipped, source };
 }

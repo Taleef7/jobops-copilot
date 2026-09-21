@@ -479,6 +479,32 @@ export async function seedDemoData(userId: string): Promise<void> {
   });
 }
 
+export async function touchJobsSeen(userId: string, jobIds: string[]): Promise<void> {
+  if (jobIds.length === 0) {
+    return;
+  }
+  if (hasPostgresConnection()) {
+    return postgresStore.touchJobsSeen(userId, jobIds);
+  }
+
+  await runExclusive(async () => {
+    const jobs = await ensureLoaded();
+    const idSet = new Set(jobIds);
+    const now = new Date().toISOString();
+    let changed = false;
+    for (const job of jobs) {
+      if (job.userId === userId && idSet.has(job.id)) {
+        job.lastSeenAt = now;
+        job.liveness = 'active';
+        changed = true;
+      }
+    }
+    if (changed) {
+      await persistJobs();
+    }
+  });
+}
+
 export function resetJobStoreForTests() {
   jobsCache = null;
   loadPromise = null;

@@ -24,6 +24,7 @@ import { telemetryRouter } from '@/routes/telemetry';
 import { discoveryRouter, discoverySweepRouter } from '@/routes/discovery';
 import { savedSearchesRouter } from '@/routes/saved-searches';
 import { targetCompaniesRouter } from '@/routes/target-companies';
+import { internalRouter } from '@/routes/internal';
 
 const mutatingMethods = new Set(['POST', 'PATCH', 'PUT', 'DELETE']);
 
@@ -38,7 +39,7 @@ function requireSharedApiKey(
   if (
     !sharedSecret ||
     !mutatingMethods.has(request.method) ||
-    (request.path.startsWith('/api/n8n') && Boolean(n8nWebhookSecret))
+    ((request.path.startsWith('/api/n8n') || request.path.startsWith('/internal')) && Boolean(n8nWebhookSecret))
   ) {
     next();
     return;
@@ -135,6 +136,7 @@ export function createApp(dependencies: AppDependencies = {}) {
   // shared-API-key exemption (path starts with /api/n8n) and uses the n8n secret.
   app.use('/api/n8n/discover', discoverySweepRouter);
   app.use('/api/n8n', n8nRouter);
+  app.use('/internal', internalRouter);
 
   app.use((_request, response) => {
     response.status(404).json({ error: 'Not found' });

@@ -966,3 +966,17 @@ export async function seedDemoData(userId: string): Promise<void> {
     client.release();
   }
 }
+
+export async function touchJobsSeen(userId: string, jobIds: string[]): Promise<void> {
+  if (jobIds.length === 0) {
+    return;
+  }
+  const pool = getPool();
+  if (!pool) {
+    return;
+  }
+  await pool.query(
+    `update jobs set last_seen_at = now(), liveness = 'active' where user_id = $1 and id = any($2::uuid[])`,
+    [userId, jobIds],
+  );
+}

@@ -462,3 +462,55 @@ test('runDiscoveryForUser stops attempting JD upgrades when upgrade time budget 
     }
   }
 });
+
+test('when discovery re-encounters an existing job URL, touchSeen is called with that job ID', async () => {
+  const existingJob = {
+    id: 'existing-job-123',
+    jobUrl: 'https://example.com/job/existing',
+    company: 'Acme',
+    title: 'Engineer',
+    location: 'Remote',
+  };
+
+  const reEncountered = sourced('https://example.com/job/existing', {
+    company: 'Acme',
+    title: 'Engineer',
+  });
+
+  const touched: Array<{ userId: string; jobIds: string[] }> = [];
+  const { deps } = makeDeps([reEncountered], [existingJob]);
+  deps.touchSeen = async (userId, jobIds) => {
+    touched.push({ userId, jobIds });
+  };
+
+  const result = await runDiscoveryForUser('user-1', deps);
+
+  assert.equal(result.inserted, 0);
+  assert.equal(result.skipped, 1);
+  assert.deepEqual(touched, [{ userId: 'user-1', jobIds: ['existing-job-123'] }]);
+});
+
+test('touchSeen throwing an error does not fail the discovery run', async () => {
+  const existingJob = {
+    id: 'existing-job-123',
+    jobUrl: 'https://example.com/job/existing',
+    company: 'Acme',
+    title: 'Engineer',
+    location: 'Remote',
+  };
+
+  const reEncountered = sourced('https://example.com/job/existing', {
+    company: 'Acme',
+    title: 'Engineer',
+  });
+
+  const { deps } = makeDeps([reEncountered], [existingJob]);
+  deps.touchSeen = async () => {
+    throw new Error('Database connection failure during touchSeen');
+  };
+
+  const result = await runDiscoveryForUser('user-1', deps);
+
+  assert.equal(result.inserted, 0);
+  assert.equal(result.skipped, 1);
+});
