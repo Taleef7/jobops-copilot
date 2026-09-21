@@ -279,7 +279,7 @@ export async function runSkillGap(payload: {
 }
 
 /** Store-side agent kinds, as persisted by the API (mapped to panel tabs client-side). */
-export type AgentOutputKind = 'interview_prep' | 'research' | 'skill_gap';
+export type AgentOutputKind = 'interview_prep' | 'research' | 'skill_gap' | 'application_pack';
 
 export interface AgentOutputItem {
   jobId: string;

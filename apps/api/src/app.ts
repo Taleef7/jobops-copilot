@@ -28,6 +28,7 @@ import { internalRouter } from '@/routes/internal';
 import { feedRouter } from '@/routes/feed';
 import { baseResumeRouter } from '@/routes/base-resume';
 import { resumeStudioRouter } from '@/routes/resume-studio';
+import { answersRouter } from '@/routes/answers';
 
 
 const mutatingMethods = new Set(['POST', 'PATCH', 'PUT', 'DELETE']);
@@ -139,6 +140,7 @@ export function createApp(dependencies: AppDependencies = {}) {
   app.use('/api/discovery', strictLimiter, discoveryRouter);
   app.use('/api/saved-searches', savedSearchesRouter);
   app.use('/api/target-companies', targetCompaniesRouter);
+  app.use('/api/answers', answersRouter);
   // Mounted before '/api/n8n' so this more specific path wins; it inherits the
   // shared-API-key exemption (path starts with /api/n8n) and uses the n8n secret.
   app.use('/api/n8n/discover', discoverySweepRouter);

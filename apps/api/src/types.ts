@@ -388,3 +388,37 @@ export interface ResumeVersionRecord {
   createdAt: string;
   updatedAt: string;
 }
+
+export interface ApplicationAnswer {
+  id: string;
+  userId: string;
+  questionHash: string;
+  questionText: string;
+  answer: string;
+  ats?: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface UpsertApplicationAnswerBody {
+  questionText: string;
+  answer: string;
+  ats?: string | null;
+  questionHash?: string;
+}
+
+export interface ExtTokenRecord {
+  id: string;
+  userId: string;
+  tokenHash: string;
+  label: string;
+  lastUsedAt?: string | null;
+  revokedAt?: string | null;
+  createdAt: string;
+}
+
+export interface CreateExtTokenResult {
+  token: string;
+  record: ExtTokenRecord;
+}
+
