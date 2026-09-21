@@ -147,3 +147,117 @@ baseResumeRouter.post(
     next(error);
   }
 });
+
+/**
+ * POST /api/profile/base-resume/render-pdf
+ *
+ * Renders an ATS-safe single-column PDF from the base resume (or submitted StructuredResume),
+ * saves it to blob storage (with local fallback), updates the version record with fileUrl,
+ * and returns the download/file URL.
+ */
+baseResumeRouter.post('/render-pdf', async (request, response, next) => {
+  try {
+    const userId = requireUser(request, response);
+    if (!userId) return;
+
+    const body = (request.body ?? {}) as { resume?: StructuredResume; versionId?: string };
+    let resumeToRender = body.resume;
+    let versionRecord: ResumeVersionRecord | null = null;
+
+    if (body.versionId) {
+      const { getResumeVersion } = await import('@/data/resume-version-store');
+      versionRecord = await getResumeVersion(userId, body.versionId);
+      if (versionRecord && !resumeToRender) {
+        resumeToRender = versionRecord.structuredResume;
+      }
+    }
+
+    if (!resumeToRender) {
+      const baseVersion = await getBaseResumeVersion(userId);
+      if (baseVersion) {
+        versionRecord = baseVersion;
+        resumeToRender = baseVersion.structuredResume;
+      } else {
+        const profile = await getUserProfile(userId);
+        if (profile?.baseResume) {
+          resumeToRender = profile.baseResume;
+        }
+      }
+    }
+
+    if (!resumeToRender || !resumeToRender.basics || !resumeToRender.basics.name) {
+      return response.status(400).json({
+        error: 'No valid structured resume found to render.',
+      });
+    }
+
+    const { renderAtsResumePdf } = await import('@/lib/ats-resume-pdf');
+    const pdfBuffer = renderAtsResumePdf(resumeToRender);
+
+    if (!versionRecord) {
+      versionRecord = {
+        id: randomUUID(),
+        userId,
+        jobId: null,
+        changeSummary: 'Base resume PDF render',
+        structuredResume: resumeToRender,
+        approved: true,
+        isBase: true,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      };
+      await insertResumeVersion(versionRecord);
+    }
+
+    const { storeResumePdf } = await import('@/lib/resume-storage');
+    const { fileUrl } = await storeResumePdf(versionRecord, pdfBuffer);
+
+    // Update version record with file URL
+    const { updateResumeVersion } = await import('@/data/resume-version-store');
+    await updateResumeVersion(userId, versionRecord.id, {
+      baseResumeFileUrl: fileUrl,
+    });
+
+    return response.json({
+      versionId: versionRecord.id,
+      fileUrl,
+      fileName: `resume_${versionRecord.id}.pdf`,
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
+/**
+ * GET /api/profile/base-resume/versions/:id/download
+ *
+ * Downloads the ATS-safe resume PDF for a specific version record.
+ * Renders dynamically if no stored PDF exists.
+ */
+baseResumeRouter.get('/versions/:id/download', async (request, response, next) => {
+  try {
+    const userId = requireUser(request, response);
+    if (!userId) return;
+
+    const { id } = request.params;
+    const { getResumeVersion } = await import('@/data/resume-version-store');
+    const version = await getResumeVersion(userId, id!);
+
+    if (!version) {
+      return response.status(404).json({ error: 'Resume version not found.' });
+    }
+
+    const { renderAtsResumePdf } = await import('@/lib/ats-resume-pdf');
+    const pdfBuffer = renderAtsResumePdf(version.structuredResume);
+
+    response.setHeader('Content-Type', 'application/pdf');
+    response.setHeader(
+      'Content-Disposition',
+      `attachment; filename="resume_${version.basics?.name || 'document'}_${version.id}.pdf"`,
+    );
+    return response.send(pdfBuffer);
+  } catch (error) {
+    next(error);
+  }
+});
+

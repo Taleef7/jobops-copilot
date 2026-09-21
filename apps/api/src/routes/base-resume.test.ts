@@ -354,3 +354,55 @@ test('POST /api/demo/clear deletes base resume versions so GET returns null afte
   }
 });
 
+test('POST /api/profile/base-resume/render-pdf renders ATS PDF and stores version', async () => {
+  const originalCwd = process.cwd();
+  delete process.env.DATABASE_URL;
+  const tempDir = await mkdtemp(join(tmpdir(), 'jobops-base-resume-pdf-'));
+
+  try {
+    process.chdir(tempDir);
+    await resetResumeVersionStore();
+
+    await withServer(
+      (app) => app.use('/api/profile/base-resume', baseResumeRouter),
+      async (baseUrl) => {
+        // Save base resume first
+        await fetch(`${baseUrl}/api/profile/base-resume`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json', 'X-User-Id': 'user-pdf-1' },
+          body: JSON.stringify({ baseResume: sampleResume }),
+        });
+
+        // Request PDF rendering
+        const renderRes = await fetch(`${baseUrl}/api/profile/base-resume/render-pdf`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'X-User-Id': 'user-pdf-1' },
+          body: JSON.stringify({}),
+        });
+
+        assert.equal(renderRes.status, 200);
+        const data = (await renderRes.json()) as {
+          versionId: string;
+          fileUrl: string;
+          fileName: string;
+        };
+        assert.ok(data.versionId);
+        assert.ok(data.fileUrl);
+        assert.ok(data.fileName.endsWith('.pdf'));
+
+        // Verify download route returns valid PDF binary
+        const downloadRes = await fetch(`${baseUrl}/api/profile/base-resume/versions/${data.versionId}/download`, {
+          headers: { 'X-User-Id': 'user-pdf-1' },
+        });
+
+        assert.equal(downloadRes.status, 200);
+        assert.equal(downloadRes.headers.get('content-type'), 'application/pdf');
+        const buf = Buffer.from(await downloadRes.arrayBuffer());
+        assert.ok(buf.toString('utf-8', 0, 8).startsWith('%PDF-1.4'));
+      },
+    );
+  } finally {
+    process.chdir(originalCwd);
+  }
+});
+
