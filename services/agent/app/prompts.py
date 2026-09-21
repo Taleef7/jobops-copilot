@@ -25,6 +25,7 @@ Rules:
 - Never fabricate or assume resume experience that is not present in the provided text.
 - matched_skills must be supported by the resume/profile; missing_skills are required skills not evidenced.
 - fit_score (0-100) and confidence_score (0-100) must reflect the real overlap, not optimism.
+- sub_signals must reflect honest component scores (each 0-100): skills_match, title_seniority, salary_fit, and sponsorship_likelihood.
 - apply_recommendation: "apply" only for strong, well-evidenced fits; "review" for partial; "pass" for weak.
 - recommended_resume_angle must only suggest truthful reordering/emphasis of existing experience.
 - When retrieved resume evidence is provided, ground matched_skills and the summary in those snippets.

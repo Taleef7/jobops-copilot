@@ -129,3 +129,25 @@ def test_a_successful_first_call_is_not_retried(monkeypatch):
     score_fit_module.score_fit(_request())
 
     assert structured.calls == 1
+
+
+def test_sub_signals_are_clamped_and_returned(monkeypatch):
+    _install(
+        monkeypatch,
+        [
+            _payload(
+                sub_signals={
+                    "skills_match": 120,
+                    "title_seniority": -10,
+                    "salary_fit": 85,
+                    "sponsorship_likelihood": 100,
+                }
+            )
+        ],
+    )
+
+    result = score_fit_module.score_fit(_request())
+    assert result.sub_signals.skills_match == 100
+    assert result.sub_signals.title_seniority == 0
+    assert result.sub_signals.salary_fit == 85
+    assert result.sub_signals.sponsorship_likelihood == 100

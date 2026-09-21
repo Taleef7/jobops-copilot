@@ -10,6 +10,8 @@ import { requireN8nWebhookSecret } from '@/lib/n8n';
 import { runDiscoveryForUser, type DiscoveryResult } from '@/lib/discovery';
 import { upgradeToFullJd } from '@/lib/jd-upgrade';
 import { lookupSponsorLikelihood } from '@/lib/sponsorship';
+import { resolveFitScore } from '@/lib/agent-client';
+import { reserveAiBudget } from '@/lib/budget';
 
 export interface DiscoveryRouterDeps {
   runDiscovery: (userId: string) => Promise<DiscoveryResult>;
@@ -25,12 +27,15 @@ export const defaultDeps: DiscoveryRouterDeps = {
       createJob,
       listSavedSearches,
       getResume: async (uid) => (await getUserProfile(uid))?.resumeText ?? '',
+      getProfile: getUserProfile,
       saveAnalysis: saveJobAnalysis,
       listTargetCompanies,
       fetchBoards: fetchTargetCompanyBoards,
       lookupSponsor: lookupSponsorLikelihood,
       upgradeJd: upgradeToFullJd,
       touchSeen: touchJobsSeen,
+      resolveFitScore,
+      reserveBudget: reserveAiBudget,
     }),
   listUsersWithSavedSearches,
   listSweepUsers: async () => {

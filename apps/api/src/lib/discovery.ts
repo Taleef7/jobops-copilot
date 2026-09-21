@@ -5,6 +5,7 @@ import {
 } from '@/data/job-store';
 import { listSavedSearches as listSavedSearchesStore } from '@/data/saved-search-store';
 import { prerankAnalysis } from '@/lib/local-fit';
+import { analysisFromFit, type FitScoreOutput } from '@/lib/analysis-core';
 import type { JobSource } from '@/lib/job-sources';
 import { dedupKey, fingerprintKey, type SourcedJob } from '@/lib/job-sources/normalize';
 import { fetchTargetCompanyBoards } from '@/lib/job-sources/boards';
@@ -24,12 +25,21 @@ export interface DiscoveryDeps {
   createJob: typeof createJobStore;
   listSavedSearches: typeof listSavedSearchesStore;
   getResume: (userId: string) => Promise<string>;
+  getProfile?: (userId: string) => Promise<{ resumeText?: string; profileText?: string } | undefined>;
   saveAnalysis: typeof saveJobAnalysisStore;
   listTargetCompanies?: (userId: string) => Promise<TargetCompany[]>;
   fetchBoards?: typeof fetchTargetCompanyBoards;
   lookupSponsor?: (company: string) => Promise<SponsorLikelihood | null>;
   upgradeJd?: typeof upgradeToFullJd;
   touchSeen?: (userId: string, jobIds: string[]) => Promise<void>;
+  resolveFitScore?: (input: {
+    userId?: string;
+    descriptionText: string;
+    resumeText: string;
+    profileText: string;
+    title?: string | null;
+  }) => Promise<FitScoreOutput>;
+  reserveBudget?: (userId: string, op: string) => Promise<boolean>;
 }
 
 /**
@@ -77,6 +87,8 @@ export async function runDiscoveryForUser(userId: string, deps: DiscoveryDeps): 
   }
   const reSeenJobIds = new Set<string>();
   const resume = await deps.getResume(userId);
+  const profile = deps.getProfile ? await deps.getProfile(userId) : undefined;
+  const profileText = profile?.profileText || resume;
 
   const sources: JobSource[] = deps.sources && deps.sources.length > 0
     ? deps.sources
@@ -125,15 +137,39 @@ export async function runDiscoveryForUser(userId: string, deps: DiscoveryDeps): 
         sponsorLikelihood: sponsor ?? job.sponsorLikelihood,
       });
       inserted += 1;
-      // Pre-rank is best-effort: the job is already inserted and counted, so a
-      // transient failure persisting the estimated fit must not abort the whole
-      // sweep. The real LLM score still runs when the user first opens the job;
-      // until then an unranked job simply sorts as having no score.
-      try {
-        const { fitScore, analysis } = prerankAnalysis(job.descriptionText ?? '', resume);
-        await deps.saveAnalysis(userId, createdJob.id, analysis, fitScore);
-      } catch {
-        // Leave the job unranked rather than failing the discovery run.
+      // Sequential scoring: attempt AI scoring if enabled and budget allows;
+      // otherwise fall back gracefully to local pre-ranking.
+      let scoredWithAi = false;
+      if (resume && deps.resolveFitScore && deps.reserveBudget) {
+        try {
+          const budgetAllowed = await deps.reserveBudget(userId, 'score');
+          if (budgetAllowed) {
+            const fit = await deps.resolveFitScore({
+              userId,
+              descriptionText: createdJob.descriptionText,
+              resumeText: resume,
+              profileText,
+              title: createdJob.title,
+            });
+            const analysis = analysisFromFit(fit, {
+              requiredSkills: fit.ats_keywords?.slice(0, 5) ?? [],
+              preferredSkills: fit.ats_keywords?.slice(5, 8) ?? [],
+            });
+            await deps.saveAnalysis(userId, createdJob.id, analysis, fit.fit_score);
+            scoredWithAi = true;
+          }
+        } catch {
+          // AI scoring failed; fall through to local prerank
+        }
+      }
+
+      if (!scoredWithAi) {
+        try {
+          const { fitScore, analysis } = prerankAnalysis(job.descriptionText ?? '', resume);
+          await deps.saveAnalysis(userId, createdJob.id, analysis, fitScore);
+        } catch {
+          // Leave the job unranked rather than failing the discovery run.
+        }
       }
     } catch (error) {
       // A concurrent discovery run (manual click + n8n sweep, or two API
