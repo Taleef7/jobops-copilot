@@ -358,3 +358,7 @@ class ResumeChangeDetail(BaseModel):
     new_text: str
     rationale: str
 
+
+class ParseResumeRequest(BaseModel):
+    resume_text: str = Field(description="Raw resume text to parse into a structured model")
+

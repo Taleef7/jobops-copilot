@@ -18,7 +18,7 @@ import {
 } from '@/lib/analysis-core';
 import { draftOutreachBody } from '@/data/mock-store';
 import type { ActivityPoint, TelemetryInsights } from '@/lib/telemetry';
-import type { DraftOutreachBody } from '@/types';
+import type { DraftOutreachBody, StructuredResume } from '@/types';
 
 const AGENT_URL = process.env.AGENT_SERVICE_URL?.trim().replace(/\/$/, '');
 const AGENT_TIMEOUT_MS = Number(process.env.AGENT_TIMEOUT_MS ?? 60_000);
@@ -330,3 +330,49 @@ export async function resolveOutreachDraft(
   }
   return draftOutreachBody(payload);
 }
+
+/** Parse resume text into a StructuredResume via the agent, with deterministic mock fallback. */
+export async function resolveResumeParse(resumeText: string): Promise<StructuredResume> {
+  if (isAgentEnabled()) {
+    try {
+      const parsed = await withColdStartRetry((attempt) =>
+        callAgent<StructuredResume>(
+          '/parse-resume',
+          { resume_text: resumeText },
+          attempt === 1 ? AGENT_TIMEOUT_MS : AGENT_RETRY_TIMEOUT_MS,
+        ),
+      );
+      if (parsed && parsed.basics && typeof parsed.basics.name === 'string') {
+        return parsed;
+      }
+      console.warn('agent /parse-resume returned an invalid payload; falling back to mock');
+    } catch (error) {
+      console.warn('agent /parse-resume failed; falling back to mock', error);
+    }
+  }
+  return mockParseResume(resumeText);
+}
+
+/**
+ * Deterministic mock resume parser for offline/demo/test mode.
+ * Extracts basic structure from the raw text with simple heuristics.
+ */
+function mockParseResume(resumeText: string): StructuredResume {
+  // Best-effort extraction: pull lines, look for a name-like first line, email, etc.
+  const lines = resumeText.split('\n').map((l) => l.trim()).filter(Boolean);
+  const emailMatch = resumeText.match(/[\w.+-]+@[\w-]+\.[\w.-]+/);
+  const phoneMatch = resumeText.match(/\+?[\d\s().-]{7,}/);
+
+  return {
+    basics: {
+      name: lines[0] ?? 'Unknown',
+      email: emailMatch?.[0] ?? 'unknown@example.com',
+      phone: phoneMatch?.[0]?.trim(),
+      summary: lines.length > 2 ? lines.slice(1, 4).join(' ') : '',
+    },
+    work: [],
+    education: [],
+    skills: [{ category: 'General', skills: ['(Resume parsed in offline mode — edit to add real skills)'] }],
+  };
+}
+

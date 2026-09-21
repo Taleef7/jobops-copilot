@@ -23,6 +23,7 @@ from app.agents.runner import run_interview_prep, run_research, run_skill_gap
 from app.auth import assert_auth_configured, is_authorized
 from app.chains.draft_outreach import draft_outreach
 from app.chains.parse_job import parse_job
+from app.chains.parse_resume import parse_resume_text
 from app.chains.score_fit import score_fit
 from app.chains.weekly import weekly_recommendations
 from app.config import settings
@@ -50,11 +51,13 @@ from app.schemas import (
     OutreachDraftResponse,
     ParsedJob,
     ParseJobRequest,
+    ParseResumeRequest,
     ResearchBrief,
     ResearchRequest,
     ScoreFitRequest,
     SkillGapPlan,
     SkillGapRequest,
+    StructuredResume,
     TelemetryInsights,
     TelemetryRequest,
     WeeklyRecommendationsLLM,
@@ -248,6 +251,12 @@ def health() -> dict:
 def parse_job_endpoint(req: ParseJobRequest) -> ParsedJob:
     _require_llm()
     return _run(parse_job, req.description_text, traced_config("parse-job"))
+
+
+@app.post("/parse-resume", response_model=StructuredResume)
+def parse_resume_endpoint(req: ParseResumeRequest) -> StructuredResume:
+    _require_llm()
+    return _run(parse_resume_text, req.resume_text, traced_config("parse-resume"))
 
 
 @app.post("/score-fit", response_model=FitScoreResponse)
