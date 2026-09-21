@@ -49,7 +49,7 @@
 
 ### [Epic 4 — Resume studio: structured base resume, grounded tailoring, ATS-safe PDFs, cover letters](https://github.com/Taleef7/jobops-copilot/issues/247) — #247
 
-- [ ] #275 **feat(db): structured base-resume data model — migration, shared schema (TS + Python), version store** (M; blocked by: none)
+- [x] #275 **feat(db): structured base-resume data model — migration, shared schema (TS + Python), version store** (M; blocked by: none)
 - [ ] #276 **feat(api): parse the stored resume into the structured model + base-resume CRUD routes** (M; blocked by: #275, #251)
 - [ ] #277 **feat(web): base-resume editor under Settings (import, review, edit, save)** (M; blocked by: #276)
 - [ ] #278 **feat(agent): resume-tailor LangGraph graph — plan/rewrite/groundedness gate/ATS pass/interrupt + zero-invented-facts evals** (L; blocked by: #275, #251, #252) — ⚠️ persist the draft as a `resume_versions` row (`approved = false`) BEFORE the interrupt, so #280/#281 have a real id to approve or reject

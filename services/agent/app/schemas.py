@@ -269,3 +269,92 @@ class FitScoreResponse(FitScoreLLM):
 
 class OutreachDraftResponse(OutreachDraftLLM):
     model_used: str
+
+
+# --- Structured Resume & Tailoring Schemas (Epic 4, #275) ------------------
+
+
+class ResumeLocation(BaseModel):
+    address: str | None = None
+    city: str | None = None
+    region: str | None = None
+    postal_code: str | None = None
+    country_code: str | None = None
+
+
+class ResumeProfile(BaseModel):
+    network: str = Field(description="Platform name, e.g. LinkedIn, GitHub, Portfolio")
+    username: str | None = None
+    url: str
+
+
+class ResumeBasics(BaseModel):
+    name: str
+    label: str | None = Field(default=None, description="Current professional title")
+    email: str
+    phone: str | None = None
+    url: str | None = None
+    summary: str = ""
+    location: ResumeLocation | None = None
+    profiles: list[ResumeProfile] = Field(default_factory=list)
+
+
+class ResumeWorkExperience(BaseModel):
+    id: str | None = None
+    company: str
+    position: str
+    location: str | None = None
+    start_date: str
+    end_date: str | None = None
+    current: bool = False
+    summary: str = ""
+    highlights: list[str] = Field(default_factory=list)
+
+
+class ResumeEducation(BaseModel):
+    id: str | None = None
+    institution: str
+    area: str | None = None
+    study_type: str | None = None
+    start_date: str | None = None
+    end_date: str | None = None
+    gpa: str | None = None
+    highlights: list[str] = Field(default_factory=list)
+
+
+class ResumeSkill(BaseModel):
+    category: str = Field(description="Category name, e.g. Languages & Frameworks, Cloud")
+    skills: list[str] = Field(default_factory=list)
+
+
+class ResumeProject(BaseModel):
+    id: str | None = None
+    name: str
+    description: str = ""
+    highlights: list[str] = Field(default_factory=list)
+    keywords: list[str] = Field(default_factory=list)
+    url: str | None = None
+
+
+class ResumeCertificate(BaseModel):
+    name: str
+    issuer: str
+    date: str | None = None
+    url: str | None = None
+
+
+class StructuredResume(BaseModel):
+    basics: ResumeBasics
+    work: list[ResumeWorkExperience] = Field(default_factory=list)
+    education: list[ResumeEducation] = Field(default_factory=list)
+    skills: list[ResumeSkill] = Field(default_factory=list)
+    projects: list[ResumeProject] = Field(default_factory=list)
+    certificates: list[ResumeCertificate] = Field(default_factory=list)
+
+
+class ResumeChangeDetail(BaseModel):
+    section: str = Field(description="Section or path edited, e.g. summary, work[0].highlights")
+    old_text: str | None = None
+    new_text: str
+    rationale: str
+

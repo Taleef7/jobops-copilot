@@ -286,3 +286,104 @@ export interface CreateTargetCompanyBody {
   boardType: BoardType;
   boardToken: string;
 }
+
+export interface ResumeLocation {
+  address?: string;
+  city?: string;
+  region?: string;
+  postalCode?: string;
+  countryCode?: string;
+}
+
+export interface ResumeProfile {
+  network: string;
+  username?: string;
+  url: string;
+}
+
+export interface ResumeBasics {
+  name: string;
+  label?: string;
+  email: string;
+  phone?: string;
+  url?: string;
+  summary: string;
+  location?: ResumeLocation;
+  profiles?: ResumeProfile[];
+}
+
+export interface ResumeWorkExperience {
+  id?: string;
+  company: string;
+  position: string;
+  location?: string;
+  startDate: string;
+  endDate?: string;
+  current?: boolean;
+  summary?: string;
+  highlights: string[];
+}
+
+export interface ResumeEducation {
+  id?: string;
+  institution: string;
+  area?: string;
+  studyType?: string;
+  startDate?: string;
+  endDate?: string;
+  gpa?: string;
+  highlights?: string[];
+}
+
+export interface ResumeSkill {
+  category: string;
+  skills: string[];
+}
+
+export interface ResumeProject {
+  id?: string;
+  name: string;
+  description?: string;
+  highlights?: string[];
+  keywords?: string[];
+  url?: string;
+}
+
+export interface ResumeCertificate {
+  name: string;
+  issuer: string;
+  date?: string;
+  url?: string;
+}
+
+export interface StructuredResume {
+  basics: ResumeBasics;
+  work: ResumeWorkExperience[];
+  education: ResumeEducation[];
+  skills: ResumeSkill[];
+  projects?: ResumeProject[];
+  certificates?: ResumeCertificate[];
+}
+
+export interface ResumeChangeDetail {
+  section: string;
+  oldText?: string | null;
+  newText: string;
+  rationale: string;
+}
+
+export interface ResumeVersionRecord {
+  id: string;
+  userId: string;
+  jobId?: string | null;
+  baseResumeFileUrl?: string | null;
+  tailoredResumeFileUrl?: string | null;
+  changeSummary: string;
+  changeDetails?: ResumeChangeDetail[];
+  structuredResume: StructuredResume;
+  sourceConfigVersion?: number | null;
+  approved: boolean;
+  isBase: boolean;
+  createdAt: string;
+  updatedAt: string;
+}

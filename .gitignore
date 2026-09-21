@@ -22,6 +22,7 @@ apps/api/data/weekly-reports.json
 apps/api/data/saved-searches.json
 apps/api/data/target-companies.json
 apps/api/data/ai-usage.json
+apps/api/data/resume-versions.json
 apps/api/data/report-exports/
 apps/api/data/*.tmp
 workflows/n8n/owner.env
