@@ -1,4 +1,4 @@
-import type { FeedQueryOptions, FeedResult, Job, OutreachMessageType, OutreachStatus, WeeklyReport } from '@/types/job';
+import type { FeedQueryOptions, FeedResult, Job, OutreachMessageType, OutreachStatus, StructuredResume, WeeklyReport } from '@/types/job';
 
 const apiBaseUrl = (process.env.NEXT_PUBLIC_API_BASE_URL ?? 'http://127.0.0.1:4000').replace(/\/$/, '');
 
@@ -381,6 +381,41 @@ export async function saveResumeText(resumeText: string): Promise<UserProfile | 
     body: JSON.stringify({ resume_text: resumeText }),
   });
   return response.profile;
+}
+
+/** Fetch the user's canonical structured base resume. */
+export async function fetchBaseResume(): Promise<StructuredResume | null> {
+  const response = await requestJson<{ baseResume: StructuredResume | null }>(
+    '/api/profile/base-resume',
+    { cache: 'no-store' },
+  );
+  return response.baseResume;
+}
+
+/** Save or update the user's canonical structured base resume. */
+export async function saveBaseResume(baseResume: StructuredResume): Promise<StructuredResume> {
+  const response = await requestJson<{ baseResume: StructuredResume }>(
+    '/api/profile/base-resume',
+    {
+      method: 'PUT',
+      body: JSON.stringify({ baseResume }),
+    },
+  );
+  return response.baseResume;
+}
+
+/** Parse raw resume text into a StructuredResume via the AI agent. */
+export async function parseResumeToStructured(
+  resumeText?: string,
+): Promise<StructuredResume> {
+  const response = await requestJson<{ structuredResume: StructuredResume }>(
+    '/api/profile/base-resume/parse-resume',
+    {
+      method: 'POST',
+      body: JSON.stringify(resumeText ? { resume_text: resumeText } : {}),
+    },
+  );
+  return response.structuredResume;
 }
 
 export async function seedDemoData(): Promise<void> {
