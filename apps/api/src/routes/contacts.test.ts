@@ -186,6 +186,75 @@ test('contacts API route lifecycle and fail-closed validation', async () => {
       assert.equal(listRes3.status, 200);
       const listData3 = (await listRes3.json()) as { contacts: JobContactRecord[] };
       assert.equal(listData3.contacts.length, 0);
+
+      // 12. Connection Scout: POST /api/jobs/:id/scout
+      const scoutRes1 = await fetch(`${baseUrl}/api/jobs/${jobA.id}/scout`, {
+        method: 'POST',
+        headers: hdrs(USER_A),
+      });
+      assert.equal(scoutRes1.status, 200);
+      const scoutData1 = (await scoutRes1.json()) as {
+        contacts: JobContactRecord[];
+        count: number;
+        newDiscovered: number;
+      };
+      assert.ok(scoutData1.count >= 2);
+      assert.equal(scoutData1.newDiscovered, scoutData1.count);
+
+      // Invariant check on scouted contacts: 100% have valid public evidence URLs
+      for (const c of scoutData1.contacts) {
+        assert.ok(c.name);
+        assert.ok(c.roleTitle);
+        assert.ok(c.evidence.length >= 1);
+        for (const ev of c.evidence) {
+          assert.match(ev.url, /^https?:\/\//);
+        }
+      }
+
+      // Re-scouting should not duplicate contacts
+      const scoutRes2 = await fetch(`${baseUrl}/api/jobs/${jobA.id}/scout`, {
+        method: 'POST',
+        headers: hdrs(USER_A),
+      });
+      assert.equal(scoutRes2.status, 200);
+      const scoutData2 = (await scoutRes2.json()) as { count: number; newDiscovered: number };
+      assert.equal(scoutData2.newDiscovered, 0);
+      assert.equal(scoutData2.count, scoutData1.count);
+
+      // 13. Draft Outreach: POST /api/contacts/:id/draft-outreach
+      const targetContact = scoutData1.contacts[0]!;
+      const draftRes1 = await fetch(`${baseUrl}/api/contacts/${targetContact.id}/draft-outreach`, {
+        method: 'POST',
+        headers: hdrs(USER_A),
+      });
+      assert.equal(draftRes1.status, 200);
+      const draftData1 = (await draftRes1.json()) as {
+        contact: JobContactRecord;
+        draft: {
+          id: string;
+          contactName?: string;
+          contactRole?: string;
+          draftText: string;
+          status: string;
+        };
+      };
+
+      assert.equal(draftData1.contact.id, targetContact.id);
+      assert.equal(draftData1.contact.status, 'outreach_drafted');
+      assert.ok(draftData1.draft.id);
+      assert.equal(draftData1.draft.contactName, targetContact.name);
+      assert.equal(draftData1.draft.status, 'drafted');
+      assert.ok(draftData1.draft.draftText.length > 0);
+
+      // Cross-user isolation: USER_B cannot draft outreach for USER_A's contact
+      const isolateDraftRes = await fetch(
+        `${baseUrl}/api/contacts/${targetContact.id}/draft-outreach`,
+        {
+          method: 'POST',
+          headers: hdrs(USER_B),
+        },
+      );
+      assert.equal(isolateDraftRes.status, 404);
     });
   } finally {
     process.chdir(originalCwd);
