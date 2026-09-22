@@ -23,6 +23,10 @@ import {
   selectDueFollowUps,
 } from '@/lib/n8n';
 import { buildWeeklyReportRecord, formatWeeklyReportResponse } from '@/lib/weekly-report';
+import {
+  emitFollowUpNotification,
+  emitJobMatchNotification,
+} from '@/lib/notify/events';
 import type {
   JobPriority,
   JobWorkplaceType,
@@ -282,6 +286,17 @@ export function createN8nRouter(dependencies: N8nDependencies = defaultDependenc
           : 'Review the parsed job and decide whether to score it.',
       });
 
+      if (fitStatus === 'scored' && fitScore != null) {
+        await emitJobMatchNotification(userId, {
+          id: savedJob.id,
+          title: savedJob.title,
+          company: savedJob.company,
+          location: savedJob.location,
+          fitScore,
+          fitSummary: analysis.fitSummary,
+        });
+      }
+
       response.status(201).json({
         workflow: 'job-intake',
         job: updatedJob ?? savedJob,
@@ -316,6 +331,10 @@ export function createN8nRouter(dependencies: N8nDependencies = defaultDependenc
       const jobs = await dependencies.listJobs(userId);
       const asOf = validation.normalized.as_of ? new Date(validation.normalized.as_of) : new Date();
       const reminders = selectDueFollowUps(jobs, asOf);
+
+      for (const reminder of reminders) {
+        await emitFollowUpNotification(userId, reminder);
+      }
 
       response.json({
         workflow: 'follow-up-reminders',

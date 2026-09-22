@@ -13,6 +13,7 @@ import { getUserProfile } from '@/data/profile-store';
 import { getBaseResumeVersion } from '@/data/resume-version-store';
 import { resolveOutreachDraft } from '@/lib/agent-client';
 import { requireUser } from '@/lib/auth';
+import { emitApprovalNeededNotification } from '@/lib/notify/events';
 import type { JobContactRecord, JobContactStatus, OutreachDraft } from '@/types';
 
 export const contactsRouter = Router();
@@ -313,6 +314,14 @@ contactsRouter.post('/contacts/:id/draft-outreach', async (request, response) =>
 
     // Store draft on the job record
     await appendOutreachDraft(userId, job.id, outreachDraft);
+
+    await emitApprovalNeededNotification(userId, {
+      kind: 'outreach',
+      targetId: draftId,
+      jobId: job.id,
+      title: `Review Outreach Draft for ${contact.name}`,
+      body: `Personalized outreach drafted for ${contact.name} (${contact.roleTitle}) at ${job.company}. Review and approve before sending.`,
+    });
 
     // Transition contact status to outreach_drafted
     const updatedContact = await updateJobContact(userId, contact.id, {
