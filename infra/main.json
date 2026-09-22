@@ -5,7 +5,7 @@
     "_generator": {
       "name": "bicep",
       "version": "0.43.8.12551",
-      "templateHash": "1146104565213407647"
+      "templateHash": "18421279277755050847"
     }
   },
   "parameters": {
@@ -112,7 +112,7 @@
     },
     "openAiModel": {
       "type": "string",
-      "defaultValue": "gpt-5.4-nano",
+      "defaultValue": "gpt-6-luna",
       "metadata": {
         "description": "Agent OpenAI model id."
       }

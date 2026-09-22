@@ -39,7 +39,7 @@ describe('isPrerankAnalysis', () => {
 
 describe('skillLabel', () => {
   // The strings below are verbatim `missing_skills` entries from the live
-  // scorer (gpt-5.4-nano): reasoning, not skill tokens. Rendering them raw
+  // scorer (gpt-6-luna): reasoning, not skill tokens. Rendering them raw
   // turned the dashboard and weekly report into walls of model commentary.
 
   it('prefers a leading quoted phrase over the surrounding justification', () => {
