@@ -174,7 +174,9 @@ export interface CreateJobBody {
   workplaceType?: JobWorkplaceType;
   datePosted?: string;
   priority?: JobPriority;
+  status?: JobStatus;
   notes?: string;
+  nextAction?: string;
   descriptionText: string;
   salaryMin?: number | null;
   salaryMax?: number | null;
