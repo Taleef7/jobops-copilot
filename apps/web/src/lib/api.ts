@@ -5,6 +5,9 @@ import type {
   FeedQueryOptions,
   FeedResult,
   Job,
+  JobContactRecord,
+  JobContactStatus,
+  OutreachDraft,
   OutreachMessageType,
   OutreachStatus,
   ResumeVersionRecord,
@@ -720,6 +723,56 @@ export async function extractJobFromUrl(url: string): Promise<ExtractedJobRespon
   return requestJson<ExtractedJobResponse>('/api/jobs/extract', {
     method: 'POST',
     body: JSON.stringify({ url }),
+  });
+}
+
+export interface JobContactsResponse {
+  contacts: JobContactRecord[];
+}
+
+export interface ScoutJobContactsResponse {
+  contacts: JobContactRecord[];
+  count: number;
+  newDiscovered: number;
+}
+
+export interface DraftContactOutreachResponse {
+  contact: JobContactRecord;
+  draft: OutreachDraft;
+}
+
+export async function fetchJobContacts(jobId: string): Promise<JobContactRecord[]> {
+  const data = await requestJson<JobContactsResponse>(`/api/jobs/${encodeURIComponent(jobId)}/contacts`);
+  return data.contacts;
+}
+
+export async function scoutJobContacts(jobId: string): Promise<ScoutJobContactsResponse> {
+  return requestJson<ScoutJobContactsResponse>(`/api/jobs/${encodeURIComponent(jobId)}/scout`, {
+    method: 'POST',
+  });
+}
+
+export async function draftContactOutreach(contactId: string): Promise<DraftContactOutreachResponse> {
+  return requestJson<DraftContactOutreachResponse>(`/api/contacts/${encodeURIComponent(contactId)}/draft-outreach`, {
+    method: 'POST',
+  });
+}
+
+export async function updateContactStatus(
+  contactId: string,
+  status: JobContactStatus,
+  notes?: string,
+): Promise<JobContactRecord> {
+  const res = await requestJson<{ contact: JobContactRecord }>(`/api/contacts/${encodeURIComponent(contactId)}`, {
+    method: 'PATCH',
+    body: JSON.stringify({ status, ...(notes !== undefined ? { notes } : {}) }),
+  });
+  return res.contact;
+}
+
+export async function deleteContact(contactId: string): Promise<void> {
+  await requestJson<{ success: boolean }>(`/api/contacts/${encodeURIComponent(contactId)}`, {
+    method: 'DELETE',
   });
 }
 

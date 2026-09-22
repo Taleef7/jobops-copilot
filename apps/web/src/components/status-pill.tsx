@@ -18,6 +18,9 @@ const statusMeta: Record<string, { label: string; tone: Tone }> = {
   approved: { label: 'Approved', tone: 'blue' },
   sent: { label: 'Sent', tone: 'green' },
   skipped: { label: 'Skipped', tone: 'amber' },
+  found: { label: 'Found', tone: 'slate' },
+  contacted: { label: 'Contacted', tone: 'blue' },
+  replied: { label: 'Replied', tone: 'green' },
 };
 
 const toneClasses: Record<Tone, string> = {

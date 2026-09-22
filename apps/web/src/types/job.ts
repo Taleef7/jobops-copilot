@@ -305,3 +305,32 @@ export interface CreateExtTokenResponse {
   rawToken: string;
 }
 
+export type JobContactStatus =
+  | 'found'
+  | 'outreach_drafted'
+  | 'contacted'
+  | 'replied'
+  | 'archived';
+
+export interface JobContactEvidenceItem {
+  url: string;
+  title?: string;
+  snippet?: string;
+}
+
+export interface JobContactRecord {
+  id: string;
+  userId: string;
+  jobId: string;
+  name: string;
+  roleTitle: string;
+  evidence: JobContactEvidenceItem[];
+  relevance?: string | null;
+  email?: string | null;
+  linkedinUrl?: string | null;
+  status: JobContactStatus;
+  notes?: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
