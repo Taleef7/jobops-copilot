@@ -12,6 +12,7 @@ import {
 import { renderAtsResumePdf } from '@/lib/ats-resume-pdf';
 import { requireUser } from '@/lib/auth';
 import { storeResumePdf } from '@/lib/resume-storage';
+import { emitApprovalNeededNotification } from '@/lib/notify/events';
 import type { ResumeVersionRecord, StructuredResume } from '@/types';
 
 export const resumeStudioRouter = Router();
@@ -80,6 +81,14 @@ resumeStudioRouter.post('/jobs/:id/tailor', async (request, response, next) => {
     };
 
     await insertResumeVersion(draftVersion);
+
+    await emitApprovalNeededNotification(userId, {
+      kind: 'resume',
+      targetId: versionId,
+      jobId,
+      title: `Review Tailored Resume for ${job.company}`,
+      body: `Tailored resume draft ready for ${job.title} at ${job.company}. Review changes and approve before downloading.`,
+    });
 
     return response.status(201).json({
       status: 'awaiting_approval',

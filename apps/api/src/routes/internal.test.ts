@@ -60,6 +60,9 @@ test('POST /internal/discovery/run and /internal/liveness/run return 503 when N8
 
         const resLive = await fetch(`${baseUrl}/internal/liveness/run`, { method: 'POST' });
         assert.equal(resLive.status, 503);
+
+        const resDigest = await fetch(`${baseUrl}/internal/digest/run`, { method: 'POST' });
+        assert.equal(resDigest.status, 503);
       },
     );
   } finally {
@@ -122,6 +125,31 @@ test('POST /internal/discovery/run and /internal/liveness/run return 200 with va
         listCandidates: async () => [{ id: 'job_1', jobUrl: 'https://example.com' }],
         updateJobLiveness: async () => {},
       },
+      digest: {
+        generateDailyDigest: async (userId: string) => ({
+          id: 'notif-mock-1',
+          userId,
+          kind: 'digest',
+          title: 'Daily Digest',
+          body: 'Summary',
+          jobId: null,
+          dedupeKey: 'daily_digest:user_1:2026-09-22',
+          channels: { in_app: { status: 'sent' } },
+          readAt: null,
+          createdAt: new Date().toISOString(),
+        }),
+        listUsersForDigest: async () => [
+          {
+            userId: 'user_1',
+            settings: {
+              channels: { in_app: true, email: true, telegram: false, web_push: false },
+              minMatchScore: 80,
+              digestHour: 9,
+              quietHours: { enabled: false, start: '22:00', end: '08:00' },
+            },
+          },
+        ],
+      },
     });
 
     await withServer(
@@ -144,6 +172,15 @@ test('POST /internal/discovery/run and /internal/liveness/run return 200 with va
         const liveBody = (await resLive.json()) as { workflow: string; checked: number };
         assert.equal(liveBody.workflow, 'liveness');
         assert.equal(liveBody.checked, 1);
+
+        const resDigest = await fetch(`${baseUrl}/internal/digest/run?force=true`, {
+          method: 'POST',
+          headers: { 'X-N8N-Webhook-Secret': 'correct-secret' },
+        });
+        assert.equal(resDigest.status, 200);
+        const digestBody = (await resDigest.json()) as { workflow: string; dispatched: number };
+        assert.equal(digestBody.workflow, 'digest');
+        assert.equal(digestBody.dispatched, 1);
       },
     );
   } finally {

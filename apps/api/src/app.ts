@@ -33,6 +33,8 @@ import { applicationPackRouter } from '@/routes/application-pack';
 import { extTokensRouter } from '@/routes/ext-tokens';
 import { extRouter } from '@/routes/ext';
 import { contactsRouter } from '@/routes/contacts';
+import { notificationsRouter } from '@/routes/notifications';
+import { pushRouter } from '@/routes/push';
 
 
 const mutatingMethods = new Set(['POST', 'PATCH', 'PUT', 'DELETE']);
@@ -148,6 +150,8 @@ export function createApp(dependencies: AppDependencies = {}) {
   app.use('/api/answers', answersRouter);
   app.use('/api', applicationPackRouter);
   app.use('/api', contactsRouter);
+  app.use('/api', notificationsRouter);
+  app.use('/api', pushRouter);
   app.use('/api/ext-tokens', extTokensRouter);
   app.use('/api/ext', extRouter);
   // Mounted before '/api/n8n' so this more specific path wins; it inherits the

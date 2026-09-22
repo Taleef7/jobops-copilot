@@ -14,6 +14,10 @@ import type {
   StructuredResume,
   WeeklyReport,
 } from '@/types/job';
+import type {
+  NotificationItem,
+  NotificationSettings,
+} from '@/types/notification';
 
 const apiBaseUrl = (process.env.NEXT_PUBLIC_API_BASE_URL ?? 'http://127.0.0.1:4000').replace(/\/$/, '');
 
@@ -773,6 +777,87 @@ export async function updateContactStatus(
 export async function deleteContact(contactId: string): Promise<void> {
   await requestJson<{ success: boolean }>(`/api/contacts/${encodeURIComponent(contactId)}`, {
     method: 'DELETE',
+  });
+}
+
+export async function fetchNotifications(options: {
+  unreadOnly?: boolean;
+  limit?: number;
+  offset?: number;
+} = {}): Promise<{ notifications: NotificationItem[]; unreadCount: number }> {
+  const params = new URLSearchParams();
+  if (options.unreadOnly) params.set('unreadOnly', 'true');
+  if (options.limit) params.set('limit', String(options.limit));
+  if (options.offset) params.set('offset', String(options.offset));
+  const qs = params.toString() ? `?${params.toString()}` : '';
+  return requestJson<{ notifications: NotificationItem[]; unreadCount: number }>(`/api/notifications${qs}`);
+}
+
+export async function markNotificationRead(id: string): Promise<NotificationItem> {
+  const res = await requestJson<{ notification: NotificationItem }>(
+    `/api/notifications/${encodeURIComponent(id)}/read`,
+    { method: 'POST' },
+  );
+  return res.notification;
+}
+
+export async function markAllNotificationsRead(): Promise<{ success: boolean; updatedCount: number }> {
+  return requestJson<{ success: boolean; updatedCount: number }>('/api/notifications/read-all', {
+    method: 'POST',
+  });
+}
+
+export async function fetchNotificationSettings(): Promise<NotificationSettings> {
+  const res = await requestJson<{ settings: NotificationSettings }>('/api/notification-settings');
+  return res.settings;
+}
+
+export async function updateNotificationSettings(
+  settings: Partial<NotificationSettings>,
+): Promise<NotificationSettings> {
+  const res = await requestJson<{ settings: NotificationSettings }>('/api/notification-settings', {
+    method: 'PUT',
+    body: JSON.stringify(settings),
+  });
+  return res.settings;
+}
+
+export async function sendTestNotification(): Promise<NotificationItem> {
+  const res = await requestJson<{ notification: NotificationItem }>('/api/notifications/test', {
+    method: 'POST',
+  });
+  return res.notification;
+}
+
+export async function fetchVapidKey(): Promise<string | null> {
+  const res = await requestJson<{ publicKey: string | null }>('/api/push/vapid-key');
+  return res.publicKey;
+}
+
+export async function subscribePushEndpoint(
+  subscription: PushSubscription,
+  userAgent?: string,
+): Promise<{ success: boolean }> {
+  const subJson = subscription.toJSON();
+  return requestJson<{ success: boolean }>('/api/push/subscribe', {
+    method: 'POST',
+    body: JSON.stringify({
+      subscription: {
+        endpoint: subJson.endpoint,
+        keys: {
+          p256dh: subJson.keys?.p256dh,
+          auth: subJson.keys?.auth,
+        },
+      },
+      userAgent,
+    }),
+  });
+}
+
+export async function unsubscribePushEndpoint(endpoint: string): Promise<{ success: boolean }> {
+  return requestJson<{ success: boolean }>('/api/push/subscribe', {
+    method: 'DELETE',
+    body: JSON.stringify({ endpoint }),
   });
 }
 

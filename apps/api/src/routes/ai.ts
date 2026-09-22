@@ -34,6 +34,10 @@ import { requireUser } from '@/lib/auth';
 import { exportWeeklyReportMarkdown } from '@/lib/report-export';
 import { getRequestBaseUrl } from '@/lib/request-url';
 import { buildWeeklyReportRecord, formatWeeklyReportResponse } from '@/lib/weekly-report';
+import {
+  emitApprovalNeededNotification,
+  emitJobMatchNotification,
+} from '@/lib/notify/events';
 import type { DraftOutreachBody, OutreachDraft, ParseJobBody, ScoreFitBody, WeeklyReportBody } from '@/types';
 
 export const aiRouter = Router();
@@ -139,6 +143,15 @@ aiRouter.post('/score-fit', async (request, response, next) => {
 
     await saveJobAnalysis(userId, body.job_id, analysis, scored.fit_score);
 
+    await emitJobMatchNotification(userId, {
+      id: body.job_id,
+      title: parsed.title || job.title,
+      company: job.company,
+      location: job.location,
+      fitScore: scored.fit_score,
+      fitSummary: analysis.fitSummary,
+    });
+
     return response.json({
       job_id: body.job_id,
       ...scored,
@@ -199,6 +212,13 @@ aiRouter.post('/draft-outreach', asyncHandler(async (request, response, next) =>
   if (job) {
     try {
       await appendOutreachDraft(userId, job.id, draft);
+      await emitApprovalNeededNotification(userId, {
+        kind: 'outreach',
+        targetId: draft.id,
+        jobId: job.id,
+        title: `Review Outreach Draft for ${job.company}`,
+        body: `Outreach draft ready for ${draft.contactName || 'contact'} at ${job.company}. Review and approve before sending.`,
+      });
     } catch (error) {
       next(error);
       return;

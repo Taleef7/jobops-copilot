@@ -8,9 +8,10 @@ import { BaseResumeEditor } from '@/components/base-resume-editor';
 import { SavedSearchesManager } from '@/components/saved-searches';
 import { TargetCompaniesManager } from '@/components/target-companies';
 import { ExtTokensManager } from '@/components/ext-tokens-manager';
+import { NotificationSettingsManager } from '@/components/notification-settings-manager';
 import { Badge } from '@/components/ui/badge';
 import { Card } from '@/components/ui/card';
-import { fetchBaseResume, fetchExtTokens, fetchProfile, fetchStatus } from '@/lib/api';
+import { fetchBaseResume, fetchExtTokens, fetchNotificationSettings, fetchProfile, fetchStatus } from '@/lib/api';
 import { cn } from '@/lib/utils';
 
 export const metadata: Metadata = { title: 'Settings' };
@@ -29,12 +30,13 @@ const PROVIDER_LABELS: Record<string, string> = {
 
 export default async function SettingsPage() {
   // Identity (name + avatar) comes from Clerk — the single source (Phase 6).
-  const [user, profile, status, baseResume, extTokens] = await Promise.all([
+  const [user, profile, status, baseResume, extTokens, notificationSettings] = await Promise.all([
     currentUser().catch(() => null),
     fetchProfile().catch(() => null),
     fetchStatus().catch(() => null),
     fetchBaseResume().catch(() => null),
     fetchExtTokens().catch(() => []),
+    fetchNotificationSettings().catch(() => null),
   ]);
   const fullName = user?.fullName ?? user?.firstName ?? null;
 
@@ -180,6 +182,13 @@ export default async function SettingsPage() {
 
       <SectionCard title="Target companies" description="ATS boards to poll for new openings.">
         <TargetCompaniesManager />
+      </SectionCard>
+
+      <SectionCard
+        title="Notification preferences"
+        description="Configure delivery channels, fit score thresholds, quiet hours, and daily digest schedule."
+      >
+        <NotificationSettingsManager initialSettings={notificationSettings} />
       </SectionCard>
 
       <SectionCard
