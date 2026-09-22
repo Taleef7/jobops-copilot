@@ -406,3 +406,55 @@ test('POST /api/profile/base-resume/render-pdf renders ATS PDF and stores versio
   }
 });
 
+test('POST /api/demo/clear deletes base resume versions so GET returns null after clear', async () => {
+  const originalCwd = process.cwd();
+  delete process.env.DATABASE_URL;
+  const tempDir = await mkdtemp(join(tmpdir(), 'jobops-base-resume-clear-'));
+
+  try {
+    process.chdir(tempDir);
+    await resetResumeVersionStore();
+
+    await withServer(
+      (app) => {
+        app.use('/api/profile/base-resume', baseResumeRouter);
+        app.use('/api/demo', demoRouter);
+      },
+      async (baseUrl) => {
+        const headers = { 'Content-Type': 'application/json', 'X-User-Id': 'user-clear-1' };
+
+        // 1. Save a base resume
+        const putRes = await fetch(`${baseUrl}/api/profile/base-resume`, {
+          method: 'PUT',
+          headers,
+          body: JSON.stringify({ baseResume: sampleResume }),
+        });
+        assert.equal(putRes.status, 200);
+
+        // Verify it was saved
+        const getRes1 = await fetch(`${baseUrl}/api/profile/base-resume`, {
+          headers: { 'X-User-Id': 'user-clear-1' },
+        });
+        const data1 = (await getRes1.json()) as { baseResume: StructuredResume };
+        assert.equal(data1.baseResume.basics.name, 'Jane Doe');
+
+        // 2. Clear user data
+        const clearRes = await fetch(`${baseUrl}/api/demo/clear`, {
+          method: 'POST',
+          headers,
+        });
+        assert.equal(clearRes.status, 200);
+
+        // 3. GET should return null, not resurrect from orphaned resume_versions
+        const getRes2 = await fetch(`${baseUrl}/api/profile/base-resume`, {
+          headers: { 'X-User-Id': 'user-clear-1' },
+        });
+        const data2 = (await getRes2.json()) as { baseResume: null };
+        assert.equal(data2.baseResume, null);
+      },
+    );
+  } finally {
+    process.chdir(originalCwd);
+  }
+});
+
