@@ -5,6 +5,7 @@ import { Search } from 'lucide-react';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { type FormEvent, useState } from 'react';
 import { ModeToggle } from '@/components/mode-toggle';
+import { NotificationsBell } from '@/components/notifications-bell';
 import { Input } from '@/components/ui/input';
 import { Separator } from '@/components/ui/separator';
 import { SidebarTrigger } from '@/components/ui/sidebar';
@@ -82,6 +83,7 @@ export function AppHeader() {
             />
           </form>
         )}
+        <NotificationsBell />
         <ModeToggle />
         <UserButton />
       </div>
