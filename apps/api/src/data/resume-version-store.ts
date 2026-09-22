@@ -149,6 +149,18 @@ export async function updateResumeVersion(
   });
 }
 
+export async function deleteResumeVersions(userId: string): Promise<void> {
+  if (hasPostgresConnection()) {
+    return postgresStore.deleteResumeVersions(userId);
+  }
+
+  await runExclusive(async () => {
+    const items = await ensureLoaded();
+    cache = items.filter((item) => item.userId !== userId);
+    await persist();
+  });
+}
+
 export async function resetResumeVersionStore(): Promise<void> {
   await runExclusive(async () => {
     cache = [];

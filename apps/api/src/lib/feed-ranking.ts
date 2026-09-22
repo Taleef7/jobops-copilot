@@ -123,11 +123,13 @@ export function rankFeedJobs(
     }
 
     const normCompany = job.company.trim().toLowerCase();
-    const subSignals = job.analysis?.subSignals ?? {
-      skillsMatch: 50,
-      titleSeniority: 50,
-      salaryFit: 50,
-      sponsorshipLikelihood: 50,
+    const rawSignals = job.analysis?.subSignals;
+    const subSignals = {
+      skillsMatch: typeof rawSignals?.skillsMatch === 'number' ? rawSignals.skillsMatch : 50,
+      titleSeniority: typeof rawSignals?.titleSeniority === 'number' ? rawSignals.titleSeniority : 50,
+      salaryFit: typeof rawSignals?.salaryFit === 'number' ? rawSignals.salaryFit : 50,
+      sponsorshipLikelihood:
+        typeof rawSignals?.sponsorshipLikelihood === 'number' ? rawSignals.sponsorshipLikelihood : 50,
     };
 
     let baseScore = job.fitScore;

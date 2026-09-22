@@ -220,3 +220,31 @@ test('rankFeedJobs penalizes stale and expired postings and filters by min_score
   const sponsorFiltered = rankFeedJobs(jobs, stats, { sponsorOnly: true }, now);
   assert.equal(sponsorFiltered.items.length, 2); // active and stale have likely
 });
+
+test('rankFeedJobs applies 50% defaults per property when subSignals is empty object or missing', () => {
+  const now = Date.now();
+  const job = createMockJob({
+    id: 'j-empty-signals',
+    fitScore: null,
+    analysis: {
+      ...createMockJob().analysis!,
+      subSignals: {} as unknown as NonNullable<NonNullable<JobRecord['analysis']>['subSignals']>,
+    },
+  });
+
+  const stats = {
+    companyInterviewCounts: new Map<string, number>(),
+    companyOutrightRejectedCounts: new Map<string, number>(),
+    successfulTitleTokens: new Set<string>(),
+  };
+
+  const ranked = rankFeedJobs([job], stats, {}, now);
+  assert.equal(ranked.items.length, 1);
+  assert.deepEqual(ranked.items[0]?.subSignals, {
+    skillsMatch: 50,
+    titleSeniority: 50,
+    salaryFit: 50,
+    sponsorshipLikelihood: 50,
+  });
+});
+

@@ -858,6 +858,7 @@ export async function clearUserData(userId: string): Promise<void> {
     await client.query('begin');
     await client.query('delete from embeddings where user_id = $1', [userId]);
     await client.query('delete from jobs where user_id = $1', [userId]);
+    await client.query('delete from resume_versions where user_id = $1', [userId]);
     await client.query('commit');
   } catch (error) {
     await client.query('rollback');

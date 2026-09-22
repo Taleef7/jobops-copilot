@@ -162,3 +162,9 @@ export async function updateResumeVersion(
   );
   return rows[0] ? mapRow(rows[0]) : null;
 }
+
+export async function deleteResumeVersions(userId: string): Promise<void> {
+  const pool = getPool()!;
+  await pool.query('DELETE FROM resume_versions WHERE user_id = $1', [userId]);
+}
+

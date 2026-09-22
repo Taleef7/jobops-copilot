@@ -635,3 +635,79 @@ test('sequential scoring falls back to local-prerank when resolveFitScore throws
   assert.equal(analyses.length, 1);
   assert.equal(analyses[0]?.modelUsed, 'local-prerank');
 });
+
+test('sequential scoring falls back to local-prerank when resolveFitScore hangs beyond timeout', async () => {
+  const originalTimeout = process.env.DISCOVERY_AI_SCORE_TIMEOUT_MS;
+  process.env.DISCOVERY_AI_SCORE_TIMEOUT_MS = '50';
+
+  try {
+    const { deps, analyses } = makeDeps(
+      [sourced('https://x/job-timeout', { title: 'Engineer', descriptionText: 'TypeScript React Node.js' })],
+      [],
+    );
+
+    deps.reserveBudget = async () => true;
+    deps.resolveFitScore = async () => {
+      // Hang indefinitely until test timeout if not bounded by discovery timeout
+      await new Promise((resolve) => setTimeout(resolve, 500));
+      return {
+        fit_score: 90,
+        sub_signals: {},
+        matched_skills: [],
+        missing_skills: [],
+        ats_keywords: [],
+        fit_summary: '',
+        recommended_resume_angle: '',
+        apply_recommendation: 'apply',
+        confidence_score: 90,
+        model_used: 'agent:gpt-5.6-luna',
+      };
+    };
+
+    const result = await runDiscoveryForUser('user-1', deps);
+
+    assert.equal(result.inserted, 1);
+    assert.equal(analyses.length, 1);
+    assert.equal(analyses[0]?.modelUsed, 'local-prerank');
+  } finally {
+    if (originalTimeout !== undefined) {
+      process.env.DISCOVERY_AI_SCORE_TIMEOUT_MS = originalTimeout;
+    } else {
+      delete process.env.DISCOVERY_AI_SCORE_TIMEOUT_MS;
+    }
+  }
+});
+
+test('sequential scoring skips AI scoring entirely when sweep AI scoring budget is exhausted', async () => {
+  const originalBudget = process.env.DISCOVERY_AI_SCORE_BUDGET_MS;
+  // Expired budget: 0ms means remainingAiScoreBudgetMs <= 1000
+  process.env.DISCOVERY_AI_SCORE_BUDGET_MS = '0';
+
+  try {
+    const { deps, analyses } = makeDeps(
+      [sourced('https://x/job-expired-budget', { title: 'Engineer', descriptionText: 'TypeScript React Node.js' })],
+      [],
+    );
+
+    let calledAi = false;
+    deps.reserveBudget = async () => true;
+    deps.resolveFitScore = async () => {
+      calledAi = true;
+      throw new Error('should not be called');
+    };
+
+    const result = await runDiscoveryForUser('user-1', deps);
+
+    assert.equal(result.inserted, 1);
+    assert.equal(calledAi, false);
+    assert.equal(analyses.length, 1);
+    assert.equal(analyses[0]?.modelUsed, 'local-prerank');
+  } finally {
+    if (originalBudget !== undefined) {
+      process.env.DISCOVERY_AI_SCORE_BUDGET_MS = originalBudget;
+    } else {
+      delete process.env.DISCOVERY_AI_SCORE_BUDGET_MS;
+    }
+  }
+});
+

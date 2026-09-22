@@ -11,6 +11,8 @@ import {
   listJobs,
   resetJobStoreForTests,
   saveJobAnalysis,
+  updateJob,
+  getJobStatusEvents,
   updateOutreachDraft,
 } from './job-store';
 import { ANALYZED_NEXT_ACTION, UNSCORED_NEXT_ACTION } from '@/lib/analysis-workflow';
@@ -231,3 +233,52 @@ test('createJob round-trips enriched schema fields (salary, seniority, contentHa
     await rm(tempDir, { recursive: true, force: true });
   }
 });
+
+test('status events are persisted to job-status-events.json in file mode and survive store reset', async () => {
+  const originalCwd = process.cwd();
+  delete process.env.DATABASE_URL; // force the file store
+  const tempDir = await mkdtemp(join(tmpdir(), 'jobops-status-events-'));
+
+  try {
+    process.chdir(tempDir);
+    resetJobStoreForTests();
+
+    const created = await createJob('user-1', {
+      company: 'Acme Corp',
+      title: 'Engineer',
+      descriptionText: 'Building systems.',
+    });
+
+    // Move to applied then interview
+    await updateJob('user-1', created.id, { status: 'applied' });
+    await updateJob('user-1', created.id, { status: 'interview' });
+
+    // Verify events recorded
+    const eventsBeforeReset = await getJobStatusEvents('user-1');
+    assert.equal(eventsBeforeReset.length, 3);
+    assert.equal(eventsBeforeReset[0]?.fromStatus, null);
+    assert.equal(eventsBeforeReset[0]?.toStatus, 'discovered');
+    assert.equal(eventsBeforeReset[1]?.fromStatus, 'discovered');
+    assert.equal(eventsBeforeReset[1]?.toStatus, 'applied');
+    assert.equal(eventsBeforeReset[2]?.fromStatus, 'applied');
+    assert.equal(eventsBeforeReset[2]?.toStatus, 'interview');
+
+    // Simulate server restart: reset in-memory caches
+    resetJobStoreForTests();
+
+    // Verify events reloaded from file
+    const eventsAfterReset = await getJobStatusEvents('user-1');
+    assert.equal(eventsAfterReset.length, 3);
+    assert.equal(eventsAfterReset[0]?.fromStatus, null);
+    assert.equal(eventsAfterReset[0]?.toStatus, 'discovered');
+    assert.equal(eventsAfterReset[1]?.fromStatus, 'discovered');
+    assert.equal(eventsAfterReset[1]?.toStatus, 'applied');
+    assert.equal(eventsAfterReset[2]?.fromStatus, 'applied');
+    assert.equal(eventsAfterReset[2]?.toStatus, 'interview');
+  } finally {
+    process.chdir(originalCwd);
+    resetJobStoreForTests();
+    await rm(tempDir, { recursive: true, force: true });
+  }
+});
+

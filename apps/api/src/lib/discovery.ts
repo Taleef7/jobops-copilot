@@ -76,6 +76,9 @@ export async function runDiscoveryForUser(userId: string, deps: DiscoveryDeps): 
   const JD_FETCH_CAP = Number(process.env.DISCOVERY_JD_FETCH_CAP ?? 25);
   const JD_UPGRADE_TIME_BUDGET_MS = Number(process.env.DISCOVERY_JD_UPGRADE_BUDGET_MS ?? 15_000);
   const jdUpgradeDeadline = Date.now() + JD_UPGRADE_TIME_BUDGET_MS;
+  const AI_SCORE_TIME_BUDGET_MS = Number(process.env.DISCOVERY_AI_SCORE_BUDGET_MS ?? 30_000);
+  const AI_SCORE_PER_JOB_TIMEOUT_MS = Number(process.env.DISCOVERY_AI_SCORE_TIMEOUT_MS ?? 10_000);
+  const aiScoreDeadline = Date.now() + AI_SCORE_TIME_BUDGET_MS;
   const searches = await deps.listSavedSearches(userId);
   const existingJobs = await deps.listJobs(userId);
   const seen = new Set(existingJobs.flatMap(keysFor));
@@ -140,26 +143,40 @@ export async function runDiscoveryForUser(userId: string, deps: DiscoveryDeps): 
       // Sequential scoring: attempt AI scoring if enabled and budget allows;
       // otherwise fall back gracefully to local pre-ranking.
       let scoredWithAi = false;
-      if (resume && deps.resolveFitScore && deps.reserveBudget) {
+      const remainingAiScoreBudgetMs = aiScoreDeadline - Date.now();
+      if (resume && deps.resolveFitScore && deps.reserveBudget && remainingAiScoreBudgetMs > 1_000) {
         try {
           const budgetAllowed = await deps.reserveBudget(userId, 'score');
           if (budgetAllowed) {
-            const fit = await deps.resolveFitScore({
-              userId,
-              descriptionText: createdJob.descriptionText,
-              resumeText: resume,
-              profileText,
-              title: createdJob.title,
+            const timeoutMs = Math.min(remainingAiScoreBudgetMs, AI_SCORE_PER_JOB_TIMEOUT_MS);
+            let timerId: NodeJS.Timeout | undefined;
+            const timeoutPromise = new Promise<never>((_, reject) => {
+              timerId = setTimeout(() => reject(new Error('AI scoring per-job timeout exceeded')), timeoutMs);
             });
-            const analysis = analysisFromFit(fit, {
-              requiredSkills: fit.ats_keywords?.slice(0, 5) ?? [],
-              preferredSkills: fit.ats_keywords?.slice(5, 8) ?? [],
-            });
-            await deps.saveAnalysis(userId, createdJob.id, analysis, fit.fit_score);
-            scoredWithAi = true;
+
+            try {
+              const fit = await Promise.race([
+                deps.resolveFitScore({
+                  userId,
+                  descriptionText: createdJob.descriptionText,
+                  resumeText: resume,
+                  profileText,
+                  title: createdJob.title,
+                }),
+                timeoutPromise,
+              ]);
+              const analysis = analysisFromFit(fit, {
+                requiredSkills: fit.ats_keywords?.slice(0, 5) ?? [],
+                preferredSkills: fit.ats_keywords?.slice(5, 8) ?? [],
+              });
+              await deps.saveAnalysis(userId, createdJob.id, analysis, fit.fit_score);
+              scoredWithAi = true;
+            } finally {
+              if (timerId) clearTimeout(timerId);
+            }
           }
         } catch {
-          // AI scoring failed; fall through to local prerank
+          // AI scoring failed or timed out; fall through to local prerank
         }
       }
 
