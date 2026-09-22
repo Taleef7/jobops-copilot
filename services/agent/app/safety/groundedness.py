@@ -60,10 +60,13 @@ _RESUME_GROUND_SYSTEM = (
     "You are a strict groundedness auditor for tailored resumes. "
     "A candidate's tailored resume must NEVER invent, fabricate, or hallucinate skills, employers, "
     "job titles, dates, metrics, degrees, or certifications absent from the base resume. "
-    "Rewording, reordering, and cutting existing content is allowed; adding new facts is strictly forbidden. "
-    "Compare the tailored resume against the base resume. Flag ANY fact, skill, employer, metric, or credential "
+    "Rewording, reordering, and cutting existing content is allowed; "
+    "adding new facts is strictly forbidden. "
+    "Compare the tailored resume against the base resume. "
+    "Flag ANY fact, skill, employer, metric, or credential "
     "present in the tailored resume that is not grounded in the base resume. "
-    "Respond grounded=true only if zero ungrounded facts were invented; otherwise list the unsupported claims."
+    "Respond grounded=true only if zero ungrounded facts were invented; "
+    "otherwise list the unsupported claims."
 )
 
 
@@ -76,7 +79,10 @@ def check_resume_groundedness(tailored_text: str, base_text: str) -> Groundednes
 
         model, _ = get_model()
         structured = model.with_structured_output(_GroundCheck)
-        human = f"BASE RESUME (GROUND TRUTH):\n{base_text}\n\nTAILORED RESUME (TO VERIFY):\n{tailored_text}"
+        human = (
+            f"BASE RESUME (GROUND TRUTH):\n{base_text}\n\n"
+            f"TAILORED RESUME (TO VERIFY):\n{tailored_text}"
+        )
         result = structured.invoke([("system", _RESUME_GROUND_SYSTEM), ("human", human)])
         return GroundednessVerdict(
             grounded=result.grounded, unsupported_claims=result.unsupported_claims
@@ -84,4 +90,3 @@ def check_resume_groundedness(tailored_text: str, base_text: str) -> Groundednes
     except Exception:  # noqa: BLE001 - best-effort; fail open with a log
         logger.warning("Resume groundedness check unavailable; allowing", exc_info=True)
         return GroundednessVerdict(grounded=True, skipped=True)
-

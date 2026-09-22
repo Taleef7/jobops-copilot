@@ -64,6 +64,7 @@ def guard_tools(tools: list) -> list:
             guarded.append(tool)
     return guarded
 
+
 _cache: list | None = None  # external MCP tools, cached only after a successful load
 
 

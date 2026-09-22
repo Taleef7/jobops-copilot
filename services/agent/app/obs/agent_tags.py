@@ -1,4 +1,5 @@
 """Per-agent Langfuse trace tags mapping (Epic 1 / #255)."""
+
 from __future__ import annotations
 
 AGENT_TAGS: dict[str, list[str]] = {

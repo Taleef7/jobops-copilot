@@ -12,6 +12,7 @@ Graph flow:
 4. persist_draft: Writes draft to resume_versions (approved=false) via Postgres or Store
 5. review_interrupt: Pauses execution via interrupt() for user approval
 """
+
 from __future__ import annotations
 
 import json
@@ -20,7 +21,7 @@ import uuid
 from typing import Any
 
 from langgraph.graph import END, START, StateGraph
-from langgraph.types import Command, interrupt
+from langgraph.types import interrupt
 
 from app.config import settings
 from app.graph.agent_state import AgentRunState
@@ -29,7 +30,6 @@ from app.llm.provider import get_model_for_agent
 from app.prompts import RESUME_TAILOR_SYSTEM
 from app.safety.groundedness import check_resume_groundedness
 from app.safety.injection import guard_job_description, injection_refused
-from app.safety.pii import maybe_redact
 from app.schemas import StructuredResume, TailoredResumeOutput
 
 logger = logging.getLogger("jobops.agent.resume_tailor")
@@ -124,7 +124,10 @@ async def _persist_draft_version(
                     ),
                 )
     except Exception:
-        logger.warning("Could not persist resume_version draft to PostgreSQL (continuing in-memory)", exc_info=True)
+        logger.warning(
+            "Could not persist resume_version draft to PostgreSQL (continuing in-memory)",
+            exc_info=True,
+        )
 
 
 def _build_tailor_node(checkpointer=None, store=None):
@@ -137,7 +140,12 @@ def _build_tailor_node(checkpointer=None, store=None):
         # 1. Obtain Base Resume & Job Context
         base_resume = inp.get("base_resume") or {}
         job = inp.get("job") or {}
-        job_desc = job.get("description_text") or job.get("description") or inp.get("description_text") or ""
+        job_desc = (
+            job.get("description_text")
+            or job.get("description")
+            or inp.get("description_text")
+            or ""
+        )
         job_title = job.get("title") or inp.get("title") or ""
         job_company = job.get("company") or inp.get("company") or ""
         ats_keywords = job.get("ats_keywords") or inp.get("ats_keywords") or []
@@ -146,6 +154,7 @@ def _build_tailor_node(checkpointer=None, store=None):
         if not base_resume and store:
             try:
                 from app.graph.memory import profile_namespace
+
                 profile_item = await store.aget(profile_namespace(user_id), "base_resume")
                 if profile_item and profile_item.value:
                     base_resume = profile_item.value
@@ -155,7 +164,10 @@ def _build_tailor_node(checkpointer=None, store=None):
         if not base_resume:
             return {
                 "output": {
-                    "error": "No base resume found. Please configure a base resume under Settings before tailoring.",
+                    "error": (
+                        "No base resume found. Please configure a base resume under Settings "
+                        "before tailoring."
+                    ),
                     "status": "failed",
                 },
                 "status": "failed",
@@ -185,16 +197,23 @@ def _build_tailor_node(checkpointer=None, store=None):
 
         if model is None:
             # Deterministic mock fallback for offline / test runs
-            structured_data = base_resume if isinstance(base_resume, dict) else base_resume.model_dump()
+            structured_data = (
+                base_resume if isinstance(base_resume, dict) else base_resume.model_dump()
+            )
             tailored_output = {
                 "version_id": str(uuid.uuid4()),
-                "change_summary": f"Tailored summary and highlighted keywords for {job_title} at {job_company}.",
+                "change_summary": (
+                    f"Tailored summary and highlighted keywords for {job_title} at {job_company}."
+                ),
                 "change_details": [
                     {
                         "section": "basics.summary",
                         "old_text": structured_data.get("basics", {}).get("summary", ""),
-                        "new_text": f"Aligned with {job_title} responsibilities: " + structured_data.get("basics", {}).get("summary", ""),
-                        "rationale": f"Emphasizes key technical qualifications relevant to {job_title}.",
+                        "new_text": f"Aligned with {job_title} responsibilities: "
+                        + structured_data.get("basics", {}).get("summary", ""),
+                        "rationale": (
+                            f"Emphasizes key technical qualifications relevant to {job_title}."
+                        ),
                     }
                 ],
                 "structured_resume": structured_data,

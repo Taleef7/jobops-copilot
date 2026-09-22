@@ -1,7 +1,7 @@
 from unittest.mock import MagicMock, patch
-import pytest
-from app.schemas import DraftOutreachRequest, OutreachDraftLLM
+
 from app.chains.draft_outreach import draft_outreach
+from app.schemas import DraftOutreachRequest, OutreachDraftLLM
 
 
 def test_cover_letter_message_type():

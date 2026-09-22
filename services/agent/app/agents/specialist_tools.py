@@ -4,6 +4,7 @@ Each tool closes over the specialist registry and the calling user_id (tenancy).
 Tools invoke the corresponding graph asynchronously with an isolated thread_id
 and return structured JSON so the chat model can reason over the result.
 """
+
 from __future__ import annotations
 
 import json

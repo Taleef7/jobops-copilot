@@ -24,7 +24,9 @@ def test_structured_resume_validation_and_roundtrip():
             summary="Experienced cloud backend engineer.",
             location=ResumeLocation(city="San Francisco", region="CA", country_code="US"),
             profiles=[
-                ResumeProfile(network="GitHub", username="alexdoe", url="https://github.com/alexdoe"),
+                ResumeProfile(
+                    network="GitHub", username="alexdoe", url="https://github.com/alexdoe"
+                ),
                 ResumeProfile(network="LinkedIn", url="https://linkedin.com/in/alexdoe"),
             ],
         ),

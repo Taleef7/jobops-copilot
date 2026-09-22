@@ -109,9 +109,7 @@ def build_assistant_graph(checkpointer=None):
         "score", route_after_score, {"research": "research", "end": "pass"}
     )
     builder.add_edge("research", "review")
-    builder.add_conditional_edges(
-        "review", route_after_review, {"draft": "draft", "end": END}
-    )
+    builder.add_conditional_edges("review", route_after_review, {"draft": "draft", "end": END})
     builder.add_edge("draft", END)
     builder.add_edge("pass", END)
 

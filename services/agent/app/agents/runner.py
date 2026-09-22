@@ -37,8 +37,7 @@ def _final_structured(agent, prompt: str, config: dict | None = None):
 
 def _used_a_tool(result) -> bool:
     return any(
-        getattr(message, "type", None) == "tool"
-        or message.__class__.__name__ == "ToolMessage"
+        getattr(message, "type", None) == "tool" or message.__class__.__name__ == "ToolMessage"
         for message in result.get("messages", [])
     )
 

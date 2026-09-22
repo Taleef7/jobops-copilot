@@ -62,9 +62,7 @@ def get_model():
 
     if provider == "anthropic":
         model = settings.anthropic_model
-        chat = init_chat_model(
-            f"anthropic:{model}", api_key=settings.anthropic_api_key, **common
-        )
+        chat = init_chat_model(f"anthropic:{model}", api_key=settings.anthropic_api_key, **common)
     elif provider == "openai":
         model = settings.openai_model
         chat = init_chat_model(f"openai:{model}", api_key=settings.openai_api_key, **common)

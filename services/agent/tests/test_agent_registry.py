@@ -35,7 +35,6 @@ def test_keyless_echo_stream_returns_status_and_result(monkeypatch):
     assert '"echo": {"query": "python"}' in response.text
 
 
-
 def test_unknown_agent_is_404_before_stream(monkeypatch):
     monkeypatch.setattr(settings, "agent_api_key", None)
     with TestClient(main.app) as client:

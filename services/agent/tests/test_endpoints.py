@@ -129,8 +129,11 @@ def test_assistant_run_pauses_for_approval(monkeypatch):
 
     class _FakeGraph:
         async def ainvoke(self, payload, config=None):
-            return {"__interrupt__": [object()], "fit": {"fit_score": 80},
-                    "research": {"company_summary": "ok"}}
+            return {
+                "__interrupt__": [object()],
+                "fit": {"fit_score": 80},
+                "research": {"company_summary": "ok"},
+            }
 
     monkeypatch.setattr(main, "_get_assistant_graph", lambda: _FakeGraph())
     res = client.post("/assistant/run", json={"description_text": "d", "resume_text": "r"})

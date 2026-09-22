@@ -147,4 +147,3 @@ Task Guidelines:
 4. Document every change in change_details with the section, old_text, new_text, and a clear rationale explaining why this edit improves fit.
 5. Provide a succinct high-level change_summary.
 """
-

@@ -7,6 +7,7 @@ overall fit along with four sub-signals:
 - salary_fit (0-100)
 - sponsorship_likelihood (0-100)
 """
+
 from __future__ import annotations
 
 import logging

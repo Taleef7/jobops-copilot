@@ -30,11 +30,7 @@ def skill_prf(predicted: Iterable[str], gold: Iterable[str]) -> tuple[float, flo
     true_positives = len(predicted_set & gold_set)
     precision = true_positives / len(predicted_set) if predicted_set else 0.0
     recall = true_positives / len(gold_set) if gold_set else 0.0
-    f1 = (
-        2 * precision * recall / (precision + recall)
-        if (precision + recall) > 0
-        else 0.0
-    )
+    f1 = 2 * precision * recall / (precision + recall) if (precision + recall) > 0 else 0.0
     return (precision, recall, f1)
 
 

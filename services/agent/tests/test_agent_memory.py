@@ -336,8 +336,7 @@ def test_postgres_pruning_and_saver_deletion_complete_concurrently():
                             """,
                             (
                                 thread_id,
-                                '{"ts":"2999-01-01T00:00:00+00:00",'
-                                '"channel_versions":{}}',
+                                '{"ts":"2999-01-01T00:00:00+00:00","channel_versions":{}}',
                             ),
                         )
 
@@ -721,14 +720,12 @@ def test_postgres_pruning_preserves_current_checkpoint_data():
                     )
                     assert await cur.fetchone() == {"checkpoint_id": "new"}
                     await cur.execute(
-                        "SELECT COUNT(*) AS count FROM checkpoint_writes "
-                        "WHERE thread_id = %s",
+                        "SELECT COUNT(*) AS count FROM checkpoint_writes WHERE thread_id = %s",
                         (new_thread,),
                     )
                     assert (await cur.fetchone())["count"] == 1
                     await cur.execute(
-                        "SELECT COUNT(*) AS count FROM checkpoint_blobs "
-                        "WHERE thread_id = %s",
+                        "SELECT COUNT(*) AS count FROM checkpoint_blobs WHERE thread_id = %s",
                         (new_thread,),
                     )
                     assert (await cur.fetchone())["count"] == 1
@@ -786,13 +783,11 @@ def test_postgres_pruning_preserves_parent_writes_referenced_by_child():
                             (
                                 thread_id,
                                 parent_id,
-                                '{"v":3,"ts":"2020-01-01T00:00:00+00:00",'
-                                '"channel_versions":{}}',
+                                '{"v":3,"ts":"2020-01-01T00:00:00+00:00","channel_versions":{}}',
                                 thread_id,
                                 child_id,
                                 parent_id,
-                                '{"v":3,"ts":"2999-01-01T00:00:00+00:00",'
-                                '"channel_versions":{}}',
+                                '{"v":3,"ts":"2999-01-01T00:00:00+00:00","channel_versions":{}}',
                             ),
                         )
                         await cur.execute(
@@ -900,11 +895,7 @@ def test_postgres_interrupt_resumes_through_a_new_pool_and_graph():
         return builder.compile(checkpointer=saver)
 
     async def run():
-        config = {
-            "configurable": {
-                "thread_id": f"restart-test:apply-copilot:{uuid.uuid4().hex}"
-            }
-        }
+        config = {"configurable": {"thread_id": f"restart-test:apply-copilot:{uuid.uuid4().hex}"}}
         pool, saver, _store = await open_durable_backends(
             os.environ["DATABASE_URL"],
             agent_run_setup_on_boot=True,

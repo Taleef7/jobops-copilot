@@ -362,11 +362,11 @@ class ResumeChangeDetail(BaseModel):
 
 class TailoredResumeOutput(BaseModel):
     change_summary: str = Field(description="High-level 1-2 sentence summary of tailored changes")
-    change_details: list[ResumeChangeDetail] = Field(default_factory=list, description="Per-section old->new changes and rationale")
+    change_details: list[ResumeChangeDetail] = Field(
+        default_factory=list, description="Per-section old->new changes and rationale"
+    )
     structured_resume: StructuredResume = Field(description="The tailored structured resume")
 
 
 class ParseResumeRequest(BaseModel):
     resume_text: str = Field(description="Raw resume text to parse into a structured model")
-
-

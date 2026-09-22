@@ -1,4 +1,5 @@
 """Tests for resume-tailor specialist graph and Zero-Invented-Facts evals."""
+
 from __future__ import annotations
 
 import pytest
@@ -65,7 +66,9 @@ async def test_resume_tailor_graph_run_and_interrupt():
             "job": {
                 "title": "Senior Backend Engineer",
                 "company": "CloudScale",
-                "description_text": "Looking for a Python/Go backend engineer with strong PostgreSQL experience.",
+                "description_text": (
+                    "Looking for a Python/Go backend engineer with strong PostgreSQL experience."
+                ),
                 "ats_keywords": ["Python", "PostgreSQL", "Distributed Systems"],
             },
         },
@@ -128,10 +131,16 @@ async def test_resume_tailor_fails_when_no_base_resume():
 
 def test_zero_invented_facts_groundedness_check():
     """Verify groundedness check evaluates zero-invented-facts invariant."""
-    base_text = "Name: Sam Taylor\nSkills: Python, PostgreSQL\nExperience: Built ingestion pipelines at DataFlow Inc"
+    base_text = (
+        "Name: Sam Taylor\nSkills: Python, PostgreSQL\n"
+        "Experience: Built ingestion pipelines at DataFlow Inc"
+    )
 
     # Case A: Honest tailored version (same facts, reworded)
-    honest_tailored = "Name: Sam Taylor\nSkills: Python, PostgreSQL\nExperience: Scaled DataFlow Inc data pipelines"
+    honest_tailored = (
+        "Name: Sam Taylor\nSkills: Python, PostgreSQL\n"
+        "Experience: Scaled DataFlow Inc data pipelines"
+    )
     honest_verdict = check_resume_groundedness(honest_tailored, base_text)
     assert honest_verdict.grounded is True
 
