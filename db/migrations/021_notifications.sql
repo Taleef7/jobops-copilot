@@ -7,7 +7,7 @@ CREATE TABLE IF NOT EXISTS notifications (
   kind TEXT NOT NULL CHECK (kind IN ('job_match', 'digest', 'follow_up', 'approval_needed', 'agent_done')),
   title TEXT NOT NULL,
   body TEXT NOT NULL,
-  job_id TEXT REFERENCES jobs(id) ON DELETE SET NULL,
+  job_id TEXT,
   dedupe_key TEXT UNIQUE,
   channels JSONB NOT NULL DEFAULT '{}'::jsonb,
   read_at TIMESTAMPTZ,
