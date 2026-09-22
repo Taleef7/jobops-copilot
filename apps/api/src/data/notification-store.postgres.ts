@@ -282,3 +282,46 @@ export async function updateNotificationSettings(
 
   return updated;
 }
+
+export async function listUsersForDigest(
+  targetHour?: number,
+): Promise<Array<{ userId: string; settings: NotificationSettings }>> {
+  const pool = poolOrThrow();
+  const { rows } = await pool.query<{ user_id: string; preferences: unknown }>(
+    `SELECT user_id, preferences FROM user_profiles WHERE preferences IS NOT NULL`,
+  );
+
+  const results: Array<{ userId: string; settings: NotificationSettings }> = [];
+
+  for (const row of rows) {
+    let prefs = row.preferences as Record<string, unknown>;
+    if (typeof prefs === 'string') {
+      try {
+        prefs = JSON.parse(prefs);
+      } catch {
+        prefs = {};
+      }
+    }
+    const notif = (prefs.notifications ?? {}) as Partial<NotificationSettings>;
+    const settings: NotificationSettings = {
+      ...DEFAULT_NOTIFICATION_SETTINGS,
+      ...notif,
+      channels: {
+        ...DEFAULT_NOTIFICATION_SETTINGS.channels,
+        ...(notif.channels ?? {}),
+      },
+      quietHours: {
+        ...DEFAULT_NOTIFICATION_SETTINGS.quietHours,
+        ...(notif.quietHours ?? {}),
+      },
+    };
+
+    if (targetHour !== undefined && settings.digestHour !== targetHour) {
+      continue;
+    }
+
+    results.push({ userId: row.user_id, settings });
+  }
+
+  return results;
+}

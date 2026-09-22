@@ -294,6 +294,40 @@ export async function updateNotificationSettings(
   });
 }
 
+export async function listUsersForDigest(
+  targetHour?: number,
+): Promise<Array<{ userId: string; settings: NotificationSettings }>> {
+  if (hasPostgresConnection()) {
+    return postgresStore.listUsersForDigest(targetHour);
+  }
+
+  await ensureLoaded();
+  const results: Array<{ userId: string; settings: NotificationSettings }> = [];
+
+  for (const [userId, current] of Object.entries(settingsCache ?? {})) {
+    const settings: NotificationSettings = {
+      ...postgresStore.DEFAULT_NOTIFICATION_SETTINGS,
+      ...current,
+      channels: {
+        ...postgresStore.DEFAULT_NOTIFICATION_SETTINGS.channels,
+        ...(current.channels ?? {}),
+      },
+      quietHours: {
+        ...postgresStore.DEFAULT_NOTIFICATION_SETTINGS.quietHours,
+        ...(current.quietHours ?? {}),
+      },
+    };
+
+    if (targetHour !== undefined && settings.digestHour !== targetHour) {
+      continue;
+    }
+
+    results.push({ userId, settings });
+  }
+
+  return results;
+}
+
 export async function _resetNotificationStoreForTests(
   initialNotifs: NotificationRecord[] = [],
   initialSettings: Record<string, NotificationSettings> = {},
