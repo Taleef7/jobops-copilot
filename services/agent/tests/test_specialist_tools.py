@@ -28,13 +28,13 @@ async def test_tool_invokes_registry_stub():
     registry = build_registry()
     tools = create_specialist_tools(user_id="u1", registry=registry)
 
-    tailor_tool = tools[1]
-    raw_res = await tailor_tool.ainvoke({"job_id": "job-123"})
+    apply_tool = tools[2]
+    raw_res = await apply_tool.ainvoke({"job_id": "job-123"})
     res = json.loads(raw_res) if isinstance(raw_res, str) else raw_res
 
     assert res.get("status") == "done"
     assert "output" in res
-    assert res["output"]["agent_id"] == "resume-tailor"
+    assert res["output"]["agent_id"] == "apply-copilot"
     assert res["output"]["echo"] == {"job_id": "job-123"}
 
     feed_tool = tools[0]

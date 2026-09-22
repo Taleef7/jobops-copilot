@@ -23,7 +23,7 @@ def test_keyless_echo_stream_returns_status_and_result(monkeypatch):
     monkeypatch.setattr(settings, "agent_api_key", None)
     with TestClient(main.app) as client:
         response = client.post(
-            "/agents/resume-tailor/stream",
+            "/agents/apply-copilot/stream",
             json={"user_id": "u1", "job_id": "job-7", "input": {"query": "python"}},
         )
     assert response.status_code == 200
@@ -31,7 +31,7 @@ def test_keyless_echo_stream_returns_status_and_result(monkeypatch):
     assert "event: status" in response.text
     assert '"status": "done"' in response.text
     assert "event: result" in response.text
-    assert '"agent_id": "resume-tailor"' in response.text
+    assert '"agent_id": "apply-copilot"' in response.text
     assert '"echo": {"query": "python"}' in response.text
 
 

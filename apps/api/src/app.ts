@@ -27,6 +27,8 @@ import { targetCompaniesRouter } from '@/routes/target-companies';
 import { internalRouter } from '@/routes/internal';
 import { feedRouter } from '@/routes/feed';
 import { baseResumeRouter } from '@/routes/base-resume';
+import { resumeStudioRouter } from '@/routes/resume-studio';
+
 
 const mutatingMethods = new Set(['POST', 'PATCH', 'PUT', 'DELETE']);
 
@@ -127,6 +129,7 @@ export function createApp(dependencies: AppDependencies = {}) {
   app.use('/api/agents', agentConfigRouter);
   app.use('/api/profile/base-resume', baseResumeRouter);
   app.use('/api/profile', profileRouter);
+  app.use('/api', resumeStudioRouter);
   app.use('/api/demo', demoRouter);
   app.use('/api/outreach', outreachRouter);
   app.use('/api/reports', reportsRouter);

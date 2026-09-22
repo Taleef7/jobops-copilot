@@ -3,6 +3,7 @@
 Fail closed (spec section 12): when the budget is exhausted the run stops with an
 explicit budget_exceeded status and a clear message — never silent partial output.
 """
+
 from __future__ import annotations
 
 from typing import Any

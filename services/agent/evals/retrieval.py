@@ -186,9 +186,7 @@ def run_retrieval_modes(
                         "reason": "chunk_tsv / embeddings_tsv_idx absent",
                     }
                     continue
-            evidence_for = _make_evidence_for(
-                mode, resume_text, k, retrieve_evidence, parsed_by_id
-            )
+            evidence_for = _make_evidence_for(mode, resume_text, k, retrieve_evidence, parsed_by_id)
             metrics = score_eval(rows, resume_text, evidence_for=evidence_for)
             metrics["status"] = "ok"
             results[mode] = metrics

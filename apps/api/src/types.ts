@@ -35,7 +35,8 @@ export type MessageType =
   | 'linkedin_connection'
   | 'referral_request'
   | 'follow_up'
-  | 'thank_you';
+  | 'thank_you'
+  | 'cover_letter';
 
 export type OutreachStatus = 'drafted' | 'approved' | 'sent' | 'skipped';
 

@@ -193,9 +193,7 @@ def noise_main(output_dir: Path | None = None, replicates: int = 5) -> int:
             "generated_at": generated_at,
             "status": "ok",
             "provider": provider_label,
-            **run_replicates(
-                rows, resume, replicates=replicates, parsed_by_id=load_gold_parses()
-            ),
+            **run_replicates(rows, resume, replicates=replicates, parsed_by_id=load_gold_parses()),
         }
 
     output_dir.mkdir(parents=True, exist_ok=True)

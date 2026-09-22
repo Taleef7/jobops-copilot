@@ -2,6 +2,7 @@ import type { Metadata } from 'next';
 import { ArrowLeft } from 'lucide-react';
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
+import { CoverLetterDownloadButton } from '@/components/cover-letter-download-button';
 import { FitScoreRing } from '@/components/fit-score-ring';
 import { JobAgentsPanel } from '@/components/job-agents-panel';
 import { JobAnalysisActions } from '@/components/job-analysis-actions';
@@ -13,7 +14,8 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { fetchAgentOutputs, fetchProfile } from '@/lib/api';
+import { TailoredResumeReview } from '@/components/tailored-resume-review';
+import { fetchAgentOutputs, fetchJobResumeVersions, fetchProfile } from '@/lib/api';
 import { isHeuristicAnalysis, isPrerankAnalysis } from '@/lib/analysis-display';
 import { formatDate } from '@/lib/format';
 import { loadJob } from '@/lib/job-data';
@@ -33,10 +35,11 @@ export default async function JobDetailPage({ params }: JobDetailParams) {
   const { jobId } = await params;
   // Fetch the profile + persisted agent outputs alongside the job. Neither is
   // load-bearing for the page, so a failure of either must not break it.
-  const [{ job, source }, profile, agentOutputs] = await Promise.all([
+  const [{ job, source }, profile, agentOutputs, resumeVersions] = await Promise.all([
     loadJob(jobId),
     fetchProfile().catch(() => null),
     fetchAgentOutputs(jobId).catch(() => []),
+    fetchJobResumeVersions(jobId).catch(() => []),
   ]);
   if (!job) notFound();
 
@@ -95,6 +98,7 @@ export default async function JobDetailPage({ params }: JobDetailParams) {
           <Tabs defaultValue="analysis" className="gap-4">
             <TabsList>
               <TabsTrigger value="analysis">Analysis</TabsTrigger>
+              <TabsTrigger value="resume">Resume studio</TabsTrigger>
               <TabsTrigger value="agents">AI agents</TabsTrigger>
               <TabsTrigger value="outreach">Outreach</TabsTrigger>
             </TabsList>
@@ -182,6 +186,15 @@ export default async function JobDetailPage({ params }: JobDetailParams) {
               </Card>
             </TabsContent>
 
+            <TabsContent value="resume" className="space-y-4">
+              <TailoredResumeReview
+                jobId={job.id}
+                jobTitle={job.title}
+                jobCompany={job.company}
+                initialVersions={resumeVersions}
+              />
+            </TabsContent>
+
             <TabsContent value="agents">
               <Card className="p-5">
                 <JobAgentsPanel jobId={job.id} initialOutputs={agentOutputs} />
@@ -207,7 +220,16 @@ export default async function JobDetailPage({ params }: JobDetailParams) {
                         <p className="text-sm font-medium">
                           {draft.contactName || 'Contact'} · {draft.contactRole || draft.messageType.replaceAll('_', ' ')}
                         </p>
-                        <StatusPill status={draft.status} />
+                        <div className="flex items-center gap-2">
+                          {draft.messageType === 'cover_letter' ? (
+                            <CoverLetterDownloadButton
+                              outreachId={draft.id}
+                              company={job.company}
+                              candidateName={resumeVersions[0]?.structuredResume?.basics?.name}
+                            />
+                          ) : null}
+                          <StatusPill status={draft.status} />
+                        </div>
                       </div>
                       <p className="text-sm whitespace-pre-wrap">{draft.draftText}</p>
                     </div>

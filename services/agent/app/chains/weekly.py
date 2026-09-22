@@ -15,9 +15,6 @@ def weekly_recommendations(
 
     metrics_lines = "\n".join(f"- {key}: {value}" for key, value in req.metrics.items())
     missing = ", ".join(req.common_missing_skills) or "none reported"
-    human = (
-        f"Weekly pipeline metrics:\n{metrics_lines}\n\n"
-        f"Most common missing skills: {missing}"
-    )
+    human = f"Weekly pipeline metrics:\n{metrics_lines}\n\nMost common missing skills: {missing}"
     messages = [("system", WEEKLY_RECOMMENDATIONS_SYSTEM), ("human", human)]
     return structured.invoke(messages, config=config or None)

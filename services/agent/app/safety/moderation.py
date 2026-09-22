@@ -46,9 +46,11 @@ def _openai_moderate(text: str, api_key: str) -> ModerationVerdict | None:
     try:
         from openai import OpenAI
 
-        result = OpenAI(api_key=api_key).moderations.create(
-            model="omni-moderation-latest", input=text
-        ).results[0]
+        result = (
+            OpenAI(api_key=api_key)
+            .moderations.create(model="omni-moderation-latest", input=text)
+            .results[0]
+        )
         categories = (
             [name for name, hit in result.categories.model_dump(by_alias=True).items() if hit]
             if result.flagged

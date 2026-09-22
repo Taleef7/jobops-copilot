@@ -698,6 +698,29 @@ export async function updateOutreachDraft(
   }
 }
 
+export async function getOutreachDraft(
+  userId: string,
+  outreachId: string,
+): Promise<{ draft: OutreachDraft; job: JobRecord } | undefined> {
+  const pool = poolOrThrow();
+  const { rows } = await pool.query<OutreachRow>(
+    `
+      select o.*
+      from outreach o
+      join jobs j on j.id = o.job_id
+      where o.id::text = $1 and j.user_id = $2
+      limit 1
+    `,
+    [outreachId, userId],
+  );
+  const row = rows[0];
+  if (!row) return undefined;
+  const draft = mapOutreach(row);
+  const job = await getJobById(userId, row.job_id);
+  if (!job) return undefined;
+  return { draft, job };
+}
+
 export async function saveJobAnalysis(
   userId: string,
   jobId: string,

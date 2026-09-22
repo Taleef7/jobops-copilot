@@ -75,9 +75,7 @@ def test_row_params_reach_the_model(monkeypatch):
 
 def test_model_instance_cached_per_version(monkeypatch):
     calls = []
-    monkeypatch.setattr(
-        provider, "_fetch_active_config", lambda a: calls.append(a) or _cfg()
-    )
+    monkeypatch.setattr(provider, "_fetch_active_config", lambda a: calls.append(a) or _cfg())
     monkeypatch.setattr(provider.settings, "anthropic_api_key", "sk-test")
 
     chat1, _, _ = get_model_for_agent("feed-curator")
