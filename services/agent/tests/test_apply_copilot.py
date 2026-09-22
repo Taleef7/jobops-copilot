@@ -1,5 +1,5 @@
 from app.graph.apply_copilot import assemble_application_pack, normalize_and_hash_question
-from app.schemas import StructuredResume, ResumeBasics, ResumeWorkExperience, ResumeSkill
+
 
 def test_normalize_and_hash_question():
     h1 = normalize_and_hash_question("Are you authorized to work in the US?")
@@ -16,9 +16,13 @@ def test_assemble_application_pack_qa_memory_priority():
         company="Acme Corp",
         title="Software Engineer",
         qa_memory=[
-            {"questionText": q_text, "questionHash": q_hash, "answer": "Yes, US Citizen permanent resident"}
+            {
+                "questionText": q_text,
+                "questionHash": q_hash,
+                "answer": "Yes, US Citizen permanent resident",
+            }
         ],
-        preferences={"sponsorship_required": True}
+        preferences={"sponsorship_required": True},
     )
 
     q1 = next((a for a in pack.answers if a.question_hash == q_hash), None)

@@ -16,7 +16,7 @@ from __future__ import annotations
 import hashlib
 import logging
 import re
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 
 from langgraph.graph import END, START, StateGraph
@@ -188,10 +188,16 @@ def assemble_application_pack(
     else:
         salary_floor = preferences.get("salary_floor")
         if salary_floor and isinstance(salary_floor, (int, float)) and salary_floor > 0:
-            sal_ans = f"${int(salary_floor):,} - ${int(salary_floor * 1.2):,} USD, open to total compensation discussion."
+            sal_ans = (
+                f"${int(salary_floor):,} - ${int(salary_floor * 1.2):,} USD, "
+                "open to total compensation discussion."
+            )
             src = "preferences"
         else:
-            sal_ans = "Competitive with market rate for this role and seniority, open to discussing total compensation."
+            sal_ans = (
+                "Competitive with market rate for this role and seniority, "
+                "open to discussing total compensation."
+            )
             src = "generated"
         answers.append(
             ApplicationPackQuestionAnswer(
@@ -219,10 +225,6 @@ def assemble_application_pack(
             )
         )
     else:
-        summary_text = ""
-        if base_resume and base_resume.get("basics"):
-            summary_text = base_resume.get("basics", {}).get("summary") or ""
-
         mission_snippet = f"building impactful solutions at {company}"
         if research_output and isinstance(research_output, dict):
             brief = research_output.get("brief") or research_output.get("summary") or ""
@@ -231,7 +233,8 @@ def assemble_application_pack(
 
         why_ans = (
             f"I am excited about {company}'s focus on {mission_snippet}. "
-            f"The {title} role is a natural fit for my background where I can immediately contribute to shipping robust, high-leverage software."
+            f"The {title} role is a natural fit for my background where I can "
+            "immediately contribute to shipping robust, high-leverage software."
         )
         answers.append(
             ApplicationPackQuestionAnswer(
@@ -266,11 +269,17 @@ def assemble_application_pack(
             comp = recent.get("company", "")
             highlights = recent.get("highlights", [])
             h_text = f" Key impact: {highlights[0]}" if highlights else ""
-            exp_summary = f"Most recently as {pos} at {comp}, I led technical delivery and engineering execution.{h_text}"
+            exp_summary = (
+                f"Most recently as {pos} at {comp}, I led technical delivery "
+                f"and engineering execution.{h_text}"
+            )
         elif profile_text:
             exp_summary = profile_text[:200]
         else:
-            exp_summary = f"I have proven engineering experience directly relevant to the key requirements of the {title} role."
+            exp_summary = (
+                "I have proven engineering experience directly relevant "
+                f"to the key requirements of the {title} role."
+            )
 
         answers.append(
             ApplicationPackQuestionAnswer(
@@ -298,7 +307,7 @@ def assemble_application_pack(
         contact_block=contact_block,
         answers=answers,
         flagged_questions=flagged_questions,
-        generated_at=datetime.now(timezone.utc).isoformat(),
+        generated_at=datetime.now(UTC).isoformat(),
     )
 
 
@@ -329,6 +338,7 @@ def _apply_copilot_node(state: AgentRunState) -> dict[str, Any]:
 
     return {
         "output": {
+            "agent_id": "apply-copilot",
             "application_pack": pack.model_dump(),
             "model": model_label,
         },

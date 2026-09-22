@@ -9,7 +9,7 @@ unavailable.
 
 from __future__ import annotations
 
-from typing import Literal
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
@@ -378,7 +378,8 @@ class ApplicationPackQuestionAnswer(BaseModel):
     question_hash: str
     answer: str
     category: str = "custom"  # work_authorization | salary | why_us | behavioral | custom
-    source: str = "generated"  # qa_memory | profile | preferences | research | generated | unanswerable
+    # source: qa_memory | profile | preferences | research | generated | unanswerable
+    source: str = "generated"
     flagged: bool = False
 
 

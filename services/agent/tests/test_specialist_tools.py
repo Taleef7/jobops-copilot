@@ -35,7 +35,7 @@ async def test_tool_invokes_registry_stub():
     assert res.get("status") == "done"
     assert "output" in res
     assert res["output"]["agent_id"] == "apply-copilot"
-    assert res["output"]["echo"] == {"job_id": "job-123"}
+    assert "application_pack" in res["output"]
 
     feed_tool = tools[0]
     raw_feed = await feed_tool.ainvoke({"query": "python jobs"})
