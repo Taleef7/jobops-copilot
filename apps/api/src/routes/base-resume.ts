@@ -7,6 +7,8 @@ import {
 } from '@/data/resume-version-store';
 import { resolveResumeParse } from '@/lib/agent-client';
 import { requireUser } from '@/lib/auth';
+import { enforceDailyBudget } from '@/lib/budget';
+import { strictLimiter } from '@/lib/rate-limit';
 import type { ResumeVersionRecord, StructuredResume } from '@/types';
 
 export const baseResumeRouter = Router();
@@ -114,7 +116,11 @@ baseResumeRouter.put('/', async (request, response, next) => {
  * Accepts an optional `resume_text` in the body; if absent, reads
  * the stored resume from the user's profile.
  */
-baseResumeRouter.post('/parse-resume', async (request, response, next) => {
+baseResumeRouter.post(
+  '/parse-resume',
+  strictLimiter,
+  enforceDailyBudget,
+  async (request, response, next) => {
   try {
     const userId = requireUser(request, response);
     if (!userId) return;
