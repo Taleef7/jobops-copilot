@@ -133,13 +133,26 @@ def _build_curator_node():
             parts.append(f"Candidate Preferences: {preferences}")
 
         messages = [("system", FEED_CURATOR_SYSTEM), ("human", "\n\n".join(parts))]
-        structured = model.with_structured_output(FeedCuratorAnalysis)
+        structured = model.with_structured_output(FeedCuratorAnalysis, include_raw=True)
 
         try:
-            result = structured.invoke(messages)
+            res = structured.invoke(messages)
         except Exception:
             logger.warning("feed-curator structured output failed; retrying once", exc_info=True)
-            result = structured.invoke(messages)
+            res = structured.invoke(messages)
+
+        # In include_raw=True mode, res is a dict with {"raw": AIMessage, "parsed": FeedCuratorAnalysis}
+        if isinstance(res, dict) and "parsed" in res:
+            result = res["parsed"]
+            raw_msg = res.get("raw")
+        else:
+            result = res
+            raw_msg = getattr(res, "response_metadata", None)
+
+        if result is None:
+            if isinstance(res, dict) and res.get("parsing_error"):
+                raise res["parsing_error"]
+            raise ValueError("Structured output returned no parsed result")
 
         # Process payload & clamping
         payload = result.model_dump() if hasattr(result, "model_dump") else dict(result)
@@ -156,7 +169,7 @@ def _build_curator_node():
         payload["agent_id"] = "feed-curator"
         payload["model_used"] = model_label
 
-        delta = charge_tokens(state, getattr(result, "response_metadata", None))
+        delta = charge_tokens(state, raw_msg)
 
         return {
             "output": payload,
