@@ -13,8 +13,10 @@ import type {
   NotificationChannelAdapter,
   NotificationPayload,
 } from '@/lib/notify/types';
+import { telegramAdapter } from '@/lib/notify/telegram';
 
 const adapters = new Map<string, NotificationChannelAdapter>();
+adapters.set(telegramAdapter.name, telegramAdapter);
 
 export function registerChannelAdapter(adapter: NotificationChannelAdapter): void {
   adapters.set(adapter.name, adapter);
@@ -26,6 +28,11 @@ export function getRegisteredAdapters(): NotificationChannelAdapter[] {
 
 export function clearRegisteredAdapters(): void {
   adapters.clear();
+}
+
+export function resetDefaultAdapters(): void {
+  adapters.clear();
+  adapters.set(telegramAdapter.name, telegramAdapter);
 }
 
 /**

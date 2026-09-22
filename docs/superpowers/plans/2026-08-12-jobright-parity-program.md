@@ -41,7 +41,7 @@
 ### [Epic 3 — Alerts & notifications (Jobright parity)](https://github.com/Taleef7/jobops-copilot/issues/246) — #246
 
 - [x] #269 **feat(api): notifications table, dispatcher core, and inbox/settings API** (L; blocked by: none)
-- [ ] #270 **feat(api): Telegram notification channel adapter** (S; blocked by: #269)
+- [x] #270 **feat(api): Telegram notification channel adapter** (S; blocked by: #269)
 - [ ] #271 **feat(api): email channel adapter, daily digest, and digest cron endpoint** (L; blocked by: #269)
 - [ ] #272 **feat(web,api): PWA installability + VAPID web-push channel** (L; blocked by: #269)
 - [ ] #273 **feat(api): emit notification events — job matches, follow-up nudges, approvals** (M; blocked by: #269, #271)
