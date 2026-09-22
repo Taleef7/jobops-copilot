@@ -15,8 +15,15 @@ import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { ApplicationPackView } from '@/components/application-pack-view';
+import { JobContactsPanel } from '@/components/job-contacts-panel';
 import { TailoredResumeReview } from '@/components/tailored-resume-review';
-import { fetchAgentOutputs, fetchJobApplicationPack, fetchJobResumeVersions, fetchProfile } from '@/lib/api';
+import {
+  fetchAgentOutputs,
+  fetchJobApplicationPack,
+  fetchJobContacts,
+  fetchJobResumeVersions,
+  fetchProfile,
+} from '@/lib/api';
 import { isHeuristicAnalysis, isPrerankAnalysis } from '@/lib/analysis-display';
 import { formatDate } from '@/lib/format';
 import { loadJob } from '@/lib/job-data';
@@ -36,12 +43,13 @@ export default async function JobDetailPage({ params }: JobDetailParams) {
   const { jobId } = await params;
   // Fetch the profile + persisted agent outputs alongside the job. Neither is
   // load-bearing for the page, so a failure of either must not break it.
-  const [{ job, source }, profile, agentOutputs, resumeVersions, applicationPack] = await Promise.all([
+  const [{ job, source }, profile, agentOutputs, resumeVersions, applicationPack, contacts] = await Promise.all([
     loadJob(jobId),
     fetchProfile().catch(() => null),
     fetchAgentOutputs(jobId).catch(() => []),
     fetchJobResumeVersions(jobId).catch(() => []),
     fetchJobApplicationPack(jobId).catch(() => null),
+    fetchJobContacts(jobId).catch(() => []),
   ]);
   if (!job) notFound();
 
@@ -102,6 +110,7 @@ export default async function JobDetailPage({ params }: JobDetailParams) {
               <TabsTrigger value="analysis">Analysis</TabsTrigger>
               <TabsTrigger value="resume">Resume studio</TabsTrigger>
               <TabsTrigger value="apply-pack">Apply pack</TabsTrigger>
+              <TabsTrigger value="people">People</TabsTrigger>
               <TabsTrigger value="agents">AI agents</TabsTrigger>
               <TabsTrigger value="outreach">Outreach</TabsTrigger>
             </TabsList>
@@ -248,6 +257,16 @@ export default async function JobDetailPage({ params }: JobDetailParams) {
                 initialPack={applicationPack}
                 hasResume={profile?.hasResume}
               />
+            </TabsContent>
+
+            <TabsContent value="people" className="space-y-4">
+              <Card className="p-5">
+                <JobContactsPanel
+                  jobId={job.id}
+                  company={job.company}
+                  initialContacts={contacts}
+                />
+              </Card>
             </TabsContent>
           </Tabs>
         </div>

@@ -457,4 +457,56 @@ export interface ApplicationPackPayload {
   generatedAt: string;
 }
 
+export type JobContactStatus =
+  | 'found'
+  | 'outreach_drafted'
+  | 'contacted'
+  | 'replied'
+  | 'archived';
+
+export interface JobContactEvidenceItem {
+  url: string;
+  title?: string;
+  snippet?: string;
+}
+
+export interface JobContactRecord {
+  id: string;
+  userId: string;
+  jobId: string;
+  name: string;
+  roleTitle: string;
+  evidence: JobContactEvidenceItem[];
+  relevance?: string | null;
+  email?: string | null;
+  linkedinUrl?: string | null;
+  status: JobContactStatus;
+  notes?: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface CreateJobContactBody {
+  name: string;
+  roleTitle: string;
+  evidence: Array<string | JobContactEvidenceItem>;
+  relevance?: string;
+  email?: string;
+  linkedinUrl?: string;
+  status?: JobContactStatus;
+  notes?: string;
+}
+
+export interface UpdateJobContactBody {
+  name?: string;
+  roleTitle?: string;
+  evidence?: Array<string | JobContactEvidenceItem>;
+  relevance?: string | null;
+  email?: string | null;
+  linkedinUrl?: string | null;
+  status?: JobContactStatus;
+  notes?: string | null;
+}
+
+
 

@@ -70,10 +70,10 @@
 
 ### [Epic 6 — Connection scout: verified public-web contacts per job (People tab)](https://github.com/Taleef7/jobops-copilot/issues/249) — #249
 
-- [ ] #290 **feat(api): job_contacts table, contact store, and contacts read/status routes** (M; blocked by: none)
-- [ ] #291 **feat(agent): connection-scout LangGraph graph with fail-closed evidence verification + precision eval** (L; blocked by: #251, #252)
-- [ ] #292 **feat(api): POST /api/jobs/:id/scout and POST /api/contacts/:id/draft-outreach** (M; blocked by: #290, #291)
-- [ ] #293 **feat(web): People tab on job detail — contacts, evidence links, status chips, one-click draft outreach** (M; blocked by: #292)
+- [x] #290 **feat(api): job_contacts table, contact store, and contacts read/status routes** (M; blocked by: none)
+- [x] #291 **feat(agent): connection-scout LangGraph graph with fail-closed evidence verification + precision eval** (L; blocked by: #251, #252)
+- [x] #292 **feat(api): POST /api/jobs/:id/scout and POST /api/contacts/:id/draft-outreach** (M; blocked by: #290, #291)
+- [x] #293 **feat(web): People tab on job detail — contacts, evidence links, status chips, one-click draft outreach** (M; blocked by: #292)
 
 ### [Epic 7: Polish (optional) — mock interviews, negotiation coaching, extension overlay, semantic memory](https://github.com/Taleef7/jobops-copilot/issues/250) — #250
 
