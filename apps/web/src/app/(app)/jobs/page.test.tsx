@@ -5,6 +5,10 @@ import JobsPage from './page';
 
 vi.mock('@/lib/job-data', () => ({
   loadJobs: vi.fn(async () => ({ jobs: [], source: 'api' })),
+  loadRankedFeed: vi.fn(async () => ({
+    feed: { items: [], total: 0, limit: 50, offset: 0 },
+    source: 'api',
+  })),
 }));
 
 // Capture the query JobsTable is given so we can assert it is always a string.

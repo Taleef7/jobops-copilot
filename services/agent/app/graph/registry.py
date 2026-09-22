@@ -14,6 +14,7 @@ from langgraph.graph import END, START, StateGraph
 
 from app.graph.agent_state import AgentRunState
 from app.graph.budget import charge_tokens
+from app.graph.feed_curator import build_feed_curator_graph
 from app.llm.provider import get_model_for_agent
 
 AGENT_IDS = ("feed-curator", "resume-tailor", "apply-copilot", "connection-scout")
@@ -48,10 +49,6 @@ def _build_graph(agent_id: str, checkpointer=None, store=None):
     builder.add_edge(START, "echo")
     builder.add_edge("echo", END)
     return builder.compile(checkpointer=checkpointer, store=store, name=agent_id)
-
-
-def build_feed_curator_graph(checkpointer=None, store=None):
-    return _build_graph("feed-curator", checkpointer, store)
 
 
 def build_resume_tailor_graph(checkpointer=None, store=None):

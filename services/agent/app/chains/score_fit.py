@@ -65,6 +65,11 @@ def score_fit(req: ScoreFitRequest, config: dict | None = None) -> FitScoreRespo
     # and failing the request over it would be a worse answer than 100.
     payload["fit_score"] = _clamp(payload.get("fit_score"))
     payload["confidence_score"] = _clamp(payload.get("confidence_score"), default=50)
+    sub = payload.get("sub_signals")
+    if isinstance(sub, dict):
+        for k in ("skills_match", "title_seniority", "salary_fit", "sponsorship_likelihood"):
+            if k in sub:
+                sub[k] = _clamp(sub[k], default=50)
     return FitScoreResponse(**payload, model_used=label)
 
 

@@ -18,7 +18,16 @@ import {
 } from '@/lib/analysis-core';
 import { draftOutreachBody } from '@/data/mock-store';
 import type { ActivityPoint, TelemetryInsights } from '@/lib/telemetry';
-import type { DraftOutreachBody } from '@/types';
+import type {
+  DraftOutreachBody,
+  ResumeBasics,
+  ResumeCertificate,
+  ResumeEducation,
+  ResumeProject,
+  ResumeSkill,
+  ResumeWorkExperience,
+  StructuredResume,
+} from '@/types';
 
 const AGENT_URL = process.env.AGENT_SERVICE_URL?.trim().replace(/\/$/, '');
 const AGENT_TIMEOUT_MS = Number(process.env.AGENT_TIMEOUT_MS ?? 60_000);
@@ -330,3 +339,181 @@ export async function resolveOutreachDraft(
   }
   return draftOutreachBody(payload);
 }
+
+function asString(val: unknown, fallback = ''): string {
+  return typeof val === 'string' ? val : fallback;
+}
+
+function asOptionalString(val: unknown): string | undefined {
+  return typeof val === 'string' ? val : undefined;
+}
+
+/**
+ * Normalizes an agent-returned or schema-deserialized object into a strongly-typed StructuredResume.
+ * Bridges Python Pydantic snake_case fields (e.g. start_date, end_date, study_type, postal_code, country_code)
+ * to the API/web camelCase contract.
+ */
+export function normalizeStructuredResume(raw: unknown): StructuredResume | null {
+  if (!raw || typeof raw !== 'object') return null;
+  const obj = raw as Record<string, unknown>;
+  const basicsRaw = obj.basics;
+  if (!basicsRaw || typeof basicsRaw !== 'object') return null;
+  const basicsObj = basicsRaw as Record<string, unknown>;
+  if (typeof basicsObj.name !== 'string' || !basicsObj.name.trim()) {
+    return null;
+  }
+
+  const locRaw = basicsObj.location;
+  const locObj =
+    locRaw && typeof locRaw === 'object' ? (locRaw as Record<string, unknown>) : undefined;
+  const location = locObj
+    ? {
+        address: asOptionalString(locObj.address),
+        postalCode: asOptionalString(locObj.postalCode ?? locObj.postal_code),
+        city: asOptionalString(locObj.city),
+        countryCode: asOptionalString(locObj.countryCode ?? locObj.country_code),
+        region: asOptionalString(locObj.region),
+      }
+    : undefined;
+
+  const profiles = Array.isArray(basicsObj.profiles)
+    ? basicsObj.profiles
+        .filter((p): p is Record<string, unknown> => Boolean(p && typeof p === 'object'))
+        .map((p) => ({
+          network: asString(p.network),
+          username: asOptionalString(p.username),
+          url: asString(p.url),
+        }))
+    : [];
+
+  const basics: ResumeBasics = {
+    name: basicsObj.name,
+    label: asOptionalString(basicsObj.label),
+    email: asString(basicsObj.email),
+    phone: asOptionalString(basicsObj.phone),
+    url: asOptionalString(basicsObj.url),
+    summary: asString(basicsObj.summary),
+    location,
+    profiles,
+  };
+
+  const work: ResumeWorkExperience[] = Array.isArray(obj.work)
+    ? obj.work
+        .filter((w): w is Record<string, unknown> => Boolean(w && typeof w === 'object'))
+        .map((w) => ({
+          id: asOptionalString(w.id),
+          company: asString(w.company),
+          position: asString(w.position),
+          location: asOptionalString(w.location),
+          startDate: asString(w.startDate ?? w.start_date),
+          endDate: asOptionalString(w.endDate ?? w.end_date),
+          current: Boolean(w.current),
+          summary: asString(w.summary),
+          highlights: Array.isArray(w.highlights) ? w.highlights.map(String) : [],
+        }))
+    : [];
+
+  const education: ResumeEducation[] = Array.isArray(obj.education)
+    ? obj.education
+        .filter((e): e is Record<string, unknown> => Boolean(e && typeof e === 'object'))
+        .map((e) => ({
+          id: asOptionalString(e.id),
+          institution: asString(e.institution),
+          area: asOptionalString(e.area),
+          studyType: asOptionalString(e.studyType ?? e.study_type),
+          startDate: asOptionalString(e.startDate ?? e.start_date),
+          endDate: asOptionalString(e.endDate ?? e.end_date),
+          gpa: asOptionalString(e.gpa),
+          highlights: Array.isArray(e.highlights) ? e.highlights.map(String) : [],
+        }))
+    : [];
+
+  const skills: ResumeSkill[] = Array.isArray(obj.skills)
+    ? obj.skills
+        .filter((s): s is Record<string, unknown> => Boolean(s && typeof s === 'object'))
+        .map((s) => ({
+          category: asString(s.category, 'General'),
+          skills: Array.isArray(s.skills) ? s.skills.map(String) : [],
+        }))
+    : [];
+
+  const projects: ResumeProject[] | undefined = Array.isArray(obj.projects)
+    ? obj.projects
+        .filter((p): p is Record<string, unknown> => Boolean(p && typeof p === 'object'))
+        .map((p) => ({
+          id: asOptionalString(p.id),
+          name: asString(p.name),
+          description: asOptionalString(p.description),
+          highlights: Array.isArray(p.highlights) ? p.highlights.map(String) : [],
+          keywords: Array.isArray(p.keywords) ? p.keywords.map(String) : [],
+          url: asOptionalString(p.url),
+        }))
+    : undefined;
+
+  const certificates: ResumeCertificate[] | undefined = Array.isArray(obj.certificates)
+    ? obj.certificates
+        .filter((c): c is Record<string, unknown> => Boolean(c && typeof c === 'object'))
+        .map((c) => ({
+          name: asString(c.name),
+          issuer: asString(c.issuer),
+          date: asOptionalString(c.date),
+          url: asOptionalString(c.url),
+        }))
+    : undefined;
+
+  return {
+    basics,
+    work,
+    education,
+    skills,
+    ...(projects ? { projects } : {}),
+    ...(certificates ? { certificates } : {}),
+  };
+}
+
+/** Parse resume text into a StructuredResume via the agent, with deterministic mock fallback. */
+export async function resolveResumeParse(resumeText: string): Promise<StructuredResume> {
+  if (isAgentEnabled()) {
+    try {
+      const parsed = await withColdStartRetry((attempt) =>
+        callAgent<unknown>(
+          '/parse-resume',
+          { resume_text: resumeText },
+          attempt === 1 ? AGENT_TIMEOUT_MS : AGENT_RETRY_TIMEOUT_MS,
+        ),
+      );
+      const normalized = normalizeStructuredResume(parsed);
+      if (normalized) {
+        return normalized;
+      }
+      console.warn('agent /parse-resume returned an invalid payload; falling back to mock');
+    } catch (error) {
+      console.warn('agent /parse-resume failed; falling back to mock', error);
+    }
+  }
+  return mockParseResume(resumeText);
+}
+
+/**
+ * Deterministic mock resume parser for offline/demo/test mode.
+ * Extracts basic structure from the raw text with simple heuristics.
+ */
+function mockParseResume(resumeText: string): StructuredResume {
+  // Best-effort extraction: pull lines, look for a name-like first line, email, etc.
+  const lines = resumeText.split('\n').map((l) => l.trim()).filter(Boolean);
+  const emailMatch = resumeText.match(/[\w.+-]+@[\w-]+\.[\w.-]+/);
+  const phoneMatch = resumeText.match(/\+?[\d\s().-]{7,}/);
+
+  return {
+    basics: {
+      name: lines[0] ?? 'Unknown',
+      email: emailMatch?.[0] ?? 'unknown@example.com',
+      phone: phoneMatch?.[0]?.trim(),
+      summary: lines.length > 2 ? lines.slice(1, 4).join(' ') : '',
+    },
+    work: [],
+    education: [],
+    skills: [{ category: 'General', skills: ['(Resume parsed in offline mode — edit to add real skills)'] }],
+  };
+}
+

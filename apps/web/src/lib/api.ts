@@ -1,4 +1,4 @@
-import type { Job, OutreachMessageType, OutreachStatus, WeeklyReport } from '@/types/job';
+import type { FeedQueryOptions, FeedResult, Job, OutreachMessageType, OutreachStatus, StructuredResume, WeeklyReport } from '@/types/job';
 
 const apiBaseUrl = (process.env.NEXT_PUBLIC_API_BASE_URL ?? 'http://127.0.0.1:4000').replace(/\/$/, '');
 
@@ -139,6 +139,21 @@ export interface WeeklyReportResponse {
 export async function fetchJobs(): Promise<Job[]> {
   const response = await requestJson<JobsResponse>('/api/jobs', { cache: 'no-store' });
   return response.jobs;
+}
+
+export async function fetchRankedFeed(options: FeedQueryOptions = {}): Promise<FeedResult> {
+  const params = new URLSearchParams();
+  if (options.limit != null) params.set('limit', String(options.limit));
+  if (options.offset != null) params.set('offset', String(options.offset));
+  if (options.minScore != null) params.set('min_score', String(options.minScore));
+  if (options.seniority) params.set('seniority', options.seniority);
+  if (options.sponsorOnly) params.set('sponsor_only', 'true');
+  if (options.status) params.set('status', options.status);
+  if (options.workplaceType) params.set('workplace_type', options.workplaceType);
+
+  const query = params.toString();
+  const path = query ? `/api/feed?${query}` : '/api/feed';
+  return requestJson<FeedResult>(path, { cache: 'no-store' });
 }
 
 export async function fetchJob(jobId: string): Promise<Job> {
@@ -366,6 +381,41 @@ export async function saveResumeText(resumeText: string): Promise<UserProfile | 
     body: JSON.stringify({ resume_text: resumeText }),
   });
   return response.profile;
+}
+
+/** Fetch the user's canonical structured base resume. */
+export async function fetchBaseResume(): Promise<StructuredResume | null> {
+  const response = await requestJson<{ baseResume: StructuredResume | null }>(
+    '/api/profile/base-resume',
+    { cache: 'no-store' },
+  );
+  return response.baseResume;
+}
+
+/** Save or update the user's canonical structured base resume. */
+export async function saveBaseResume(baseResume: StructuredResume): Promise<StructuredResume> {
+  const response = await requestJson<{ baseResume: StructuredResume }>(
+    '/api/profile/base-resume',
+    {
+      method: 'PUT',
+      body: JSON.stringify({ baseResume }),
+    },
+  );
+  return response.baseResume;
+}
+
+/** Parse raw resume text into a StructuredResume via the AI agent. */
+export async function parseResumeToStructured(
+  resumeText?: string,
+): Promise<StructuredResume> {
+  const response = await requestJson<{ structuredResume: StructuredResume }>(
+    '/api/profile/base-resume/parse-resume',
+    {
+      method: 'POST',
+      body: JSON.stringify(resumeText ? { resume_text: resumeText } : {}),
+    },
+  );
+  return response.structuredResume;
 }
 
 export async function seedDemoData(): Promise<void> {

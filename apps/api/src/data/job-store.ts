@@ -3,8 +3,11 @@ import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import type {
   CreateJobBody,
+  FeedQueryOptions,
+  FeedResult,
   JobAnalysis,
   JobRecord,
+  JobStatusEvent,
   OutreachDraft,
   UpdateOutreachBody,
   UpdateJobBody,
@@ -17,6 +20,8 @@ import { paginateArray, type PageParams } from '@/lib/pagination';
 import * as postgresStore from '@/data/job-store.postgres';
 import { seedJobs } from '@/data/mock-store';
 import { computeContentHash, parseSalaryFromText, parseSeniority } from '@/lib/job-enrich';
+import { buildOutcomeStats, rankFeedJobs } from '@/lib/feed-ranking';
+import { deleteResumeVersions } from '@/data/resume-version-store';
 
 // Resolved per call (not once at import) so tests can redirect the store with chdir.
 function dataDir() {
@@ -27,9 +32,15 @@ function dataFile() {
   return join(dataDir(), 'jobs.json');
 }
 
+function statusEventsFile() {
+  return join(dataDir(), 'job-status-events.json');
+}
+
 let jobsCache: JobRecord[] | null = null;
 let loadPromise: Promise<JobRecord[]> | null = null;
 let mutationQueue: Promise<void> = Promise.resolve();
+let statusEventsCache: JobStatusEvent[] | null = null;
+let statusEventsLoadPromise: Promise<JobStatusEvent[]> | null = null;
 
 function clone<T>(value: T): T {
   return JSON.parse(JSON.stringify(value)) as T;
@@ -181,6 +192,45 @@ async function persistJobs() {
   await writeFile(dataFile(), `${JSON.stringify(jobsCache, null, 2)}\n`, 'utf8');
 }
 
+async function loadStatusEvents(): Promise<JobStatusEvent[]> {
+  await mkdir(dataDir(), { recursive: true });
+
+  try {
+    const raw = await readFile(statusEventsFile(), 'utf8');
+    const parsed = JSON.parse(raw) as unknown;
+
+    if (!Array.isArray(parsed)) {
+      throw new Error('Invalid status events store contents');
+    }
+
+    statusEventsCache = parsed as JobStatusEvent[];
+  } catch {
+    statusEventsCache = [];
+    await persistStatusEvents();
+  }
+
+  return statusEventsCache;
+}
+
+async function ensureStatusEventsLoaded(): Promise<JobStatusEvent[]> {
+  if (statusEventsCache) {
+    return statusEventsCache;
+  }
+
+  statusEventsLoadPromise ??= loadStatusEvents();
+  return statusEventsLoadPromise;
+}
+
+async function persistStatusEvents() {
+  if (!statusEventsCache) {
+    return;
+  }
+
+  await mkdir(dataDir(), { recursive: true });
+  await writeFile(statusEventsFile(), `${JSON.stringify(statusEventsCache, null, 2)}\n`, 'utf8');
+}
+
+
 async function runExclusive<T>(operation: () => Promise<T>): Promise<T> {
   const previous = mutationQueue;
   let release!: () => void;
@@ -235,6 +285,16 @@ export async function createJob(userId: string, body: CreateJobBody): Promise<Jo
   return runExclusive(async () => {
     const jobs = await ensureLoaded();
     const job = createBaseJob(userId, body);
+    const events = await ensureStatusEventsLoaded();
+    events.push({
+      id: randomUUID(),
+      jobId: job.id,
+      userId,
+      fromStatus: null,
+      toStatus: job.status,
+      createdAt: job.updatedAt,
+    });
+    await persistStatusEvents();
     jobs.unshift(job);
     await persistJobs();
     return clone(job);
@@ -258,7 +318,17 @@ export async function updateJob(
       return undefined;
     }
 
-    if (typeof body.status !== 'undefined') {
+    if (typeof body.status !== 'undefined' && body.status !== job.status) {
+      const events = await ensureStatusEventsLoaded();
+      events.push({
+        id: randomUUID(),
+        jobId: job.id,
+        userId,
+        fromStatus: job.status,
+        toStatus: body.status,
+        createdAt: new Date().toISOString(),
+      });
+      await persistStatusEvents();
       job.status = body.status;
     }
     if (typeof body.priority !== 'undefined') {
@@ -457,6 +527,12 @@ export async function clearUserData(userId: string): Promise<void> {
     const jobs = await ensureLoaded();
     jobsCache = jobs.filter((entry) => entry.userId !== userId);
     await persistJobs();
+
+    const events = await ensureStatusEventsLoaded();
+    statusEventsCache = events.filter((entry) => entry.userId !== userId);
+    await persistStatusEvents();
+
+    await deleteResumeVersions(userId);
   });
 }
 
@@ -476,11 +552,63 @@ export async function seedDemoData(userId: string): Promise<void> {
     }));
     jobsCache = [...mine, ...others];
     await persistJobs();
+
+    const events = await ensureStatusEventsLoaded();
+    statusEventsCache = events.filter((entry) => entry.userId !== userId);
+    await persistStatusEvents();
   });
+}
+
+export async function touchJobsSeen(userId: string, jobIds: string[]): Promise<void> {
+  if (jobIds.length === 0) {
+    return;
+  }
+  if (hasPostgresConnection()) {
+    return postgresStore.touchJobsSeen(userId, jobIds);
+  }
+
+  await runExclusive(async () => {
+    const jobs = await ensureLoaded();
+    const idSet = new Set(jobIds);
+    const now = new Date().toISOString();
+    let changed = false;
+    for (const job of jobs) {
+      if (job.userId === userId && idSet.has(job.id)) {
+        job.lastSeenAt = now;
+        job.liveness = 'active';
+        changed = true;
+      }
+    }
+    if (changed) {
+      await persistJobs();
+    }
+  });
+}
+
+export async function getJobStatusEvents(userId: string): Promise<JobStatusEvent[]> {
+  if (hasPostgresConnection()) {
+    return postgresStore.getJobStatusEvents(userId);
+  }
+  const events = await ensureStatusEventsLoaded();
+  return clone(events.filter((entry) => entry.userId === userId));
+}
+
+export async function getRankedFeed(
+  userId: string,
+  options: FeedQueryOptions = {},
+): Promise<FeedResult> {
+  if (hasPostgresConnection()) {
+    return postgresStore.getRankedFeed(userId, options);
+  }
+  const [jobs, events] = await Promise.all([listJobs(userId), getJobStatusEvents(userId)]);
+  const stats = buildOutcomeStats(jobs, events);
+  return rankFeedJobs(jobs, stats, options);
 }
 
 export function resetJobStoreForTests() {
   jobsCache = null;
   loadPromise = null;
   mutationQueue = Promise.resolve();
+  statusEventsCache = null;
+  statusEventsLoadPromise = null;
 }

@@ -16,6 +16,12 @@ export interface ParsedJobOutput {
 
 export interface FitScoreOutput {
   fit_score: number;
+  sub_signals?: {
+    skills_match?: number;
+    title_seniority?: number;
+    salary_fit?: number;
+    sponsorship_likelihood?: number;
+  };
   matched_skills: string[];
   missing_skills: string[];
   ats_keywords: string[];
@@ -244,6 +250,19 @@ export function analysisFromFit(
           : 'Hold off unless you can make a stronger truthful case.',
     confidenceScore: fit.confidence_score,
     modelUsed: fit.model_used,
+    subSignals: fit.sub_signals
+      ? {
+          skillsMatch: fit.sub_signals.skills_match ?? 50,
+          titleSeniority: fit.sub_signals.title_seniority ?? 50,
+          salaryFit: fit.sub_signals.salary_fit ?? 50,
+          sponsorshipLikelihood: fit.sub_signals.sponsorship_likelihood ?? 50,
+        }
+      : {
+          skillsMatch: 50,
+          titleSeniority: 50,
+          salaryFit: 50,
+          sponsorshipLikelihood: 50,
+        },
   };
 }
 
@@ -313,6 +332,12 @@ export function scoreJobFit(input: {
     apply_recommendation: fitScore >= 80 ? 'apply' : fitScore >= 65 ? 'review' : 'pass',
     confidence_score: confidenceScore,
     model_used: 'mock-fit-scorer-v1',
+    sub_signals: {
+      skills_match: clamp(50 + matchedSkills.length * 10 - missingSkills.length * 6, 20, 95),
+      title_seniority: 70,
+      salary_fit: 60,
+      sponsorship_likelihood: 50,
+    },
   };
 }
 

@@ -1,6 +1,7 @@
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { getPool, hasPostgresConnection } from '@/lib/postgres';
+import type { StructuredResume } from '@/types';
 
 export interface UserProfile {
   userId: string;
@@ -8,6 +9,7 @@ export interface UserProfile {
   resumeFileName?: string;
   resumeFileUrl?: string;
   profileText?: string;
+  baseResume?: StructuredResume | null;
   updatedAt?: string;
 }
 
@@ -17,6 +19,7 @@ type ProfileRow = {
   resume_file_name: string | null;
   resume_file_url: string | null;
   profile_text: string | null;
+  base_resume: StructuredResume | null;
   updated_at: string;
 };
 
@@ -27,6 +30,7 @@ function mapRow(row: ProfileRow): UserProfile {
     resumeFileName: row.resume_file_name ?? undefined,
     resumeFileUrl: row.resume_file_url ?? undefined,
     profileText: row.profile_text ?? undefined,
+    baseResume: row.base_resume ?? undefined,
     updatedAt: row.updated_at,
   };
 }
@@ -68,13 +72,14 @@ export async function upsertUserProfile(
     const pool = getPool()!;
     const { rows } = await pool.query<ProfileRow>(
       `
-        insert into user_profiles (user_id, resume_text, resume_file_name, resume_file_url, profile_text)
-        values ($1, $2, $3, $4, $5)
+        insert into user_profiles (user_id, resume_text, resume_file_name, resume_file_url, profile_text, base_resume)
+        values ($1, $2, $3, $4, $5, $6)
         on conflict (user_id) do update set
           resume_text = coalesce($2, user_profiles.resume_text),
           resume_file_name = coalesce($3, user_profiles.resume_file_name),
           resume_file_url = coalesce($4, user_profiles.resume_file_url),
-          profile_text = coalesce($5, user_profiles.profile_text)
+          profile_text = coalesce($5, user_profiles.profile_text),
+          base_resume = coalesce($6, user_profiles.base_resume)
         returning *
       `,
       [
@@ -83,6 +88,7 @@ export async function upsertUserProfile(
         patch.resumeFileName ?? null,
         patch.resumeFileUrl ?? null,
         patch.profileText ?? null,
+        patch.baseResume ? JSON.stringify(patch.baseResume) : null,
       ],
     );
     return mapRow(rows[0]!);

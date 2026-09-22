@@ -4,11 +4,12 @@ import { currentUser } from '@clerk/nextjs/server';
 import { Database, FileText, Webhook } from 'lucide-react';
 import { SectionCard } from '@/components/section-card';
 import { DemoDataActions, ExportDataButton, ResumeReupload } from '@/components/settings-actions';
+import { BaseResumeEditor } from '@/components/base-resume-editor';
 import { SavedSearchesManager } from '@/components/saved-searches';
 import { TargetCompaniesManager } from '@/components/target-companies';
 import { Badge } from '@/components/ui/badge';
 import { Card } from '@/components/ui/card';
-import { fetchProfile, fetchStatus } from '@/lib/api';
+import { fetchBaseResume, fetchProfile, fetchStatus } from '@/lib/api';
 import { cn } from '@/lib/utils';
 
 export const metadata: Metadata = { title: 'Settings' };
@@ -27,10 +28,11 @@ const PROVIDER_LABELS: Record<string, string> = {
 
 export default async function SettingsPage() {
   // Identity (name + avatar) comes from Clerk — the single source (Phase 6).
-  const [user, profile, status] = await Promise.all([
+  const [user, profile, status, baseResume] = await Promise.all([
     currentUser().catch(() => null),
     fetchProfile().catch(() => null),
     fetchStatus().catch(() => null),
+    fetchBaseResume().catch(() => null),
   ]);
   const fullName = user?.fullName ?? user?.firstName ?? null;
 
@@ -114,6 +116,16 @@ export default async function SettingsPage() {
             Manage your name, email &amp; avatar from the account menu (top-right).
           </p>
         </div>
+      </SectionCard>
+
+      <SectionCard
+        title="Base resume (Structured)"
+        description="The canonical structured resume that powers grounded tailoring for specific jobs. Import from your uploaded resume or edit fields directly."
+      >
+        <BaseResumeEditor
+          initial={baseResume}
+          hasStoredResume={Boolean(profile?.hasResume)}
+        />
       </SectionCard>
 
       <SectionCard title="AI provider" description="Configured on the server — shown here for transparency.">

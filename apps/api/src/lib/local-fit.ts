@@ -73,6 +73,12 @@ export function prerankAnalysis(
       // seeds missingSkills from the required list, before we know matches).
       missingSkills: base.requiredSkills.filter((skill) => !matched.has(skill)),
       modelUsed: PRERANK_MODEL,
+      subSignals: {
+        skillsMatch: score ?? 50,
+        titleSeniority: 50,
+        salaryFit: 50,
+        sponsorshipLikelihood: 50,
+      },
     },
   };
 }

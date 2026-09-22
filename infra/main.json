@@ -1,0 +1,846 @@
+{
+  "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+  "contentVersion": "1.0.0.0",
+  "metadata": {
+    "_generator": {
+      "name": "bicep",
+      "version": "0.43.8.12551",
+      "templateHash": "1146104565213407647"
+    }
+  },
+  "parameters": {
+    "appLocation": {
+      "type": "string",
+      "defaultValue": "mexicocentral",
+      "metadata": {
+        "description": "Region for the App Service tier + Postgres (web/api/plan/db)."
+      }
+    },
+    "platformLocation": {
+      "type": "string",
+      "defaultValue": "eastus",
+      "metadata": {
+        "description": "Region for the platform tier (observability, Key Vault, the agent container app)."
+      }
+    },
+    "namePrefix": {
+      "type": "string",
+      "defaultValue": "jobops",
+      "metadata": {
+        "description": "Base name; every resource name derives from it."
+      }
+    },
+    "planSku": {
+      "type": "string",
+      "defaultValue": "B1",
+      "metadata": {
+        "description": "Linux App Service plan SKU. B1 ~1.75GB RAM."
+      }
+    },
+    "nodeLinuxFxVersion": {
+      "type": "string",
+      "defaultValue": "NODE|22-lts",
+      "metadata": {
+        "description": "Node runtime for the web + api App Services."
+      }
+    },
+    "agentImage": {
+      "type": "string",
+      "defaultValue": "ca9ee6437892acr.azurecr.io/jobops-agent:latest",
+      "metadata": {
+        "description": "Container image for the agent (built + pushed by the container pipeline)."
+      }
+    },
+    "clerkPublishableKey": {
+      "type": "string",
+      "defaultValue": "",
+      "metadata": {
+        "description": "Clerk publishable key — non-secret; ships to the browser (NEXT_PUBLIC_*)."
+      }
+    },
+    "corsAllowedOrigins": {
+      "type": "string",
+      "defaultValue": "https://jobops-web.azurewebsites.net",
+      "metadata": {
+        "description": "CORS allow-list for the API (comma-separated origins)."
+      }
+    },
+    "adzunaAppId": {
+      "type": "string",
+      "defaultValue": "",
+      "metadata": {
+        "description": "Adzuna job-search app id (paired with the secret app key)."
+      }
+    },
+    "adzunaCountry": {
+      "type": "string",
+      "defaultValue": "us",
+      "metadata": {
+        "description": "Adzuna country code for job search."
+      }
+    },
+    "aiDailyBudgetUsd": {
+      "type": "string",
+      "defaultValue": "1.00",
+      "metadata": {
+        "description": "Per-tenant AI spend cap (USD/day) enforced by the API budget guard."
+      }
+    },
+    "agentTimeoutMs": {
+      "type": "string",
+      "defaultValue": "90000",
+      "metadata": {
+        "description": "API-to-agent per-request timeout (ms)."
+      }
+    },
+    "agentTaskTimeoutMs": {
+      "type": "string",
+      "defaultValue": "180000",
+      "metadata": {
+        "description": "API→agent long-running task timeout (ms)."
+      }
+    },
+    "llmProvider": {
+      "type": "string",
+      "defaultValue": "openai",
+      "allowedValues": [
+        "openai"
+      ],
+      "metadata": {
+        "description": "Agent LLM provider. Restricted to `openai` — that is what the live agent\nruns, and only the OpenAI key + env are wired below. Adding a provider means adding its\n@secure() key param, a Container App secret, and its env var; advertising a provider whose\ncredentials aren't wired would boot the agent unconfigured."
+      }
+    },
+    "openAiModel": {
+      "type": "string",
+      "defaultValue": "gpt-5.4-nano",
+      "metadata": {
+        "description": "Agent OpenAI model id."
+      }
+    },
+    "langfusePublicKey": {
+      "type": "string",
+      "defaultValue": "",
+      "metadata": {
+        "description": "Langfuse public key — non-secret (paired with the secret key)."
+      }
+    },
+    "langfuseHost": {
+      "type": "string",
+      "defaultValue": "https://us.cloud.langfuse.com",
+      "metadata": {
+        "description": "Langfuse ingestion host."
+      }
+    },
+    "acrUsername": {
+      "type": "string",
+      "defaultValue": "ca9ee6437892acr",
+      "metadata": {
+        "description": "ACR admin username for the agent registry pull (admin creds, per live)."
+      }
+    },
+    "wireKeyVault": {
+      "type": "bool",
+      "defaultValue": false,
+      "metadata": {
+        "description": "Greenfield Key Vault wiring. Default false: the LIVE vault already holds the\nDATABASE-URL / CLERK-SECRET-KEY secrets and both apps already hold *Key Vault Secrets User*\n(provisioned by scripts/azure/provision-keyvault.sh). Re-creating those role assignments\nunder new names fails with RoleAssignmentExists, and re-creating the secrets from blank\nparams would blank them — so this is OFF against live. Set true ONLY for a greenfield vault:\nit then creates the two secrets from `databaseUrl` / `clerkSecretKey` and assigns the roles."
+      }
+    },
+    "databaseUrl": {
+      "type": "securestring",
+      "defaultValue": "",
+      "metadata": {
+        "description": "Full DATABASE_URL. Feeds the agent's `database-url` Container App secret.\nOn App Service it is resolved via a Key Vault reference (jobops-kv/DATABASE-URL); on a\ngreenfield vault (wireKeyVault=true) it also seeds that KV secret."
+      }
+    },
+    "clerkSecretKey": {
+      "type": "securestring",
+      "defaultValue": "",
+      "metadata": {
+        "description": "Clerk secret key — only used to seed the greenfield KV secret (wireKeyVault=true)."
+      }
+    },
+    "agentApiKey": {
+      "type": "securestring",
+      "defaultValue": "",
+      "metadata": {
+        "description": "Server-to-server shared secret for the API->agent hop (QA·A). One value,\nset on the API as AGENT_API_KEY and on the agent as the `agent-api-key` secret. Blank\ndisables agent auth — never deploy blank against prod. Generate: `openssl rand -hex 32`."
+      }
+    },
+    "n8nWebhookSecret": {
+      "type": "securestring",
+      "defaultValue": "",
+      "metadata": {
+        "description": "n8n inbound webhook shared secret (API N8N_WEBHOOK_SECRET)."
+      }
+    },
+    "adzunaAppKey": {
+      "type": "securestring",
+      "defaultValue": "",
+      "metadata": {
+        "description": "Adzuna job-search app key."
+      }
+    },
+    "openAiApiKey": {
+      "type": "securestring",
+      "defaultValue": "",
+      "metadata": {
+        "description": "OpenAI API key (agent `openai-key` secret)."
+      }
+    },
+    "tavilyApiKey": {
+      "type": "securestring",
+      "defaultValue": "",
+      "metadata": {
+        "description": "Tavily web-search API key (agent `tavily-api-key` secret)."
+      }
+    },
+    "langfuseSecretKey": {
+      "type": "securestring",
+      "defaultValue": "",
+      "metadata": {
+        "description": "Langfuse secret key (agent `langfuse-secret-key` secret)."
+      }
+    },
+    "acrAdminPassword": {
+      "type": "securestring",
+      "defaultValue": "",
+      "metadata": {
+        "description": "ACR admin password for the agent registry pull (agent registry passwordSecretRef)."
+      }
+    },
+    "createPostgres": {
+      "type": "bool",
+      "defaultValue": false,
+      "metadata": {
+        "description": "Create the Postgres Flexible Server. Default false so a deploy never reconciles\nthe EXISTING production server (`jobops`). Set true only for a greenfield environment."
+      }
+    },
+    "postgresSkuName": {
+      "type": "string",
+      "defaultValue": "Standard_B1ms",
+      "metadata": {
+        "description": "Postgres Flexible Server compute SKU."
+      }
+    },
+    "postgresTier": {
+      "type": "string",
+      "defaultValue": "Burstable",
+      "allowedValues": [
+        "Burstable",
+        "GeneralPurpose",
+        "MemoryOptimized"
+      ],
+      "metadata": {
+        "description": "Postgres Flexible Server tier."
+      }
+    },
+    "postgresAdminUser": {
+      "type": "string",
+      "defaultValue": "jobopsadmin",
+      "metadata": {
+        "description": "Postgres administrator login."
+      }
+    },
+    "postgresAdminPassword": {
+      "type": "securestring",
+      "defaultValue": "",
+      "metadata": {
+        "description": "Postgres administrator password (required only when createPostgres is true)."
+      }
+    }
+  },
+  "variables": {
+    "webAppName": "[format('{0}-web', parameters('namePrefix'))]",
+    "apiAppName": "[format('{0}-api', parameters('namePrefix'))]",
+    "agentAppName": "[format('{0}-agent', parameters('namePrefix'))]",
+    "planName": "[format('{0}-plan', parameters('namePrefix'))]",
+    "logAnalyticsName": "[format('{0}-logs', parameters('namePrefix'))]",
+    "appInsightsName": "[format('{0}-insights', parameters('namePrefix'))]",
+    "keyVaultName": "[format('{0}-kv', parameters('namePrefix'))]",
+    "agentEnvName": "[format('{0}-agent-env', parameters('namePrefix'))]",
+    "postgresName": "[parameters('namePrefix')]",
+    "webHost": "[format('https://{0}.azurewebsites.net', variables('webAppName'))]",
+    "apiHost": "[format('https://{0}.azurewebsites.net', variables('apiAppName'))]",
+    "kvSecretsUserRoleId": "4633458b-17de-408a-b874-0445c86b69e6",
+    "acrLoginServer": "[split(parameters('agentImage'), '/')[0]]"
+  },
+  "resources": [
+    {
+      "type": "Microsoft.OperationalInsights/workspaces",
+      "apiVersion": "2023-09-01",
+      "name": "[variables('logAnalyticsName')]",
+      "location": "[parameters('platformLocation')]",
+      "properties": {
+        "sku": {
+          "name": "PerGB2018"
+        },
+        "retentionInDays": 30
+      }
+    },
+    {
+      "type": "Microsoft.Insights/components",
+      "apiVersion": "2020-02-02",
+      "name": "[variables('appInsightsName')]",
+      "location": "[parameters('platformLocation')]",
+      "kind": "web",
+      "properties": {
+        "Application_Type": "web",
+        "WorkspaceResourceId": "[resourceId('Microsoft.OperationalInsights/workspaces', variables('logAnalyticsName'))]"
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.OperationalInsights/workspaces', variables('logAnalyticsName'))]"
+      ]
+    },
+    {
+      "type": "Microsoft.KeyVault/vaults",
+      "apiVersion": "2023-07-01",
+      "name": "[variables('keyVaultName')]",
+      "location": "[parameters('platformLocation')]",
+      "properties": {
+        "sku": {
+          "family": "A",
+          "name": "standard"
+        },
+        "tenantId": "[subscription().tenantId]",
+        "enableRbacAuthorization": true
+      }
+    },
+    {
+      "type": "Microsoft.Web/serverfarms",
+      "apiVersion": "2023-12-01",
+      "name": "[variables('planName')]",
+      "location": "[parameters('appLocation')]",
+      "kind": "linux",
+      "sku": {
+        "name": "[parameters('planSku')]"
+      },
+      "properties": {
+        "reserved": true
+      }
+    },
+    {
+      "type": "Microsoft.Web/sites",
+      "apiVersion": "2023-12-01",
+      "name": "[variables('webAppName')]",
+      "location": "[parameters('appLocation')]",
+      "identity": {
+        "type": "SystemAssigned"
+      },
+      "properties": {
+        "serverFarmId": "[resourceId('Microsoft.Web/serverfarms', variables('planName'))]",
+        "httpsOnly": true,
+        "siteConfig": {
+          "linuxFxVersion": "[parameters('nodeLinuxFxVersion')]",
+          "ftpsState": "Disabled",
+          "minTlsVersion": "1.2",
+          "appSettings": [
+            {
+              "name": "NEXT_PUBLIC_API_BASE_URL",
+              "value": "[variables('apiHost')]"
+            },
+            {
+              "name": "NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY",
+              "value": "[parameters('clerkPublishableKey')]"
+            },
+            {
+              "name": "CLERK_SECRET_KEY",
+              "value": "[format('@Microsoft.KeyVault(SecretUri={0}secrets/CLERK-SECRET-KEY)', reference(resourceId('Microsoft.KeyVault/vaults', variables('keyVaultName')), '2023-07-01').vaultUri)]"
+            },
+            {
+              "name": "APPLICATIONINSIGHTS_CONNECTION_STRING",
+              "value": "[reference(resourceId('Microsoft.Insights/components', variables('appInsightsName')), '2020-02-02').ConnectionString]"
+            },
+            {
+              "name": "SCM_DO_BUILD_DURING_DEPLOYMENT",
+              "value": "false"
+            }
+          ]
+        }
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.Insights/components', variables('appInsightsName'))]",
+        "[resourceId('Microsoft.KeyVault/vaults', variables('keyVaultName'))]",
+        "[resourceId('Microsoft.Web/serverfarms', variables('planName'))]"
+      ]
+    },
+    {
+      "type": "Microsoft.Web/sites",
+      "apiVersion": "2023-12-01",
+      "name": "[variables('apiAppName')]",
+      "location": "[parameters('appLocation')]",
+      "identity": {
+        "type": "SystemAssigned"
+      },
+      "properties": {
+        "serverFarmId": "[resourceId('Microsoft.Web/serverfarms', variables('planName'))]",
+        "httpsOnly": true,
+        "siteConfig": {
+          "linuxFxVersion": "[parameters('nodeLinuxFxVersion')]",
+          "ftpsState": "Disabled",
+          "minTlsVersion": "1.2",
+          "appSettings": [
+            {
+              "name": "AGENT_SERVICE_URL",
+              "value": "[format('https://{0}', reference(resourceId('Microsoft.App/containerApps', variables('agentAppName')), '2024-03-01').configuration.ingress.fqdn)]"
+            },
+            {
+              "name": "AGENT_API_KEY",
+              "value": "[parameters('agentApiKey')]"
+            },
+            {
+              "name": "AGENT_TIMEOUT_MS",
+              "value": "[parameters('agentTimeoutMs')]"
+            },
+            {
+              "name": "AGENT_TASK_TIMEOUT_MS",
+              "value": "[parameters('agentTaskTimeoutMs')]"
+            },
+            {
+              "name": "API_PUBLIC_BASE_URL",
+              "value": "[variables('apiHost')]"
+            },
+            {
+              "name": "DATABASE_URL",
+              "value": "[format('@Microsoft.KeyVault(SecretUri={0}secrets/DATABASE-URL)', reference(resourceId('Microsoft.KeyVault/vaults', variables('keyVaultName')), '2023-07-01').vaultUri)]"
+            },
+            {
+              "name": "CLERK_PUBLISHABLE_KEY",
+              "value": "[parameters('clerkPublishableKey')]"
+            },
+            {
+              "name": "CLERK_SECRET_KEY",
+              "value": "[format('@Microsoft.KeyVault(SecretUri={0}secrets/CLERK-SECRET-KEY)', reference(resourceId('Microsoft.KeyVault/vaults', variables('keyVaultName')), '2023-07-01').vaultUri)]"
+            },
+            {
+              "name": "CORS_ALLOWED_ORIGINS",
+              "value": "[parameters('corsAllowedOrigins')]"
+            },
+            {
+              "name": "AI_DAILY_BUDGET_USD",
+              "value": "[parameters('aiDailyBudgetUsd')]"
+            },
+            {
+              "name": "ADZUNA_APP_ID",
+              "value": "[parameters('adzunaAppId')]"
+            },
+            {
+              "name": "ADZUNA_APP_KEY",
+              "value": "[parameters('adzunaAppKey')]"
+            },
+            {
+              "name": "ADZUNA_COUNTRY",
+              "value": "[parameters('adzunaCountry')]"
+            },
+            {
+              "name": "N8N_WEBHOOK_SECRET",
+              "value": "[parameters('n8nWebhookSecret')]"
+            },
+            {
+              "name": "APPLICATIONINSIGHTS_CONNECTION_STRING",
+              "value": "[reference(resourceId('Microsoft.Insights/components', variables('appInsightsName')), '2020-02-02').ConnectionString]"
+            },
+            {
+              "name": "WEBSITES_PORT",
+              "value": "8080"
+            },
+            {
+              "name": "WEBSITE_HTTPLOGGING_RETENTION_DAYS",
+              "value": "3"
+            },
+            {
+              "name": "WEBSITE_RUN_FROM_PACKAGE",
+              "value": "1"
+            },
+            {
+              "name": "SCM_DO_BUILD_DURING_DEPLOYMENT",
+              "value": "false"
+            }
+          ]
+        }
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.App/containerApps', variables('agentAppName'))]",
+        "[resourceId('Microsoft.Insights/components', variables('appInsightsName'))]",
+        "[resourceId('Microsoft.KeyVault/vaults', variables('keyVaultName'))]",
+        "[resourceId('Microsoft.Web/serverfarms', variables('planName'))]"
+      ]
+    },
+    {
+      "condition": "[parameters('wireKeyVault')]",
+      "type": "Microsoft.Authorization/roleAssignments",
+      "apiVersion": "2022-04-01",
+      "scope": "[resourceId('Microsoft.KeyVault/vaults', variables('keyVaultName'))]",
+      "name": "[guid(resourceId('Microsoft.KeyVault/vaults', variables('keyVaultName')), resourceId('Microsoft.Web/sites', variables('webAppName')), variables('kvSecretsUserRoleId'))]",
+      "properties": {
+        "principalId": "[reference(resourceId('Microsoft.Web/sites', variables('webAppName')), '2023-12-01', 'full').identity.principalId]",
+        "roleDefinitionId": "[subscriptionResourceId('Microsoft.Authorization/roleDefinitions', variables('kvSecretsUserRoleId'))]",
+        "principalType": "ServicePrincipal"
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.KeyVault/vaults', variables('keyVaultName'))]",
+        "[resourceId('Microsoft.Web/sites', variables('webAppName'))]"
+      ]
+    },
+    {
+      "condition": "[parameters('wireKeyVault')]",
+      "type": "Microsoft.Authorization/roleAssignments",
+      "apiVersion": "2022-04-01",
+      "scope": "[resourceId('Microsoft.KeyVault/vaults', variables('keyVaultName'))]",
+      "name": "[guid(resourceId('Microsoft.KeyVault/vaults', variables('keyVaultName')), resourceId('Microsoft.Web/sites', variables('apiAppName')), variables('kvSecretsUserRoleId'))]",
+      "properties": {
+        "principalId": "[reference(resourceId('Microsoft.Web/sites', variables('apiAppName')), '2023-12-01', 'full').identity.principalId]",
+        "roleDefinitionId": "[subscriptionResourceId('Microsoft.Authorization/roleDefinitions', variables('kvSecretsUserRoleId'))]",
+        "principalType": "ServicePrincipal"
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.Web/sites', variables('apiAppName'))]",
+        "[resourceId('Microsoft.KeyVault/vaults', variables('keyVaultName'))]"
+      ]
+    },
+    {
+      "condition": "[parameters('wireKeyVault')]",
+      "type": "Microsoft.KeyVault/vaults/secrets",
+      "apiVersion": "2023-07-01",
+      "name": "[format('{0}/{1}', variables('keyVaultName'), 'DATABASE-URL')]",
+      "properties": {
+        "value": "[parameters('databaseUrl')]"
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.KeyVault/vaults', variables('keyVaultName'))]"
+      ]
+    },
+    {
+      "condition": "[parameters('wireKeyVault')]",
+      "type": "Microsoft.KeyVault/vaults/secrets",
+      "apiVersion": "2023-07-01",
+      "name": "[format('{0}/{1}', variables('keyVaultName'), 'CLERK-SECRET-KEY')]",
+      "properties": {
+        "value": "[parameters('clerkSecretKey')]"
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.KeyVault/vaults', variables('keyVaultName'))]"
+      ]
+    },
+    {
+      "type": "Microsoft.App/managedEnvironments",
+      "apiVersion": "2024-03-01",
+      "name": "[variables('agentEnvName')]",
+      "location": "[parameters('platformLocation')]",
+      "properties": {
+        "appLogsConfiguration": {
+          "destination": "log-analytics",
+          "logAnalyticsConfiguration": {
+            "customerId": "[reference(resourceId('Microsoft.OperationalInsights/workspaces', variables('logAnalyticsName')), '2023-09-01').customerId]",
+            "sharedKey": "[listKeys(resourceId('Microsoft.OperationalInsights/workspaces', variables('logAnalyticsName')), '2023-09-01').primarySharedKey]"
+          }
+        }
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.OperationalInsights/workspaces', variables('logAnalyticsName'))]"
+      ]
+    },
+    {
+      "type": "Microsoft.App/containerApps",
+      "apiVersion": "2024-03-01",
+      "name": "[variables('agentAppName')]",
+      "location": "[parameters('platformLocation')]",
+      "properties": {
+        "managedEnvironmentId": "[resourceId('Microsoft.App/managedEnvironments', variables('agentEnvName'))]",
+        "configuration": {
+          "ingress": {
+            "external": true,
+            "targetPort": 8000,
+            "transport": "auto"
+          },
+          "secrets": [
+            {
+              "name": "agent-api-key",
+              "value": "[parameters('agentApiKey')]"
+            },
+            {
+              "name": "database-url",
+              "value": "[parameters('databaseUrl')]"
+            },
+            {
+              "name": "openai-key",
+              "value": "[parameters('openAiApiKey')]"
+            },
+            {
+              "name": "tavily-api-key",
+              "value": "[parameters('tavilyApiKey')]"
+            },
+            {
+              "name": "langfuse-secret-key",
+              "value": "[parameters('langfuseSecretKey')]"
+            },
+            {
+              "name": "ca9ee6437892acrazurecrio-ca9ee6437892acr",
+              "value": "[parameters('acrAdminPassword')]"
+            }
+          ],
+          "registries": [
+            {
+              "server": "[variables('acrLoginServer')]",
+              "username": "[parameters('acrUsername')]",
+              "passwordSecretRef": "ca9ee6437892acrazurecrio-ca9ee6437892acr"
+            }
+          ]
+        },
+        "template": {
+          "containers": [
+            {
+              "name": "agent",
+              "image": "[parameters('agentImage')]",
+              "resources": {
+                "cpu": "[json('1.0')]",
+                "memory": "2Gi"
+              },
+              "env": [
+                {
+                  "name": "LLM_PROVIDER",
+                  "value": "[parameters('llmProvider')]"
+                },
+                {
+                  "name": "OPENAI_MODEL",
+                  "value": "[parameters('openAiModel')]"
+                },
+                {
+                  "name": "OPENAI_API_KEY",
+                  "secretRef": "openai-key"
+                },
+                {
+                  "name": "DATABASE_URL",
+                  "secretRef": "database-url"
+                },
+                {
+                  "name": "APPLICATIONINSIGHTS_CONNECTION_STRING",
+                  "value": "[reference(resourceId('Microsoft.Insights/components', variables('appInsightsName')), '2020-02-02').ConnectionString]"
+                },
+                {
+                  "name": "LANGFUSE_PUBLIC_KEY",
+                  "value": "[parameters('langfusePublicKey')]"
+                },
+                {
+                  "name": "LANGFUSE_HOST",
+                  "value": "[parameters('langfuseHost')]"
+                },
+                {
+                  "name": "LANGFUSE_SECRET_KEY",
+                  "secretRef": "langfuse-secret-key"
+                },
+                {
+                  "name": "TAVILY_API_KEY",
+                  "secretRef": "tavily-api-key"
+                },
+                {
+                  "name": "AGENT_API_KEY",
+                  "secretRef": "agent-api-key"
+                }
+              ],
+              "probes": [
+                {
+                  "type": "Liveness",
+                  "httpGet": {
+                    "path": "/health",
+                    "port": 8000
+                  },
+                  "initialDelaySeconds": 10,
+                  "periodSeconds": 30
+                },
+                {
+                  "type": "Readiness",
+                  "httpGet": {
+                    "path": "/health",
+                    "port": 8000
+                  },
+                  "initialDelaySeconds": 5,
+                  "periodSeconds": 10
+                }
+              ]
+            }
+          ],
+          "scale": {
+            "minReplicas": 0,
+            "maxReplicas": 3
+          }
+        }
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.App/managedEnvironments', variables('agentEnvName'))]",
+        "[resourceId('Microsoft.Insights/components', variables('appInsightsName'))]"
+      ]
+    },
+    {
+      "type": "Microsoft.App/jobs",
+      "apiVersion": "2024-03-01",
+      "name": "[format('{0}-discovery-job', parameters('namePrefix'))]",
+      "location": "[parameters('platformLocation')]",
+      "properties": {
+        "environmentId": "[resourceId('Microsoft.App/managedEnvironments', variables('agentEnvName'))]",
+        "configuration": {
+          "triggerType": "Schedule",
+          "replicaTimeout": 300,
+          "replicaRetryLimit": 1,
+          "scheduleTriggerConfig": {
+            "cronExpression": "*/25 * * * *",
+            "parallelism": 1,
+            "replicaCompletionCount": 1
+          },
+          "secrets": [
+            {
+              "name": "n8n-webhook-secret",
+              "value": "[parameters('n8nWebhookSecret')]"
+            }
+          ]
+        },
+        "template": {
+          "containers": [
+            {
+              "name": "discovery-runner",
+              "image": "mcr.microsoft.com/cbl-mariner/base/core:2.0",
+              "command": [
+                "/bin/sh",
+                "-c",
+                "[format('curl -fsS -X POST \"https://{0}.azurewebsites.net/internal/discovery/run\" -H \"X-N8N-Webhook-Secret: $N8N_WEBHOOK_SECRET\"', variables('apiAppName'))]"
+              ],
+              "env": [
+                {
+                  "name": "N8N_WEBHOOK_SECRET",
+                  "secretRef": "n8n-webhook-secret"
+                }
+              ],
+              "resources": {
+                "cpu": "[json('0.25')]",
+                "memory": "0.5Gi"
+              }
+            }
+          ]
+        }
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.App/managedEnvironments', variables('agentEnvName'))]"
+      ]
+    },
+    {
+      "type": "Microsoft.App/jobs",
+      "apiVersion": "2024-03-01",
+      "name": "[format('{0}-liveness-job', parameters('namePrefix'))]",
+      "location": "[parameters('platformLocation')]",
+      "properties": {
+        "environmentId": "[resourceId('Microsoft.App/managedEnvironments', variables('agentEnvName'))]",
+        "configuration": {
+          "triggerType": "Schedule",
+          "replicaTimeout": 300,
+          "replicaRetryLimit": 1,
+          "scheduleTriggerConfig": {
+            "cronExpression": "0 4 * * *",
+            "parallelism": 1,
+            "replicaCompletionCount": 1
+          },
+          "secrets": [
+            {
+              "name": "n8n-webhook-secret",
+              "value": "[parameters('n8nWebhookSecret')]"
+            }
+          ]
+        },
+        "template": {
+          "containers": [
+            {
+              "name": "liveness-runner",
+              "image": "mcr.microsoft.com/cbl-mariner/base/core:2.0",
+              "command": [
+                "/bin/sh",
+                "-c",
+                "[format('curl -fsS -X POST \"https://{0}.azurewebsites.net/internal/liveness/run\" -H \"X-N8N-Webhook-Secret: $N8N_WEBHOOK_SECRET\"', variables('apiAppName'))]"
+              ],
+              "env": [
+                {
+                  "name": "N8N_WEBHOOK_SECRET",
+                  "secretRef": "n8n-webhook-secret"
+                }
+              ],
+              "resources": {
+                "cpu": "[json('0.25')]",
+                "memory": "0.5Gi"
+              }
+            }
+          ]
+        }
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.App/managedEnvironments', variables('agentEnvName'))]"
+      ]
+    },
+    {
+      "condition": "[parameters('createPostgres')]",
+      "type": "Microsoft.DBforPostgreSQL/flexibleServers",
+      "apiVersion": "2023-12-01-preview",
+      "name": "[variables('postgresName')]",
+      "location": "[parameters('appLocation')]",
+      "sku": {
+        "name": "[parameters('postgresSkuName')]",
+        "tier": "[parameters('postgresTier')]"
+      },
+      "properties": {
+        "version": "16",
+        "administratorLogin": "[parameters('postgresAdminUser')]",
+        "administratorLoginPassword": "[parameters('postgresAdminPassword')]",
+        "storage": {
+          "storageSizeGB": 32
+        },
+        "backup": {
+          "backupRetentionDays": 7,
+          "geoRedundantBackup": "Disabled"
+        },
+        "highAvailability": {
+          "mode": "Disabled"
+        }
+      }
+    },
+    {
+      "condition": "[parameters('createPostgres')]",
+      "type": "Microsoft.DBforPostgreSQL/flexibleServers/configurations",
+      "apiVersion": "2023-12-01-preview",
+      "name": "[format('{0}/{1}', variables('postgresName'), 'azure.extensions')]",
+      "properties": {
+        "value": "vector",
+        "source": "user-override"
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.DBforPostgreSQL/flexibleServers', variables('postgresName'))]"
+      ]
+    },
+    {
+      "condition": "[parameters('createPostgres')]",
+      "type": "Microsoft.DBforPostgreSQL/flexibleServers/firewallRules",
+      "apiVersion": "2023-12-01-preview",
+      "name": "[format('{0}/{1}', variables('postgresName'), 'AllowAzureServices')]",
+      "properties": {
+        "startIpAddress": "0.0.0.0",
+        "endIpAddress": "0.0.0.0"
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.DBforPostgreSQL/flexibleServers', variables('postgresName'))]"
+      ]
+    }
+  ],
+  "outputs": {
+    "webUrl": {
+      "type": "string",
+      "value": "[variables('webHost')]"
+    },
+    "apiUrl": {
+      "type": "string",
+      "value": "[variables('apiHost')]"
+    },
+    "agentUrl": {
+      "type": "string",
+      "value": "[format('https://{0}', reference(resourceId('Microsoft.App/containerApps', variables('agentAppName')), '2024-03-01').configuration.ingress.fqdn)]"
+    },
+    "postgresFqdn": {
+      "type": "string",
+      "value": "[coalesce(tryGet(if(parameters('createPostgres'), reference(resourceId('Microsoft.DBforPostgreSQL/flexibleServers', variables('postgresName')), '2023-12-01-preview', 'full'), null()), 'properties', 'fullyQualifiedDomainName'), '')]"
+    }
+  }
+}

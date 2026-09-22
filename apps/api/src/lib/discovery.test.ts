@@ -20,10 +20,10 @@ function makeDeps(
 ): {
   deps: DiscoveryDeps;
   created: CreateJobBody[];
-  analyses: Array<{ jobId: string; fitScore?: number | null; modelUsed: string }>;
+  analyses: Array<{ jobId: string; fitScore?: number | null; modelUsed: string; subSignals?: unknown }>;
 } {
   const created: CreateJobBody[] = [];
-  const analyses: Array<{ jobId: string; fitScore?: number | null; modelUsed: string }> = [];
+  const analyses: Array<{ jobId: string; fitScore?: number | null; modelUsed: string; subSignals?: unknown }> = [];
   let n = 0;
   const deps: DiscoveryDeps = {
     source: { name: 'adzuna', search: async () => found },
@@ -36,7 +36,7 @@ function makeDeps(
     listSavedSearches: async () => [SEARCH],
     getResume: async () => resume,
     saveAnalysis: async (_userId, jobId, analysis, fitScore) => {
-      analyses.push({ jobId, fitScore, modelUsed: analysis.modelUsed });
+      analyses.push({ jobId, fitScore, modelUsed: analysis.modelUsed, subSignals: analysis.subSignals });
       return undefined;
     },
   };
@@ -462,3 +462,252 @@ test('runDiscoveryForUser stops attempting JD upgrades when upgrade time budget 
     }
   }
 });
+
+test('when discovery re-encounters an existing job URL, touchSeen is called with that job ID', async () => {
+  const existingJob = {
+    id: 'existing-job-123',
+    jobUrl: 'https://example.com/job/existing',
+    company: 'Acme',
+    title: 'Engineer',
+    location: 'Remote',
+  };
+
+  const reEncountered = sourced('https://example.com/job/existing', {
+    company: 'Acme',
+    title: 'Engineer',
+  });
+
+  const touched: Array<{ userId: string; jobIds: string[] }> = [];
+  const { deps } = makeDeps([reEncountered], [existingJob]);
+  deps.touchSeen = async (userId, jobIds) => {
+    touched.push({ userId, jobIds });
+  };
+
+  const result = await runDiscoveryForUser('user-1', deps);
+
+  assert.equal(result.inserted, 0);
+  assert.equal(result.skipped, 1);
+  assert.deepEqual(touched, [{ userId: 'user-1', jobIds: ['existing-job-123'] }]);
+});
+
+test('touchSeen throwing an error does not fail the discovery run', async () => {
+  const existingJob = {
+    id: 'existing-job-123',
+    jobUrl: 'https://example.com/job/existing',
+    company: 'Acme',
+    title: 'Engineer',
+    location: 'Remote',
+  };
+
+  const reEncountered = sourced('https://example.com/job/existing', {
+    company: 'Acme',
+    title: 'Engineer',
+  });
+
+  const { deps } = makeDeps([reEncountered], [existingJob]);
+  deps.touchSeen = async () => {
+    throw new Error('Database connection failure during touchSeen');
+  };
+
+  const result = await runDiscoveryForUser('user-1', deps);
+
+  assert.equal(result.inserted, 0);
+  assert.equal(result.skipped, 1);
+});
+
+test('sequential scoring runs AI score when budget is available and saves sub-signals', async () => {
+  const { deps, analyses } = makeDeps(
+    [
+      sourced('https://x/job-1', { title: 'Backend Engineer', descriptionText: 'TypeScript and Node.js role.' }),
+      sourced('https://x/job-2', { title: 'Fullstack Engineer', descriptionText: 'React and Python role.' }),
+    ],
+    [],
+  );
+
+  const budgetCalls: Array<{ userId: string; op: string }> = [];
+  deps.reserveBudget = async (userId, op) => {
+    budgetCalls.push({ userId, op });
+    return true;
+  };
+
+  const scoringCalls: Array<{ title?: string | null }> = [];
+  deps.resolveFitScore = async (input) => {
+    scoringCalls.push({ title: input.title });
+    return {
+      fit_score: 92,
+      sub_signals: {
+        skills_match: 95,
+        title_seniority: 90,
+        salary_fit: 85,
+        sponsorship_likelihood: 100,
+      },
+      matched_skills: ['TypeScript'],
+      missing_skills: [],
+      ats_keywords: ['TypeScript', 'Node.js'],
+      fit_summary: 'Strong fit for candidate skills.',
+      recommended_resume_angle: 'Lead with backend Node.js work.',
+      apply_recommendation: 'apply',
+      confidence_score: 88,
+      model_used: 'agent:gpt-5.6-luna',
+    };
+  };
+
+  const result = await runDiscoveryForUser('user-1', deps);
+
+  assert.equal(result.inserted, 2);
+  assert.equal(budgetCalls.length, 2);
+  assert.deepEqual(budgetCalls[0], { userId: 'user-1', op: 'score' });
+  assert.deepEqual(budgetCalls[1], { userId: 'user-1', op: 'score' });
+
+  assert.equal(scoringCalls.length, 2);
+  assert.equal(scoringCalls[0]?.title, 'Backend Engineer');
+  assert.equal(scoringCalls[1]?.title, 'Fullstack Engineer');
+
+  assert.equal(analyses.length, 2);
+  assert.equal(analyses[0]?.modelUsed, 'agent:gpt-5.6-luna');
+  assert.equal(analyses[0]?.fitScore, 92);
+  assert.deepEqual(analyses[0]?.subSignals, {
+    skillsMatch: 95,
+    titleSeniority: 90,
+    salaryFit: 85,
+    sponsorshipLikelihood: 100,
+  });
+  assert.equal(analyses[1]?.modelUsed, 'agent:gpt-5.6-luna');
+});
+
+test('sequential scoring falls back to local-prerank when budget is exhausted', async () => {
+  const { deps, analyses } = makeDeps(
+    [
+      sourced('https://x/job-1', { title: 'Engineer 1', descriptionText: 'TypeScript React Node.js' }),
+      sourced('https://x/job-2', { title: 'Engineer 2', descriptionText: 'TypeScript React Node.js' }),
+    ],
+    [],
+  );
+
+  let callCount = 0;
+  deps.reserveBudget = async () => {
+    callCount += 1;
+    return callCount === 1; // 1st job succeeds, 2nd job is rejected due to budget limit
+  };
+
+  deps.resolveFitScore = async () => ({
+    fit_score: 88,
+    sub_signals: {
+      skills_match: 90,
+      title_seniority: 85,
+      salary_fit: 80,
+      sponsorship_likelihood: 90,
+    },
+    matched_skills: ['TypeScript'],
+    missing_skills: [],
+    ats_keywords: ['TypeScript'],
+    fit_summary: 'Good match',
+    recommended_resume_angle: 'Emphasize TS',
+    apply_recommendation: 'apply',
+    confidence_score: 80,
+    model_used: 'agent:gpt-5.6-luna',
+  });
+
+  const result = await runDiscoveryForUser('user-1', deps);
+
+  assert.equal(result.inserted, 2);
+  assert.equal(analyses.length, 2);
+  assert.equal(analyses[0]?.modelUsed, 'agent:gpt-5.6-luna');
+  assert.equal(analyses[0]?.fitScore, 88);
+  // Second job fell back to local-prerank gracefully
+  assert.equal(analyses[1]?.modelUsed, 'local-prerank');
+});
+
+test('sequential scoring falls back to local-prerank when resolveFitScore throws', async () => {
+  const { deps, analyses } = makeDeps(
+    [sourced('https://x/job-1', { title: 'Engineer', descriptionText: 'TypeScript React Node.js' })],
+    [],
+  );
+
+  deps.reserveBudget = async () => true;
+  deps.resolveFitScore = async () => {
+    throw new Error('agent container timeout');
+  };
+
+  const result = await runDiscoveryForUser('user-1', deps);
+
+  assert.equal(result.inserted, 1);
+  assert.equal(analyses.length, 1);
+  assert.equal(analyses[0]?.modelUsed, 'local-prerank');
+});
+
+test('sequential scoring falls back to local-prerank when resolveFitScore hangs beyond timeout', async () => {
+  const originalTimeout = process.env.DISCOVERY_AI_SCORE_TIMEOUT_MS;
+  process.env.DISCOVERY_AI_SCORE_TIMEOUT_MS = '50';
+
+  try {
+    const { deps, analyses } = makeDeps(
+      [sourced('https://x/job-timeout', { title: 'Engineer', descriptionText: 'TypeScript React Node.js' })],
+      [],
+    );
+
+    deps.reserveBudget = async () => true;
+    deps.resolveFitScore = async () => {
+      // Hang indefinitely until test timeout if not bounded by discovery timeout
+      await new Promise((resolve) => setTimeout(resolve, 500));
+      return {
+        fit_score: 90,
+        sub_signals: {},
+        matched_skills: [],
+        missing_skills: [],
+        ats_keywords: [],
+        fit_summary: '',
+        recommended_resume_angle: '',
+        apply_recommendation: 'apply',
+        confidence_score: 90,
+        model_used: 'agent:gpt-5.6-luna',
+      };
+    };
+
+    const result = await runDiscoveryForUser('user-1', deps);
+
+    assert.equal(result.inserted, 1);
+    assert.equal(analyses.length, 1);
+    assert.equal(analyses[0]?.modelUsed, 'local-prerank');
+  } finally {
+    if (originalTimeout !== undefined) {
+      process.env.DISCOVERY_AI_SCORE_TIMEOUT_MS = originalTimeout;
+    } else {
+      delete process.env.DISCOVERY_AI_SCORE_TIMEOUT_MS;
+    }
+  }
+});
+
+test('sequential scoring skips AI scoring entirely when sweep AI scoring budget is exhausted', async () => {
+  const originalBudget = process.env.DISCOVERY_AI_SCORE_BUDGET_MS;
+  // Expired budget: 0ms means remainingAiScoreBudgetMs <= 1000
+  process.env.DISCOVERY_AI_SCORE_BUDGET_MS = '0';
+
+  try {
+    const { deps, analyses } = makeDeps(
+      [sourced('https://x/job-expired-budget', { title: 'Engineer', descriptionText: 'TypeScript React Node.js' })],
+      [],
+    );
+
+    let calledAi = false;
+    deps.reserveBudget = async () => true;
+    deps.resolveFitScore = async () => {
+      calledAi = true;
+      throw new Error('should not be called');
+    };
+
+    const result = await runDiscoveryForUser('user-1', deps);
+
+    assert.equal(result.inserted, 1);
+    assert.equal(calledAi, false);
+    assert.equal(analyses.length, 1);
+    assert.equal(analyses[0]?.modelUsed, 'local-prerank');
+  } finally {
+    if (originalBudget !== undefined) {
+      process.env.DISCOVERY_AI_SCORE_BUDGET_MS = originalBudget;
+    } else {
+      delete process.env.DISCOVERY_AI_SCORE_BUDGET_MS;
+    }
+  }
+});
+

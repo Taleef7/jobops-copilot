@@ -5,6 +5,7 @@ import {
 } from '@/data/job-store';
 import { listSavedSearches as listSavedSearchesStore } from '@/data/saved-search-store';
 import { prerankAnalysis } from '@/lib/local-fit';
+import { analysisFromFit, type FitScoreOutput } from '@/lib/analysis-core';
 import type { JobSource } from '@/lib/job-sources';
 import { dedupKey, fingerprintKey, type SourcedJob } from '@/lib/job-sources/normalize';
 import { fetchTargetCompanyBoards } from '@/lib/job-sources/boards';
@@ -24,11 +25,21 @@ export interface DiscoveryDeps {
   createJob: typeof createJobStore;
   listSavedSearches: typeof listSavedSearchesStore;
   getResume: (userId: string) => Promise<string>;
+  getProfile?: (userId: string) => Promise<{ resumeText?: string; profileText?: string } | undefined>;
   saveAnalysis: typeof saveJobAnalysisStore;
   listTargetCompanies?: (userId: string) => Promise<TargetCompany[]>;
   fetchBoards?: typeof fetchTargetCompanyBoards;
   lookupSponsor?: (company: string) => Promise<SponsorLikelihood | null>;
   upgradeJd?: typeof upgradeToFullJd;
+  touchSeen?: (userId: string, jobIds: string[]) => Promise<void>;
+  resolveFitScore?: (input: {
+    userId?: string;
+    descriptionText: string;
+    resumeText: string;
+    profileText: string;
+    title?: string | null;
+  }) => Promise<FitScoreOutput>;
+  reserveBudget?: (userId: string, op: string) => Promise<boolean>;
 }
 
 /**
@@ -65,9 +76,22 @@ export async function runDiscoveryForUser(userId: string, deps: DiscoveryDeps): 
   const JD_FETCH_CAP = Number(process.env.DISCOVERY_JD_FETCH_CAP ?? 25);
   const JD_UPGRADE_TIME_BUDGET_MS = Number(process.env.DISCOVERY_JD_UPGRADE_BUDGET_MS ?? 15_000);
   const jdUpgradeDeadline = Date.now() + JD_UPGRADE_TIME_BUDGET_MS;
+  const AI_SCORE_TIME_BUDGET_MS = Number(process.env.DISCOVERY_AI_SCORE_BUDGET_MS ?? 30_000);
+  const AI_SCORE_PER_JOB_TIMEOUT_MS = Number(process.env.DISCOVERY_AI_SCORE_TIMEOUT_MS ?? 10_000);
+  const aiScoreDeadline = Date.now() + AI_SCORE_TIME_BUDGET_MS;
   const searches = await deps.listSavedSearches(userId);
-  const seen = new Set((await deps.listJobs(userId)).flatMap(keysFor));
+  const existingJobs = await deps.listJobs(userId);
+  const seen = new Set(existingJobs.flatMap(keysFor));
+  const existingJobIdByKey = new Map<string, string>();
+  for (const job of existingJobs) {
+    for (const k of keysFor(job)) {
+      existingJobIdByKey.set(k, job.id);
+    }
+  }
+  const reSeenJobIds = new Set<string>();
   const resume = await deps.getResume(userId);
+  const profile = deps.getProfile ? await deps.getProfile(userId) : undefined;
+  const profileText = profile?.profileText || resume;
 
   const sources: JobSource[] = deps.sources && deps.sources.length > 0
     ? deps.sources
@@ -83,6 +107,10 @@ export async function runDiscoveryForUser(userId: string, deps: DiscoveryDeps): 
   async function insertIfNew(job: SourcedJob): Promise<void> {
     const key = dedupKey(job);
     if (seen.has(key)) {
+      const existingId = existingJobIdByKey.get(key);
+      if (existingId) {
+        reSeenJobIds.add(existingId);
+      }
       skipped += 1;
       return;
     }
@@ -112,15 +140,53 @@ export async function runDiscoveryForUser(userId: string, deps: DiscoveryDeps): 
         sponsorLikelihood: sponsor ?? job.sponsorLikelihood,
       });
       inserted += 1;
-      // Pre-rank is best-effort: the job is already inserted and counted, so a
-      // transient failure persisting the estimated fit must not abort the whole
-      // sweep. The real LLM score still runs when the user first opens the job;
-      // until then an unranked job simply sorts as having no score.
-      try {
-        const { fitScore, analysis } = prerankAnalysis(job.descriptionText ?? '', resume);
-        await deps.saveAnalysis(userId, createdJob.id, analysis, fitScore);
-      } catch {
-        // Leave the job unranked rather than failing the discovery run.
+      // Sequential scoring: attempt AI scoring if enabled and budget allows;
+      // otherwise fall back gracefully to local pre-ranking.
+      let scoredWithAi = false;
+      const remainingAiScoreBudgetMs = aiScoreDeadline - Date.now();
+      if (resume && deps.resolveFitScore && deps.reserveBudget && remainingAiScoreBudgetMs > 1_000) {
+        try {
+          const budgetAllowed = await deps.reserveBudget(userId, 'score');
+          if (budgetAllowed) {
+            const timeoutMs = Math.min(remainingAiScoreBudgetMs, AI_SCORE_PER_JOB_TIMEOUT_MS);
+            let timerId: NodeJS.Timeout | undefined;
+            const timeoutPromise = new Promise<never>((_, reject) => {
+              timerId = setTimeout(() => reject(new Error('AI scoring per-job timeout exceeded')), timeoutMs);
+            });
+
+            try {
+              const fit = await Promise.race([
+                deps.resolveFitScore({
+                  userId,
+                  descriptionText: createdJob.descriptionText,
+                  resumeText: resume,
+                  profileText,
+                  title: createdJob.title,
+                }),
+                timeoutPromise,
+              ]);
+              const analysis = analysisFromFit(fit, {
+                requiredSkills: fit.ats_keywords?.slice(0, 5) ?? [],
+                preferredSkills: fit.ats_keywords?.slice(5, 8) ?? [],
+              });
+              await deps.saveAnalysis(userId, createdJob.id, analysis, fit.fit_score);
+              scoredWithAi = true;
+            } finally {
+              if (timerId) clearTimeout(timerId);
+            }
+          }
+        } catch {
+          // AI scoring failed or timed out; fall through to local prerank
+        }
+      }
+
+      if (!scoredWithAi) {
+        try {
+          const { fitScore, analysis } = prerankAnalysis(job.descriptionText ?? '', resume);
+          await deps.saveAnalysis(userId, createdJob.id, analysis, fitScore);
+        } catch {
+          // Leave the job unranked rather than failing the discovery run.
+        }
       }
     } catch (error) {
       // A concurrent discovery run (manual click + n8n sweep, or two API
@@ -170,6 +236,14 @@ export async function runDiscoveryForUser(userId: string, deps: DiscoveryDeps): 
     : sources.map((s) => s.name);
   const combined = [...searchSourceList, ...boardSources];
   const source = combined.length > 0 ? combined.join('+') : 'unknown';
+
+  if (reSeenJobIds.size > 0 && deps.touchSeen) {
+    try {
+      await deps.touchSeen(userId, [...reSeenJobIds]);
+    } catch {
+      // Ignore error
+    }
+  }
 
   return { inserted, skipped, source };
 }

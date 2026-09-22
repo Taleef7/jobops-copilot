@@ -1,8 +1,12 @@
 import { randomUUID } from 'node:crypto';
 import type {
   CreateJobBody,
+  FeedQueryOptions,
+  FeedResult,
   JobAnalysis,
   JobRecord,
+  JobStatus,
+  JobStatusEvent,
   OutreachDraft,
   UpdateJobBody,
   UpdateOutreachBody,
@@ -14,6 +18,7 @@ import type { PageParams } from '@/lib/pagination';
 import { deriveOutreachJobUpdate } from '@/lib/outreach-workflow';
 import { seedJobs } from '@/data/mock-store';
 import { computeContentHash, parseSalaryFromText, parseSeniority } from '@/lib/job-enrich';
+import { buildOutcomeStats, rankFeedJobs } from '@/lib/feed-ranking';
 
 type JobRow = {
   id: string;
@@ -57,6 +62,7 @@ type JobAnalysisRow = {
   apply_recommendation: string;
   confidence_score: number | null;
   model_used: string;
+  sub_signals?: unknown;
   created_at: string;
 };
 
@@ -113,6 +119,11 @@ function mapAnalysis(row: JobAnalysisRow | undefined, descriptionText: string): 
     return getDefaultAnalysis(descriptionText);
   }
 
+  const subSignals =
+    row.sub_signals && typeof row.sub_signals === 'object' && !Array.isArray(row.sub_signals)
+      ? (row.sub_signals as JobAnalysis['subSignals'])
+      : undefined;
+
   const analysis = {
     requiredSkills: toTextArray(row.required_skills),
     preferredSkills: toTextArray(row.preferred_skills),
@@ -124,6 +135,7 @@ function mapAnalysis(row: JobAnalysisRow | undefined, descriptionText: string): 
     applyRecommendation: row.apply_recommendation,
     confidenceScore: row.confidence_score ?? 0,
     modelUsed: row.model_used,
+    subSignals,
   } satisfies JobAnalysis;
 
   return validateJobAnalysis(analysis) ? analysis : getDefaultAnalysis(descriptionText);
@@ -720,9 +732,10 @@ export async function saveJobAnalysis(
         apply_recommendation,
         confidence_score,
         model_used,
+        sub_signals,
         created_at
       ) values (
-        $1, $2, $3::jsonb, $4::jsonb, $5::jsonb, $6::jsonb, $7::jsonb, $8, $9, $10, $11, $12, $13
+        $1, $2, $3::jsonb, $4::jsonb, $5::jsonb, $6::jsonb, $7::jsonb, $8, $9, $10, $11, $12, $13::jsonb, $14
       )
       on conflict (job_id) do update set
         required_skills = excluded.required_skills,
@@ -735,6 +748,7 @@ export async function saveJobAnalysis(
         apply_recommendation = excluded.apply_recommendation,
         confidence_score = excluded.confidence_score,
         model_used = excluded.model_used,
+        sub_signals = excluded.sub_signals,
         created_at = excluded.created_at
     `,
     [
@@ -750,6 +764,7 @@ export async function saveJobAnalysis(
       analysis.applyRecommendation,
       analysis.confidenceScore,
       analysis.modelUsed,
+      JSON.stringify(analysis.subSignals ?? {}),
       timestamp,
     ],
   );
@@ -843,6 +858,7 @@ export async function clearUserData(userId: string): Promise<void> {
     await client.query('begin');
     await client.query('delete from embeddings where user_id = $1', [userId]);
     await client.query('delete from jobs where user_id = $1', [userId]);
+    await client.query('delete from resume_versions where user_id = $1', [userId]);
     await client.query('commit');
   } catch (error) {
     await client.query('rollback');
@@ -965,4 +981,55 @@ export async function seedDemoData(userId: string): Promise<void> {
   } finally {
     client.release();
   }
+}
+
+export async function touchJobsSeen(userId: string, jobIds: string[]): Promise<void> {
+  if (jobIds.length === 0) {
+    return;
+  }
+  const pool = getPool();
+  if (!pool) {
+    return;
+  }
+  await pool.query(
+    `update jobs set last_seen_at = now(), liveness = 'active' where user_id = $1 and id = any($2::uuid[])`,
+    [userId, jobIds],
+  );
+}
+
+export async function getJobStatusEvents(userId: string): Promise<JobStatusEvent[]> {
+  const pool = getPool();
+  if (!pool) return [];
+  try {
+    const { rows } = await pool.query<{
+      id: string;
+      job_id: string;
+      user_id: string;
+      from_status: string | null;
+      to_status: string;
+      created_at: string;
+    }>(
+      `select id, job_id, user_id, from_status, to_status, created_at from job_status_events where user_id = $1 order by created_at asc`,
+      [userId],
+    );
+    return rows.map((r) => ({
+      id: String(r.id),
+      jobId: r.job_id,
+      userId: r.user_id,
+      fromStatus: (r.from_status as JobStatus) || null,
+      toStatus: r.to_status as JobStatus,
+      createdAt: new Date(r.created_at).toISOString(),
+    }));
+  } catch {
+    return [];
+  }
+}
+
+export async function getRankedFeed(
+  userId: string,
+  options: FeedQueryOptions = {},
+): Promise<FeedResult> {
+  const [jobs, events] = await Promise.all([listJobs(userId), getJobStatusEvents(userId)]);
+  const stats = buildOutcomeStats(jobs, events);
+  return rankFeedJobs(jobs, stats, options);
 }

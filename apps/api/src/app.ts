@@ -24,6 +24,9 @@ import { telemetryRouter } from '@/routes/telemetry';
 import { discoveryRouter, discoverySweepRouter } from '@/routes/discovery';
 import { savedSearchesRouter } from '@/routes/saved-searches';
 import { targetCompaniesRouter } from '@/routes/target-companies';
+import { internalRouter } from '@/routes/internal';
+import { feedRouter } from '@/routes/feed';
+import { baseResumeRouter } from '@/routes/base-resume';
 
 const mutatingMethods = new Set(['POST', 'PATCH', 'PUT', 'DELETE']);
 
@@ -38,7 +41,7 @@ function requireSharedApiKey(
   if (
     !sharedSecret ||
     !mutatingMethods.has(request.method) ||
-    (request.path.startsWith('/api/n8n') && Boolean(n8nWebhookSecret))
+    ((request.path.startsWith('/api/n8n') || request.path.startsWith('/internal')) && Boolean(n8nWebhookSecret))
   ) {
     next();
     return;
@@ -92,6 +95,7 @@ export function createApp(dependencies: AppDependencies = {}) {
   app.use('/api/jobs/extract', strictLimiter, jobExtractRouter);
   app.use('/api/jobs', agentOutputsRouter);
   app.use('/api/jobs', jobsRouter);
+  app.use('/api/feed', feedRouter);
   // SSE assistant stream: mounted at the exact path (before the AI router) so it pipes
   // unbuffered and doesn't double-apply the AI guards to /assistant/run|resume.
   app.use('/api/ai/assistant/stream', strictLimiter, enforceDailyBudget, assistantStreamRouter);
@@ -121,6 +125,7 @@ export function createApp(dependencies: AppDependencies = {}) {
   // Per-agent model configuration (read + hot-swap). Later parity tickets mount the agent
   // stream/resume proxy on the same prefix under distinct sub-paths.
   app.use('/api/agents', agentConfigRouter);
+  app.use('/api/profile/base-resume', baseResumeRouter);
   app.use('/api/profile', profileRouter);
   app.use('/api/demo', demoRouter);
   app.use('/api/outreach', outreachRouter);
@@ -135,6 +140,7 @@ export function createApp(dependencies: AppDependencies = {}) {
   // shared-API-key exemption (path starts with /api/n8n) and uses the n8n secret.
   app.use('/api/n8n/discover', discoverySweepRouter);
   app.use('/api/n8n', n8nRouter);
+  app.use('/internal', internalRouter);
 
   app.use((_request, response) => {
     response.status(404).json({ error: 'Not found' });
