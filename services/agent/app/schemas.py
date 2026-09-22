@@ -434,12 +434,28 @@ class DiscoveredContact(BaseModel):
     role_title: str = Field(description="Job title or role of the contact")
     evidence: list[JobContactEvidence] = Field(
         default_factory=list,
-        description="Public web sources proving this person is at the company or in this role. MUST have >=1 valid public URL.",
+        description=(
+            "Public web sources proving this person is at the company or in this role. "
+            "MUST have >=1 valid public URL."
+        ),
     )
-    relevance: str | None = Field(default=None, description="Why this person is relevant to the job posting")
-    email: str | None = Field(default=None, description="Public corporate contact email if publicly available, or null")
-    linkedin_url: str | None = Field(default=None, description="Public web profile URL (e.g. public LinkedIn profile, company team bio, GitHub profile)")
-    notes: str | None = Field(default=None, description="Additional context or notes about the contact")
+    relevance: str | None = Field(
+        default=None, description="Why this person is relevant to the job posting"
+    )
+    email: str | None = Field(
+        default=None,
+        description="Public corporate contact email if publicly available, or null",
+    )
+    linkedin_url: str | None = Field(
+        default=None,
+        description=(
+            "Public web profile URL (e.g. public LinkedIn profile, company team bio, "
+            "GitHub profile)"
+        ),
+    )
+    notes: str | None = Field(
+        default=None, description="Additional context or notes about the contact"
+    )
 
 
 class ConnectionScoutOutput(BaseModel):

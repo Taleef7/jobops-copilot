@@ -2,7 +2,8 @@
 
 Discovers verified public-web contacts for each job:
 - Hiring managers, department leads, technical recruiters, and teammates.
-- Public web only: relies on search tools / public sources (blogs, team pages, press releases, public bios).
+- Public web only: relies on search tools / public sources
+  (blogs, team pages, press releases, public bios).
 - Fail closed invariant: every returned contact MUST carry at least one valid public evidence URL.
   Hallucinated or unevidenced contacts are strictly filtered out.
 - Persists found contacts to job_contacts table when database is connected.
@@ -13,7 +14,7 @@ import json
 import logging
 import re
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 from urllib.parse import urlparse
 
@@ -75,7 +76,11 @@ def validate_and_filter_contacts(
             notes = item.notes
 
         if not name or not role_title:
-            logger.info("Discarding contact missing name or role_title: name=%r, role=%r", name, role_title)
+            logger.info(
+                "Discarding contact missing name or role_title: name=%r, role=%r",
+                name,
+                role_title,
+            )
             continue
 
         valid_evidence: list[JobContactEvidence] = []
@@ -108,9 +113,17 @@ def validate_and_filter_contacts(
                 name=name,
                 role_title=role_title,
                 evidence=valid_evidence,
-                relevance=relevance.strip() if isinstance(relevance, str) and relevance.strip() else None,
+                relevance=(
+                    relevance.strip()
+                    if isinstance(relevance, str) and relevance.strip()
+                    else None
+                ),
                 email=email.strip() if isinstance(email, str) and email.strip() else None,
-                linkedin_url=linkedin_url.strip() if isinstance(linkedin_url, str) and is_valid_public_url(linkedin_url) else None,
+                linkedin_url=(
+                    linkedin_url.strip()
+                    if isinstance(linkedin_url, str) and is_valid_public_url(linkedin_url)
+                    else None
+                ),
                 notes=notes.strip() if isinstance(notes, str) and notes.strip() else None,
             )
         )
@@ -135,12 +148,13 @@ async def _persist_scouted_contacts(
             async with conn.cursor() as cur:
                 for c in contacts:
                     contact_id = str(uuid.uuid4())
-                    now = datetime.now(timezone.utc).isoformat()
+                    now = datetime.now(UTC).isoformat()
                     evidence_json = json.dumps([ev.model_dump() for ev in c.evidence])
                     await cur.execute(
                         """
                         INSERT INTO job_contacts (
-                            id, user_id, job_id, name, role_title, evidence, relevance, email, linkedin_url, status, notes, created_at, updated_at
+                            id, user_id, job_id, name, role_title, evidence, relevance,
+                            email, linkedin_url, status, notes, created_at, updated_at
                         ) VALUES (%s, %s, %s, %s, %s, %s::jsonb, %s, %s, %s, %s, %s, %s, %s)
                         """,
                         (
@@ -160,7 +174,10 @@ async def _persist_scouted_contacts(
                         ),
                     )
     except Exception:
-        logger.warning("Could not persist scouted contacts to PostgreSQL (continuing in-memory)", exc_info=True)
+        logger.warning(
+            "Could not persist scouted contacts to PostgreSQL (continuing in-memory)",
+            exc_info=True,
+        )
 
 
 async def scout_contacts_for_job(
@@ -173,7 +190,7 @@ async def scout_contacts_for_job(
     provided_evidence_snippets: list[dict[str, Any]] | None = None,
 ) -> ConnectionScoutOutput:
     """Discovers verified contacts using public web search and structured LLM extraction."""
-    now_iso = datetime.now(timezone.utc).isoformat()
+    now_iso = datetime.now(UTC).isoformat()
     company = company.strip()
     title = title.strip()
 
@@ -202,7 +219,10 @@ async def scout_contacts_for_job(
 
     # 2. Formulate search queries
     queries = [
-        f'"{company}" ("engineering manager" OR "director of engineering" OR "head of engineering")',
+        (
+            f'"{company}" ("engineering manager" OR "director of engineering" '
+            'OR "head of engineering")'
+        ),
         f'"{company}" ("technical recruiter" OR "talent acquisition")',
     ]
     if title:
@@ -217,7 +237,9 @@ async def scout_contacts_for_job(
             snippet_url = s.get("url") or ""
             snippet_title = s.get("title") or ""
             if snippet_url:
-                search_context_snippets.append(f"- {snippet_title}: {snippet_text} ({snippet_url})")
+                search_context_snippets.append(
+                    f"- {snippet_title}: {snippet_text} ({snippet_url})"
+                )
 
     if not search_context_snippets and web_search_tool:
         for q in queries[:2]:
@@ -230,10 +252,9 @@ async def scout_contacts_for_job(
 
     # 4. Resolve Model
     try:
-        model, model_label, _config = get_model_for_agent("connection-scout")
+        model, _model_label, _config = get_model_for_agent("connection-scout")
     except Exception:
         model = None
-        model_label = "deterministic-scout-fallback"
 
     contacts: list[DiscoveredContact] = []
 
@@ -246,9 +267,14 @@ async def scout_contacts_for_job(
         if jd_block:
             human_parts.append(f"Job Description:\n{jd_block}")
         if search_context_snippets:
-            human_parts.append("Public Web Search Results:\n" + "\n\n".join(search_context_snippets))
+            human_parts.append(
+                "Public Web Search Results:\n" + "\n\n".join(search_context_snippets)
+            )
         else:
-            human_parts.append("No live search results available. Return only verified public domain contacts if known, or empty.")
+            human_parts.append(
+                "No live search results available. "
+                "Return only verified public domain contacts if known, or empty."
+            )
 
         messages = [
             ("system", CONNECTION_SCOUT_SYSTEM),
@@ -262,7 +288,11 @@ async def scout_contacts_for_job(
             elif isinstance(res, dict) and "contacts" in res:
                 contacts = validate_and_filter_contacts(res["contacts"])
         except Exception:
-            logger.warning("LLM invocation failed for connection-scout; falling back to deterministic extraction", exc_info=True)
+            logger.warning(
+                "LLM invocation failed for connection-scout; "
+                "falling back to deterministic extraction",
+                exc_info=True,
+            )
             contacts = []
 
     if not contacts:
@@ -274,7 +304,7 @@ async def scout_contacts_for_job(
 
         # Deterministic verified contact grounded in the company's public team page
         fallback_contact = DiscoveredContact(
-            name=f"Talent Acquisition Lead",
+            name="Talent Acquisition Lead",
             role_title=f"Technical Recruiting Partner at {company}",
             evidence=[
                 JobContactEvidence(
@@ -313,7 +343,12 @@ def _build_scout_node():
 
         company = job.get("company") or inp.get("company") or ""
         title = job.get("title") or inp.get("title") or ""
-        description_text = job.get("description_text") or job.get("description") or inp.get("description_text") or ""
+        description_text = (
+            job.get("description_text")
+            or job.get("description")
+            or inp.get("description_text")
+            or ""
+        )
         job_id = job.get("id") or job.get("job_id") or inp.get("job_id")
         evidence_snippets = inp.get("evidence_snippets")
 

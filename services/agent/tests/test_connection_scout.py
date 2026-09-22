@@ -71,7 +71,10 @@ async def test_scout_contacts_for_job_with_evidence():
     snippets = [
         {
             "title": "Stripe Engineering Leadership",
-            "snippet": "Claire Hughes leads the core payments infrastructure team as Engineering Director.",
+            "snippet": (
+                "Claire Hughes leads the core payments infrastructure team as "
+                "Engineering Director."
+            ),
             "url": "https://stripe.com/blog/payments-infra-leadership",
         }
     ]
@@ -114,7 +117,10 @@ async def test_connection_scout_graph_execution():
             "evidence_snippets": [
                 {
                     "title": "Datadog Engineering Team",
-                    "snippet": "Alex Rivera is a Senior Engineering Manager on the Logs Platform team.",
+                    "snippet": (
+                        "Alex Rivera is a Senior Engineering Manager on the "
+                        "Logs Platform team."
+                    ),
                     "url": "https://datadog.com/team/alex-rivera",
                 }
             ],

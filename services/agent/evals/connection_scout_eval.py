@@ -5,14 +5,14 @@ Assesses evidence-URL precision:
 - Measures:
   1. evidence_precision: Fraction of returned contacts with >= 1 valid public URL (hard gate: 1.0).
   2. url_validity: Fraction of URLs that parse as valid public http(s) addresses with valid hosts.
-  3. role_specificity: Fraction of returned contacts having non-empty role titles and relevance rationale.
+  3. role_specificity: Fraction of contacts having non-empty role titles and rationale.
 """
 from __future__ import annotations
 
 from typing import Any
 from urllib.parse import urlparse
 
-from app.schemas import ConnectionScoutOutput, DiscoveredContact
+from app.schemas import ConnectionScoutOutput
 
 
 def is_valid_public_url(url: str) -> bool:
@@ -26,12 +26,14 @@ def is_valid_public_url(url: str) -> bool:
         return False
 
 
-def evaluate_connection_scout_precision(output: ConnectionScoutOutput | dict[str, Any]) -> dict[str, float]:
+def evaluate_connection_scout_precision(
+    output: ConnectionScoutOutput | dict[str, Any],
+) -> dict[str, float]:
     """Computes precision metrics over scouted contacts.
 
     Returns:
         dict with:
-        - "evidence_precision": 1.0 if all contacts carry valid public evidence, 0.0 if any lacks evidence.
+        - "evidence_precision": 1.0 if all contacts carry valid evidence, 0.0 otherwise.
         - "url_validity": ratio of all evidence URLs that are valid public http(s) URLs.
         - "role_relevance_rate": ratio of contacts with relevance explanations.
         - "total_contacts": number of contacts evaluated.
