@@ -60,13 +60,13 @@
 
 ### [Epic 5 — Apply copilot & Chrome extension](https://github.com/Taleef7/jobops-copilot/issues/248) — #248
 
-- [ ] #283 **Apply-copilot data model: application_answers + ext_tokens tables, application_pack output kind, answers API** (M; blocked by: none)
-- [ ] #284 **Apply-copilot agent: application-pack builder + POST/GET /api/jobs/:id/application-pack** (L; blocked by: #283)
-- [ ] #285 **Job-detail application-pack view + flagged-question answer loop (web UI)** (M; blocked by: #284)
-- [ ] #286 **Extension PAT auth: token issue/revoke API + Settings UI + /api/ext/* middleware with rate limiting** (M; blocked by: #283)
-- [ ] #287 **Extension data API: /api/ext match, profile-fill, answers, applications capture** (M; blocked by: #284, #286)
-- [ ] #288 **extensions/chrome scaffold: MV3 + TypeScript + esbuild, options page (API URL + PAT), README** (M; blocked by: #286)
-- [ ] #289 **ATS autofill content scripts (Greenhouse, Lever, Ashby, Workday) + submission capture, tested on static fixtures** (L; blocked by: #287, #288)
+- [x] #283 **Apply-copilot data model: application_answers + ext_tokens tables, application_pack output kind, answers API** (M; blocked by: none)
+- [x] #284 **Apply-copilot agent: application-pack builder + POST/GET /api/jobs/:id/application-pack** (L; blocked by: #283)
+- [x] #285 **Job-detail application-pack view + flagged-question answer loop (web UI)** (M; blocked by: #284)
+- [x] #286 **Extension PAT auth: token issue/revoke API + Settings UI + /api/ext/* middleware with rate limiting** (M; blocked by: #283)
+- [x] #287 **Extension data API: /api/ext match, profile-fill, answers, applications capture** (M; blocked by: #284, #286)
+- [x] #288 **extensions/chrome scaffold: MV3 + TypeScript + esbuild, options page (API URL + PAT), README** (M; blocked by: #286)
+- [x] #289 **ATS autofill content scripts (Greenhouse, Lever, Ashby, Workday) + submission capture, tested on static fixtures** (L; blocked by: #287, #288)
 
 ### [Epic 6 — Connection scout: verified public-web contacts per job (People tab)](https://github.com/Taleef7/jobops-copilot/issues/249) — #249
 

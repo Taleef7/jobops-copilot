@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { getPool } from '@/lib/postgres';
 
-export type AgentKind = 'interview_prep' | 'research' | 'skill_gap';
+export type AgentKind = 'interview_prep' | 'research' | 'skill_gap' | 'application_pack';
 
 export interface AgentOutputRecord {
   jobId: string;

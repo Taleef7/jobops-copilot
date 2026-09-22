@@ -257,3 +257,51 @@ export interface ResumeVersionRecord {
   createdAt: string;
   updatedAt: string;
 }
+
+export interface ApplicationPackContactBlock {
+  name?: string;
+  email?: string;
+  phone?: string;
+  location?: string;
+  linkedin?: string;
+  github?: string;
+  portfolio?: string;
+}
+
+export interface ApplicationPackQuestionAnswer {
+  questionText: string;
+  questionHash: string;
+  answer: string;
+  category: 'work_authorization' | 'salary' | 'why_us' | 'behavioral' | 'custom';
+  source: 'qa_memory' | 'profile' | 'preferences' | 'research' | 'generated' | 'unanswerable';
+  flagged?: boolean;
+}
+
+export interface ApplicationPackPayload {
+  jobId: string;
+  company: string;
+  title: string;
+  resumeVersionId?: string | null;
+  resumeFileUrl?: string | null;
+  coverLetterId?: string | null;
+  coverLetterText?: string | null;
+  contactBlock?: ApplicationPackContactBlock;
+  answers: ApplicationPackQuestionAnswer[];
+  flaggedQuestions: string[];
+  generatedAt: string;
+}
+
+export interface ExtTokenItem {
+  id: string;
+  userId: string;
+  label: string;
+  lastUsedAt?: string | null;
+  revokedAt?: string | null;
+  createdAt: string;
+}
+
+export interface CreateExtTokenResponse {
+  token: ExtTokenItem;
+  rawToken: string;
+}
+

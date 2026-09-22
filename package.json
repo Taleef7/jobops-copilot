@@ -6,7 +6,8 @@
     "node": ">=22.19.0"
   },
   "workspaces": [
-    "apps/*"
+    "apps/*",
+    "extensions/*"
   ],
   "scripts": {
     "dev": "node scripts/dev.mjs",
@@ -14,16 +15,19 @@
     "dev:api": "npm run dev --workspace @jobops/api",
     "build:web": "npm run build --workspace @jobops/web",
     "build:api": "npm run build --workspace @jobops/api",
-    "build": "npm run build:web && npm run build:api",
+    "build:extension": "npm run build --workspace @jobops/extension",
+    "build": "npm run build:web && npm run build:api && npm run build:extension",
     "lint:web": "npm run lint --workspace @jobops/web",
     "lint:api": "npm run lint --workspace @jobops/api",
     "lint": "npm run lint:web && npm run lint:api",
     "typecheck:web": "npm run typecheck --workspace @jobops/web",
     "typecheck:api": "npm run typecheck --workspace @jobops/api",
-    "typecheck": "npm run typecheck:web && npm run typecheck:api",
+    "typecheck:extension": "npm run typecheck --workspace @jobops/extension",
+    "typecheck": "npm run typecheck:web && npm run typecheck:api && npm run typecheck:extension",
     "test:api": "npm run test --workspace @jobops/api",
     "test:web": "npm run test --workspace @jobops/web",
-    "test": "npm run test:api && npm run test:web",
+    "test:extension": "npm run test --workspace @jobops/extension",
+    "test": "npm run test:api && npm run test:web && npm run test:extension",
     "test:e2e": "npm run test:e2e --workspace @jobops/web",
     "loadtest": "k6 run load/api-read-path.js",
     "check": "npm run lint && npm run typecheck && npm run build"

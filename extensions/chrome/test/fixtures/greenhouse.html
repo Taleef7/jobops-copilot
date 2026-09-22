@@ -1,0 +1,79 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Acme Corp — Senior Full Stack Engineer (Greenhouse)</title>
+</head>
+<body>
+  <div id="app_body">
+    <h1>Senior Full Stack Engineer</h1>
+    <h2>Acme Corp &middot; Remote</h2>
+
+    <form id="application_form" action="https://boards.greenhouse.io/acme/jobs/12345/apply" method="POST">
+      <div class="field">
+        <label for="first_name">First Name <span class="required">*</span></label>
+        <input type="text" id="first_name" name="job_application[first_name]" autocomplete="given-name" required>
+      </div>
+
+      <div class="field">
+        <label for="last_name">Last Name <span class="required">*</span></label>
+        <input type="text" id="last_name" name="job_application[last_name]" autocomplete="family-name" required>
+      </div>
+
+      <div class="field">
+        <label for="email">Email <span class="required">*</span></label>
+        <input type="email" id="email" name="job_application[email]" autocomplete="email" required>
+      </div>
+
+      <div class="field">
+        <label for="phone">Phone <span class="required">*</span></label>
+        <input type="tel" id="phone" name="job_application[phone]" autocomplete="tel" required>
+      </div>
+
+      <div class="field">
+        <label for="cover_letter_text">Cover Letter</label>
+        <textarea id="cover_letter_text" name="job_application[cover_letter_text]" rows="5"></textarea>
+      </div>
+
+      <div id="custom_fields">
+        <div class="field">
+          <label for="custom_linkedin">LinkedIn Profile <span class="required">*</span></label>
+          <input type="url" id="custom_linkedin" name="job_application[answers_attributes][0][text_value]">
+        </div>
+
+        <div class="field">
+          <label for="custom_website">Website / Portfolio</label>
+          <input type="url" id="custom_website" name="job_application[answers_attributes][1][text_value]">
+        </div>
+
+        <div class="field">
+          <label for="custom_work_auth">Are you legally authorized to work in the United States?</label>
+          <select id="custom_work_auth" name="job_application[answers_attributes][2][boolean_value]">
+            <option value="">-- Please select --</option>
+            <option value="1">Yes</option>
+            <option value="0">No</option>
+          </select>
+        </div>
+
+        <div class="field">
+          <label for="custom_sponsorship">Will you now or in the future require visa sponsorship?</label>
+          <select id="custom_sponsorship" name="job_application[answers_attributes][3][boolean_value]">
+            <option value="">-- Please select --</option>
+            <option value="1">Yes</option>
+            <option value="0">No</option>
+          </select>
+        </div>
+
+        <div class="field">
+          <label for="custom_salary">What is your expected salary?</label>
+          <input type="text" id="custom_salary" name="job_application[answers_attributes][4][text_value]">
+        </div>
+      </div>
+
+      <div class="submit-wrap">
+        <input type="submit" id="submit_app" value="Submit Application">
+      </div>
+    </form>
+  </div>
+</body>
+</html>

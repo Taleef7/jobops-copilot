@@ -33,7 +33,14 @@ export function corsOptions(env: NodeJS.ProcessEnv = process.env): CorsOptions {
   return {
     origin(origin, callback) {
       // No Origin header → not a browser cross-origin request; allow.
-      if (!origin || allowlist.includes(origin)) {
+      // Browser extensions (chrome-extension://, moz-extension://) and non-production dev origins are permitted.
+      if (
+        !origin ||
+        allowlist.includes(origin) ||
+        origin.startsWith('chrome-extension://') ||
+        origin.startsWith('moz-extension://') ||
+        (env.NODE_ENV !== 'production' && (origin.startsWith('http://localhost:') || origin.startsWith('http://127.0.0.1:')))
+      ) {
         callback(null, true);
         return;
       }

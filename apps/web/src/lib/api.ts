@@ -1,4 +1,16 @@
-import type { FeedQueryOptions, FeedResult, Job, OutreachMessageType, OutreachStatus, ResumeVersionRecord, StructuredResume, WeeklyReport } from '@/types/job';
+import type {
+  ApplicationPackPayload,
+  CreateExtTokenResponse,
+  ExtTokenItem,
+  FeedQueryOptions,
+  FeedResult,
+  Job,
+  OutreachMessageType,
+  OutreachStatus,
+  ResumeVersionRecord,
+  StructuredResume,
+  WeeklyReport,
+} from '@/types/job';
 
 const apiBaseUrl = (process.env.NEXT_PUBLIC_API_BASE_URL ?? 'http://127.0.0.1:4000').replace(/\/$/, '');
 
@@ -279,7 +291,7 @@ export async function runSkillGap(payload: {
 }
 
 /** Store-side agent kinds, as persisted by the API (mapped to panel tabs client-side). */
-export type AgentOutputKind = 'interview_prep' | 'research' | 'skill_gap';
+export type AgentOutputKind = 'interview_prep' | 'research' | 'skill_gap' | 'application_pack';
 
 export interface AgentOutputItem {
   jobId: string;
@@ -504,6 +516,82 @@ export async function downloadCoverLetterPdf(outreachId: string, filename?: stri
   a.click();
   window.URL.revokeObjectURL(url);
   document.body.removeChild(a);
+}
+
+export interface ApplicationAnswerRecord {
+  id: string;
+  userId: string;
+  questionHash: string;
+  questionText: string;
+  answer: string;
+  ats?: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export async function fetchJobApplicationPack(jobId: string): Promise<ApplicationPackPayload | null> {
+  try {
+    const response = await requestJson<{ applicationPack: ApplicationPackPayload }>(
+      `/api/jobs/${jobId}/application-pack`,
+      { cache: 'no-store' },
+    );
+    return response.applicationPack;
+  } catch (error) {
+    if (error instanceof ApiRequestError && error.status === 404) {
+      return null;
+    }
+    throw error;
+  }
+}
+
+export async function generateJobApplicationPack(jobId: string): Promise<ApplicationPackPayload> {
+  const response = await requestJson<{ applicationPack: ApplicationPackPayload }>(
+    `/api/jobs/${jobId}/application-pack`,
+    {
+      method: 'POST',
+      body: JSON.stringify({}),
+    },
+  );
+  return response.applicationPack;
+}
+
+export async function fetchApplicationAnswers(): Promise<ApplicationAnswerRecord[]> {
+  const response = await requestJson<{ answers: ApplicationAnswerRecord[] }>('/api/answers', {
+    cache: 'no-store',
+  });
+  return response.answers;
+}
+
+export async function saveApplicationAnswer(payload: {
+  questionText: string;
+  answer: string;
+  ats?: string;
+}): Promise<ApplicationAnswerRecord> {
+  const response = await requestJson<{ answer: ApplicationAnswerRecord }>('/api/answers', {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  });
+  return response.answer;
+}
+
+export async function fetchExtTokens(): Promise<ExtTokenItem[]> {
+  const response = await requestJson<{ tokens: ExtTokenItem[] }>('/api/ext-tokens', {
+    cache: 'no-store',
+  });
+  return response.tokens;
+}
+
+export async function createExtToken(label?: string): Promise<CreateExtTokenResponse> {
+  return requestJson<CreateExtTokenResponse>('/api/ext-tokens', {
+    method: 'POST',
+    body: JSON.stringify({ label }),
+  });
+}
+
+export async function revokeExtToken(id: string): Promise<void> {
+  await requestJson(`/api/ext-tokens/${id}`, {
+    method: 'DELETE',
+  });
 }
 
 export async function seedDemoData(): Promise<void> {

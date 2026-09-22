@@ -32,7 +32,7 @@ def test_keyless_echo_stream_returns_status_and_result(monkeypatch):
     assert '"status": "done"' in response.text
     assert "event: result" in response.text
     assert '"agent_id": "apply-copilot"' in response.text
-    assert '"echo": {"query": "python"}' in response.text
+    assert '"application_pack"' in response.text
 
 
 def test_unknown_agent_is_404_before_stream(monkeypatch):
