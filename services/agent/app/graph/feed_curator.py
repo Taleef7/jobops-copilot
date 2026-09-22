@@ -141,7 +141,8 @@ def _build_curator_node():
             logger.warning("feed-curator structured output failed; retrying once", exc_info=True)
             res = structured.invoke(messages)
 
-        # In include_raw=True mode, res is a dict with {"raw": AIMessage, "parsed": FeedCuratorAnalysis}
+        # In include_raw=True mode, res is a dict with {"raw": AIMessage,
+        # "parsed": FeedCuratorAnalysis}
         if isinstance(res, dict) and "parsed" in res:
             result = res["parsed"]
             raw_msg = res.get("raw")

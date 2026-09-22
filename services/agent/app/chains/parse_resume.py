@@ -14,7 +14,6 @@ from __future__ import annotations
 import logging
 
 from app.llm.provider import get_model
-from app.safety.pii import maybe_redact
 from app.schemas import StructuredResume
 
 logger = logging.getLogger("jobops.agent.parse_resume")
