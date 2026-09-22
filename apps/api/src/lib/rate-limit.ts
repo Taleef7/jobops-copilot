@@ -15,8 +15,12 @@ import { getPool } from './postgres';
 import { PostgresRateLimitStore } from './rate-limit-store.postgres';
 
 const windowMs = Number(process.env.RATE_LIMIT_WINDOW_MS ?? 60_000);
-const globalMax = Number(process.env.RATE_LIMIT_MAX ?? 120);
-const aiMax = Number(process.env.RATE_LIMIT_AI_MAX ?? 20);
+const globalMax = Number(
+  process.env.RATE_LIMIT_MAX ?? (process.env.NODE_ENV === 'production' ? 120 : 1000),
+);
+const aiMax = Number(
+  process.env.RATE_LIMIT_AI_MAX ?? (process.env.NODE_ENV === 'production' ? 20 : 200),
+);
 
 /** The rate-limit bucket key: the user id, else the (IPv6-safe) client IP. */
 export function keyForRequest(request: Pick<Request, 'userId' | 'ip'>): string {
