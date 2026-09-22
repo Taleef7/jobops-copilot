@@ -1,0 +1,72 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>TechCorp — Senior Backend Engineer (Lever)</title>
+</head>
+<body>
+  <div class="lever-job">
+    <h2>Apply for this job</h2>
+
+    <form class="application-form" id="application-form" action="https://jobs.lever.co/techcorp/98765" method="POST">
+      <div class="form-group">
+        <label>Full name <span class="required">✱</span></label>
+        <input type="text" name="name" required>
+      </div>
+
+      <div class="form-group">
+        <label>Email <span class="required">✱</span></label>
+        <input type="email" name="email" required>
+      </div>
+
+      <div class="form-group">
+        <label>Phone </label>
+        <input type="tel" name="phone">
+      </div>
+
+      <div class="form-group">
+        <label>Current company </label>
+        <input type="text" name="org">
+      </div>
+
+      <div class="form-group">
+        <label>LinkedIn URL</label>
+        <input type="url" name="urls[LinkedIn]">
+      </div>
+
+      <div class="form-group">
+        <label>GitHub URL</label>
+        <input type="url" name="urls[GitHub]">
+      </div>
+
+      <div class="form-group">
+        <label>Portfolio URL</label>
+        <input type="url" name="urls[Portfolio]">
+      </div>
+
+      <div class="form-group">
+        <label>Additional Information</label>
+        <textarea name="comments" placeholder="Add a cover letter or anything else you would like to share."></textarea>
+      </div>
+
+      <div class="application-question">
+        <label>Are you legally authorized to work in the United States?</label>
+        <select name="cards[work_auth]">
+          <option value="">Select an option</option>
+          <option value="Yes">Yes</option>
+          <option value="No">No</option>
+        </select>
+      </div>
+
+      <div class="application-question">
+        <label>What are your target compensation / salary expectations?</label>
+        <input type="text" name="cards[salary]">
+      </div>
+
+      <div class="form-actions">
+        <button type="submit" class="template-btn-submit">Submit application</button>
+      </div>
+    </form>
+  </div>
+</body>
+</html>

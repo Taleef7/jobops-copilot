@@ -1,5 +1,5 @@
 import { context, build } from 'esbuild';
-import { mkdir } from 'node:fs/promises';
+import { copyFile, mkdir } from 'node:fs/promises';
 import { join } from 'node:path';
 
 const isWatch = process.argv.includes('--watch');
@@ -8,6 +8,7 @@ const entryPoints = {
   background: 'src/background/index.ts',
   options: 'src/options/options.ts',
   popup: 'src/popup/popup.ts',
+  content: 'src/content/index.ts',
 };
 
 const buildOptions = {
@@ -23,6 +24,7 @@ const buildOptions = {
 
 async function run() {
   await mkdir(join(process.cwd(), 'dist'), { recursive: true });
+  await copyFile(join(process.cwd(), 'src', 'content', 'content.css'), join(process.cwd(), 'dist', 'content.css'));
 
   if (isWatch) {
     const ctx = await context(buildOptions);

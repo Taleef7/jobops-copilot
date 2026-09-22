@@ -1,0 +1,74 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Salesforce — Lead Infrastructure Engineer (Workday)</title>
+</head>
+<body>
+  <div data-automation-id="workdayApplication">
+    <h2>Apply: Lead Infrastructure Engineer</h2>
+
+    <form class="wd-form">
+      <div class="form-row">
+        <label for="wd-first-name">First Name</label>
+        <input id="wd-first-name" data-automation-id="legalNameSection_firstName" type="text" required>
+      </div>
+
+      <div class="form-row">
+        <label for="wd-last-name">Last Name</label>
+        <input id="wd-last-name" data-automation-id="legalNameSection_lastName" type="text" required>
+      </div>
+
+      <div class="form-row">
+        <label for="wd-email">Email Address</label>
+        <input id="wd-email" data-automation-id="email" type="email" required>
+      </div>
+
+      <div class="form-row">
+        <label for="wd-phone">Phone Number</label>
+        <input id="wd-phone" data-automation-id="phone-number" type="tel">
+      </div>
+
+      <div class="form-row">
+        <label for="wd-city">City</label>
+        <input id="wd-city" data-automation-id="addressSection_city" type="text">
+      </div>
+
+      <div class="form-row">
+        <label for="wd-postal">Postal Code</label>
+        <input id="wd-postal" data-automation-id="addressSection_postalCode" type="text">
+      </div>
+
+      <div class="form-row">
+        <label for="wd-state">State / Province</label>
+        <input id="wd-state" data-automation-id="addressSection_countryRegion" type="text">
+      </div>
+
+      <div data-automation-id="formField-workAuthorization">
+        <label for="wd-auth">Are you legally authorized to work in the United States?</label>
+        <select id="wd-auth" data-automation-id="question-work-auth">
+          <option value="">Select</option>
+          <option value="Yes">Yes</option>
+          <option value="No">No</option>
+        </select>
+      </div>
+
+      <div data-automation-id="formField-sponsorship">
+        <label for="wd-sponsor">Will you now or in the future require employment visa sponsorship?</label>
+        <select id="wd-sponsor" data-automation-id="question-sponsorship">
+          <option value="">Select</option>
+          <option value="Yes">Yes</option>
+          <option value="No">No</option>
+        </select>
+      </div>
+
+      <div data-automation-id="formField-salary">
+        <label for="wd-salary">Target Compensation / Salary Expectation</label>
+        <input id="wd-salary" data-automation-id="question-salary" type="text">
+      </div>
+
+      <button type="submit" data-automation-id="bottom-navigation-next-button">Next / Submit</button>
+    </form>
+  </div>
+</body>
+</html>

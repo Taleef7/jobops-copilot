@@ -1,0 +1,68 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Linear — Product Engineer (Ashby)</title>
+</head>
+<body>
+  <div data-ashby-app="true">
+    <h1>Product Engineer</h1>
+    <form class="ashby-application-form">
+      <div class="field-container">
+        <label for="ashby-name">Full Name <span class="required">*</span></label>
+        <input id="ashby-name" name="name" autocomplete="name" required>
+      </div>
+
+      <div class="field-container">
+        <label for="ashby-email">Email <span class="required">*</span></label>
+        <input id="ashby-email" name="email" type="email" autocomplete="email" required>
+      </div>
+
+      <div class="field-container">
+        <label for="ashby-phone">Phone</label>
+        <input id="ashby-phone" name="phone" type="tel" autocomplete="tel">
+      </div>
+
+      <div class="field-container">
+        <label for="ashby-linkedin">LinkedIn</label>
+        <input id="ashby-linkedin" name="linkedin" placeholder="LinkedIn Profile URL">
+      </div>
+
+      <div class="field-container">
+        <label for="ashby-github">GitHub</label>
+        <input id="ashby-github" name="github" placeholder="GitHub Profile URL">
+      </div>
+
+      <div class="field-container">
+        <label for="ashby-website">Website</label>
+        <input id="ashby-website" name="website" placeholder="Personal Website">
+      </div>
+
+      <div class="field-container">
+        <label for="ashby-auth">Are you authorized to work in the US?</label>
+        <select id="ashby-auth" name="authorizedInUs">
+          <option value="">Please choose</option>
+          <option value="Yes">Yes</option>
+          <option value="No">No</option>
+        </select>
+      </div>
+
+      <div class="field-container">
+        <label for="ashby-sponsorship">Will you require visa sponsorship?</label>
+        <select id="ashby-sponsorship" name="visaRequired">
+          <option value="">Please choose</option>
+          <option value="Yes">Yes</option>
+          <option value="No">No</option>
+        </select>
+      </div>
+
+      <div class="field-container">
+        <label for="ashby-salary">Desired Base Salary (USD)</label>
+        <input id="ashby-salary" name="salaryExpectations">
+      </div>
+
+      <button type="submit">Submit Application</button>
+    </form>
+  </div>
+</body>
+</html>
