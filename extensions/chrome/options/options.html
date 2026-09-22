@@ -1,0 +1,89 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>JobOps Copilot — Extension Options</title>
+  <link rel="stylesheet" href="options.css">
+</head>
+<body>
+  <div class="options-container">
+    <header class="header">
+      <div class="logo-wrap">
+        <img src="../icons/icon48.png" alt="JobOps Logo" width="36" height="36" class="logo">
+        <div>
+          <h1 class="title">JobOps Copilot</h1>
+          <p class="subtitle">Chrome Extension Settings</p>
+        </div>
+      </div>
+    </header>
+
+    <main class="content">
+      <div id="status-card" class="status-card hidden" role="alert"></div>
+
+      <form id="settings-form" class="form">
+        <div class="form-group">
+          <label for="api-url" class="label">JobOps API URL</label>
+          <input
+            type="url"
+            id="api-url"
+            class="input"
+            placeholder="http://localhost:4000"
+            required
+            spellcheck="false"
+          >
+          <p class="help-text">Base URL of your running JobOps Copilot API service.</p>
+        </div>
+
+        <div class="form-group">
+          <label for="pat-token" class="label">Personal Access Token (PAT)</label>
+          <div class="input-with-action">
+            <input
+              type="password"
+              id="pat-token"
+              class="input"
+              placeholder="jop_..."
+              required
+              spellcheck="false"
+              autocomplete="off"
+            >
+            <button type="button" id="toggle-token-btn" class="toggle-btn" title="Toggle visibility">
+              Show
+            </button>
+          </div>
+          <p class="help-text">
+            Created in your web app:
+            <a id="open-settings-link" href="http://localhost:3000/settings" target="_blank" rel="noopener noreferrer">
+              JobOps Settings &rarr; Chrome Extension Access Tokens
+            </a>
+          </p>
+        </div>
+
+        <div class="actions">
+          <button type="button" id="test-connection-btn" class="btn btn-secondary">
+            Test Connection
+          </button>
+          <button type="submit" id="save-btn" class="btn btn-primary">
+            Save Settings
+          </button>
+        </div>
+      </form>
+
+      <section class="info-section">
+        <h2 class="info-title">How it works</h2>
+        <ul class="info-list">
+          <li><strong>Zero Credentials Stored:</strong> Your password and Clerk session never enter the extension. Only a scoped PAT is used.</li>
+          <li><strong>Strictly Scoped:</strong> Tokens are restricted solely to <code>/api/ext/*</code> endpoints and can be revoked at any time.</li>
+          <li><strong>Human Review Invariant:</strong> The extension assists by filling form fields and detecting submission confirmations. It never clicks Submit automatically.</li>
+        </ul>
+      </section>
+    </main>
+
+    <footer class="footer">
+      JobOps Copilot &middot; Apply Assist &middot; Personal Jobright Replacement
+    </footer>
+  </div>
+
+  <script type="module" src="../dist/options.js"></script>
+</body>
+</html>

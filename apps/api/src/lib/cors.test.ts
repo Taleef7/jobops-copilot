@@ -28,9 +28,18 @@ function check(env: NodeJS.ProcessEnv, origin: string | undefined): boolean {
 }
 
 test('allows an origin on the allowlist, denies others, and allows no-Origin callers', () => {
-  const env = { CORS_ALLOWED_ORIGINS: 'https://app.example.com' } as NodeJS.ProcessEnv;
+  const env = { CORS_ALLOWED_ORIGINS: 'https://app.example.com', NODE_ENV: 'production' } as NodeJS.ProcessEnv;
   assert.equal(check(env, 'https://app.example.com'), true);
   assert.equal(check(env, 'https://evil.example.com'), false);
+  assert.equal(check(env, 'chrome-extension://abcdefghijklmno'), true);
+  assert.equal(check(env, 'moz-extension://abcdefghijklmno'), true);
   // No Origin header (curl, server-to-server, same-origin) is allowed.
   assert.equal(check(env, undefined), true);
+});
+
+test('allows arbitrary localhost / 127.0.0.1 origins in non-production', () => {
+  const env = { NODE_ENV: 'development' } as NodeJS.ProcessEnv;
+  assert.equal(check(env, 'http://localhost:56088'), true);
+  assert.equal(check(env, 'http://127.0.0.1:45678'), true);
+  assert.equal(check(env, 'https://evil.example.com'), false);
 });

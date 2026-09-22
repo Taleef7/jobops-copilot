@@ -1,0 +1,101 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>JobOps Copilot</title>
+  <link rel="stylesheet" href="popup.css">
+</head>
+<body>
+  <div class="popup-container">
+    <!-- Header -->
+    <header class="popup-header">
+      <div class="brand">
+        <img src="../icons/icon16.png" alt="Logo" width="16" height="16" class="logo">
+        <span class="brand-title">JobOps Copilot</span>
+      </div>
+      <div class="header-actions">
+        <a id="open-options-link" href="#" class="icon-btn" title="Settings" aria-label="Settings">
+          ⚙️
+        </a>
+      </div>
+    </header>
+
+    <!-- Main Content -->
+    <main id="popup-content" class="popup-main">
+      <!-- Loading State -->
+      <div id="loading-state" class="state-view">
+        <div class="spinner"></div>
+        <p class="muted-text">Checking page match...</p>
+      </div>
+
+      <!-- Unconfigured State -->
+      <div id="unconfigured-state" class="state-view hidden">
+        <div class="empty-icon">🔑</div>
+        <h2 class="view-title">Setup Required</h2>
+        <p class="muted-text">Connect the extension to JobOps Copilot using a Personal Access Token.</p>
+        <button id="setup-btn" class="btn btn-primary btn-block">
+          Open Settings
+        </button>
+      </div>
+
+      <!-- Matched Job State -->
+      <div id="matched-state" class="state-view hidden">
+        <div class="badge badge-success">✓ Matched CRM Job</div>
+        <h2 id="job-title" class="job-title">Senior Software Engineer</h2>
+        <div id="job-company" class="job-company">Acme Corp</div>
+        <div class="job-meta">
+          <span id="job-status" class="status-chip">shortlisted</span>
+        </div>
+
+        <div class="pack-summary">
+          <div class="pack-title">Application Pack Ready</div>
+          <ul class="pack-details">
+            <li id="pack-answers-count">• 5 answers grounded from profile & Q&A</li>
+            <li id="pack-flagged-count">• 0 flagged questions</li>
+            <li id="pack-resume-status">• Tailored resume attached</li>
+          </ul>
+        </div>
+
+        <div class="action-wrap">
+          <button id="autofill-btn" class="btn btn-primary btn-block">
+            ⚡ Autofill Form Fields
+          </button>
+          <button id="view-pack-btn" class="btn btn-secondary btn-block">
+            View Application Pack
+          </button>
+        </div>
+      </div>
+
+      <!-- Unmatched Page State -->
+      <div id="unmatched-state" class="state-view hidden">
+        <div class="badge badge-warning">No CRM Match</div>
+        <h2 class="view-title">Unknown Job Application</h2>
+        <p class="muted-text">This page URL doesn't match an active job in your CRM.</p>
+
+        <div id="recent-jobs-wrap" class="recent-jobs-wrap hidden">
+          <label for="recent-jobs-select" class="field-label">Select from your pipeline:</label>
+          <select id="recent-jobs-select" class="select-field">
+            <option value="">-- Choose matching job --</option>
+          </select>
+        </div>
+
+        <div class="action-wrap">
+          <button id="quick-capture-btn" class="btn btn-primary btn-block">
+            Track as Applied in CRM
+          </button>
+        </div>
+      </div>
+    </main>
+
+    <!-- Footer -->
+    <footer class="popup-footer">
+      <a id="dashboard-link" href="http://localhost:3000/dashboard" target="_blank" rel="noopener noreferrer">
+        Open JobOps CRM &rarr;
+      </a>
+    </footer>
+  </div>
+
+  <script type="module" src="../dist/popup.js"></script>
+</body>
+</html>
