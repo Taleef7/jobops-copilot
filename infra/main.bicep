@@ -79,7 +79,7 @@ credentials aren't wired would boot the agent unconfigured.''')
 param llmProvider string = 'openai'
 
 @description('Agent OpenAI model id.')
-param openAiModel string = 'gpt-5.4-nano'
+param openAiModel string = 'gpt-6-luna'
 
 @description('Langfuse public key — non-secret (paired with the secret key).')
 param langfusePublicKey string = ''

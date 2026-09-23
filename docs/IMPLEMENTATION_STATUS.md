@@ -126,7 +126,7 @@ agent image, list pagination, and an opt-in Postgres-backed rate-limiter/cache f
 - `pgvector` is allow-listed on the Postgres server; firewall opened to Azure services.
 - The Python agent service is deployed on **Azure Container Apps** (consumption,
   scale-to-zero) in East US, so the live URL is **fully agent-powered** end to end
-  (web → API → agent → `gpt-5.4-nano`, with RAG over pgvector). The cloud API still
+  (web → API → agent → `gpt-6-luna`, with RAG over pgvector). The cloud API still
   degrades gracefully to the deterministic analysis if the agent is ever unattached.
   Image is CPU-only torch (~1.6 GB) built locally and pushed to ACR (Azure for
   Students blocks server-side ACR Tasks builds).
