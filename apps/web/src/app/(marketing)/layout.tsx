@@ -3,6 +3,7 @@ import { auth } from '@clerk/nextjs/server';
 import { Sparkles } from 'lucide-react';
 import Link from 'next/link';
 import { ModeToggle } from '@/components/mode-toggle';
+import { MarketingMobileNav } from '@/components/marketing-mobile-nav';
 import { Button } from '@/components/ui/button';
 
 export default async function MarketingLayout({ children }: { children: React.ReactNode }) {
@@ -19,18 +20,17 @@ export default async function MarketingLayout({ children }: { children: React.Re
             </span>
             JobOps Copilot
           </Link>
-          <nav className="ml-auto flex items-center gap-1.5 sm:gap-2">
+          {/* Desktop Navigation */}
+          <nav className="ml-auto hidden sm:flex items-center gap-1.5 sm:gap-2">
             <Button
               render={<Link href="/#features">Features</Link>}
               variant="ghost"
               size="sm"
-              className="hidden sm:inline-flex"
             />
             <Button
               render={<Link href="/architecture">Architecture</Link>}
               variant="ghost"
               size="sm"
-              className="hidden sm:inline-flex"
             />
             <ModeToggle />
             {signedIn ? (
@@ -51,6 +51,11 @@ export default async function MarketingLayout({ children }: { children: React.Re
               </>
             )}
           </nav>
+
+          {/* Mobile Navigation Drawer */}
+          <div className="ml-auto sm:hidden">
+            <MarketingMobileNav signedIn={signedIn} />
+          </div>
         </div>
       </header>
 

@@ -14,6 +14,9 @@ const isPublicRoute = createRouteMatcher([
 ]);
 
 export default clerkMiddleware(async (auth, request) => {
+  if (!process.env.CLERK_SECRET_KEY && process.env.NODE_ENV !== 'production') {
+    return;
+  }
   if (!process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY) {
     return;
   }

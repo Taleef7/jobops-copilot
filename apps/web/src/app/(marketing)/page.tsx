@@ -94,8 +94,11 @@ export default async function LandingPage() {
       <section id="features" className="mx-auto max-w-6xl scroll-mt-20 px-4 pb-24 sm:px-6">
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
           {features.map((feature) => (
-            <Card key={feature.title} className="gap-3 p-6 transition-shadow hover:shadow-md">
-              <span className="bg-primary/10 text-primary flex size-10 items-center justify-center rounded-lg">
+            <Card
+              key={feature.title}
+              className="group gap-3 p-6 transition-all duration-200 hover:-translate-y-1 hover:shadow-lg hover:border-primary/40"
+            >
+              <span className="bg-primary/10 text-primary flex size-10 items-center justify-center rounded-lg transition-transform duration-200 group-hover:scale-110">
                 <feature.icon className="size-5" />
               </span>
               <h3 className="font-heading text-lg font-semibold">{feature.title}</h3>
@@ -105,7 +108,7 @@ export default async function LandingPage() {
         </div>
 
         {/* CTA */}
-        <Card className="from-primary/10 mt-12 items-center gap-4 bg-gradient-to-br to-transparent p-8 text-center sm:p-12">
+        <Card className="from-primary/15 via-primary/5 mt-12 items-center gap-4 bg-gradient-to-br to-transparent p-8 text-center sm:p-12 border-primary/20 shadow-sm">
           <h2 className="font-heading text-2xl font-bold sm:text-3xl">
             Ready to operationalize your search?
           </h2>
