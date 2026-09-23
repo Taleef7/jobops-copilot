@@ -23,7 +23,11 @@ async function handler(request: NextRequest, context: { params: Promise<{ path: 
 
   const { getToken } = await auth();
   const token = await getToken();
-  if (token) headers.set('authorization', `Bearer ${token}`);
+  if (token) {
+    headers.set('authorization', `Bearer ${token}`);
+  } else if (process.env.NODE_ENV !== 'production') {
+    headers.set('x-user-id', process.env.DEV_USER_ID?.trim() || 'user_local_dev');
+  }
   if (SHARED_SECRET) headers.set('x-api-key', SHARED_SECRET);
 
   const hasBody = request.method !== 'GET' && request.method !== 'HEAD';

@@ -55,7 +55,7 @@ export function FeedSubSignals({ subSignals, className }: FeedSubSignalsProps) {
           <div
             key={sig.id}
             className={cn(
-              'flex items-center justify-between rounded-lg border px-2.5 py-1.5 text-xs font-medium transition-colors',
+              'relative flex items-center justify-between overflow-hidden rounded-lg border px-2.5 py-1.5 text-xs font-medium transition-colors',
               tone,
             )}
             title={`${sig.label}: ${sig.value}%`}
@@ -65,6 +65,11 @@ export function FeedSubSignals({ subSignals, className }: FeedSubSignalsProps) {
               <span className="truncate">{sig.label}</span>
             </span>
             <span className="font-semibold tabular-nums ml-1">{sig.value}%</span>
+            <span
+              className="absolute bottom-0 left-0 h-0.5 bg-current opacity-40 rounded-full transition-all duration-300"
+              style={{ width: `${Math.min(100, Math.max(0, sig.value))}%` }}
+              aria-hidden
+            />
           </div>
         );
       })}

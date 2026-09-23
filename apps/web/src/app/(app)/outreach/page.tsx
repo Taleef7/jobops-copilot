@@ -1,5 +1,5 @@
 import type { Metadata } from 'next';
-import { ShieldCheck } from 'lucide-react';
+import { Archive, CheckCircle2, FileEdit, Send, ShieldCheck } from 'lucide-react';
 import Link from 'next/link';
 import { EmptyState } from '@/components/empty-state';
 import { OutreachReviewActions } from '@/components/outreach-review-actions';
@@ -19,6 +19,13 @@ const COLUMNS: { key: OutreachStatus; label: string; dot: string }[] = [
   { key: 'sent', label: 'Sent', dot: 'bg-emerald-500' },
   { key: 'skipped', label: 'Skipped', dot: 'bg-amber-500' },
 ];
+
+const COLUMN_EMPTY_HINTS: Record<OutreachStatus, { icon: typeof FileEdit; title: string; desc: string }> = {
+  drafted: { icon: FileEdit, title: 'No pending drafts', desc: 'Generate drafts from any job detail page.' },
+  approved: { icon: CheckCircle2, title: 'No approved drafts', desc: 'Approved messages waiting to send appear here.' },
+  sent: { icon: Send, title: 'No sent messages', desc: 'Outreach you mark as sent will be logged here.' },
+  skipped: { icon: Archive, title: 'No skipped drafts', desc: 'Archived drafts appear here for reference.' },
+};
 
 export default async function OutreachPage() {
   const { items, source } = await loadOutreach();
@@ -60,13 +67,22 @@ export default async function OutreachPage() {
                 </div>
 
                 {columnItems.map((item) => (
-                  <Card key={item.draft.id} className="gap-2.5 p-3.5">
+                  <Card
+                    key={item.draft.id}
+                    className="gap-2.5 p-3.5 transition-all duration-150 hover:border-foreground/20 hover:shadow-sm"
+                  >
                     <div className="flex items-start justify-between gap-2">
                       <div className="min-w-0">
-                        <p className="truncate text-sm font-medium">
+                        <p
+                          className="truncate text-sm font-medium"
+                          title={item.draft.contactName || item.company}
+                        >
                           {item.draft.contactName || item.company}
                         </p>
-                        <p className="text-muted-foreground truncate text-xs">
+                        <p
+                          className="text-muted-foreground truncate text-xs"
+                          title={item.draft.contactRole || item.title}
+                        >
                           {item.draft.contactRole || item.title}
                         </p>
                       </div>
@@ -92,7 +108,17 @@ export default async function OutreachPage() {
                 ))}
 
                 {columnItems.length === 0 ? (
-                  <p className="text-muted-foreground px-1 py-4 text-center text-xs">Empty</p>
+                  (() => {
+                    const hint = COLUMN_EMPTY_HINTS[column.key];
+                    const HintIcon = hint.icon;
+                    return (
+                      <div className="flex flex-col items-center justify-center rounded-lg border border-dashed border-border/80 p-6 text-center">
+                        <HintIcon className="text-muted-foreground/50 mb-2 size-5" />
+                        <p className="text-xs font-medium text-foreground/80">{hint.title}</p>
+                        <p className="text-muted-foreground mt-0.5 text-[11px] leading-relaxed">{hint.desc}</p>
+                      </div>
+                    );
+                  })()
                 ) : null}
               </div>
             );
