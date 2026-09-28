@@ -25,7 +25,7 @@ class Settings(BaseSettings):
 
     # OpenAI
     openai_api_key: str | None = None
-    openai_model: str = "gpt-6-luna"
+    openai_model: str = "gpt-5.4-nano"
 
     # Azure OpenAI
     azure_openai_endpoint: str | None = None
