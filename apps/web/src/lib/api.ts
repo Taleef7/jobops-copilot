@@ -386,7 +386,15 @@ export async function uploadResumeFile(file: File): Promise<UserProfile | null> 
   form.append('file', file);
   const response = await fetch('/api/proxy/api/profile/resume', { method: 'POST', body: form });
   if (!response.ok) {
-    throw new ApiRequestError('Failed to upload resume', response.status);
+    // The API says why (not a PDF, too large, unreadable); show that, not a generic failure.
+    let message = 'Failed to upload resume';
+    try {
+      const payload = (await response.json()) as { error?: string };
+      message = payload.error ?? message;
+    } catch {
+      // Keep the generic message for a non-JSON error body.
+    }
+    throw new ApiRequestError(message, response.status);
   }
   const data = (await response.json()) as { profile: UserProfile | null };
   return data.profile;

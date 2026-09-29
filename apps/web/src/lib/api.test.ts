@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { ApiRequestError, draftOutreach, parseJob, scoreFit } from './api';
+import { ApiRequestError, draftOutreach, parseJob, scoreFit, uploadResumeFile } from './api';
 
 // Under jsdom `window` is defined, so apiFetch routes through the same-origin
 // Next proxy (`/api/proxy/*`). We mock global fetch and inspect the call.
@@ -85,5 +85,26 @@ describe('requestJson error handling', () => {
     );
 
     await expect(scoreFit({ jobId: 'x' })).rejects.toBeInstanceOf(ApiRequestError);
+  });
+});
+
+describe('uploadResumeFile', () => {
+  it("shows the API's reason when an upload is refused (#389)", async () => {
+    mockFetch({
+      ok: false,
+      status: 415,
+      json: async () => ({ error: 'Upload your résumé as a PDF, or paste its text.' }),
+    });
+    const file = new File(['not a pdf'], 'resume.pdf', { type: 'application/pdf' });
+    const error = await uploadResumeFile(file).catch((caught: unknown) => caught);
+    expect(error).toBeInstanceOf(ApiRequestError);
+    expect((error as ApiRequestError).message).toBe('Upload your résumé as a PDF, or paste its text.');
+    expect((error as ApiRequestError).status).toBe(415);
+  });
+
+  it('falls back to a plain message when the error has no body', async () => {
+    mockFetch({ ok: false, status: 502, json: async () => { throw new Error('not json'); } });
+    const error = await uploadResumeFile(new File(['x'], 'r.pdf')).catch((caught: unknown) => caught);
+    expect((error as ApiRequestError).message).toBe('Failed to upload resume');
   });
 });

@@ -136,6 +136,8 @@ export function createApp(dependencies: AppDependencies = {}) {
   app.post('/api/profile/base-resume/parse-resume', runLimiter, runBudget);
   app.post('/api/profile/base-resume/render-pdf', runLimiter);
   app.use('/api/profile/base-resume', baseResumeRouter);
+  // Reading an uploaded PDF is CPU work in a worker thread (#389).
+  app.post('/api/profile/resume', runLimiter);
   app.use('/api/profile', profileRouter);
   app.use('/api', resumeStudioRouter);
   app.use('/api/demo', demoRouter);

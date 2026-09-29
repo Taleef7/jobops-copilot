@@ -13,7 +13,7 @@ import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Textarea } from '@/components/ui/textarea';
-import { saveResumeText, uploadResumeFile, createSavedSearch, runDiscovery } from '@/lib/api';
+import { ApiRequestError, saveResumeText, uploadResumeFile, createSavedSearch, runDiscovery } from '@/lib/api';
 import { cn } from '@/lib/utils';
 
 // Mirrors the Adzuna source: these "locations" aren't geographic, so they're
@@ -114,12 +114,13 @@ export default function OnboardingPage() {
         return;
       }
       setStep(2);
-    } catch {
-      // Name the fallback explicitly: a PDF that fails to parse is the most
-      // likely failure here, and without this the user has no way forward.
+    } catch (error) {
+      // A refused upload says why (not a PDF, too large, unreadable). Otherwise name the
+      // fallback explicitly, so the user has a way forward.
+      const reason = error instanceof ApiRequestError && error.status < 500 ? error.message : null;
       const message = usingFile
-        ? "We couldn't read that PDF. Try another file, or switch to “Paste text”."
-        : 'Could not save your resume. Please try again.';
+        ? (reason ?? "We couldn't read that PDF. Try another file, or switch to “Paste text”.")
+        : (reason ?? 'Could not save your resume. Please try again.');
       setError(message);
       toast.error(message);
     } finally {

@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation';
 import { Database, Download, Loader2, Upload } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
-import { clearMyData, seedDemoData, uploadResumeFile } from '@/lib/api';
+import { ApiRequestError, clearMyData, seedDemoData, uploadResumeFile } from '@/lib/api';
 
 export function ResumeReupload() {
   const router = useRouter();
@@ -18,8 +18,11 @@ export function ResumeReupload() {
       await uploadResumeFile(file);
       toast.success('Resume updated.');
       router.refresh();
-    } catch {
-      toast.error('Could not upload the resume.');
+    } catch (error) {
+      // A refused upload says why (not a PDF, too large, unreadable).
+      toast.error(
+        error instanceof ApiRequestError && error.status < 500 ? error.message : 'Could not upload the resume.',
+      );
     } finally {
       setBusy(false);
     }

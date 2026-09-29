@@ -241,6 +241,12 @@ jobs:
       - name: npm audit (critical)
         run: npm audit --audit-level=critical
 
+      # Production dependencies at high and above (#389). Report-only for now; it becomes
+      # blocking once it has run green on main.
+      - name: npm audit (production, high)
+        continue-on-error: true
+        run: npm audit --omit=dev --audit-level=high
+
       # The npm gate above left the Python services (agent + mcp) — which pull in the
       # largest, most model-sensitive tree (torch, sentence-transformers, langchain) —
       # completely unscanned. pip-audit closes that gap against the OSV/PyPI advisory DB.

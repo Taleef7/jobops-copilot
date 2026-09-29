@@ -61,6 +61,7 @@ const STRICT_ONLY_ROUTES: Array<[string, string]> = [
   ['POST', '/api/jobs/extract'],
   ['POST', '/api/profile/base-resume/render-pdf'],
   ['POST', '/api/notifications/test'],
+  ['POST', '/api/profile/resume'],
 ];
 
 const auth = { 'X-User-Id': 'u_inventory', 'Content-Type': 'application/json' };
