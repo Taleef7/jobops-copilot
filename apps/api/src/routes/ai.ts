@@ -37,7 +37,7 @@ import {
   emitApprovalNeededNotification,
   emitJobMatchNotification,
 } from '@/lib/notify/events';
-import type { DraftOutreachBody, OutreachDraft, ParseJobBody, ScoreFitBody, WeeklyReportBody } from '@/types';
+import type { DraftOutreachBody, JobRecord, OutreachDraft, ParseJobBody, ScoreFitBody, WeeklyReportBody } from '@/types';
 import { inputWasTruncated } from '@/lib/ai-call-context';
 
 export const aiRouter = Router();
@@ -77,6 +77,69 @@ aiRouter.post('/parse-job', async (request, response, next) => {
   }
 });
 
+/** Score fits being computed right now, by `${userId}:${jobId}` (one API instance). */
+const scoresInFlight = new Map<string, Promise<{ status: number; body: unknown }>>();
+
+/** Parse and score one job for the user, save the analysis, and build the response. */
+async function scoreJob(
+  userId: string,
+  job: JobRecord,
+  resumeText: string,
+  profileText: string,
+): Promise<{ status: number; body: unknown }> {
+  // Fold the former standalone "Parse job" step in: parse the description so
+  // the scorer is grounded on real structured skills and the saved analysis
+  // carries them. The Parse button is gone, so this is the only path — a job's
+  // parsed skills must not stay empty/incomplete behind a successful score.
+  //
+  // This is a second paid agent call. The budget guard charges both calls by their
+  // input size once the response is done, and refunds them if the agent was never
+  // reached (#345), so no separate reservation here.
+  const parsed = await resolveParsedJob(job.descriptionText);
+  const grounding = groundingFromParsed(parsed, job.analysis);
+
+  const scored = await resolveFitScore({
+    userId,
+    descriptionText: job.descriptionText,
+    resumeText,
+    profileText,
+    title: parsed.title,
+    requiredSkills: grounding.requiredSkills,
+    preferredSkills: grounding.preferredSkills,
+    atsKeywords: grounding.atsKeywords,
+  });
+
+  if (!validateFitScoreOutput(scored)) {
+    return { status: 500, body: { error: 'AI scorer returned an invalid payload' } };
+  }
+
+  const analysis = analysisFromFit(scored, {
+    requiredSkills: grounding.requiredSkills,
+    preferredSkills: grounding.preferredSkills,
+  });
+
+  await saveJobAnalysis(userId, job.id, analysis, scored.fit_score);
+
+  await emitJobMatchNotification(userId, {
+    id: job.id,
+    title: parsed.title || job.title,
+    company: job.company,
+    location: job.location,
+    fitScore: scored.fit_score,
+    fitSummary: analysis.fitSummary,
+  });
+
+  return {
+    status: 200,
+    body: {
+      job_id: job.id,
+      ...scored,
+      // The posting or résumé was cut to the LLM limit (#345).
+      ...(inputWasTruncated() ? { input_truncated: true } : {}),
+    },
+  };
+}
+
 aiRouter.post('/score-fit', async (request, response, next) => {
   const userId = requireUser(request, response);
   if (!userId) return;
@@ -105,55 +168,23 @@ aiRouter.post('/score-fit', async (request, response, next) => {
         .json({ error: 'No resume on file. Add your resume in onboarding or settings first.' });
     }
 
-    // Fold the former standalone "Parse job" step in: parse the description so
-    // the scorer is grounded on real structured skills and the saved analysis
-    // carries them. The Parse button is gone, so this is the only path — a job's
-    // parsed skills must not stay empty/incomplete behind a successful score.
-    //
-    // This is a second paid agent call. The budget guard charges both calls by their
-    // input size once the response is done, and refunds them if the agent was never
-    // reached (#345), so no separate reservation here.
-
-    const parsed = await resolveParsedJob(job.descriptionText);
-    const grounding = groundingFromParsed(parsed, job.analysis);
-
-    const scored = await resolveFitScore({
-      userId,
-      descriptionText: job.descriptionText,
-      resumeText,
-      profileText,
-      title: parsed.title,
-      requiredSkills: grounding.requiredSkills,
-      preferredSkills: grounding.preferredSkills,
-      atsKeywords: grounding.atsKeywords,
-    });
-
-    if (!validateFitScoreOutput(scored)) {
-      return response.status(500).json({ error: 'AI scorer returned an invalid payload' });
+    // One score per job at a time (#345): opening a job auto-scores it while the button is
+    // live, and a reload or a second tab does the same. A request for a job that is already
+    // being scored waits for that result instead of paying for its own.
+    const key = `${userId}:${job.id}`;
+    const running = scoresInFlight.get(key);
+    if (running) {
+      const result = await running;
+      return response.status(result.status).json(result.body);
     }
-
-    const analysis = analysisFromFit(scored, {
-      requiredSkills: grounding.requiredSkills,
-      preferredSkills: grounding.preferredSkills,
-    });
-
-    await saveJobAnalysis(userId, body.job_id, analysis, scored.fit_score);
-
-    await emitJobMatchNotification(userId, {
-      id: body.job_id,
-      title: parsed.title || job.title,
-      company: job.company,
-      location: job.location,
-      fitScore: scored.fit_score,
-      fitSummary: analysis.fitSummary,
-    });
-
-    return response.json({
-      job_id: body.job_id,
-      ...scored,
-      // The posting or résumé was cut to the LLM limit (#345).
-      ...(inputWasTruncated() ? { input_truncated: true } : {}),
-    });
+    const scoring = scoreJob(userId, job, resumeText, profileText);
+    scoresInFlight.set(key, scoring);
+    try {
+      const result = await scoring;
+      return response.status(result.status).json(result.body);
+    } finally {
+      scoresInFlight.delete(key);
+    }
   } catch (error) {
     next(error);
   }
