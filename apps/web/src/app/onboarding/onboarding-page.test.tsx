@@ -13,7 +13,14 @@ const { saveResumeText, uploadResumeFile, createSavedSearch, runDiscovery } = vi
 }));
 vi.mock('sonner', () => ({ toast: { error: vi.fn(), success: vi.fn() } }));
 vi.mock('next/navigation', () => ({ useRouter: () => ({ push, refresh }) }));
-vi.mock('@/lib/api', () => ({ saveResumeText, uploadResumeFile, createSavedSearch, runDiscovery }));
+const { ApiRequestError } = vi.hoisted(() => ({
+  ApiRequestError: class ApiRequestError extends Error {
+    constructor(message: string, public status: number) {
+      super(message);
+    }
+  },
+}));
+vi.mock('@/lib/api', () => ({ ApiRequestError, saveResumeText, uploadResumeFile, createSavedSearch, runDiscovery }));
 // The step-1 escape hatch renders a real Clerk button, which needs a provider.
 vi.mock('@clerk/nextjs', () => ({
   SignOutButton: ({ children }: { children: React.ReactNode }) => children,
@@ -162,6 +169,16 @@ it('rejects a file over the 5 MB API limit and reports the actual size', () => {
   const alert = screen.getByRole('alert');
   expect(alert).toHaveTextContent('6.0 MB');
   expect(alert).toHaveTextContent(/limit is 5 MB/i);
+});
+
+it('shows why an upload was refused, from the API (#389)', async () => {
+  uploadResumeFile.mockRejectedValueOnce(new ApiRequestError('Upload your résumé as a PDF, or paste its text.', 415));
+  const user = userEvent.setup();
+  render(<OnboardingPage />);
+
+  dropFile(pdfFile('photo.pdf'));
+  await user.click(screen.getByRole('button', { name: /continue/i }));
+  expect(await screen.findByRole('alert')).toHaveTextContent('Upload your résumé as a PDF, or paste its text.');
 });
 
 it('lets a user recover by pasting after a PDF upload fails', async () => {
