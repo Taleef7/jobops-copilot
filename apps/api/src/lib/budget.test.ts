@@ -3,7 +3,7 @@ import http from 'node:http';
 import { afterEach, test } from 'node:test';
 import express from 'express';
 import { beforeAgentCall } from './ai-call-context';
-import { createDailyBudgetGuard } from './budget';
+import { BUDGET_SPENT, createDailyBudgetGuard, runWithAiBudget } from './budget';
 
 const original = process.env.AI_DAILY_BUDGET_USD;
 afterEach(() => {
@@ -151,4 +151,55 @@ test('a request whose client disconnects keeps its reservation (no free agent ca
     await settled();
     assert.equal(log.adjustments.length, 0);
   });
+});
+
+// #345: calls outside the budget middleware (discovery, n8n) get the same treatment.
+function fakeStore({ allowFlat = true, allowExtras = true } = {}) {
+  const log = { reserves: [] as Array<[number, number]>, adjustments: [] as Array<[number, number]> };
+  return {
+    log,
+    deps: {
+      reserve: async (_userId: string, _ceiling: number, costUsd: number, calls = 1) => {
+        log.reserves.push([costUsd, calls]);
+        return { allowed: calls === 0 ? allowExtras : allowFlat, costUsd };
+      },
+      adjust: async (_userId: string, deltaUsd: number, deltaCalls: number) => {
+        log.adjustments.push([deltaUsd, deltaCalls]);
+      },
+    },
+  };
+}
+
+test('runWithAiBudget runs the call, reserving a large input before it reaches the agent', async () => {
+  const store = fakeStore();
+  const result = await runWithAiBudget('u', 'score', async () => {
+    await beforeAgentCall(400_000);
+    return 'scored';
+  }, store.deps);
+  assert.equal(result, 'scored');
+  assert.equal(store.log.reserves.length, 2);
+  assert.deepEqual(store.log.reserves[0], [0.01, 1]);
+  assert.equal(store.log.reserves[1]![1], 0);
+  assert.deepEqual(store.log.adjustments, []);
+});
+
+test('runWithAiBudget refunds a call that never reached the agent', async () => {
+  const store = fakeStore();
+  assert.equal(await runWithAiBudget('u', 'score', async () => 'local fallback', store.deps), 'local fallback');
+  assert.deepEqual(store.log.adjustments, [[-0.01, -1]]);
+});
+
+test('runWithAiBudget reports a spent budget without running, or when a large input does not fit', async () => {
+  let ran = false;
+  const spent = fakeStore({ allowFlat: false });
+  assert.equal(await runWithAiBudget('u', 'score', async () => { ran = true; }, spent.deps), BUDGET_SPENT);
+  assert.equal(ran, false);
+
+  const tight = fakeStore({ allowExtras: false });
+  const result = await runWithAiBudget('u', 'score', async () => {
+    await beforeAgentCall(400_000);
+    return 'scored';
+  }, tight.deps);
+  assert.equal(result, BUDGET_SPENT);
+  assert.deepEqual(tight.log.adjustments, [[-0.01, -1]], 'the agent was never reached, so the flat reservation is refunded');
 });

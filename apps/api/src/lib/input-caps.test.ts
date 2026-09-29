@@ -60,3 +60,9 @@ test('the agent receives at most the capped length, whatever was stored (#345)',
     await new Promise<void>((resolve) => server.close(() => resolve()));
   }
 });
+
+test('the research agent job description (sent as `context`) is capped too', () => {
+  const { payload, truncated } = capAgentPayload({ company: 'Acme', context: 'x'.repeat(100_000) });
+  assert.equal(truncated, true);
+  assert.equal(((payload as Record<string, string>).context ?? '').length, LLM_JOB_TEXT_MAX);
+});

@@ -11,7 +11,7 @@ import { runDiscoveryForUser, type DiscoveryResult } from '@/lib/discovery';
 import { upgradeToFullJd } from '@/lib/jd-upgrade';
 import { lookupSponsorLikelihood } from '@/lib/sponsorship';
 import { resolveFitScore } from '@/lib/agent-client';
-import { reserveAiBudget } from '@/lib/budget';
+import { runWithAiBudget } from '@/lib/budget';
 
 export interface DiscoveryRouterDeps {
   runDiscovery: (userId: string) => Promise<DiscoveryResult>;
@@ -35,7 +35,7 @@ export const defaultDeps: DiscoveryRouterDeps = {
       upgradeJd: upgradeToFullJd,
       touchSeen: touchJobsSeen,
       resolveFitScore,
-      reserveBudget: reserveAiBudget,
+      runBudgeted: (userId, op, run) => runWithAiBudget(userId, op, run),
     }),
   listUsersWithSavedSearches,
   listSweepUsers: async () => {

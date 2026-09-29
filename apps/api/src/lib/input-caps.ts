@@ -21,6 +21,7 @@ const FIELD_CAPS: Record<string, number> = {
   job_description: LLM_JOB_TEXT_MAX,
   description: LLM_JOB_TEXT_MAX,
   job_context: LLM_JOB_TEXT_MAX,
+  context: LLM_JOB_TEXT_MAX, // the research agent's job description
   resume_text: LLM_PROFILE_TEXT_MAX,
   profile_text: LLM_PROFILE_TEXT_MAX,
   resume_summary: LLM_PROFILE_TEXT_MAX,

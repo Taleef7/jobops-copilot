@@ -22,6 +22,7 @@ import { seedJobs } from '@/data/mock-store';
 import { computeContentHash, parseSalaryFromText, parseSeniority } from '@/lib/job-enrich';
 import { buildOutcomeStats, rankFeedJobs } from '@/lib/feed-ranking';
 import { deleteResumeVersions } from '@/data/resume-version-store';
+import { JOB_FIELD_MAX, JOB_NOTE_MAX, STORED_TEXT_MAX } from '@/lib/input-caps';
 
 // Resolved per call (not once at import) so tests can redirect the store with chdir.
 function dataDir() {
@@ -277,7 +278,25 @@ export async function getJobById(userId: string, jobId: string): Promise<JobReco
   return job ? clone(job) : undefined;
 }
 
-export async function createJob(userId: string, body: CreateJobBody): Promise<JobRecord> {
+/**
+ * Bound stored text for every writer (#345). POST /api/jobs refuses over-long text with a
+ * 413; discovery and the n8n intake call createJob directly, so their text is cut here.
+ */
+function boundedJobBody(body: CreateJobBody): CreateJobBody {
+  const cut = (value: string | undefined, max: number) =>
+    typeof value === 'string' && value.length > max ? value.slice(0, max) : value;
+  return {
+    ...body,
+    company: cut(body.company, JOB_FIELD_MAX)!,
+    title: cut(body.title, JOB_FIELD_MAX)!,
+    descriptionText: cut(body.descriptionText, STORED_TEXT_MAX)!,
+    notes: cut(body.notes, JOB_NOTE_MAX),
+    nextAction: cut(body.nextAction, JOB_NOTE_MAX),
+  };
+}
+
+export async function createJob(userId: string, rawBody: CreateJobBody): Promise<JobRecord> {
+  const body = boundedJobBody(rawBody);
   if (hasPostgresConnection()) {
     return postgresStore.createJob(userId, body);
   }
