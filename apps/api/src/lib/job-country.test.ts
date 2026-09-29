@@ -55,6 +55,28 @@ test('conflicting signals mean the country is unknown, in either direction', () 
   assert.equal(detectJobCountry('Manchester, England, United Kingdom'), 'the United Kingdom');
 });
 
+test('every country is recognized, not just a short list', () => {
+  // Countries outside any hand-made list still count, so they still conflict.
+  assert.equal(detectJobCountry('United States or China'), null);
+  assert.equal(detectJobCountry('California, China'), null);
+  assert.equal(detectJobCountry('Shanghai, China'), 'China');
+  assert.equal(detectJobCountry('Lagos, Nigeria'), 'Nigeria');
+  assert.equal(detectJobCountry('Nairobi, Kenya'), 'Kenya');
+  assert.equal(detectJobCountry('São Paulo, Brazil'), 'Brazil');
+  assert.equal(detectJobCountry('Amsterdam, Netherlands'), 'the Netherlands');
+  assert.equal(detectJobCountry('Port Moresby, Papua New Guinea'), 'Papua New Guinea');
+  // Longer names win, so parts of them don't count as other places.
+  assert.equal(detectJobCountry('Jersey City, New Jersey'), 'the United States');
+  assert.equal(detectJobCountry('Hoboken, NJ'), 'the United States');
+});
+
+test('a capitalised US or UK anywhere names the country; lower-case "us" does not', () => {
+  assert.equal(detectJobCountry('Remote (US only)'), 'the United States');
+  assert.equal(detectJobCountry('Remote (UK)'), 'the United Kingdom');
+  assert.equal(detectJobCountry('Remote, join us anywhere'), null);
+  assert.equal(detectJobCountry('Remote (US or Canada)'), null);
+});
+
 test('detectJobCountry returns null when the location does not say', () => {
   assert.equal(detectJobCountry(null), null);
   assert.equal(detectJobCountry(undefined), null);
