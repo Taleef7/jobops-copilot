@@ -227,7 +227,10 @@ applicationPackRouter.get('/jobs/:id/application-pack', async (request, response
     const outputs = await listAgentOutputs(userId, jobId);
     const existing = outputs.find((o) => o.kind === 'application_pack');
 
-    if (!existing) {
+    // Packs built before #343 hold invented answers. Migration 024 deletes them from
+    // Postgres, but the file-backed store never runs migrations, so a pack is only
+    // served if this builder made it. Otherwise the UI offers to generate a new one.
+    if (!existing || existing.modelUsed !== PACK_MODEL) {
       return response.status(404).json({ error: 'Application pack not found' });
     }
 

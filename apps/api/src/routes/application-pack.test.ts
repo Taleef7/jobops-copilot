@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
 import { createApp } from '@/app';
-import { resetAgentOutputStoreForTests } from '@/data/agent-output-store';
+import { resetAgentOutputStoreForTests, saveAgentOutput } from '@/data/agent-output-store';
 import { _resetApplicationAnswerStoreForTests, upsertApplicationAnswer } from '@/data/application-answer-store';
 import { createJob, resetJobStoreForTests } from '@/data/job-store';
 import { upsertUserProfile } from '@/data/profile-store';
@@ -248,6 +248,49 @@ test('a saved current salary never answers the expected-salary question', async 
     await upsertApplicationAnswer(USER, { questionText: 'What is your current salary?', answer: '$180,000' });
     const { pack } = await generatePack({ company: 'Acme', title: 'Engineer', location: 'Austin, TX' });
     assertNeedsAnswer(byCategory(pack, 'salary')[0], 'expected salary');
+  });
+});
+
+test('a pack stored before this fix is never served, even where the migration did not run', async () => {
+  await withFreshStores(async () => {
+    const job = await createJob(USER, { company: 'Vaco LLC', title: 'Engineer', descriptionText: 'Role.' });
+    // A legacy pack with invented answers, as the file store (no migrations) would still hold.
+    await saveAgentOutput(
+      USER,
+      job.id,
+      'application_pack',
+      {
+        jobId: job.id,
+        company: 'Vaco LLC',
+        title: 'Engineer',
+        answers: [
+          {
+            questionText: US_AUTH,
+            questionHash: 'legacy',
+            answer: 'Yes',
+            category: 'work_authorization',
+            source: 'profile',
+            flagged: false,
+          },
+        ],
+        flaggedQuestions: [],
+        generatedAt: '2026-09-28T00:00:00Z',
+      },
+      'apply-copilot-v1',
+    );
+
+    await withServer(async (baseUrl) => {
+      const res = await fetch(`${baseUrl}/api/jobs/${job.id}/application-pack`, { headers: hdrs(USER) });
+      assert.equal(res.status, 404, 'the legacy pack must not be served');
+      // Regenerating replaces it with an honest pack.
+      const post = await fetch(`${baseUrl}/api/jobs/${job.id}/application-pack`, { method: 'POST', headers: hdrs(USER) });
+      assert.equal(post.status, 201);
+      const after = await fetch(`${baseUrl}/api/jobs/${job.id}/application-pack`, { headers: hdrs(USER) });
+      assert.equal(after.status, 200);
+      const stored = (await after.json()) as { applicationPack: ApplicationPackPayload; modelUsed: string };
+      assert.equal(stored.modelUsed, 'template');
+      assert.ok(stored.applicationPack.answers.every((a) => a.source !== 'profile'));
+    });
   });
 });
 

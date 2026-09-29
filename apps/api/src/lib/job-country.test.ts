@@ -41,6 +41,20 @@ test('state names that are also country names are read carefully', () => {
   assert.equal(detectJobCountry('Atlanta, Georgia, USA'), 'the United States');
 });
 
+test('conflicting signals mean the country is unknown, in either direction', () => {
+  // A US state name next to another country.
+  assert.equal(detectJobCountry('Indiana, India'), null);
+  assert.equal(detectJobCountry('Washington, England, United Kingdom'), null);
+  // US towns named after countries.
+  assert.equal(detectJobCountry('Poland, Ohio'), null);
+  assert.equal(detectJobCountry('Mexico, Missouri'), null);
+  // Two countries.
+  assert.equal(detectJobCountry('Remote - United States or Canada'), null);
+  // The same country named twice is not a conflict.
+  assert.equal(detectJobCountry('Seattle, Washington, USA'), 'the United States');
+  assert.equal(detectJobCountry('Manchester, England, United Kingdom'), 'the United Kingdom');
+});
+
 test('detectJobCountry returns null when the location does not say', () => {
   assert.equal(detectJobCountry(null), null);
   assert.equal(detectJobCountry(undefined), null);

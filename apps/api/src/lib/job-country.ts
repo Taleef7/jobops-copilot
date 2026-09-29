@@ -66,23 +66,31 @@ function isAlsoCountryCode(code: string): boolean {
   return Boolean(regionNames.of(code));
 }
 
+/**
+ * Every country the location points to. More than one means the location is
+ * ambiguous ("Indiana, India", "Poland, Ohio"), and the caller treats the
+ * country as unknown rather than picking one.
+ */
+function countriesMentioned(text: string): Set<string> {
+  const found = new Set<string>();
+  if (US_EXPLICIT.test(text) || US_STATE_NAME.test(text)) found.add(US);
+  for (const [pattern, country] of COUNTRY_ALIASES) {
+    if (pattern.test(text)) found.add(country);
+  }
+  const parts = text.split(/[,/|·]|\s-\s|\bor\b/).map((part) => part.trim()).filter(Boolean);
+  for (const part of parts) {
+    if (COUNTRY_CODES[part]) found.add(COUNTRY_CODES[part]!);
+    const withZip = STATE_WITH_ZIP.exec(part);
+    if (withZip && US_STATE_CODES.has(withZip[1]!)) found.add(US);
+    // A code that is also a country (CA = Canada or California) stays ambiguous.
+    if (US_STATE_CODES.has(part) && !isAlsoCountryCode(part)) found.add(US);
+  }
+  return found;
+}
+
 export function detectJobCountry(location: string | null | undefined): string | null {
   const text = location?.trim();
   if (!text) return null;
-
-  if (US_EXPLICIT.test(text)) return US;
-  if (US_STATE_NAME.test(text)) return US;
-  for (const [pattern, country] of COUNTRY_ALIASES) {
-    if (pattern.test(text)) return country;
-  }
-
-  const parts = text.split(/[,/|·]|\s-\s/).map((part) => part.trim()).filter(Boolean);
-  for (const part of parts) {
-    if (COUNTRY_CODES[part]) return COUNTRY_CODES[part]!;
-    const withZip = STATE_WITH_ZIP.exec(part);
-    if (withZip && US_STATE_CODES.has(withZip[1]!)) return US;
-    // A code that is also a country (CA = Canada or California) stays ambiguous.
-    if (US_STATE_CODES.has(part) && !isAlsoCountryCode(part)) return US;
-  }
-  return null;
+  const found = countriesMentioned(text);
+  return found.size === 1 ? [...found][0]! : null;
 }
