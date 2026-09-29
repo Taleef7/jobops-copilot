@@ -33,10 +33,8 @@ const AGENT_URL = process.env.AGENT_SERVICE_URL?.trim().replace(/\/$/, '');
 const AGENT_TIMEOUT_MS = Number(process.env.AGENT_TIMEOUT_MS ?? 60_000);
 // Tool-using agents (Phase 8) can take longer than the single-shot chains.
 const AGENT_TASK_TIMEOUT_MS = Number(process.env.AGENT_TASK_TIMEOUT_MS ?? 120_000);
-// The cold-start retry (QA·B) uses a shorter budget: the first attempt already spent
-// AGENT_TIMEOUT_MS waking the scale-to-zero container, so the retry caps total parse/score
-// time (and keeps the n8n parse+score chain under the Container Apps ~240s ingress limit).
-const AGENT_RETRY_TIMEOUT_MS = Math.round(AGENT_TIMEOUT_MS / 2);
+// How long a wake-up ping waits. It only has to reach the container, not get an answer.
+const AGENT_WAKE_TIMEOUT_MS = 3_000;
 
 /**
  * Build request headers for an agent call, attaching the server-to-server shared
@@ -87,28 +85,35 @@ async function callAgent<T>(path: string, payload: unknown, timeoutMs = AGENT_TI
 }
 
 /**
- * A timeout/abort error from `AbortSignal.timeout` — the signature of the agent
- * Container App cold-starting (scale-to-zero) rather than being genuinely down. The
- * first request wakes the container; by the time it times out the container is usually
- * warming, so a single retry tends to land a real result instead of a mock (QA·B).
- * Connection-refused / other errors (TypeError) are NOT cold starts and skip the retry.
+ * A timeout/abort error from `AbortSignal.timeout`: usually the agent Container App
+ * cold-starting (scale-to-zero) rather than being down. Connection-refused and other
+ * errors (TypeError) are not cold starts.
  */
 export function isColdStartError(error: unknown): boolean {
   return error instanceof Error && (error.name === 'TimeoutError' || error.name === 'AbortError');
 }
 
+/** A free GET /health that wakes a scale-to-zero agent. Never throws. */
+async function wakeAgent(): Promise<void> {
+  const baseUrl = agentServiceUrl();
+  if (!baseUrl) return;
+  await fetch(`${baseUrl}/health`, { signal: AbortSignal.timeout(AGENT_WAKE_TIMEOUT_MS) })
+    .then((response) => response.body?.cancel())
+    .catch(() => undefined);
+}
+
 /**
- * Run an agent op, retrying once if the first attempt times out on a cold start (QA·B).
- * `op` receives the attempt number (1 or 2) so callers can give the retry a shorter
- * timeout budget — the container is already warming by then.
+ * Run a paid agent call once. On a timeout, wake the agent with /health and fail: the
+ * agent keeps working (and billing) after the client gives up, so re-sending the call
+ * would pay for it twice, and a human-in-the-loop resume isn't safe to repeat (#345).
  */
-export async function withColdStartRetry<T>(op: (attempt: number) => Promise<T>): Promise<T> {
+export async function withColdStartWake<T>(op: () => Promise<T>): Promise<T> {
   try {
-    return await op(1);
+    return await op();
   } catch (error) {
     if (isColdStartError(error)) {
-      console.warn('agent call timed out (cold start?); retrying once before mock fallback');
-      return op(2);
+      console.warn('agent call timed out (cold start?); woke the agent with /health, not retrying the paid call');
+      await wakeAgent();
     }
     throw error;
   }
@@ -163,10 +168,7 @@ export async function streamAssistantUpstream(payload: unknown): Promise<Respons
   if (!isAgentEnabled()) {
     throw new AgentDisabledError();
   }
-  // Retry once on cold-start timeout. Streaming needs the full AGENT_TASK_TIMEOUT_MS on
-  // the retry too (the container wakes during the first attempt; the retry still streams),
-  // so we pass a fixed-timeout lambda and ignore the attempt number.
-  return withColdStartRetry(() =>
+  return withColdStartWake(() =>
     fetch(`${agentServiceUrl()}/assistant/stream`, {
       method: 'POST',
       headers: agentHeaders({ 'Content-Type': 'application/json' }),
@@ -181,8 +183,7 @@ export async function streamAssistantChatUpstream(payload: unknown): Promise<Res
   if (!isAgentEnabled()) {
     throw new AgentDisabledError();
   }
-  // Same cold-start retry as streamAssistantUpstream — see comment there.
-  return withColdStartRetry(() =>
+  return withColdStartWake(() =>
     fetch(`${agentServiceUrl()}/assistant/chat`, {
       method: 'POST',
       headers: agentHeaders({ 'Content-Type': 'application/json' }),
@@ -216,7 +217,7 @@ export async function fetchEvDemoViaAgent(): Promise<TelemetryInsights> {
 export async function streamAgentUpstream(agentId: string, payload: unknown): Promise<Response> {
   if (!isAgentEnabled()) throw new AgentDisabledError();
   const encodedId = encodeURIComponent(agentId);
-  return withColdStartRetry(() =>
+  return withColdStartWake(() =>
     fetch(`${agentServiceUrl()}/agents/${encodedId}/stream`, {
       method: 'POST',
       headers: agentHeaders({ 'Content-Type': 'application/json' }),
@@ -230,7 +231,7 @@ export async function streamAgentUpstream(agentId: string, payload: unknown): Pr
 export async function resumeAgentUpstream(agentId: string, payload: unknown): Promise<Response> {
   if (!isAgentEnabled()) throw new AgentDisabledError();
   const encodedId = encodeURIComponent(agentId);
-  return withColdStartRetry(() =>
+  return withColdStartWake(() =>
     fetch(`${agentServiceUrl()}/agents/${encodedId}/resume`, {
       method: 'POST',
       headers: agentHeaders({ 'Content-Type': 'application/json' }),
@@ -264,11 +265,11 @@ export interface OutreachDraftResult {
 export async function resolveParsedJob(descriptionText: string): Promise<ParsedJobOutput> {
   if (isAgentEnabled()) {
     try {
-      const parsed = await withColdStartRetry((attempt) =>
+      const parsed = await withColdStartWake(() =>
         callAgent<ParsedJobOutput>(
           '/parse-job',
           { description_text: descriptionText },
-          attempt === 1 ? AGENT_TIMEOUT_MS : AGENT_RETRY_TIMEOUT_MS,
+          AGENT_TIMEOUT_MS,
         ),
       );
       if (validateParsedJobOutput(parsed)) {
@@ -286,7 +287,7 @@ export async function resolveParsedJob(descriptionText: string): Promise<ParsedJ
 export async function resolveFitScore(input: ScoreFitInput): Promise<FitScoreOutput> {
   if (isAgentEnabled()) {
     try {
-      const scored = await withColdStartRetry((attempt) =>
+      const scored = await withColdStartWake(() =>
         callAgent<FitScoreOutput>(
           '/score-fit',
           {
@@ -300,7 +301,7 @@ export async function resolveFitScore(input: ScoreFitInput): Promise<FitScoreOut
             ats_keywords: input.atsKeywords,
             retrieved_context: input.retrievedContext,
           },
-          attempt === 1 ? AGENT_TIMEOUT_MS : AGENT_RETRY_TIMEOUT_MS,
+          AGENT_TIMEOUT_MS,
         ),
       );
       if (validateFitScoreOutput(scored)) {
@@ -475,11 +476,11 @@ export function normalizeStructuredResume(raw: unknown): StructuredResume | null
 export async function resolveResumeParse(resumeText: string): Promise<StructuredResume> {
   if (isAgentEnabled()) {
     try {
-      const parsed = await withColdStartRetry((attempt) =>
+      const parsed = await withColdStartWake(() =>
         callAgent<unknown>(
           '/parse-resume',
           { resume_text: resumeText },
-          attempt === 1 ? AGENT_TIMEOUT_MS : AGENT_RETRY_TIMEOUT_MS,
+          AGENT_TIMEOUT_MS,
         ),
       );
       const normalized = normalizeStructuredResume(parsed);
