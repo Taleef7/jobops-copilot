@@ -291,20 +291,6 @@ export interface ApplicationPackPayload {
   generatedAt: string;
 }
 
-export interface ExtTokenItem {
-  id: string;
-  userId: string;
-  label: string;
-  lastUsedAt?: string | null;
-  revokedAt?: string | null;
-  createdAt: string;
-}
-
-export interface CreateExtTokenResponse {
-  token: ExtTokenItem;
-  rawToken: string;
-}
-
 export type JobContactStatus =
   | 'found'
   | 'outreach_drafted'

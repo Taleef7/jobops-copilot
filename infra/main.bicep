@@ -51,9 +51,6 @@ param agentImage string = 'ca9ee6437892acr.azurecr.io/jobops-agent:latest'
 @description('Clerk publishable key — non-secret; ships to the browser (NEXT_PUBLIC_*).')
 param clerkPublishableKey string = ''
 
-@description('CORS allow-list for the API (comma-separated origins).')
-param corsAllowedOrigins string = 'https://jobops-web.azurewebsites.net'
-
 @description('Adzuna job-search app id (paired with the secret app key).')
 param adzunaAppId string = ''
 
@@ -328,10 +325,6 @@ resource apiApp 'Microsoft.Web/sites@2023-12-01' = {
         {
           name: 'CLERK_SECRET_KEY'
           value: clerkSecretKeyKvRef
-        }
-        {
-          name: 'CORS_ALLOWED_ORIGINS'
-          value: corsAllowedOrigins
         }
         {
           name: 'AI_DAILY_BUDGET_USD'

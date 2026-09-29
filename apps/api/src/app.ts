@@ -1,8 +1,6 @@
-import cors from 'cors';
 import express from 'express';
 import helmet from 'helmet';
 import { attachUserId, clerkAuth } from '@/lib/auth';
-import { corsOptions } from '@/lib/cors';
 import { safeEqual } from '@/lib/safe-equal';
 import { globalLimiter, strictLimiter } from '@/lib/rate-limit';
 import { enforceDailyBudget } from '@/lib/budget';
@@ -30,8 +28,7 @@ import { baseResumeRouter } from '@/routes/base-resume';
 import { resumeStudioRouter } from '@/routes/resume-studio';
 import { answersRouter } from '@/routes/answers';
 import { applicationPackRouter } from '@/routes/application-pack';
-import { extTokensRouter } from '@/routes/ext-tokens';
-import { extRouter } from '@/routes/ext';
+import { extensionPaused } from '@/routes/extension-paused';
 import { contactsRouter } from '@/routes/contacts';
 import { notificationsRouter } from '@/routes/notifications';
 import { pushRouter } from '@/routes/push';
@@ -50,8 +47,7 @@ function requireSharedApiKey(
   if (
     !sharedSecret ||
     !mutatingMethods.has(request.method) ||
-    ((request.path.startsWith('/api/n8n') || request.path.startsWith('/internal')) && Boolean(n8nWebhookSecret)) ||
-    request.path.startsWith('/api/ext')
+    ((request.path.startsWith('/api/n8n') || request.path.startsWith('/internal')) && Boolean(n8nWebhookSecret))
   ) {
     next();
     return;
@@ -82,15 +78,11 @@ export function createApp(dependencies: AppDependencies = {}) {
   // the real client, which the rate limiter keys on for unauthenticated requests.
   app.set('trust proxy', 1);
   app.use(helmet());
-  // Surface the localhost-only CORS fallback in prod — otherwise a missing
-  // CORS_ALLOWED_ORIGINS silently rejects the real web origin (opaque browser error).
-  if (process.env.NODE_ENV === 'production' && !process.env.CORS_ALLOWED_ORIGINS?.trim()) {
-    console.warn(
-      'CORS_ALLOWED_ORIGINS is unset in production; falling back to localhost dev origins. ' +
-        'Set it to your web origin or browser calls from it will be blocked.',
-    );
-  }
-  app.use(cors(corsOptions()));
+  // The Chrome extension is paused (#342): answer its API before any auth, key or
+  // rate-limit check, so old tokens and the shared key get the same clear 410.
+  // No CORS middleware: browsers only reach this API through the web app's
+  // same-origin proxy or server-side calls.
+  app.use(['/api/ext', '/api/ext-tokens'], extensionPaused);
   app.use(requireSharedApiKey);
   app.use(express.json({ limit: '5mb' }));
   app.use(clerkAuth);
@@ -152,8 +144,6 @@ export function createApp(dependencies: AppDependencies = {}) {
   app.use('/api', contactsRouter);
   app.use('/api', notificationsRouter);
   app.use('/api', pushRouter);
-  app.use('/api/ext-tokens', extTokensRouter);
-  app.use('/api/ext', extRouter);
   // Mounted before '/api/n8n' so this more specific path wins; it inherits the
   // shared-API-key exemption (path starts with /api/n8n) and uses the n8n secret.
   app.use('/api/n8n/discover', discoverySweepRouter);
