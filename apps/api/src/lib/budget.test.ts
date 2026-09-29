@@ -74,6 +74,13 @@ async function withSettlingGuard(run: (baseUrl: string, adjustments: Array<[stri
     noteAgentCall(2_000);
     response.json({ ok: true });
   });
+  // The client goes away before the handler calls the agent; the handler carries on.
+  app.post('/aborted', async (request, response) => {
+    request.socket.destroy();
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    noteAgentCall(2_000);
+    void response;
+  });
   app.post('/large', async (_request, response) => {
     await Promise.resolve();
     noteAgentCall(400_000);
@@ -112,5 +119,13 @@ test('a normal agent call keeps its reservation and a large one is topped up', a
     assert.equal(userId, 'u_settle');
     assert.equal(deltaCalls, 0);
     assert.ok(deltaUsd > 0, `expected a top-up, got ${deltaUsd}`);
+  });
+});
+
+test('a request whose client disconnects keeps its reservation (no free agent calls)', async () => {
+  await withSettlingGuard(async (baseUrl, adjustments) => {
+    await fetch(`${baseUrl}/aborted`, { method: 'POST' }).catch(() => undefined);
+    await settled();
+    assert.equal(adjustments.length, 0);
   });
 });

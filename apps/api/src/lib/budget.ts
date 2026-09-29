@@ -65,6 +65,9 @@ export function createDailyBudgetGuard(
     const settle = () => {
       if (settled) return;
       settled = true;
+      // A client that disconnects doesn't stop the handler, which may still call the agent,
+      // so only a completed response is settled. An aborted one keeps its reservation.
+      if (!response.writableFinished) return;
       const [deltaUsd, deltaCalls] = context.reachedAgent
         ? [Math.max(estimateCostFromChars(context.inputChars) - reservedUsd, 0), 0]
         : [-reservedUsd, -1];

@@ -47,11 +47,11 @@ test('two concurrent Score fit requests for one job make one parse and one score
   });
   process.env.AGENT_SERVICE_URL = agent.url;
   const api = await listen(createApp());
-  const score = (jobId: string) =>
+  const score = (jobId: string, resumeText?: string) =>
     fetch(`${api.url}/api/ai/score-fit`, {
       method: 'POST',
       headers: { 'X-User-Id': USER, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ job_id: jobId }),
+      body: JSON.stringify({ job_id: jobId, ...(resumeText ? { resume_text: resumeText } : {}) }),
     });
   try {
     await upsertUserProfile(USER, { resumeText: 'Backend engineer. Go, Postgres.' });
@@ -69,6 +69,11 @@ test('two concurrent Score fit requests for one job make one parse and one score
     // Different jobs still score in parallel, and a later request scores again.
     agentCalls.length = 0;
     await Promise.all([score(job.id), score(other.id)]);
+    assert.equal(agentCalls.length, 4);
+
+    // A request with a different résumé is its own score, not the other one's result.
+    agentCalls.length = 0;
+    await Promise.all([score(job.id), score(job.id, 'Frontend engineer. React.')]);
     assert.equal(agentCalls.length, 4);
   } finally {
     if (savedAgent === undefined) delete process.env.AGENT_SERVICE_URL;
