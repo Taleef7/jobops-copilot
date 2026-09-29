@@ -27,25 +27,27 @@ test('normalizeEvidence handles strings, objects, and trims empty items', () => 
   });
 });
 
-test('contact-store enforces evidence requirement and CRUD operations', async () => {
+test('contact-store CRUD operations; evidence is optional', async () => {
   await _resetContactStoreForTests([]);
 
   const userA = 'user_test_alpha';
   const userB = 'user_test_beta';
   const job1 = 'job_uuid_1';
   const job2 = 'job_uuid_2';
+  const job3 = 'job_uuid_3';
 
-  // Invariant check: must fail closed when evidence is empty
-  await assert.rejects(
-    async () => {
-      await insertJobContact(userA, job1, {
-        name: 'Jane Doe',
-        roleTitle: 'Engineering Manager',
-        evidence: [],
-      });
-    },
-    { message: /Every contact must carry at least 1 public evidence URL/ },
-  );
+  // A person the user knows needs no public evidence.
+  const known = await insertJobContact(userA, job3, {
+    name: 'Jamie Lee',
+    roleTitle: 'Recruiter',
+  });
+  assert.deepEqual(known.evidence, []);
+  const knownEmpty = await insertJobContact(userA, job3, {
+    name: 'Priya Shah',
+    roleTitle: 'Engineering Manager',
+    evidence: [],
+  });
+  assert.deepEqual(knownEmpty.evidence, []);
 
   // Successful insert
   const contact1 = await insertJobContact(userA, job1, {
@@ -110,15 +112,11 @@ test('contact-store enforces evidence requirement and CRUD operations', async ()
   assert.equal(updated?.status, 'outreach_drafted');
   assert.equal(updated?.notes, 'Drafted introduction email');
 
-  // Verify updating with empty evidence fails closed
-  await assert.rejects(
-    async () => {
-      await updateJobContact(userA, contact1.id, {
-        evidence: [],
-      });
-    },
-    { message: /Every contact must carry at least 1 public evidence URL/ },
-  );
+  // Evidence can be cleared
+  const cleared = await updateJobContact(userA, contact1.id, {
+    evidence: [],
+  });
+  assert.deepEqual(cleared?.evidence, []);
 
   // Verify delete
   const deleted = await deleteJobContact(userA, contact1.id);

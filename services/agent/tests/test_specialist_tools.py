@@ -8,7 +8,7 @@ from app.graph.registry import build_registry
 
 
 @pytest.mark.anyio
-async def test_four_tools_with_expected_names():
+async def test_three_tools_with_expected_names():
     from app.agents.specialist_tools import create_specialist_tools
 
     tools = create_specialist_tools(user_id="user_123")
@@ -17,7 +17,6 @@ async def test_four_tools_with_expected_names():
         "run_feed_curation",
         "tailor_resume",
         "build_application_pack",
-        "scout_connections",
     ]
 
 
@@ -115,7 +114,6 @@ async def test_job_scoped_tools_fallback_to_default_job_id():
     fake_registry = {
         "resume-tailor": _CaptureGraph(),
         "apply-copilot": _CaptureGraph(),
-        "connection-scout": _CaptureGraph(),
     }
 
     tools = build_specialist_tools(
@@ -134,5 +132,5 @@ async def test_job_scoped_tools_fallback_to_default_job_id():
     assert captured_payloads[-1]["input"]["job_id"] == "default-job-42"
 
     # 3. When explicit job_id is passed, explicit takes precedence
-    await tools_map["scout_connections"].ainvoke({"job_id": "explicit-job-99"})
+    await tools_map["tailor_resume"].ainvoke({"job_id": "explicit-job-99"})
     assert captured_payloads[-1]["input"]["job_id"] == "explicit-job-99"

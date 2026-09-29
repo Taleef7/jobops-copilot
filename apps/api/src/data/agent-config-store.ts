@@ -13,7 +13,7 @@
 import type { PoolClient } from 'pg';
 import { getPool } from '@/lib/postgres';
 
-export const AGENT_IDS = ['feed-curator', 'resume-tailor', 'apply-copilot', 'connection-scout'] as const;
+export const AGENT_IDS = ['feed-curator', 'resume-tailor', 'apply-copilot'] as const;
 
 export type AgentId = (typeof AGENT_IDS)[number];
 

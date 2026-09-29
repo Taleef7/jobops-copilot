@@ -479,7 +479,8 @@ export interface JobContactRecord {
 export interface CreateJobContactBody {
   name: string;
   roleTitle: string;
-  evidence: Array<string | JobContactEvidenceItem>;
+  /** Optional public links about the person. A contact the user knows needs none. */
+  evidence?: Array<string | JobContactEvidenceItem>;
   relevance?: string;
   email?: string;
   linkedinUrl?: string;

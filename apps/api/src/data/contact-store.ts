@@ -103,10 +103,7 @@ export async function insertJobContact(
     return postgresStore.insertJobContact(userId, jobId, body);
   }
 
-  const evidence = postgresStore.normalizeEvidence(body.evidence);
-  if (evidence.length === 0) {
-    throw new Error('Every contact must carry at least 1 public evidence URL');
-  }
+  const evidence = postgresStore.normalizeEvidence(body.evidence ?? []);
 
   return runExclusive(async () => {
     const all = await ensureLoaded();
@@ -150,11 +147,7 @@ export async function updateJobContact(
     const existing = all[index]!;
     let updatedEvidence = existing.evidence;
     if (patch.evidence !== undefined) {
-      const normalized = postgresStore.normalizeEvidence(patch.evidence);
-      if (normalized.length === 0) {
-        throw new Error('Every contact must carry at least 1 public evidence URL');
-      }
-      updatedEvidence = normalized;
+      updatedEvidence = postgresStore.normalizeEvidence(patch.evidence);
     }
 
     const now = new Date().toISOString();

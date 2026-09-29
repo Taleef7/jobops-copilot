@@ -93,9 +93,7 @@ def get_model():
 # time, so a `PUT /api/agents/:agentId/config` swap takes effect within one TTL instead
 # of a deploy. Everything above stays the env-based path and is the fallback here.
 
-KNOWN_AGENT_IDS: frozenset[str] = frozenset(
-    {"feed-curator", "resume-tailor", "apply-copilot", "connection-scout"}
-)
+KNOWN_AGENT_IDS: frozenset[str] = frozenset({"feed-curator", "resume-tailor", "apply-copilot"})
 
 # How long a fetched active-config row is trusted before re-reading the database. Small
 # enough that a repoint lands quickly; large enough that a feed-scoring burst does not

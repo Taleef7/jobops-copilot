@@ -1,7 +1,7 @@
 # Debugging the agent graphs locally (langgraph dev + Studio)
 
-The agent service exposes five LangGraph graphs (assistant + feed-curator,
-resume-tailor, apply-copilot, connection-scout). You can step through any of
+The agent service exposes four LangGraph graphs (assistant + feed-curator,
+resume-tailor, apply-copilot). You can step through any of
 them visually in the free, local LangGraph Studio — no hosted platform,
 no LangSmith account required.
 

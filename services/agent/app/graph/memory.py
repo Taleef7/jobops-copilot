@@ -24,7 +24,7 @@ _PRUNE_BATCH_SIZE = 1_000
 def profile_namespace(user_id: str) -> tuple[str, str, str]:
     """Return the shared profile namespace.
 
-    The four specialist agents may read this namespace for resume, preference,
+    The three specialist agents may read this namespace for resume, preference,
     and constraint context. Profile writes remain outside the specialist
     graphs, so this helper documents the namespace as read-only to them.
     """
