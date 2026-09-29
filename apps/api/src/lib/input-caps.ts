@@ -31,32 +31,43 @@ function isPlainObject(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
-function capObject(source: Record<string, unknown>, depth: number): { value: Record<string, unknown>; truncated: boolean } {
+// Specialist payloads nest the job (`input.job.description_text`), sometimes in arrays.
+const MAX_DEPTH = 4;
+
+function capValue(value: unknown, depth: number): { value: unknown; truncated: boolean } {
+  if (depth > MAX_DEPTH) return { value, truncated: false };
+  if (Array.isArray(value)) {
+    let truncated = false;
+    const items = value.map((item) => {
+      const capped = capValue(item, depth + 1);
+      truncated ||= capped.truncated;
+      return capped.value;
+    });
+    return { value: items, truncated };
+  }
+  if (!isPlainObject(value)) return { value, truncated: false };
   let truncated = false;
-  const value: Record<string, unknown> = {};
-  for (const [key, field] of Object.entries(source)) {
+  const result: Record<string, unknown> = {};
+  for (const [key, field] of Object.entries(value)) {
     const cap = FIELD_CAPS[key];
     if (cap !== undefined && typeof field === 'string' && field.length > cap) {
-      value[key] = field.slice(0, cap);
+      result[key] = field.slice(0, cap);
       truncated = true;
-    } else if (depth > 0 && isPlainObject(field)) {
-      const nested = capObject(field, depth - 1);
-      value[key] = nested.value;
-      truncated ||= nested.truncated;
     } else {
-      value[key] = field;
+      const nested = capValue(field, depth + 1);
+      result[key] = nested.value;
+      truncated ||= nested.truncated;
     }
   }
-  return { value, truncated };
+  return { value: result, truncated };
 }
 
 /**
- * Cut the known text fields of an agent request to their LLM limits, at the top level and
- * one level down (the specialist agents take an `input` object). Other fields are untouched.
+ * Cut the known text fields of an agent request to their LLM limits, wherever they sit in
+ * nested objects and arrays (up to a few levels). Other fields are untouched.
  */
 export function capAgentPayload(payload: unknown): { payload: unknown; truncated: boolean } {
-  if (!isPlainObject(payload)) return { payload, truncated: false };
-  const { value, truncated } = capObject(payload, 1);
+  const { value, truncated } = capValue(payload, 0);
   return truncated ? { payload: value, truncated } : { payload, truncated: false };
 }
 

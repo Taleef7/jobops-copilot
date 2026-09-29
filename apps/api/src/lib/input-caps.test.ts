@@ -66,3 +66,15 @@ test('the research agent job description (sent as `context`) is capped too', () 
   assert.equal(truncated, true);
   assert.equal(((payload as Record<string, string>).context ?? '').length, LLM_JOB_TEXT_MAX);
 });
+
+test('specialist inputs are capped however they nest (input.job.description_text, arrays)', () => {
+  const long = 'x'.repeat(100_000);
+  const { payload, truncated } = capAgentPayload({
+    input: { job: { description_text: long }, jobs: [{ description_text: long }, { resume_text: long }] },
+  });
+  const input = (payload as { input: { job: { description_text: string }; jobs: Array<Record<string, string>> } }).input;
+  assert.equal(truncated, true);
+  assert.equal(input.job.description_text.length, LLM_JOB_TEXT_MAX);
+  assert.equal(input.jobs[0]!.description_text!.length, LLM_JOB_TEXT_MAX);
+  assert.equal(input.jobs[1]!.resume_text!.length, LLM_PROFILE_TEXT_MAX);
+});
