@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
 import { createApp } from '@/app';
+import { summaryFromResume } from '@/routes/contacts';
 import { _resetContactStoreForTests } from '@/data/contact-store';
 import { createJob, getJobById, resetJobStoreForTests } from '@/data/job-store';
 import { deleteUserProfile, upsertUserProfile } from '@/data/profile-store';
@@ -107,6 +108,9 @@ test('contacts API route lifecycle and validation', async () => {
         { name: 'X', roleTitle: 'Y', evidence: ['javascript:alert(1)'] },
         { name: 'X', roleTitle: 'Y', linkedinUrl: 'javascript:alert(1)' },
         { name: 'X', roleTitle: 'Y', linkedinUrl: 'linkedin.com/in/x' },
+        // The card labels this link "LinkedIn", so other sites go in evidence.
+        { name: 'X', roleTitle: 'Y', linkedinUrl: 'https://github.com/x' },
+        { name: 'X', roleTitle: 'Y', linkedinUrl: 'https://notlinkedin.com/in/x' },
       ]) {
         const res = await fetch(`${baseUrl}/api/jobs/${jobA.id}/contacts`, {
           method: 'POST',
@@ -241,8 +245,25 @@ test('contacts API route lifecycle and validation', async () => {
       );
       assert.equal(refusedContact?.status, 'found');
 
-      // 14. With a résumé on file, the draft is written from it
-      await upsertUserProfile(USER_A, { resumeText: 'Backend engineer, five years of Go and Kafka.' });
+      // A structured résumé with nothing to draw on is refused the same way.
+      await upsertUserProfile(USER_A, {
+        baseResume: { basics: { name: 'A', email: 'a@example.com', summary: '' }, work: [], education: [], skills: [] },
+      });
+      const emptyResumeRes = await fetch(`${baseUrl}/api/contacts/${known.id}/draft-outreach`, {
+        method: 'POST',
+        headers: hdrs(USER_A),
+      });
+      assert.equal(emptyResumeRes.status, 409);
+
+      // 14. A structured résumé without a summary still grounds the draft (its role and skills)
+      await upsertUserProfile(USER_A, {
+        baseResume: {
+          basics: { name: 'A', email: 'a@example.com', summary: '' },
+          work: [{ company: 'Globex', position: 'Backend Engineer', startDate: '2022-01', highlights: [] }],
+          education: [],
+          skills: [{ category: 'Languages', skills: ['Go', 'Kafka'] }],
+        },
+      });
       const targetContact = known;
       const draftRes1 = await fetch(`${baseUrl}/api/contacts/${targetContact.id}/draft-outreach`, {
         method: 'POST',
@@ -285,4 +306,27 @@ test('contacts API route lifecycle and validation', async () => {
     await _resetContactStoreForTests([]);
     await rm(tempDir, { recursive: true, force: true });
   }
+});
+
+test('summaryFromResume uses only fields from the user résumé', () => {
+  assert.equal(summaryFromResume(null), '');
+  assert.equal(
+    summaryFromResume({ basics: { name: 'A', email: 'a@x.com', summary: '' }, work: [], education: [], skills: [] }),
+    '',
+  );
+  assert.equal(
+    summaryFromResume({
+      basics: { name: 'A', email: 'a@x.com', summary: '', label: 'Software Engineer' },
+      work: [
+        { company: '', position: 'Intern', startDate: '2020', highlights: [] },
+        { company: 'Globex', position: 'Backend Engineer', startDate: '2022', highlights: [] },
+      ],
+      education: [],
+      skills: [
+        { category: 'Languages', skills: ['Go', ' ', 'TypeScript'] },
+        { category: 'Data', skills: ['PostgreSQL'] },
+      ],
+    }),
+    'Software Engineer. Recent role: Backend Engineer at Globex. Skills: Go, TypeScript, PostgreSQL.',
+  );
 });

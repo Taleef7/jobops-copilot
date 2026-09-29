@@ -716,6 +716,8 @@ export interface CreateJobContactInput {
   name: string;
   roleTitle: string;
   linkedinUrl?: string;
+  /** Other links about the person (GitHub, a team page); shown under "Links". */
+  evidence?: string[];
   notes?: string;
 }
 

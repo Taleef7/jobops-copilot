@@ -84,6 +84,30 @@ describe('JobContactsPanel', () => {
     expect(screen.getByRole('link', { name: /LinkedIn/ })).toHaveAttribute('href', 'https://www.linkedin.com/in/jamie');
   });
 
+  it('keeps a non-LinkedIn link as a general link, not as "LinkedIn"', async () => {
+    const user = userEvent.setup();
+    vi.mocked(api.createJobContact).mockResolvedValueOnce(
+      contact({ evidence: [{ url: 'https://github.com/jamie' }] }),
+    );
+    render(<JobContactsPanel jobId="job-1" company="Acme" />);
+
+    await user.click(screen.getAllByRole('button', { name: 'Add contact' })[0]!);
+    await user.type(screen.getByLabelText('Name'), 'Jamie Lee');
+    await user.type(screen.getByLabelText('Role'), 'Recruiter');
+    await user.type(screen.getByLabelText('LinkedIn or other link (optional)'), 'https://github.com/jamie');
+    await user.click(screen.getByRole('button', { name: 'Save contact' }));
+
+    await waitFor(() => {
+      expect(api.createJobContact).toHaveBeenCalledWith('job-1', {
+        name: 'Jamie Lee',
+        roleTitle: 'Recruiter',
+        evidence: ['https://github.com/jamie'],
+      });
+    });
+    expect(await screen.findByRole('link', { name: /github\.com\/jamie/ })).toHaveAttribute('href', 'https://github.com/jamie');
+    expect(screen.queryByRole('link', { name: /LinkedIn/ })).not.toBeInTheDocument();
+  });
+
   it('does not save a contact without a role', async () => {
     const user = userEvent.setup();
     render(<JobContactsPanel jobId="job-1" company="Acme" />);

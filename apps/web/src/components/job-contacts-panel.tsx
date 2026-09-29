@@ -47,6 +47,16 @@ const STATUS_OPTIONS: { value: JobContactStatus; label: string }[] = [
 
 const EMPTY_FORM = { name: '', roleTitle: '', link: '', notes: '' };
 
+/** Only a linkedin.com link is shown as "LinkedIn"; any other link is kept as a general link. */
+function isLinkedInUrl(value: string): boolean {
+  try {
+    const { hostname } = new URL(value);
+    return hostname === 'linkedin.com' || hostname.endsWith('.linkedin.com');
+  } catch {
+    return false;
+  }
+}
+
 interface JobContactsPanelProps {
   jobId: string;
   company: string;
@@ -87,7 +97,7 @@ export function JobContactsPanel({
       const created = await createJobContact(jobId, {
         name,
         roleTitle,
-        ...(link ? { linkedinUrl: link } : {}),
+        ...(link ? (isLinkedInUrl(link) ? { linkedinUrl: link } : { evidence: [link] }) : {}),
         ...(notes ? { notes } : {}),
       });
       setContacts((prev) => [...prev, created]);

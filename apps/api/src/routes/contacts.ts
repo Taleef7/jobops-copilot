@@ -14,7 +14,7 @@ import { getBaseResumeVersion } from '@/data/resume-version-store';
 import { resolveOutreachDraft } from '@/lib/agent-client';
 import { requireUser } from '@/lib/auth';
 import { emitApprovalNeededNotification } from '@/lib/notify/events';
-import type { JobContactStatus, OutreachDraft } from '@/types';
+import type { JobContactStatus, OutreachDraft, StructuredResume } from '@/types';
 
 export const contactsRouter = Router();
 
@@ -35,6 +35,36 @@ function isHttpUrl(value: string): boolean {
   }
 }
 
+/** The card labels `linkedinUrl` "LinkedIn", so it must be one. Other links are evidence. */
+function isLinkedInUrl(value: string): boolean {
+  try {
+    const { hostname } = new URL(value);
+    return hostname === 'linkedin.com' || hostname.endsWith('.linkedin.com');
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * A short, factual summary built only from the user's own structured résumé
+ * (title, latest role, skills), for a résumé whose summary field is blank.
+ */
+export function summaryFromResume(resume: StructuredResume | null | undefined): string {
+  if (!resume) return '';
+  const parts: string[] = [];
+  const label = resume.basics?.label?.trim();
+  if (label) parts.push(`${label}.`);
+  const latest = resume.work?.find((w) => w.position?.trim() && w.company?.trim());
+  if (latest) parts.push(`Recent role: ${latest.position.trim()} at ${latest.company.trim()}.`);
+  const skills = (resume.skills ?? [])
+    .flatMap((group) => group.skills ?? [])
+    .map((skill) => skill.trim())
+    .filter(Boolean)
+    .slice(0, 8);
+  if (skills.length) parts.push(`Skills: ${skills.join(', ')}.`);
+  return parts.join(' ');
+}
+
 /**
  * A contact's links are rendered as links, so only http(s) URLs are accepted.
  * Evidence is optional: a person the user knows needs none (#344).
@@ -49,8 +79,11 @@ function linkError(evidence: unknown, linkedinUrl: unknown): string | null {
       return 'Each evidence link must be an http(s) URL';
     }
   }
-  if (typeof linkedinUrl === 'string' && linkedinUrl.trim() && !isHttpUrl(linkedinUrl.trim())) {
-    return 'linkedinUrl must be an http(s) URL';
+  if (typeof linkedinUrl === 'string' && linkedinUrl.trim()) {
+    const url = linkedinUrl.trim();
+    if (!isHttpUrl(url) || !isLinkedInUrl(url)) {
+      return 'linkedinUrl must be a linkedin.com URL; save other links as evidence';
+    }
   }
   return null;
 }
@@ -224,6 +257,7 @@ contactsRouter.post('/contacts/:id/draft-outreach', async (request, response) =>
     // The draft is written from the user's own background, never an invented one.
     const candidateSummary =
       resume?.basics?.summary?.trim() ||
+      summaryFromResume(resume) ||
       profile?.profileText?.trim() ||
       profile?.resumeText?.trim().slice(0, 1200);
     if (!candidateSummary) {
