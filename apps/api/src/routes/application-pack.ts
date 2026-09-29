@@ -5,7 +5,9 @@ import { getJobById } from '@/data/job-store';
 import { getUserProfile } from '@/data/profile-store';
 import { getBaseResumeVersion, listResumeVersionsForJob } from '@/data/resume-version-store';
 import { requireUser } from '@/lib/auth';
+import { detectJobCountry } from '@/lib/job-country';
 import type {
+  ApplicationAnswer,
   ApplicationPackContactBlock,
   ApplicationPackPayload,
   ApplicationPackQuestionAnswer,
@@ -14,6 +16,24 @@ import type {
 } from '@/types';
 
 export const applicationPackRouter = Router({ mergeParams: true });
+
+/** No model writes the pack: it is assembled from the user's saved answers. */
+const PACK_MODEL = 'template';
+
+const AUTH_QUESTION = /^Are you legally authorized to work in (.+)\?$/i;
+const SPONSOR_QUESTION = /^Will you now or in the future require visa sponsorship to work in (.+)\?$/i;
+const UNKNOWN_COUNTRY = 'the country where this role is based';
+
+/** Saved answers to a country-specific question, one per named country. */
+function savedAnswersByCountry(memory: ApplicationAnswer[], pattern: RegExp) {
+  const byCountry = new Map<string, string>();
+  for (const item of memory) {
+    const match = pattern.exec(item.questionText.trim());
+    const country = match?.[1]?.trim();
+    if (country && country.toLowerCase() !== UNKNOWN_COUNTRY) byCountry.set(country, item.answer);
+  }
+  return [...byCountry].map(([country, answer]) => ({ country, answer }));
+}
 
 function buildContactBlock(resume?: StructuredResume | null): ApplicationPackContactBlock {
   if (!resume?.basics) return {};
@@ -54,158 +74,119 @@ export async function buildApplicationPack(userId: string, job: JobRecord): Prom
   // 3. Load cover letter if any
   const coverLetterDraft = job.outreach?.find((o) => o.messageType === 'cover_letter');
 
-  // 4. Load Q&A memory
+  // 4. Load Q&A memory: the only source for legal, money and narrative answers.
   const qaMemory = await listApplicationAnswers(userId);
   const memoryMap = new Map<string, string>();
   for (const item of qaMemory) {
     memoryMap.set(item.questionHash, item.answer);
   }
 
-  // 5. Load research brief if present
-  const outputs = await listAgentOutputs(userId, jobId);
-  const researchBrief = outputs.find((o) => o.kind === 'research')?.payload as
-    | Record<string, unknown>
-    | undefined;
-
-  // 6. Build Answers
+  // 5. Build answers. Nothing here is guessed from the job posting or the résumé:
+  // an answer is either the user's own saved answer, or blank and flagged (#343).
   const answers: ApplicationPackQuestionAnswer[] = [];
-  const flaggedQuestions: string[] = [];
 
-  // Question 1: Work Authorization
-  const q1Text = 'Are you legally authorized to work in the United States?';
-  const q1Hash = hashQuestion(q1Text);
-  if (memoryMap.has(q1Hash)) {
+  const saved = (questionText: string, category: ApplicationPackQuestionAnswer['category']) => {
+    const questionHash = hashQuestion(questionText);
+    const answer = memoryMap.get(questionHash);
+    return { questionText, questionHash, answer, category };
+  };
+  const pushSaved = (q: ReturnType<typeof saved>) =>
     answers.push({
-      questionText: q1Text,
-      questionHash: q1Hash,
-      answer: memoryMap.get(q1Hash)!,
-      category: 'work_authorization',
+      questionText: q.questionText,
+      questionHash: q.questionHash,
+      answer: q.answer!,
+      category: q.category,
       source: 'qa_memory',
+      needsReview: false,
       flagged: false,
+      note: 'Your saved answer.',
     });
-  } else {
+  const pushBlank = (q: ReturnType<typeof saved>, note: string) =>
     answers.push({
-      questionText: q1Text,
-      questionHash: q1Hash,
-      answer: 'Yes',
-      category: 'work_authorization',
-      source: 'profile',
-      flagged: false,
-    });
-  }
-
-  // Question 2: Visa Sponsorship
-  const q2Text = 'Will you now or in the future require visa sponsorship?';
-  const q2Hash = hashQuestion(q2Text);
-  if (memoryMap.has(q2Hash)) {
-    answers.push({
-      questionText: q2Text,
-      questionHash: q2Hash,
-      answer: memoryMap.get(q2Hash)!,
-      category: 'work_authorization',
-      source: 'qa_memory',
-      flagged: false,
-    });
-  } else {
-    answers.push({
-      questionText: q2Text,
-      questionHash: q2Hash,
-      answer: 'No',
-      category: 'work_authorization',
-      source: 'profile',
-      flagged: false,
-    });
-  }
-
-  // Question 3: Salary Expectation
-  const q3Text = 'What are your salary expectations for this role?';
-  const q3Hash = hashQuestion(q3Text);
-  if (memoryMap.has(q3Hash)) {
-    answers.push({
-      questionText: q3Text,
-      questionHash: q3Hash,
-      answer: memoryMap.get(q3Hash)!,
-      category: 'salary',
-      source: 'qa_memory',
-      flagged: false,
-    });
-  } else if (job.salaryMin && job.salaryMax) {
-    answers.push({
-      questionText: q3Text,
-      questionHash: q3Hash,
-      answer: `$${job.salaryMin.toLocaleString()} - $${job.salaryMax.toLocaleString()} ${job.salaryCurrency || 'USD'}`,
-      category: 'salary',
-      source: 'preferences',
-      flagged: false,
-    });
-  } else {
-    // Ungrounded -> flag for user review
-    flaggedQuestions.push(q3Text);
-    answers.push({
-      questionText: q3Text,
-      questionHash: q3Hash,
+      questionText: q.questionText,
+      questionHash: q.questionHash,
       answer: '',
-      category: 'salary',
+      category: q.category,
       source: 'unanswerable',
+      needsReview: true,
       flagged: true,
+      note,
     });
+
+  // Work authorization and sponsorship are asked for the job's country when the
+  // location names one. Saved answers are keyed by question text, so an answer for
+  // one country can never answer another country's question.
+  const country = detectJobCountry(job.location);
+  const where = country ?? 'the country where this role is based';
+  const legalQuestions = [
+    { text: `Are you legally authorized to work in ${where}?`, pattern: AUTH_QUESTION },
+    { text: `Will you now or in the future require visa sponsorship to work in ${where}?`, pattern: SPONSOR_QUESTION },
+  ];
+  const pushForReview = (q: ReturnType<typeof saved>, answer: string, note: string) =>
+    answers.push({
+      questionText: q.questionText,
+      questionHash: q.questionHash,
+      answer,
+      category: 'work_authorization',
+      source: 'qa_memory',
+      needsReview: true,
+      flagged: true,
+      note,
+    });
+  for (const { text, pattern } of legalQuestions) {
+    const q = saved(text, 'work_authorization');
+    // A saved answer is final only when it names this job's country.
+    if (country && q.answer) {
+      pushSaved(q);
+      continue;
+    }
+    if (!country) {
+      // The countryless question is shared by every job whose country is unknown, so
+      // an answer confirmed for one of them is only ever offered for review.
+      if (q.answer) {
+        pushForReview(
+          q,
+          q.answer,
+          `Based on the answer you gave for another role whose country wasn't stated. Confirm it applies to this one.`,
+        );
+        continue;
+      }
+      // Otherwise offer the user's answer only when they saved exactly one country's.
+      const savedCountries = savedAnswersByCountry(qaMemory, pattern);
+      if (savedCountries.length === 1) {
+        const [only] = savedCountries;
+        pushForReview(
+          q,
+          only!.answer,
+          `Based on your saved answer for ${only!.country}. JobOps couldn't tell which country this role is in from its location, so confirm it applies.`,
+        );
+        continue;
+      }
+    }
+    pushBlank(
+      q,
+      country
+        ? `Answer this yourself. It's a legal question, so it is never filled in for you.`
+        : `JobOps couldn't tell which country this role is in from its location. Answer this yourself.`,
+    );
   }
 
-  // Question 4: Why Us / Why Company
-  const q4Text = `Why are you interested in joining ${job.company}?`;
-  const q4Hash = hashQuestion(q4Text);
-  if (memoryMap.has(q4Hash)) {
-    answers.push({
-      questionText: q4Text,
-      questionHash: q4Hash,
-      answer: memoryMap.get(q4Hash)!,
-      category: 'why_us',
-      source: 'qa_memory',
-      flagged: false,
-    });
-  } else {
-    let companyAngle = `innovative engineering and mission-driven products`;
-    if (researchBrief && typeof researchBrief.summary === 'string') {
-      companyAngle = researchBrief.summary;
-    }
-    const whyUs = `I am enthusiastic about ${job.company}'s work in ${companyAngle}. The ${job.title} role aligns directly with my engineering background and passion for building high-impact systems.`;
-    answers.push({
-      questionText: q4Text,
-      questionHash: q4Hash,
-      answer: whyUs,
-      category: 'why_us',
-      source: 'generated',
-      flagged: false,
-    });
-  }
+  // Expected salary: only the user's own saved answer to this exact question.
+  // Never the posted salary, and never a saved "current salary".
+  const salary = saved('What are your salary expectations for this role?', 'salary');
+  if (salary.answer) pushSaved(salary);
+  else pushBlank(salary, 'Enter your own expectation. The posted salary range is not used.');
 
-  // Question 5: Behavioral / Relevant Experience
-  const q5Text = `Briefly describe your most relevant experience for the ${job.title} position.`;
-  const q5Hash = hashQuestion(q5Text);
-  if (memoryMap.has(q5Hash)) {
-    answers.push({
-      questionText: q5Text,
-      questionHash: q5Hash,
-      answer: memoryMap.get(q5Hash)!,
-      category: 'behavioral',
-      source: 'qa_memory',
-      flagged: false,
-    });
-  } else {
-    let expSummary = `I have extensive experience delivering robust software solutions matching the requirements of ${job.title}.`;
-    if (baseResume?.work && baseResume.work.length > 0) {
-      const recent = baseResume.work[0]!;
-      expSummary = `Most recently as ${recent.position} at ${recent.company}, I led engineering initiatives and delivered high-quality software aligned with ${job.title} requirements.`;
-    }
-    answers.push({
-      questionText: q5Text,
-      questionHash: q5Hash,
-      answer: expSummary,
-      category: 'behavioral',
-      source: 'profile',
-      flagged: false,
-    });
-  }
+  // Narrative answers are the user's to write.
+  const whyUs = saved(`Why are you interested in joining ${job.company}?`, 'why_us');
+  if (whyUs.answer) pushSaved(whyUs);
+  else pushBlank(whyUs, 'Write this in your own words. The company research on the AI agents tab can help.');
+
+  const experience = saved(`Briefly describe your most relevant experience for the ${job.title} position.`, 'behavioral');
+  if (experience.answer) pushSaved(experience);
+  else pushBlank(experience, 'Write this from your résumé in your own words.');
+
+  const flaggedQuestions = answers.filter((a) => a.needsReview).map((a) => a.questionText);
 
   const packPayload: ApplicationPackPayload = {
     jobId,
@@ -246,7 +227,10 @@ applicationPackRouter.get('/jobs/:id/application-pack', async (request, response
     const outputs = await listAgentOutputs(userId, jobId);
     const existing = outputs.find((o) => o.kind === 'application_pack');
 
-    if (!existing) {
+    // Packs built before #343 hold invented answers. Migration 024 deletes them from
+    // Postgres, but the file-backed store never runs migrations, so a pack is only
+    // served if this builder made it. Otherwise the UI offers to generate a new one.
+    if (!existing || existing.modelUsed !== PACK_MODEL) {
       return response.status(404).json({ error: 'Application pack not found' });
     }
 
@@ -282,12 +266,12 @@ applicationPackRouter.post('/jobs/:id/application-pack', async (request, respons
     const packPayload = await buildApplicationPack(userId, job);
 
     // Persist to agent_outputs
-    await saveAgentOutput(userId, jobId, 'application_pack', packPayload, 'apply-copilot-v1');
+    await saveAgentOutput(userId, jobId, 'application_pack', packPayload, PACK_MODEL);
 
     return response.status(201).json({
       applicationPack: packPayload,
       generatedAt: packPayload.generatedAt,
-      modelUsed: 'apply-copilot-v1',
+      modelUsed: PACK_MODEL,
     });
   } catch (error) {
     next(error);

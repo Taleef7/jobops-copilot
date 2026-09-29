@@ -27,10 +27,11 @@ bash scripts/verify-live.sh
 ```
 
 Checks health, all auth boundaries (agent / n8n / assistant-stream / job detail → 401),
-the CORS allowlist (disallowed origin gets no `Access-Control-Allow-Origin`), `robots.txt`,
+that no origin gets an `Access-Control-Allow-Origin` header and the paused extension API
+answers 410, `robots.txt`,
 and prints the running agent's `build_sha`. Exits non-zero on any failure. Changes nothing.
 
-_Verified: 12/12 pass._
+_Last run: see the PR that changed the checks._
 
 ---
 
