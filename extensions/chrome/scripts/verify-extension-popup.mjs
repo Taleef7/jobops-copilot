@@ -6,8 +6,8 @@ import { dirname, join, extname } from 'node:path';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
-const projectRoot = join(__dirname, '..');
-const extDir = join(projectRoot, 'extensions', 'chrome');
+// These scripts live in extensions/chrome/scripts, so the extension root is the parent.
+const extDir = join(__dirname, '..');
 
 const ARTIFACT_PATH = 'C:/Users/talee/.gemini/antigravity/brain/02b9fdec-dbc1-4f06-9b10-b33e52d1e1c1/ext_popup_verification.png';
 
