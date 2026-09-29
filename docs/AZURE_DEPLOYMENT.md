@@ -241,20 +241,19 @@ Verify afterwards: an unauthenticated `POST /rag/search` to the agent FQDN must 
 
 ## API edge hardening (QA·F)
 
-Three production settings on the API App Service, plus one trust-boundary note.
+Production settings on the API App Service, plus one trust-boundary note.
 
 ```bash
 az webapp config appsettings set -g projects -n jobops-api --settings \
-  CORS_ALLOWED_ORIGINS="https://<your-web-app>.azurewebsites.net" \
   AI_DAILY_BUDGET_USD="1.00"
 ```
 
-- **`CORS_ALLOWED_ORIGINS`** — comma-separated browser origins allowed to call the API.
-  Unset, the API falls back to the local dev origins (`http://localhost:3000`,
-  `http://127.0.0.1:3000`), so a prod deploy that omits it will reject the real web
-  origin. Set it to your deployed web origin(s). The API never reflects an arbitrary
-  `Origin` anymore — only allowlisted origins get CORS headers. Requests with no `Origin`
-  (server-to-server, curl) are unaffected; CORS is a browser-only control.
+- **No CORS.** The API sends no `Access-Control-Allow-Origin` header for any origin
+  (removed in #385 with the Chrome extension pause). Browsers never call the API
+  directly: the web app calls it through its same-origin proxy
+  (`apps/web/src/app/api/proxy/[...path]/route.ts`) or from server code. A new
+  browser client must go through that proxy, not call the API host. The old
+  `CORS_ALLOWED_ORIGINS` setting is ignored; delete it from existing App Services.
 - **`AI_DAILY_BUDGET_USD`** — per-user daily AI spend ceiling (USD). The `/api/ai` routes
   return `429` once a user reaches it. It **fails safe**: unset or malformed → the `1.00`
   default cap, never "off". Raise/lower per environment.
