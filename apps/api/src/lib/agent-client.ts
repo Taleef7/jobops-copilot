@@ -28,6 +28,7 @@ import type {
   ResumeWorkExperience,
   StructuredResume,
 } from '@/types';
+import { noteAgentCall } from '@/lib/ai-call-context';
 
 const AGENT_URL = process.env.AGENT_SERVICE_URL?.trim().replace(/\/$/, '');
 const AGENT_TIMEOUT_MS = Number(process.env.AGENT_TIMEOUT_MS ?? 60_000);
@@ -67,15 +68,21 @@ export function isAgentEnabled(): boolean {
   return Boolean(agentServiceUrl());
 }
 
-async function callAgent<T>(path: string, payload: unknown, timeoutMs = AGENT_TIMEOUT_MS): Promise<T> {
-  const baseUrl = agentServiceUrl();
-  if (!baseUrl) throw new AgentDisabledError();
-  const response = await fetch(`${baseUrl}${path}`, {
+/** POST a paid request to the agent, noting it for the budget (#345). */
+function postToAgent(path: string, payload: unknown, timeoutMs: number): Promise<Response> {
+  const body = JSON.stringify(payload);
+  noteAgentCall(body.length);
+  return fetch(`${agentServiceUrl()}${path}`, {
     method: 'POST',
     headers: agentHeaders({ 'Content-Type': 'application/json' }),
-    body: JSON.stringify(payload),
+    body,
     signal: AbortSignal.timeout(timeoutMs),
   });
+}
+
+async function callAgent<T>(path: string, payload: unknown, timeoutMs = AGENT_TIMEOUT_MS): Promise<T> {
+  if (!agentServiceUrl()) throw new AgentDisabledError();
+  const response = await postToAgent(path, payload, timeoutMs);
 
   if (!response.ok) {
     throw new Error(`agent ${path} responded with ${response.status}`);
@@ -168,14 +175,7 @@ export async function streamAssistantUpstream(payload: unknown): Promise<Respons
   if (!isAgentEnabled()) {
     throw new AgentDisabledError();
   }
-  return withColdStartWake(() =>
-    fetch(`${agentServiceUrl()}/assistant/stream`, {
-      method: 'POST',
-      headers: agentHeaders({ 'Content-Type': 'application/json' }),
-      body: JSON.stringify(payload),
-      signal: AbortSignal.timeout(AGENT_TASK_TIMEOUT_MS),
-    }),
-  );
+  return withColdStartWake(() => postToAgent('/assistant/stream', payload, AGENT_TASK_TIMEOUT_MS));
 }
 
 /** Open the conversational chat token stream on the agent service (Phase 5). */
@@ -183,14 +183,7 @@ export async function streamAssistantChatUpstream(payload: unknown): Promise<Res
   if (!isAgentEnabled()) {
     throw new AgentDisabledError();
   }
-  return withColdStartWake(() =>
-    fetch(`${agentServiceUrl()}/assistant/chat`, {
-      method: 'POST',
-      headers: agentHeaders({ 'Content-Type': 'application/json' }),
-      body: JSON.stringify(payload),
-      signal: AbortSignal.timeout(AGENT_TASK_TIMEOUT_MS),
-    }),
-  );
+  return withColdStartWake(() => postToAgent('/assistant/chat', payload, AGENT_TASK_TIMEOUT_MS));
 }
 
 /** Analyze the activity series via the agent (pandas + LLM narration). */
@@ -203,6 +196,7 @@ export async function fetchEvDemoViaAgent(): Promise<TelemetryInsights> {
   if (!isAgentEnabled()) {
     throw new AgentDisabledError();
   }
+  noteAgentCall(0);
   const response = await fetch(`${agentServiceUrl()}/telemetry/ev-demo`, {
     headers: agentHeaders(),
     signal: AbortSignal.timeout(AGENT_TASK_TIMEOUT_MS),
@@ -217,28 +211,14 @@ export async function fetchEvDemoViaAgent(): Promise<TelemetryInsights> {
 export async function streamAgentUpstream(agentId: string, payload: unknown): Promise<Response> {
   if (!isAgentEnabled()) throw new AgentDisabledError();
   const encodedId = encodeURIComponent(agentId);
-  return withColdStartWake(() =>
-    fetch(`${agentServiceUrl()}/agents/${encodedId}/stream`, {
-      method: 'POST',
-      headers: agentHeaders({ 'Content-Type': 'application/json' }),
-      body: JSON.stringify(payload),
-      signal: AbortSignal.timeout(AGENT_TASK_TIMEOUT_MS),
-    }),
-  );
+  return withColdStartWake(() => postToAgent(`/agents/${encodedId}/stream`, payload, AGENT_TASK_TIMEOUT_MS));
 }
 
 /** Resume a generic specialist-agent stream and return the raw response for piping. */
 export async function resumeAgentUpstream(agentId: string, payload: unknown): Promise<Response> {
   if (!isAgentEnabled()) throw new AgentDisabledError();
   const encodedId = encodeURIComponent(agentId);
-  return withColdStartWake(() =>
-    fetch(`${agentServiceUrl()}/agents/${encodedId}/resume`, {
-      method: 'POST',
-      headers: agentHeaders({ 'Content-Type': 'application/json' }),
-      body: JSON.stringify(payload),
-      signal: AbortSignal.timeout(AGENT_TASK_TIMEOUT_MS),
-    }),
-  );
+  return withColdStartWake(() => postToAgent(`/agents/${encodedId}/resume`, payload, AGENT_TASK_TIMEOUT_MS));
 }
 
 export interface ScoreFitInput {

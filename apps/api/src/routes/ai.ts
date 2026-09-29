@@ -18,7 +18,6 @@ import {
 } from '@/lib/agent-client';
 import { isSingleRecipientEmailAddress } from '@/lib/email';
 import { createGmailDraftIfEnabled } from '@/lib/gmail';
-import { reserveAiBudget } from '@/lib/budget';
 import { asyncHandler } from '@/lib/async-handler';
 import {
   appendOutreachDraft,
@@ -110,13 +109,9 @@ aiRouter.post('/score-fit', async (request, response, next) => {
     // carries them. The Parse button is gone, so this is the only path — a job's
     // parsed skills must not stay empty/incomplete behind a successful score.
     //
-    // This adds a second paid agent call (parse) on top of the score, but the
-    // /api/ai budget middleware only reserves one. Reserve the extra parse op so
-    // a user near the daily cap can't overspend — mirrors the n8n path, which
-    // reserves both parse and score.
-    if (!(await reserveAiBudget(userId, 'parse'))) {
-      return response.status(429).json({ error: 'Daily AI budget reached' });
-    }
+    // This is a second paid agent call. The budget guard charges both calls by their
+    // input size once the response is done, and refunds them if the agent was never
+    // reached (#345), so no separate reservation here.
 
     const parsed = await resolveParsedJob(job.descriptionText);
     const grounding = groundingFromParsed(parsed, job.analysis);

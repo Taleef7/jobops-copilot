@@ -83,10 +83,9 @@ async function runExclusive<T>(operation: () => Promise<T>): Promise<T> {
 }
 
 /**
- * Atomically reserve `costUsd` against today's spend while it is still under
+ * Atomically reserve `costUsd` against today's spend when the new total stays within
  * `ceilingUsd`. The file store serializes via `runExclusive`, so concurrent reservations
- * can't each read an under-budget value and all slip through. A brand-new day always
- * succeeds (the first call of the day is allowed).
+ * can't each read an under-budget value and all slip through.
  */
 export async function reserveDailyBudget(
   userId: string,
@@ -101,7 +100,8 @@ export async function reserveDailyBudget(
     const date = today();
     const existing = all.find((entry) => entry.userId === userId && entry.date === date);
     const current = existing?.costUsd ?? 0;
-    if (current >= ceilingUsd) {
+    // A small tolerance, because the amounts are floats (0.01 + 0.02 !== 0.03).
+    if (current + costUsd > ceilingUsd + 1e-9) {
       return { allowed: false, costUsd: current };
     }
     if (existing) {
@@ -112,6 +112,21 @@ export async function reserveDailyBudget(
     }
     await persist();
     return { allowed: true, costUsd: current + costUsd };
+  });
+}
+
+/** Refund (negative) or top up (positive) today's spend; never below zero, never creates a row. */
+export async function adjustDailyUsage(userId: string, deltaUsd: number, deltaCalls: number): Promise<void> {
+  if (hasPostgresConnection()) {
+    return postgresStore.adjustDailyUsage(userId, deltaUsd, deltaCalls);
+  }
+  await runExclusive(async () => {
+    const all = await ensureLoaded();
+    const existing = all.find((entry) => entry.userId === userId && entry.date === today());
+    if (!existing) return;
+    existing.costUsd = Math.max(existing.costUsd + deltaUsd, 0);
+    existing.calls = Math.max(existing.calls + deltaCalls, 0);
+    await persist();
   });
 }
 

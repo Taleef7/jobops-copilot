@@ -35,7 +35,7 @@ test('a timeout on any paid agent call produces exactly one POST and one /health
     const client = await import('./agent-client');
     const calls: Array<[string, () => Promise<unknown>]> = [
       ['POST /parse-job', () => client.resolveParsedJob('A job')],
-      ['POST /score-fit', () => client.resolveFitScore({ descriptionText: 'A job', resumeText: 'Me' })],
+      ['POST /score-fit', () => client.resolveFitScore({ descriptionText: 'A job', resumeText: 'Me', profileText: 'Me' })],
       ['POST /parse-resume', () => client.resolveResumeParse('My résumé')],
       ['POST /assistant/stream', () => client.streamAssistantUpstream({})],
       ['POST /assistant/chat', () => client.streamAssistantChatUpstream({})],

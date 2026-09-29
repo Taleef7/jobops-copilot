@@ -11,11 +11,13 @@
  */
 
 import type { NextFunction, Request, Response } from 'express';
-import { type Reservation, reserveDailyBudget } from '@/data/usage-store';
-import { dailyBudgetUsd, estimateCallCostUsd } from '@/lib/cost';
+import { adjustDailyUsage, type Reservation, reserveDailyBudget } from '@/data/usage-store';
+import { type AiCallContext, runWithAiCallContext } from '@/lib/ai-call-context';
+import { dailyBudgetUsd, estimateCallCostUsd, estimateCostFromChars } from '@/lib/cost';
 
 export interface BudgetDeps {
   reserve: (userId: string, ceilingUsd: number, costUsd: number) => Promise<Reservation>;
+  adjust: (userId: string, deltaUsd: number, deltaCalls: number) => Promise<void>;
 }
 
 /** Reserve a paid AI call against the user's daily budget; true when it may proceed. */
@@ -28,9 +30,16 @@ export async function reserveAiBudget(userId: string, op: string): Promise<boole
   }
 }
 
-/** Build the budget-guard middleware; the reservation is injectable for tests. */
+/**
+ * Build the budget-guard middleware; the store is injectable for tests.
+ *
+ * It reserves a flat estimate up front (the atomic ceiling check), then settles when the
+ * response is done (#345): a request that never reached the agent (a 400, a 404, a
+ * disabled agent) is refunded, and one whose input cost more than the reservation is
+ * topped up by its size.
+ */
 export function createDailyBudgetGuard(
-  deps: BudgetDeps = { reserve: reserveDailyBudget },
+  deps: BudgetDeps = { reserve: reserveDailyBudget, adjust: adjustDailyUsage },
 ) {
   return async function enforceDailyBudget(request: Request, response: Response, next: NextFunction) {
     const userId = request.userId;
@@ -38,16 +47,33 @@ export function createDailyBudgetGuard(
       next(); // identity is enforced downstream by requireUser
       return;
     }
+    const reservedUsd = estimateCallCostUsd('default');
     try {
-      const { allowed } = await deps.reserve(userId, dailyBudgetUsd(), estimateCallCostUsd('default'));
+      const { allowed } = await deps.reserve(userId, dailyBudgetUsd(), reservedUsd);
       if (!allowed) {
         response.status(429).json({ error: 'Daily AI budget reached' });
         return;
       }
     } catch {
       // Fail open: a usage-store hiccup must not block the user's AI calls.
+      next();
+      return;
     }
-    next();
+
+    const context: AiCallContext = { reachedAgent: false, inputChars: 0 };
+    let settled = false;
+    const settle = () => {
+      if (settled) return;
+      settled = true;
+      const [deltaUsd, deltaCalls] = context.reachedAgent
+        ? [Math.max(estimateCostFromChars(context.inputChars) - reservedUsd, 0), 0]
+        : [-reservedUsd, -1];
+      if (deltaUsd === 0 && deltaCalls === 0) return;
+      deps.adjust(userId, deltaUsd, deltaCalls).catch(() => undefined);
+    };
+    response.once('finish', settle);
+    response.once('close', settle);
+    runWithAiCallContext(context, () => next());
   };
 }
 
