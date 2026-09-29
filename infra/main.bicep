@@ -330,6 +330,19 @@ resource apiApp 'Microsoft.Web/sites@2023-12-01' = {
           name: 'AI_DAILY_BUDGET_USD'
           value: aiDailyBudgetUsd
         }
+        // Production rate limits (#345). Without these the API ran the dev limits (1000/200).
+        {
+          name: 'NODE_ENV'
+          value: 'production'
+        }
+        {
+          name: 'RATE_LIMIT_MAX'
+          value: '120'
+        }
+        {
+          name: 'RATE_LIMIT_AI_MAX'
+          value: '20'
+        }
         {
           name: 'ADZUNA_APP_ID'
           value: adzunaAppId

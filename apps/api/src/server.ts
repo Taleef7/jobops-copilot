@@ -10,6 +10,7 @@ import { createApp } from '@/app';
 import { assertProductionAuthConfigured } from '@/lib/auth';
 import { migrateOnBoot } from '@/lib/migrate-on-boot';
 import { registerGracefulShutdown } from '@/lib/shutdown';
+import { effectiveLimits } from '@/lib/rate-limit';
 
 // Fail closed: refuse to boot a production deploy whose authentication would be disabled.
 assertProductionAuthConfigured();
@@ -27,6 +28,8 @@ async function start() {
 
   const server = app.listen(port, () => {
     console.log(`JobOps Copilot API listening on http://localhost:${port}`);
+    const { globalMax, aiMax, windowMs } = effectiveLimits;
+    console.log(`Rate limits: ${globalMax} requests per ${windowMs / 1000}s overall, ${aiMax} on AI routes`);
   });
 
   // Drain in-flight requests + close the DB pool on SIGTERM/SIGINT (Azure deploy/restart).

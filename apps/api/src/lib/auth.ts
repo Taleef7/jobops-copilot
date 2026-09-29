@@ -13,6 +13,7 @@
 import type { NextFunction, Request, RequestHandler, Response } from 'express';
 import { clerkMiddleware, getAuth } from '@clerk/express';
 import { safeEqual } from '@/lib/safe-equal';
+import { inProduction } from '@/lib/runtime-env';
 
 const DEV_USER_ID = process.env.DEV_USER_ID?.trim() || 'user_local_dev';
 
@@ -25,19 +26,6 @@ export const clerkEnabled = Boolean(process.env.CLERK_SECRET_KEY?.trim());
 export const clerkAuth: RequestHandler = clerkEnabled
   ? clerkMiddleware()
   : (_request, _response, next) => next();
-
-/**
- * True when running as a real deployment: an explicit `NODE_ENV=production`, or an Azure
- * runtime (App Service sets `WEBSITE_SITE_NAME`, Container Apps sets `CONTAINER_APP_NAME`).
- * Read dynamically so a misconfigured deploy is caught regardless of how prod is signalled.
- */
-function inProduction(): boolean {
-  return (
-    process.env.NODE_ENV === 'production' ||
-    Boolean(process.env.WEBSITE_SITE_NAME?.trim()) ||
-    Boolean(process.env.CONTAINER_APP_NAME?.trim())
-  );
-}
 
 /** Resolves `req.userId` from Clerk (or the dev/n8n fallback). */
 export function attachUserId(request: Request, _response: Response, next: NextFunction) {

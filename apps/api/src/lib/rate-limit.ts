@@ -13,14 +13,31 @@ import type { Request } from 'express';
 import rateLimit, { ipKeyGenerator, type Store } from 'express-rate-limit';
 import { getPool } from './postgres';
 import { PostgresRateLimitStore } from './rate-limit-store.postgres';
+import { inProduction } from './runtime-env';
 
-const windowMs = Number(process.env.RATE_LIMIT_WINDOW_MS ?? 60_000);
-const globalMax = Number(
-  process.env.RATE_LIMIT_MAX ?? (process.env.NODE_ENV === 'production' ? 120 : 1000),
-);
-const aiMax = Number(
-  process.env.RATE_LIMIT_AI_MAX ?? (process.env.NODE_ENV === 'production' ? 20 : 200),
-);
+/** A positive whole number from the environment, else the fallback (NaN would disable the limit). */
+function positiveInt(raw: string | undefined, fallback: number): number {
+  if (raw === undefined || raw.trim() === '') return fallback;
+  const value = Math.floor(Number(raw));
+  return Number.isFinite(value) && value > 0 ? value : fallback;
+}
+
+/**
+ * The effective limits. Production (including an Azure runtime without NODE_ENV, which is
+ * how the live API ran at 1000/200 until #345) defaults to 120/min overall and 20/min on
+ * AI routes; explicit RATE_LIMIT_* settings win when they are valid.
+ */
+export function limitsFromEnv(env: NodeJS.ProcessEnv = process.env) {
+  const production = inProduction(env);
+  return {
+    windowMs: positiveInt(env.RATE_LIMIT_WINDOW_MS, 60_000),
+    globalMax: positiveInt(env.RATE_LIMIT_MAX, production ? 120 : 1000),
+    aiMax: positiveInt(env.RATE_LIMIT_AI_MAX, production ? 20 : 200),
+  };
+}
+
+export const effectiveLimits = limitsFromEnv();
+const { windowMs, globalMax, aiMax } = effectiveLimits;
 
 /** The rate-limit bucket key: the user id, else the (IPv6-safe) client IP. */
 export function keyForRequest(request: Pick<Request, 'userId' | 'ip'>): string {
