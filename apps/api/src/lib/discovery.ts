@@ -11,6 +11,7 @@ import { dedupKey, fingerprintKey, type SourcedJob } from '@/lib/job-sources/nor
 import { fetchTargetCompanyBoards } from '@/lib/job-sources/boards';
 import { FULL_JD_MIN_CHARS, type upgradeToFullJd } from '@/lib/jd-upgrade';
 import type { SponsorLikelihood, TargetCompany } from '@/types';
+import { BUDGET_SPENT } from '@/lib/budget';
 
 export interface DiscoveryResult {
   inserted: number;
@@ -39,7 +40,8 @@ export interface DiscoveryDeps {
     profileText: string;
     title?: string | null;
   }) => Promise<FitScoreOutput>;
-  reserveBudget?: (userId: string, op: string) => Promise<boolean>;
+  /** Runs a paid call under the daily AI budget (lib/budget.ts runWithAiBudget). */
+  runBudgeted?: <T>(userId: string, op: string, run: () => Promise<T>) => Promise<T | typeof BUDGET_SPENT>;
 }
 
 /**
@@ -144,10 +146,11 @@ export async function runDiscoveryForUser(userId: string, deps: DiscoveryDeps): 
       // otherwise fall back gracefully to local pre-ranking.
       let scoredWithAi = false;
       const remainingAiScoreBudgetMs = aiScoreDeadline - Date.now();
-      if (resume && deps.resolveFitScore && deps.reserveBudget && remainingAiScoreBudgetMs > 1_000) {
+      const resolveFitScore = deps.resolveFitScore;
+      const runBudgeted = deps.runBudgeted;
+      if (resume && resolveFitScore && runBudgeted && remainingAiScoreBudgetMs > 1_000) {
         try {
-          const budgetAllowed = await deps.reserveBudget(userId, 'score');
-          if (budgetAllowed) {
+          {
             const timeoutMs = Math.min(remainingAiScoreBudgetMs, AI_SCORE_PER_JOB_TIMEOUT_MS);
             let timerId: NodeJS.Timeout | undefined;
             const timeoutPromise = new Promise<never>((_, reject) => {
@@ -155,16 +158,23 @@ export async function runDiscoveryForUser(userId: string, deps: DiscoveryDeps): 
             });
 
             try {
-              const fit = await Promise.race([
-                deps.resolveFitScore({
-                  userId,
-                  descriptionText: createdJob.descriptionText,
-                  resumeText: resume,
-                  profileText,
-                  title: createdJob.title,
-                }),
+              // The budget covers the call's input size and is refunded if the agent is
+              // never reached (#345).
+              const scored = await Promise.race([
+                runBudgeted(userId, 'score', () =>
+                  resolveFitScore({
+                    userId,
+                    descriptionText: createdJob.descriptionText,
+                    resumeText: resume,
+                    profileText,
+                    title: createdJob.title,
+                  }),
+                ),
                 timeoutPromise,
               ]);
+              // Budget spent: fall back to the local pre-rank below, as before.
+              if (scored === BUDGET_SPENT) throw new Error('daily AI budget spent');
+              const fit = scored;
               const analysis = analysisFromFit(fit, {
                 requiredSkills: fit.ats_keywords?.slice(0, 5) ?? [],
                 preferredSkills: fit.ats_keywords?.slice(5, 8) ?? [],

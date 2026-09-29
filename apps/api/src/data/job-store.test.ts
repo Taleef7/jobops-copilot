@@ -282,3 +282,27 @@ test('status events are persisted to job-status-events.json in file mode and sur
   }
 });
 
+test('createJob bounds stored text for every writer, not just POST /api/jobs (#345)', async () => {
+  const originalCwd = process.cwd();
+  const tempDir = await mkdtemp(join(tmpdir(), 'jobops-job-caps-'));
+  delete process.env.DATABASE_URL;
+  process.chdir(tempDir);
+  await resetJobStoreForTests();
+  try {
+    // Discovery and the n8n intake call createJob directly.
+    const job = await createJob('u_store_caps', {
+      company: 'c'.repeat(400),
+      title: 't'.repeat(400),
+      descriptionText: 'd'.repeat(150_000),
+      notes: 'n'.repeat(20_000),
+    });
+    assert.equal(job.descriptionText.length, 100_000);
+    assert.equal(job.company.length, 300);
+    assert.equal(job.title.length, 300);
+    assert.equal(job.notes?.length, 10_000);
+  } finally {
+    process.chdir(originalCwd);
+    await resetJobStoreForTests();
+    await rm(tempDir, { recursive: true, force: true });
+  }
+});

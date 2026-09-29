@@ -8,6 +8,7 @@ import {
 } from '@/data/job-store';
 import { requireUser } from '@/lib/auth';
 import { parsePageParams } from '@/lib/pagination';
+import { isTooLong, JOB_FIELD_MAX, JOB_NOTE_MAX, STORED_TEXT_MAX, TOO_LONG_MESSAGE } from '@/lib/input-caps';
 import type {
   CreateJobBody,
   JobLiveness,
@@ -68,6 +69,9 @@ jobsRouter.post('/', async (request, response, next) => {
     if (!userId) return;
 
     const body = request.body as Partial<CreateJobBody>;
+    if (isTooLong(body.descriptionText, STORED_TEXT_MAX)) {
+      return response.status(413).json({ error: TOO_LONG_MESSAGE });
+    }
     const errors: Record<string, string> = {};
     const existingJobs = await listJobs(userId);
     const normalizedJobUrl = body.jobUrl?.trim();
@@ -80,6 +84,17 @@ jobsRouter.post('/', async (request, response, next) => {
     }
     if (!body.descriptionText?.trim()) {
       errors.descriptionText = 'Job description is required.';
+    }
+    if (isTooLong(body.company, JOB_FIELD_MAX)) {
+      errors.company = `Company must be ${JOB_FIELD_MAX} characters or fewer.`;
+    }
+    if (isTooLong(body.title, JOB_FIELD_MAX)) {
+      errors.title = `Job title must be ${JOB_FIELD_MAX} characters or fewer.`;
+    }
+    for (const field of ['notes', 'nextAction'] as const) {
+      if (isTooLong(body[field], JOB_NOTE_MAX)) {
+        errors[field] = `Must be ${JOB_NOTE_MAX.toLocaleString('en-US')} characters or fewer.`;
+      }
     }
     if (normalizedJobUrl && !isValidUrl(normalizedJobUrl)) {
       errors.jobUrl = 'Job URL must be a valid URL.';
@@ -203,6 +218,11 @@ jobsRouter.patch('/:id', async (request, response, next) => {
   }
   if (body.nextActionDue && Number.isNaN(Date.parse(body.nextActionDue))) {
     errors.nextActionDue = 'Next action due must be a valid date.';
+  }
+  for (const field of ['notes', 'nextAction'] as const) {
+    if (isTooLong(body[field], JOB_NOTE_MAX)) {
+      errors[field] = `Must be ${JOB_NOTE_MAX.toLocaleString('en-US')} characters or fewer.`;
+    }
   }
 
   if (Object.keys(errors).length > 0) {

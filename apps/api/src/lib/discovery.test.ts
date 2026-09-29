@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import type { CreateJobBody, JobRecord, SavedSearch, TargetCompany } from '@/types';
 import { runDiscoveryForUser, type DiscoveryDeps } from './discovery';
+import { BUDGET_SPENT } from '@/lib/budget';
 import type { SourcedJob } from '@/lib/job-sources/normalize';
 
 const SEARCH: SavedSearch = {
@@ -525,9 +526,9 @@ test('sequential scoring runs AI score when budget is available and saves sub-si
   );
 
   const budgetCalls: Array<{ userId: string; op: string }> = [];
-  deps.reserveBudget = async (userId, op) => {
+  deps.runBudgeted = async (userId, op, run) => {
     budgetCalls.push({ userId, op });
-    return true;
+    return run();
   };
 
   const scoringCalls: Array<{ title?: string | null }> = [];
@@ -585,9 +586,9 @@ test('sequential scoring falls back to local-prerank when budget is exhausted', 
   );
 
   let callCount = 0;
-  deps.reserveBudget = async () => {
+  deps.runBudgeted = async (_userId, _op, run) => {
     callCount += 1;
-    return callCount === 1; // 1st job succeeds, 2nd job is rejected due to budget limit
+    return callCount === 1 ? run() : BUDGET_SPENT; // 1st job succeeds, 2nd job is rejected due to budget limit
   };
 
   deps.resolveFitScore = async () => ({
@@ -624,7 +625,7 @@ test('sequential scoring falls back to local-prerank when resolveFitScore throws
     [],
   );
 
-  deps.reserveBudget = async () => true;
+  deps.runBudgeted = async (_userId, _op, run) => run();
   deps.resolveFitScore = async () => {
     throw new Error('agent container timeout');
   };
@@ -646,7 +647,7 @@ test('sequential scoring falls back to local-prerank when resolveFitScore hangs 
       [],
     );
 
-    deps.reserveBudget = async () => true;
+    deps.runBudgeted = async (_userId, _op, run) => run();
     deps.resolveFitScore = async () => {
       // Hang indefinitely until test timeout if not bounded by discovery timeout
       await new Promise((resolve) => setTimeout(resolve, 500));
@@ -690,7 +691,7 @@ test('sequential scoring skips AI scoring entirely when sweep AI scoring budget 
     );
 
     let calledAi = false;
-    deps.reserveBudget = async () => true;
+    deps.runBudgeted = async (_userId, _op, run) => run();
     deps.resolveFitScore = async () => {
       calledAi = true;
       throw new Error('should not be called');

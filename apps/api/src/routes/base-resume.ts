@@ -7,8 +7,6 @@ import {
 } from '@/data/resume-version-store';
 import { resolveResumeParse } from '@/lib/agent-client';
 import { requireUser } from '@/lib/auth';
-import { enforceDailyBudget } from '@/lib/budget';
-import { strictLimiter } from '@/lib/rate-limit';
 import type { ResumeVersionRecord, StructuredResume } from '@/types';
 
 export const baseResumeRouter = Router();
@@ -105,7 +103,7 @@ baseResumeRouter.put('/', async (request, response, next) => {
 });
 
 /**
- * POST /api/profile/parse-resume
+ * POST /api/profile/base-resume/parse-resume
  *
  * Parse the user's stored resume text into a StructuredResume.
  * Uses the AI agent when available, deterministic mock otherwise.
@@ -116,10 +114,9 @@ baseResumeRouter.put('/', async (request, response, next) => {
  * Accepts an optional `resume_text` in the body; if absent, reads
  * the stored resume from the user's profile.
  */
+// The strict limiter and the AI budget are mounted in app.ts (route inventory, #345).
 baseResumeRouter.post(
   '/parse-resume',
-  strictLimiter,
-  enforceDailyBudget,
   async (request, response, next) => {
   try {
     const userId = requireUser(request, response);

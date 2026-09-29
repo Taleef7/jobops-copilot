@@ -4,6 +4,7 @@ import { attachUserId, clerkAuth } from '@/lib/auth';
 import { safeEqual } from '@/lib/safe-equal';
 import { globalLimiter, strictLimiter } from '@/lib/rate-limit';
 import { enforceDailyBudget } from '@/lib/budget';
+import { AiBudgetExceededError } from '@/lib/ai-call-context';
 import { aiRouter } from '@/routes/ai';
 import { assistantStreamRouter } from '@/routes/assistant';
 import { assistantChatRouter } from '@/routes/assistant-chat';
@@ -64,7 +65,9 @@ function requireSharedApiKey(
 }
 
 export interface AppDependencies {
+  /** The strict per-user limiter for AI and other expensive routes (injectable for tests). */
   runLimiter?: express.RequestHandler;
+  /** The daily AI budget guard (injectable for tests). */
   runBudget?: express.RequestHandler;
 }
 
@@ -94,24 +97,26 @@ export function createApp(dependencies: AppDependencies = {}) {
   app.use('/api', healthRouter);
   // The extract endpoint makes an outbound fetch per call, so it gets the strict
   // limiter (like AI/discovery) — scoped to /extract only, not the jobs CRUD.
-  app.use('/api/jobs/extract', strictLimiter, jobExtractRouter);
+  app.use('/api/jobs/extract', runLimiter, jobExtractRouter);
   app.use('/api/jobs', agentOutputsRouter);
   app.use('/api/jobs', jobsRouter);
   app.use('/api/feed', feedRouter);
   // SSE assistant stream: mounted at the exact path (before the AI router) so it pipes
   // unbuffered and doesn't double-apply the AI guards to /assistant/run|resume.
-  app.use('/api/ai/assistant/stream', strictLimiter, enforceDailyBudget, assistantStreamRouter);
+  app.use('/api/ai/assistant/stream', runLimiter, runBudget, assistantStreamRouter);
   // Conversational chat for the global widget — also an exact-path SSE passthrough
   // mounted before the AI router so the guards aren't double-applied (Phase 5).
-  app.use('/api/ai/assistant/chat', strictLimiter, enforceDailyBudget, assistantChatRouter);
+  app.use('/api/ai/assistant/chat', runLimiter, runBudget, assistantChatRouter);
   // Stricter per-user limit on the expensive AI + discovery routes; the AI routes
-  // additionally enforce the per-user daily spend ceiling (discovery has no LLM cost).
-  app.use('/api/ai', strictLimiter, enforceDailyBudget, aiRouter);
+  // additionally enforce the per-user daily spend ceiling. Discovery scores jobs with the
+  // LLM too, but reserves budget per scored job itself (lib/discovery.ts).
+  app.use('/api/ai', runLimiter, runBudget, aiRouter);
   // Generic specialist streams/resumes are charged independently from config reads/writes.
   // Keep the guards path-aware because this mount shares the /api/agents prefix with the
   // config router below; config GET/PUT must not consume a run budget.
   app.use('/api/agents', (request, response, next) => {
-    const normalizedPath = request.path.replace(/\/+$/, '');
+    // Express matches routes case-insensitively, so /STREAM reaches the same handler.
+    const normalizedPath = request.path.replace(/\/+$/, '').toLowerCase();
     if (!normalizedPath.endsWith('/stream') && !normalizedPath.endsWith('/resume')) {
       next();
       return;
@@ -127,6 +132,9 @@ export function createApp(dependencies: AppDependencies = {}) {
   // Per-agent model configuration (read + hot-swap). Later parity tickets mount the agent
   // stream/resume proxy on the same prefix under distinct sub-paths.
   app.use('/api/agents', agentConfigRouter);
+  // Résumé parsing calls the LLM; rendering a PDF is CPU on the event loop plus a blob write.
+  app.post('/api/profile/base-resume/parse-resume', runLimiter, runBudget);
+  app.post('/api/profile/base-resume/render-pdf', runLimiter);
   app.use('/api/profile/base-resume', baseResumeRouter);
   app.use('/api/profile', profileRouter);
   app.use('/api', resumeStudioRouter);
@@ -135,13 +143,17 @@ export function createApp(dependencies: AppDependencies = {}) {
   app.use('/api/reports', reportsRouter);
   // Telemetry stays strictly rate-limited. Its router reserves AI budget only immediately
   // before a configured agent call, preserving the zero-cost local fallback.
-  app.use('/api/telemetry', strictLimiter, telemetryRouter);
-  app.use('/api/discovery', strictLimiter, discoveryRouter);
+  app.use('/api/telemetry', runLimiter, telemetryRouter);
+  app.use('/api/discovery', runLimiter, discoveryRouter);
   app.use('/api/saved-searches', savedSearchesRouter);
   app.use('/api/target-companies', targetCompaniesRouter);
   app.use('/api/answers', answersRouter);
   app.use('/api', applicationPackRouter);
+  // Drafting outreach for a contact calls the LLM (#345).
+  app.post('/api/contacts/:id/draft-outreach', runLimiter, runBudget);
   app.use('/api', contactsRouter);
+  // A test notification sends real email/Telegram; B04 removes notifications.
+  app.post('/api/notifications/test', runLimiter);
   app.use('/api', notificationsRouter);
   app.use('/api', pushRouter);
   // Mounted before '/api/n8n' so this more specific path wins; it inherits the
@@ -155,6 +167,10 @@ export function createApp(dependencies: AppDependencies = {}) {
   });
 
   app.use((error: unknown, _request: express.Request, response: express.Response, next: express.NextFunction) => {
+    if (error instanceof AiBudgetExceededError) {
+      response.status(429).json({ error: 'Daily AI budget reached' });
+      return;
+    }
     console.error(error);
     response.status(500).json({
       error: 'Internal server error',

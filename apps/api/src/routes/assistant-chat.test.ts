@@ -54,7 +54,7 @@ async function withServer(
   run: (baseUrl: string) => Promise<void>,
 ) {
   const app = express();
-  app.use(express.json());
+  app.use(express.json({ limit: '5mb' })); // as in app.ts
   app.use((request, _response, next) => {
     const header = request.header('X-User-Id');
     if (header) request.userId = header.trim();
@@ -204,4 +204,35 @@ test('returns 502 when the upstream is unavailable', async () => {
     });
     assert.equal(res.status, 503);
   });
+});
+
+test('the chat history sent to the agent is bounded: the last 20 messages, 4,000 characters each (#345)', async () => {
+  let sent: { messages: Array<{ role: string; content: string }> } | undefined;
+  const router = createAssistantChatRouter({
+    openUpstream: async (payload) => {
+      sent = payload as typeof sent;
+      return new Response(sseStream(['data: {"type":"done"}\n\n']), {
+        status: 200,
+        headers: { 'Content-Type': 'text/event-stream' },
+      });
+    },
+    getJob: async () => undefined,
+  });
+  const messages = Array.from({ length: 30 }, (_, i) => ({
+    role: i % 2 === 0 ? 'user' : 'assistant',
+    content: `${i}:`.padEnd(50_000, 'x'),
+  }));
+  await withServer(router, async (baseUrl) => {
+    const response = await fetch(`${baseUrl}/chat`, {
+      method: 'POST',
+      headers: { 'X-User-Id': 'u1', 'Content-Type': 'application/json' },
+      body: JSON.stringify({ messages }),
+    });
+    assert.equal(response.status, 200);
+    await response.text();
+  });
+  assert.ok(sent);
+  assert.equal(sent.messages.length, 20);
+  assert.ok(sent.messages[0]!.content.startsWith('10:'), 'keeps the most recent messages');
+  assert.ok(sent.messages.every((m) => m.content.length <= 4_000));
 });

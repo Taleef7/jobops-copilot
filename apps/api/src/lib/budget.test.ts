@@ -2,7 +2,8 @@ import assert from 'node:assert/strict';
 import http from 'node:http';
 import { afterEach, test } from 'node:test';
 import express from 'express';
-import { createDailyBudgetGuard } from './budget';
+import { beforeAgentCall } from './ai-call-context';
+import { BUDGET_SPENT, createDailyBudgetGuard, runWithAiBudget } from './budget';
 
 const original = process.env.AI_DAILY_BUDGET_USD;
 afterEach(() => {
@@ -17,7 +18,7 @@ async function withGuard(allowed: boolean, run: (baseUrl: string) => Promise<voi
     next();
   });
   // Inject the reservation result so the test is independent of the store.
-  app.use(createDailyBudgetGuard({ reserve: async () => ({ allowed, costUsd: 0 }) }));
+  app.use(createDailyBudgetGuard({ reserve: async () => ({ allowed, costUsd: 0 }), adjust: async () => undefined }));
   app.get('/x', (_request, response) => response.json({ ok: true }));
 
   const server = http.createServer(app);
@@ -48,4 +49,157 @@ test('allows the request when the reservation succeeds', async () => {
     assert.equal(response.status, 200);
     assert.deepEqual(await response.json(), { ok: true });
   });
+});
+
+// #345: the guard reserves a flat estimate up front. Before each paid call the agent client
+// reserves whatever a large input costs on top, atomically against the ceiling, and the
+// request is refused if it doesn't fit. A request that never reached the agent is refunded.
+async function withSettlingGuard(
+  run: (
+    baseUrl: string,
+    log: { reserves: Array<[number, number]>; adjustments: Array<[string, number, number]> },
+  ) => Promise<void>,
+  { denyExtras = false } = {},
+) {
+  const log = { reserves: [] as Array<[number, number]>, adjustments: [] as Array<[string, number, number]> };
+  const app = express();
+  app.use((request, _response, next) => {
+    request.userId = 'u_settle';
+    next();
+  });
+  app.use(
+    createDailyBudgetGuard({
+      reserve: async (_userId, _ceiling, costUsd, calls = 1) => {
+        log.reserves.push([costUsd, calls]);
+        return { allowed: !(denyExtras && calls === 0), costUsd };
+      },
+      adjust: async (userId, deltaUsd, deltaCalls) => {
+        log.adjustments.push([userId, deltaUsd, deltaCalls]);
+      },
+    }),
+  );
+  const agentRoute = (chars: number): express.RequestHandler => async (_request, response) => {
+    try {
+      await beforeAgentCall(chars);
+      response.json({ ok: true });
+    } catch (error) {
+      response.status(429).json({ error: (error as Error).name });
+    }
+  };
+  app.post('/invalid', (_request, response) => response.status(400).json({ error: 'job_id is required' }));
+  app.post('/small', agentRoute(2_000));
+  app.post('/large', agentRoute(400_000));
+  // The client goes away before the handler calls the agent; the handler carries on.
+  app.post('/aborted', async (request, response) => {
+    request.socket.destroy();
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    await beforeAgentCall(2_000);
+    void response;
+  });
+  const server = http.createServer(app);
+  await new Promise<void>((resolve) => server.listen(0, resolve));
+  const address = server.address();
+  if (!address || typeof address === 'string') throw new Error('no server address');
+  try {
+    await run(`http://127.0.0.1:${address.port}`, log);
+  } finally {
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+  }
+}
+
+const settled = () => new Promise((resolve) => setTimeout(resolve, 50));
+
+test('a request that never reaches the agent is refunded', async () => {
+  await withSettlingGuard(async (baseUrl, log) => {
+    assert.equal((await fetch(`${baseUrl}/invalid`, { method: 'POST' })).status, 400);
+    await settled();
+    assert.deepEqual(log.adjustments, [['u_settle', -0.01, -1]]);
+  });
+});
+
+test('a small agent call needs nothing extra; a large one reserves the rest before the call', async () => {
+  await withSettlingGuard(async (baseUrl, log) => {
+    assert.equal((await fetch(`${baseUrl}/small`, { method: 'POST' })).status, 200);
+    assert.equal((await fetch(`${baseUrl}/large`, { method: 'POST' })).status, 200);
+    await settled();
+    assert.equal(log.adjustments.length, 0);
+    // Two flat reservations (one per request), then one extra for the large input, counted as no new call.
+    assert.equal(log.reserves.length, 3);
+    const [extraUsd, extraCalls] = log.reserves[2]!;
+    assert.ok(extraUsd > 0, `expected an extra reservation, got ${extraUsd}`);
+    assert.equal(extraCalls, 0);
+  });
+});
+
+test('a large input that would pass the ceiling is refused before the agent call', async () => {
+  await withSettlingGuard(
+    async (baseUrl, log) => {
+      const response = await fetch(`${baseUrl}/large`, { method: 'POST' });
+      assert.equal(response.status, 429);
+      assert.deepEqual(await response.json(), { error: 'AiBudgetExceededError' });
+      await settled();
+      // The agent was never reached, so the flat reservation is refunded too.
+      assert.deepEqual(log.adjustments, [['u_settle', -0.01, -1]]);
+    },
+    { denyExtras: true },
+  );
+});
+
+test('a request whose client disconnects keeps its reservation (no free agent calls)', async () => {
+  await withSettlingGuard(async (baseUrl, log) => {
+    await fetch(`${baseUrl}/aborted`, { method: 'POST' }).catch(() => undefined);
+    await settled();
+    assert.equal(log.adjustments.length, 0);
+  });
+});
+
+// #345: calls outside the budget middleware (discovery, n8n) get the same treatment.
+function fakeStore({ allowFlat = true, allowExtras = true } = {}) {
+  const log = { reserves: [] as Array<[number, number]>, adjustments: [] as Array<[number, number]> };
+  return {
+    log,
+    deps: {
+      reserve: async (_userId: string, _ceiling: number, costUsd: number, calls = 1) => {
+        log.reserves.push([costUsd, calls]);
+        return { allowed: calls === 0 ? allowExtras : allowFlat, costUsd };
+      },
+      adjust: async (_userId: string, deltaUsd: number, deltaCalls: number) => {
+        log.adjustments.push([deltaUsd, deltaCalls]);
+      },
+    },
+  };
+}
+
+test('runWithAiBudget runs the call, reserving a large input before it reaches the agent', async () => {
+  const store = fakeStore();
+  const result = await runWithAiBudget('u', 'score', async () => {
+    await beforeAgentCall(400_000);
+    return 'scored';
+  }, store.deps);
+  assert.equal(result, 'scored');
+  assert.equal(store.log.reserves.length, 2);
+  assert.deepEqual(store.log.reserves[0], [0.01, 1]);
+  assert.equal(store.log.reserves[1]![1], 0);
+  assert.deepEqual(store.log.adjustments, []);
+});
+
+test('runWithAiBudget refunds a call that never reached the agent', async () => {
+  const store = fakeStore();
+  assert.equal(await runWithAiBudget('u', 'score', async () => 'local fallback', store.deps), 'local fallback');
+  assert.deepEqual(store.log.adjustments, [[-0.01, -1]]);
+});
+
+test('runWithAiBudget reports a spent budget without running, or when a large input does not fit', async () => {
+  let ran = false;
+  const spent = fakeStore({ allowFlat: false });
+  assert.equal(await runWithAiBudget('u', 'score', async () => { ran = true; }, spent.deps), BUDGET_SPENT);
+  assert.equal(ran, false);
+
+  const tight = fakeStore({ allowExtras: false });
+  const result = await runWithAiBudget('u', 'score', async () => {
+    await beforeAgentCall(400_000);
+    return 'scored';
+  }, tight.deps);
+  assert.equal(result, BUDGET_SPENT);
+  assert.deepEqual(tight.log.adjustments, [[-0.01, -1]], 'the agent was never reached, so the flat reservation is refunded');
 });

@@ -24,6 +24,9 @@ const defaultDeps: AssistantChatDeps = {
 
 /** Cap how much of the (untrusted) job description we feed as context. */
 const DESCRIPTION_LIMIT = 1500;
+/** The chat history sent to the LLM: the most recent messages, each cut to a length (#345). */
+const HISTORY_MESSAGES = 20;
+const MESSAGE_CHARS = 4_000;
 
 /**
  * Build a compact, plain-text context block for the job the user is viewing.
@@ -106,7 +109,9 @@ export function createAssistantChatRouter(deps: AssistantChatDeps = defaultDeps)
     let upstream: UpstreamStream;
     try {
       upstream = await deps.openUpstream({
-        messages: body.messages,
+        messages: body.messages
+          .slice(-HISTORY_MESSAGES)
+          .map((message) => ({ ...message, content: message.content.slice(0, MESSAGE_CHARS) })),
         context,
         user_id: userId,
         job_id: jobId,
