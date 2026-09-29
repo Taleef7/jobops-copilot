@@ -174,7 +174,12 @@ horizontally. Tab content keeps its state when switching tabs.
 
 ## Data model sketch
 
-All user-owned tables carry `user_id` (the Clerk user id), and every query filters on it.
+All user-owned tables carry a non-null `user_id` (the Clerk user id), including
+job-scoped tables, and every query filters on it directly, not only through
+`job_id`. Today `outreach` has no `user_id` (it is scoped through `jobs`) and
+`resume_versions.user_id` is nullable. Both are fixed by a forward migration that
+backfills from `jobs`, landing with the first issue that migrates those tables
+(C2 for `outreach`).
 
 | Table | Purpose | Key fields |
 | --- | --- | --- |
@@ -183,9 +188,9 @@ All user-owned tables carry `user_id` (the Clerk user id), and every query filte
 | `preferences` | Inputs to the fit read and answers | `user_id`, `target_roles[]`, `salary_floor`, `currency`, `needs_sponsorship`, `work_auth` (jsonb per country), `relocation`, `locations[]`, `remote_pref`, `eeo` (jsonb, optional) |
 | `jobs` | One row per posting | `id`, `user_id`, `title`, `company`, `location`, `job_url`, `canonical_url`, `description`, `source` (manual / url / discovery), `status`, `next_action`, `next_action_due`, `notes`, `applied_at`, `dismissed_at` |
 | job analysis | AI output per job: the fit read, with verdict, reasons and `based_on` (on the job row or a table, decided in C6/E1) | `verdict`, `reasons`, `sub_signals` (nullable = unknown), `based_on`, `model`, `created_at` |
-| `agent_outputs` | Prep and apply-pack outputs per job | `job_id`, `kind` (interview_prep / research / application_pack), `payload`, `model`, `created_at` |
-| `outreach` | Message drafts, cover letters and the sent log | `job_id`, `contact_id`, `message_type` (incl. `cover_letter`), `status` (draft / sent / skipped), `sent_at`, `channel` |
-| `job_contacts` | People the user added by hand | `job_id`, `name`, `role`, `link`, `note` |
+| `agent_outputs` | Prep and apply-pack outputs per job | `user_id`, `job_id`, `kind` (interview_prep / research / application_pack), `payload`, `model`, `created_at` |
+| `outreach` | Message drafts, cover letters and the sent log | `user_id`, `job_id`, `contact_id`, `message_type` (incl. `cover_letter`), `status` (draft / sent / skipped), `sent_at`, `channel` |
+| `job_contacts` | People the user added by hand | `user_id`, `job_id`, `name`, `role`, `link`, `note` |
 | `application_answers` | Saved answers to recurring questions (user-level) | `user_id`, `question_hash`, `question`, `answer`, `category` |
 | `saved_searches` | Discovery queries | `user_id`, `query`, `location`, `remote_only`, `last_run_at` |
 | `target_companies` | ATS boards to watch | `user_id`, `company`, `board_type`, `board_token`, `enabled`, `last_run_at` |
