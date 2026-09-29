@@ -4,7 +4,6 @@ import { useState } from 'react';
 import {
   AlertCircle,
   Briefcase,
-  CheckCircle2,
   Copy,
   FileText,
   Loader2,
@@ -24,6 +23,15 @@ import { Label } from '@/components/ui/label';
 import { generateJobApplicationPack, saveApplicationAnswer } from '@/lib/api';
 import type { ApplicationPackPayload, ApplicationPackQuestionAnswer } from '@/types/job';
 
+/** Answers offered for review (e.g. reused for an unknown country), used to pre-fill the inputs. */
+function suggestedAnswers(pack: ApplicationPackPayload | null): Record<string, string> {
+  const inputs: Record<string, string> = {};
+  for (const qa of pack?.answers ?? []) {
+    if ((qa.needsReview || qa.flagged) && qa.answer.trim()) inputs[qa.questionText] = qa.answer;
+  }
+  return inputs;
+}
+
 interface ApplicationPackViewProps {
   jobId: string;
   company: string;
@@ -39,7 +47,7 @@ export function ApplicationPackView({
 }: ApplicationPackViewProps) {
   const [pack, setPack] = useState<ApplicationPackPayload | null>(initialPack);
   const [isGenerating, setIsGenerating] = useState(false);
-  const [flaggedInputs, setFlaggedInputs] = useState<Record<string, string>>({});
+  const [flaggedInputs, setFlaggedInputs] = useState<Record<string, string>>(() => suggestedAnswers(initialPack));
   const [savingQuestion, setSavingQuestion] = useState<string | null>(null);
 
   async function handleGeneratePack() {
@@ -47,7 +55,8 @@ export function ApplicationPackView({
     try {
       const generated = await generateJobApplicationPack(jobId);
       setPack(generated);
-      toast.success('Application pack assembled successfully!');
+      setFlaggedInputs(suggestedAnswers(generated));
+      toast.success('Application pack assembled.');
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : 'Failed to generate application pack.';
       toast.error(msg);
@@ -87,7 +96,9 @@ export function ApplicationPackView({
               ...ans,
               answer: inputVal,
               source: 'qa_memory',
+              needsReview: false,
               flagged: false,
+              note: 'Your saved answer.',
             };
           }
           return ans;
@@ -102,7 +113,7 @@ export function ApplicationPackView({
         });
       }
 
-      toast.success('Saved to Q&A memory! Pre-filled for this and future applications.');
+      toast.success('Answer saved. It will be reused for this question on future jobs.');
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : 'Failed to save answer.';
       toast.error(msg);
@@ -118,10 +129,10 @@ export function ApplicationPackView({
           <Briefcase className="size-7" />
         </div>
         <div className="max-w-md space-y-1.5">
-          <h3 className="font-heading text-lg font-semibold">Assemble your Application Pack</h3>
+          <h3 className="font-heading text-lg font-semibold">Assemble your application pack</h3>
           <p className="text-muted-foreground text-sm">
-            Pre-flight bundle with your tailored ATS resume, cover letter, verified contact fields,
-            and copy-ready answers to ATS questions for {company}.
+            Your contact details, tailored résumé, cover letter and answers to common application
+            questions for {company}. Legal and salary questions are only filled from answers you saved.
           </p>
         </div>
         <Button
@@ -137,7 +148,7 @@ export function ApplicationPackView({
           ) : (
             <>
               <Sparkles className="size-4" />
-              Generate Application Pack
+              Generate application pack
             </>
           )}
         </Button>
@@ -154,18 +165,15 @@ export function ApplicationPackView({
       <Card className="flex flex-wrap items-center justify-between gap-4 p-5">
         <div className="space-y-1">
           <div className="flex flex-wrap items-center gap-2">
-            <h3 className="font-heading text-base font-semibold">Application Pack</h3>
-            <Badge variant="outline" className="border-emerald-500/30 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400">
-              <CheckCircle2 className="mr-1 size-3" /> Ready for autofill
-            </Badge>
+            <h3 className="font-heading text-base font-semibold">Application pack</h3>
             {flaggedCount > 0 ? (
               <Badge variant="destructive" className="gap-1">
-                <AlertCircle className="size-3" /> {flaggedCount} flagged for review
+                <AlertCircle className="size-3" /> {flaggedCount} {flaggedCount === 1 ? 'needs' : 'need'} your answer
               </Badge>
             ) : null}
           </div>
           <p className="text-muted-foreground text-xs">
-            {answersCount} ATS answers prepared · Ready for manual copying or 1-click Chrome Extension autofill
+            {answersCount} questions. Copy each answer into the application form yourself.
           </p>
         </div>
         <Button
@@ -187,28 +195,35 @@ export function ApplicationPackView({
             <AlertCircle className="text-amber-600 dark:text-amber-400 mt-0.5 size-5 shrink-0" />
             <div className="space-y-1">
               <h4 className="text-sm font-semibold text-amber-900 dark:text-amber-200">
-                Action Required: Answer ungrounded questions
+                Answer these before you apply
               </h4>
               <p className="text-muted-foreground text-xs">
-                Answers you provide below will be permanently remembered in your Q&A memory and automatically pre-filled on future jobs.
+                Legal and salary questions are never filled in for you. A saved answer is reused for the
+                same question on future jobs.
               </p>
             </div>
           </div>
 
           <div className="space-y-3 pt-2">
-            {pack.flaggedQuestions.map((question) => {
+            {pack.flaggedQuestions.map((question, index) => {
               const currentInput = flaggedInputs[question] ?? '';
               const isSaving = savingQuestion === question;
+              const note = pack.answers.find((a) => a.questionText === question)?.note;
+              const inputId = `flagged-answer-${index}`;
               return (
                 <div key={question} className="bg-background/80 space-y-2 rounded-lg border p-4">
-                  <Label className="text-sm font-medium">{question}</Label>
+                  <Label htmlFor={inputId} className="text-sm font-medium">
+                    {question}
+                  </Label>
+                  {note ? <p className="text-muted-foreground text-xs">{note}</p> : null}
                   <div className="flex flex-col gap-2 sm:flex-row">
                     <Input
+                      id={inputId}
                       value={currentInput}
                       onChange={(e) =>
                         setFlaggedInputs((prev) => ({ ...prev, [question]: e.target.value }))
                       }
-                      placeholder="e.g. $165,000 USD base or competitive with market rate"
+                      placeholder="Your answer"
                       className="flex-1 text-sm"
                     />
                     <Button
@@ -218,7 +233,7 @@ export function ApplicationPackView({
                       className="shrink-0 gap-1.5"
                     >
                       {isSaving ? <Loader2 className="size-3.5 animate-spin" /> : null}
-                      Save to Q&A memory
+                      Save answer
                     </Button>
                   </div>
                 </div>
@@ -229,11 +244,11 @@ export function ApplicationPackView({
       ) : null}
 
       {/* Contact Block */}
-      {pack.contactBlock ? (
+      {pack.contactBlock && Object.values(pack.contactBlock).some(Boolean) ? (
         <Card className="space-y-4 p-5">
           <div className="flex items-center justify-between">
-            <h4 className="font-heading text-sm font-semibold">Verified Contact Block</h4>
-            <Badge variant="secondary">Autofill verified</Badge>
+            <h4 className="font-heading text-sm font-semibold">Contact details</h4>
+            <span className="text-muted-foreground text-xs">From your résumé</span>
           </div>
           <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
             {pack.contactBlock.name ? (
@@ -327,14 +342,23 @@ export function ApplicationPackView({
             ) : null}
           </div>
         </Card>
-      ) : null}
+      ) : (
+        <Card className="space-y-1 p-5">
+          <h4 className="font-heading text-sm font-semibold">Contact details</h4>
+          <p className="text-muted-foreground text-sm">
+            None yet. Add your résumé in Settings and your name, email, phone and links appear here.
+          </p>
+        </Card>
+      )}
 
-      {/* Copy-Ready ATS Answers */}
+      {/* Answers */}
       <div className="space-y-4">
-        <h4 className="font-heading text-sm font-semibold">Copy-Ready ATS Answers ({answersCount})</h4>
+        <h4 className="font-heading text-sm font-semibold">Answers ({answersCount})</h4>
         <div className="space-y-3">
           {pack.answers.map((qa) => {
-            const isFlagged = qa.flagged || (pack.flaggedQuestions || []).includes(qa.questionText);
+            const isFlagged =
+              qa.needsReview || qa.flagged || (pack.flaggedQuestions || []).includes(qa.questionText);
+            const hasAnswer = qa.answer.trim().length > 0;
             return (
               <Card key={qa.questionHash} className="space-y-3 p-4 sm:p-5">
                 <div className="flex flex-wrap items-center justify-between gap-2 border-b pb-2">
@@ -345,32 +369,29 @@ export function ApplicationPackView({
                     <Badge variant="secondary" className="capitalize text-xs">
                       {qa.category.replace('_', ' ')}
                     </Badge>
-                    <Badge
-                      variant="outline"
-                      className={
-                        qa.source === 'qa_memory'
-                          ? 'border-emerald-500/30 text-emerald-600 dark:text-emerald-400'
-                          : 'text-muted-foreground'
-                      }
-                    >
-                      {qa.source === 'qa_memory' ? 'Q&A Memory' : qa.source}
-                    </Badge>
+                    {qa.source === 'qa_memory' ? <Badge variant="outline">Saved answer</Badge> : null}
                     {isFlagged ? (
                       <Badge variant="destructive" className="text-xs">
-                        Flagged
+                        {hasAnswer ? 'Review' : 'Needs your answer'}
                       </Badge>
                     ) : null}
                     <Button
                       variant="outline"
                       size="sm"
                       onClick={() => copyToClipboard(qa.answer, 'Answer')}
+                      disabled={!hasAnswer}
                       className="gap-1.5"
                     >
                       <Copy className="size-3.5" /> Copy answer
                     </Button>
                   </div>
                 </div>
-                <p className="text-sm whitespace-pre-wrap text-foreground/90">{qa.answer}</p>
+                {hasAnswer ? (
+                  <p className="text-sm whitespace-pre-wrap text-foreground/90">{qa.answer}</p>
+                ) : (
+                  <p className="text-muted-foreground text-sm italic">Not answered yet</p>
+                )}
+                {qa.note ? <p className="text-muted-foreground text-xs">{qa.note}</p> : null}
               </Card>
             );
           })}

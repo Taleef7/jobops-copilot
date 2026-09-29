@@ -274,7 +274,12 @@ export interface ApplicationPackQuestionAnswer {
   answer: string;
   category: 'work_authorization' | 'salary' | 'why_us' | 'behavioral' | 'custom';
   source: 'qa_memory' | 'profile' | 'preferences' | 'research' | 'generated' | 'unanswerable';
+  /** True until the user has answered or confirmed this question. Missing on packs built before #343. */
+  needsReview?: boolean;
+  /** Alias of `needsReview`, kept for packs built before #343. */
   flagged?: boolean;
+  /** One short line explaining where the answer came from, or why it is blank. */
+  note?: string;
 }
 
 export interface ApplicationPackPayload {

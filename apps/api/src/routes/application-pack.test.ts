@@ -10,7 +10,7 @@ import { _resetApplicationAnswerStoreForTests, upsertApplicationAnswer } from '@
 import { createJob, resetJobStoreForTests } from '@/data/job-store';
 import { upsertUserProfile } from '@/data/profile-store';
 import { insertResumeVersion, resetResumeVersionStore } from '@/data/resume-version-store';
-import type { ApplicationPackPayload, StructuredResume } from '@/types';
+import type { ApplicationPackPayload, ApplicationPackQuestionAnswer, CreateJobBody, StructuredResume } from '@/types';
 
 async function withServer(run: (baseUrl: string) => Promise<void>) {
   const app = createApp();
@@ -57,47 +57,173 @@ const sampleResume: StructuredResume = {
       highlights: ['Architected multi-region Kubernetes platform saving $1.2M annually'],
     },
   ],
-  education: [
-    {
-      institution: 'University of Washington',
-      studyType: 'B.S.',
-      area: 'Computer Science',
-    },
-  ],
-  skills: [
-    { category: 'Cloud & DevOps', skills: ['Kubernetes', 'Terraform', 'AWS', 'Go'] },
-  ],
+  education: [{ institution: 'University of Washington', studyType: 'B.S.', area: 'Computer Science' }],
+  skills: [{ category: 'Cloud & DevOps', skills: ['Kubernetes', 'Terraform', 'AWS', 'Go'] }],
 };
 
-test('POST and GET /api/jobs/:id/application-pack lifecycle', async () => {
+const US_AUTH = 'Are you legally authorized to work in the United States?';
+const US_SPONSOR = 'Will you now or in the future require visa sponsorship to work in the United States?';
+const UK_AUTH = 'Are you legally authorized to work in the United Kingdom?';
+const EXPECTED_SALARY = 'What are your salary expectations for this role?';
+
+/** Runs `body` against a fresh file-backed store with the sample résumé on file. */
+async function withFreshStores(body: () => Promise<void>) {
   const originalCwd = process.cwd();
   delete process.env.DATABASE_URL;
   const tempDir = await mkdtemp(join(tmpdir(), 'jobops-app-pack-test-'));
-
   try {
     process.chdir(tempDir);
     resetJobStoreForTests();
     resetAgentOutputStoreForTests();
     await _resetApplicationAnswerStoreForTests([]);
     await resetResumeVersionStore();
-
-    // 1. Seed user profile with base resume
     await upsertUserProfile(USER, { baseResume: sampleResume });
+    await body();
+  } finally {
+    process.chdir(originalCwd);
+    resetJobStoreForTests();
+    resetAgentOutputStoreForTests();
+    await _resetApplicationAnswerStoreForTests([]);
+    await resetResumeVersionStore();
+    await rm(tempDir, { recursive: true, force: true });
+  }
+}
 
-    // 2. Seed a job for this user
+async function generatePack(jobBody: Omit<CreateJobBody, 'descriptionText'> & { descriptionText?: string }) {
+  const job = await createJob(USER, { descriptionText: 'Backend engineering role.', ...jobBody });
+  let result: { pack: ApplicationPackPayload; modelUsed: string; jobId: string } | undefined;
+  await withServer(async (baseUrl) => {
+    const res = await fetch(`${baseUrl}/api/jobs/${job.id}/application-pack`, { method: 'POST', headers: hdrs(USER) });
+    assert.equal(res.status, 201);
+    const data = (await res.json()) as { applicationPack: ApplicationPackPayload; modelUsed: string };
+    result = { pack: data.applicationPack, modelUsed: data.modelUsed, jobId: job.id };
+  });
+  return result!;
+}
+
+function byCategory(pack: ApplicationPackPayload, category: ApplicationPackQuestionAnswer['category']) {
+  return pack.answers.filter((a) => a.category === category);
+}
+
+function assertNeedsAnswer(qa: ApplicationPackQuestionAnswer | undefined, label: string) {
+  assert.ok(qa, `${label}: question missing`);
+  assert.equal(qa.answer, '', `${label}: must be blank, got "${qa.answer}"`);
+  assert.equal(qa.source, 'unanswerable', `${label}: source`);
+  assert.equal(qa.flagged, true, `${label}: flagged`);
+  assert.equal(qa.needsReview, true, `${label}: needsReview`);
+}
+
+test('a new account gets blank, flagged legal, salary and narrative answers; nothing is invented', async () => {
+  await withFreshStores(async () => {
+    const { pack, modelUsed } = await generatePack({
+      company: 'Vaco LLC',
+      title: 'Software Engineer',
+      location: 'Austin, TX',
+      salaryMin: 115991,
+      salaryMax: 115991,
+      descriptionText: 'Python, SQL and .NET.',
+    });
+
+    const [auth, sponsor] = byCategory(pack, 'work_authorization');
+    assert.equal(auth?.questionText, US_AUTH);
+    assert.equal(sponsor?.questionText, US_SPONSOR);
+    assertNeedsAnswer(auth, 'work authorization');
+    assertNeedsAnswer(sponsor, 'sponsorship');
+    // The posted salary is not the user's expectation.
+    assertNeedsAnswer(byCategory(pack, 'salary')[0], 'salary');
+    // No template "why us" and no invented experience claim.
+    assertNeedsAnswer(byCategory(pack, 'why_us')[0], 'why us');
+    assertNeedsAnswer(byCategory(pack, 'behavioral')[0], 'experience');
+
+    for (const qa of pack.answers) {
+      assert.ok(!['profile', 'preferences', 'generated'].includes(qa.source), `unexpected source ${qa.source}`);
+    }
+    assert.deepEqual([...pack.flaggedQuestions].sort(), pack.answers.map((a) => a.questionText).sort());
+    assert.equal(modelUsed, 'template');
+    // The contact block still comes from the résumé the user entered.
+    assert.equal(pack.contactBlock?.name, 'Alex Rivera');
+    assert.equal(pack.contactBlock?.linkedin, 'https://linkedin.com/in/alexrivera');
+  });
+});
+
+test('saved answers are used exactly as the user wrote them', async () => {
+  await withFreshStores(async () => {
+    await upsertApplicationAnswer(USER, { questionText: US_AUTH, answer: 'Yes' });
+    await upsertApplicationAnswer(USER, { questionText: US_SPONSOR, answer: 'Yes, I will need H-1B sponsorship' });
+    await upsertApplicationAnswer(USER, { questionText: EXPECTED_SALARY, answer: '$120,000 base' });
+
+    const { pack } = await generatePack({ company: 'Stripe', title: 'Engineer', location: 'Seattle, WA' });
+    const [auth, sponsor] = byCategory(pack, 'work_authorization');
+    const salary = byCategory(pack, 'salary')[0];
+
+    assert.equal(auth?.answer, 'Yes');
+    assert.equal(sponsor?.answer, 'Yes, I will need H-1B sponsorship');
+    assert.equal(salary?.answer, '$120,000 base');
+    for (const qa of [auth, sponsor, salary]) {
+      assert.equal(qa?.source, 'qa_memory');
+      assert.equal(qa?.flagged, false);
+      assert.equal(qa?.needsReview, false);
+    }
+    assert.ok(!pack.flaggedQuestions.includes(US_AUTH));
+  });
+});
+
+test('a United States answer never answers a United Kingdom question', async () => {
+  await withFreshStores(async () => {
+    await upsertApplicationAnswer(USER, { questionText: US_AUTH, answer: 'Yes' });
+    await upsertApplicationAnswer(USER, { questionText: US_SPONSOR, answer: 'No' });
+
+    const { pack } = await generatePack({ company: 'Palantir', title: 'Backend Engineer', location: 'London, United Kingdom' });
+    const [auth, sponsor] = byCategory(pack, 'work_authorization');
+    assert.equal(auth?.questionText, UK_AUTH);
+    assertNeedsAnswer(auth, 'UK authorization');
+    assertNeedsAnswer(sponsor, 'UK sponsorship');
+  });
+});
+
+test('with no readable country, a single saved country is offered for review, never silently', async () => {
+  await withFreshStores(async () => {
+    await upsertApplicationAnswer(USER, { questionText: US_AUTH, answer: 'Yes' });
+
+    const { pack } = await generatePack({ company: 'Acme', title: 'Engineer', location: 'Remote' });
+    const [auth, sponsor] = byCategory(pack, 'work_authorization');
+    assert.match(auth?.questionText ?? '', /country where this role is based/);
+    assert.equal(auth?.answer, 'Yes');
+    assert.equal(auth?.source, 'qa_memory');
+    assert.equal(auth?.flagged, true, 'a reused answer for an unknown country must be reviewed');
+    assert.equal(auth?.needsReview, true);
+    assert.match(auth?.note ?? '', /United States/);
+    // Nothing was saved for sponsorship, so it stays blank.
+    assertNeedsAnswer(sponsor, 'sponsorship');
+  });
+});
+
+test('with no readable country and answers for two countries, nothing is reused', async () => {
+  await withFreshStores(async () => {
+    await upsertApplicationAnswer(USER, { questionText: US_AUTH, answer: 'Yes' });
+    await upsertApplicationAnswer(USER, { questionText: UK_AUTH, answer: 'No' });
+
+    const { pack } = await generatePack({ company: 'Acme', title: 'Engineer', location: 'Remote' });
+    assertNeedsAnswer(byCategory(pack, 'work_authorization')[0], 'ambiguous authorization');
+  });
+});
+
+test('a saved current salary never answers the expected-salary question', async () => {
+  await withFreshStores(async () => {
+    await upsertApplicationAnswer(USER, { questionText: 'What is your current salary?', answer: '$180,000' });
+    const { pack } = await generatePack({ company: 'Acme', title: 'Engineer', location: 'Austin, TX' });
+    assertNeedsAnswer(byCategory(pack, 'salary')[0], 'expected salary');
+  });
+});
+
+test('GET serves the stored pack, and another user cannot read it', async () => {
+  await withFreshStores(async () => {
     const job = await createJob(USER, {
       company: 'Stripe',
       title: 'Infrastructure Engineer',
-      descriptionText: 'Looking for a Senior Infrastructure Engineer to scale core payment clusters.',
+      location: 'Seattle, WA',
+      descriptionText: 'Scale core payment clusters.',
     });
-
-    // 3. Seed Q&A memory for work authorization
-    await upsertApplicationAnswer(USER, {
-      questionText: 'Are you legally authorized to work in the United States?',
-      answer: 'Yes, US Citizen with active security clearance.',
-    });
-
-    // 4. Seed an approved tailored resume version
     await insertResumeVersion({
       id: 'ver-tailored-1',
       userId: USER,
@@ -112,67 +238,23 @@ test('POST and GET /api/jobs/:id/application-pack lifecycle', async () => {
     });
 
     await withServer(async (baseUrl) => {
-      // Step A: GET before generate returns 404
-      const getRes1 = await fetch(`${baseUrl}/api/jobs/${job.id}/application-pack`, {
-        headers: hdrs(USER),
-      });
-      assert.equal(getRes1.status, 404);
+      const before = await fetch(`${baseUrl}/api/jobs/${job.id}/application-pack`, { headers: hdrs(USER) });
+      assert.equal(before.status, 404);
 
-      // Step B: POST generates the application pack
-      const postRes = await fetch(`${baseUrl}/api/jobs/${job.id}/application-pack`, {
-        method: 'POST',
-        headers: hdrs(USER),
-      });
-      assert.equal(postRes.status, 201);
-      const postData = (await postRes.json()) as { applicationPack: ApplicationPackPayload };
-      const pack = postData.applicationPack;
+      const post = await fetch(`${baseUrl}/api/jobs/${job.id}/application-pack`, { method: 'POST', headers: hdrs(USER) });
+      assert.equal(post.status, 201);
+      const created = (await post.json()) as { applicationPack: ApplicationPackPayload };
+      assert.equal(created.applicationPack.resumeVersionId, 'ver-tailored-1');
+      assert.equal(created.applicationPack.resumeFileUrl, 'https://storage.blob.core.windows.net/resumes/stripe-tailored.pdf');
 
-      assert.equal(pack.jobId, job.id);
-      assert.equal(pack.company, 'Stripe');
-      assert.equal(pack.title, 'Infrastructure Engineer');
-      assert.equal(pack.resumeVersionId, 'ver-tailored-1');
-      assert.equal(pack.resumeFileUrl, 'https://storage.blob.core.windows.net/resumes/stripe-tailored.pdf');
+      const after = await fetch(`${baseUrl}/api/jobs/${job.id}/application-pack`, { headers: hdrs(USER) });
+      assert.equal(after.status, 200);
+      const stored = (await after.json()) as { applicationPack: ApplicationPackPayload; modelUsed: string };
+      assert.equal(stored.applicationPack.jobId, job.id);
+      assert.equal(stored.modelUsed, 'template');
 
-      // Contact block populated from resume
-      assert.equal(pack.contactBlock?.name, 'Alex Rivera');
-      assert.equal(pack.contactBlock?.email, 'alex@example.com');
-      assert.equal(pack.contactBlock?.linkedin, 'https://linkedin.com/in/alexrivera');
-
-      // Answers populated
-      assert.ok(pack.answers.length >= 4);
-
-      // Question 1 answered from QA memory
-      const q1 = pack.answers.find((a) => a.category === 'work_authorization');
-      assert.ok(q1);
-      assert.equal(q1.answer, 'Yes, US Citizen with active security clearance.');
-      assert.equal(q1.source, 'qa_memory');
-
-      // Question 4 Why Us grounded in Stripe
-      const whyUs = pack.answers.find((a) => a.category === 'why_us');
-      assert.ok(whyUs);
-      assert.match(whyUs.answer, /Stripe/i);
-
-      // Step C: GET after generate returns 200 with the saved pack
-      const getRes2 = await fetch(`${baseUrl}/api/jobs/${job.id}/application-pack`, {
-        headers: hdrs(USER),
-      });
-      assert.equal(getRes2.status, 200);
-      const getData = (await getRes2.json()) as { applicationPack: ApplicationPackPayload };
-      assert.equal(getData.applicationPack.jobId, job.id);
-      assert.equal(getData.applicationPack.contactBlock?.name, 'Alex Rivera');
-
-      // Step D: Tenant isolation - another user cannot access
-      const getResOther = await fetch(`${baseUrl}/api/jobs/${job.id}/application-pack`, {
-        headers: hdrs('another_user'),
-      });
-      assert.equal(getResOther.status, 404);
+      const other = await fetch(`${baseUrl}/api/jobs/${job.id}/application-pack`, { headers: hdrs('another_user') });
+      assert.equal(other.status, 404);
     });
-  } finally {
-    process.chdir(originalCwd);
-    resetJobStoreForTests();
-    resetAgentOutputStoreForTests();
-    await _resetApplicationAnswerStoreForTests([]);
-    await resetResumeVersionStore();
-    await rm(tempDir, { recursive: true, force: true });
-  }
+  });
 });

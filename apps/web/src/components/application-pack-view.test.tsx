@@ -10,6 +10,9 @@ vi.mock('@/lib/api', () => ({
   saveApplicationAnswer: vi.fn(),
 }));
 
+const SALARY_Q = 'What are your salary expectations for this role?';
+const REMOTE_AUTH_Q = 'Are you legally authorized to work in the country where this role is based?';
+
 const samplePack: ApplicationPackPayload = {
   jobId: 'job-test-1',
   company: 'Linear',
@@ -25,127 +28,111 @@ const samplePack: ApplicationPackPayload = {
   },
   answers: [
     {
-      questionText: 'Are you legally authorized to work in the United States?',
-      questionHash: 'hash-1',
-      answer: 'Yes, US Citizen.',
+      questionText: 'Will you now or in the future require visa sponsorship to work in the United States?',
+      questionHash: 'hash-0',
+      answer: 'No',
       category: 'work_authorization',
-      source: 'preferences',
+      source: 'qa_memory',
+      needsReview: false,
       flagged: false,
+      note: 'Your saved answer.',
     },
     {
-      questionText: 'What are your salary expectations for this role?',
-      questionHash: 'hash-2',
-      answer: 'Competitive with market rate.',
-      category: 'salary',
-      source: 'generated',
+      questionText: REMOTE_AUTH_Q,
+      questionHash: 'hash-1',
+      answer: 'Yes',
+      category: 'work_authorization',
+      source: 'qa_memory',
+      needsReview: true,
       flagged: true,
+      note: "Based on your saved answer for the United States. The posting doesn't say which country this role is in, so confirm it applies.",
+    },
+    {
+      questionText: SALARY_Q,
+      questionHash: 'hash-2',
+      answer: '',
+      category: 'salary',
+      source: 'unanswerable',
+      needsReview: true,
+      flagged: true,
+      note: 'Enter your own expectation. The posted salary range is not used.',
     },
   ],
-  flaggedQuestions: ['What are your salary expectations for this role?'],
+  flaggedQuestions: [REMOTE_AUTH_Q, SALARY_Q],
   generatedAt: '2026-05-14T10:00:00Z',
 };
+
+function renderPack(pack: ApplicationPackPayload | null = samplePack) {
+  return render(<ApplicationPackView jobId="job-test-1" company="Linear" initialPack={pack} hasResume={true} />);
+}
 
 describe('ApplicationPackView', () => {
   beforeEach(() => {
     vi.clearAllMocks();
   });
 
-  it('renders empty state when initialPack is null', () => {
-    render(
-      <ApplicationPackView
-        jobId="job-test-1"
-        company="Linear"
-        initialPack={null}
-        hasResume={true}
-      />,
-    );
-
-    expect(screen.getByText(/Assemble your Application Pack/i)).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /Generate Application Pack/i })).toBeInTheDocument();
-  });
-
-  it('generates application pack when button clicked in empty state', async () => {
+  it('renders the empty state and generates a pack', async () => {
     const user = userEvent.setup();
     vi.mocked(api.generateJobApplicationPack).mockResolvedValueOnce(samplePack);
+    renderPack(null);
 
-    render(
-      <ApplicationPackView
-        jobId="job-test-1"
-        company="Linear"
-        initialPack={null}
-        hasResume={true}
-      />,
-    );
+    expect(screen.getByText(/Assemble your application pack/i)).toBeInTheDocument();
+    expect(screen.queryByText(/verified/i)).not.toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: /Generate application pack/i }));
 
-    const generateBtn = screen.getByRole('button', { name: /Generate Application Pack/i });
-    await user.click(generateBtn);
-
-    await waitFor(() => {
-      expect(api.generateJobApplicationPack).toHaveBeenCalledWith('job-test-1');
-    });
-
-    expect(await screen.findByText('Ready for autofill')).toBeInTheDocument();
-    expect(screen.getByText('Sarah Connor')).toBeInTheDocument();
+    await waitFor(() => expect(api.generateJobApplicationPack).toHaveBeenCalledWith('job-test-1'));
+    expect(await screen.findByText('Sarah Connor')).toBeInTheDocument();
   });
 
-  it('renders populated contact block and answers when pack is provided', () => {
-    render(
-      <ApplicationPackView
-        jobId="job-test-1"
-        company="Linear"
-        initialPack={samplePack}
-        hasResume={true}
-      />,
-    );
-
-    expect(screen.getByText('Ready for autofill')).toBeInTheDocument();
+  it('makes no autofill or verification claims', () => {
+    renderPack();
+    for (const claim of [/Ready for autofill/i, /Autofill verified/i, /Verified Contact Block/i, /1-click/i, /Chrome Extension/i, /verified/i]) {
+      expect(screen.queryByText(claim)).not.toBeInTheDocument();
+    }
+    expect(screen.getByText(/Contact details/i)).toBeInTheDocument();
     expect(screen.getByText('Sarah Connor')).toBeInTheDocument();
-    expect(screen.getByText('sarah@example.com')).toBeInTheDocument();
-    expect(screen.getByText('555-0100')).toBeInTheDocument();
     expect(screen.getByText('Los Angeles, CA')).toBeInTheDocument();
-    expect(screen.getByText('Are you legally authorized to work in the United States?')).toBeInTheDocument();
-    expect(screen.getByText('Yes, US Citizen.')).toBeInTheDocument();
   });
 
-  it('allows answering a flagged question and saving to Q&A memory', async () => {
+  it('says how to fill the contact details when the résumé has none', () => {
+    renderPack({ ...samplePack, contactBlock: {} });
+    expect(screen.getByText(/None yet. Add your résumé in Settings/i)).toBeInTheDocument();
+  });
+
+  it('labels saved, to-review and unanswered questions honestly', () => {
+    renderPack();
+    expect(screen.getByText(/2 need your answer/i)).toBeInTheDocument();
+    // A saved answer is shown as the user's own.
+    expect(screen.getAllByText('Saved answer').length).toBeGreaterThan(0);
+    // A reused answer for an unknown country asks for review and says why.
+    expect(screen.getAllByText(/Based on your saved answer for the United States/).length).toBeGreaterThan(0);
+    // The blank salary question is not filled in.
+    expect(screen.getAllByText('Not answered yet').length).toBe(1);
+    expect(screen.getAllByText(/The posted salary range is not used/).length).toBeGreaterThan(0);
+  });
+
+  it('pre-fills a reused answer for confirmation and saves a new answer to memory', async () => {
     const user = userEvent.setup();
     vi.mocked(api.saveApplicationAnswer).mockResolvedValueOnce({
       id: 'ans-1',
       userId: 'u1',
       questionHash: 'hash-2',
-      questionText: 'What are your salary expectations for this role?',
+      questionText: SALARY_Q,
       answer: '$175,000 USD base',
       createdAt: '2026-05-14T10:00:00Z',
       updatedAt: '2026-05-14T10:00:00Z',
     });
+    renderPack();
 
-    render(
-      <ApplicationPackView
-        jobId="job-test-1"
-        company="Linear"
-        initialPack={samplePack}
-        hasResume={true}
-      />,
+    expect(screen.getByLabelText(REMOTE_AUTH_Q)).toHaveValue('Yes');
+    const salaryInput = screen.getByLabelText(SALARY_Q);
+    expect(salaryInput).toHaveValue('');
+    await user.type(salaryInput, '$175,000 USD base');
+    await user.click(screen.getAllByRole('button', { name: /Save answer/i })[1]!);
+
+    await waitFor(() =>
+      expect(api.saveApplicationAnswer).toHaveBeenCalledWith({ questionText: SALARY_Q, answer: '$175,000 USD base' }),
     );
-
-    expect(screen.getByText(/1 flagged for review/i)).toBeInTheDocument();
-
-    const input = screen.getByPlaceholderText(/e.g. \$165,000 USD base/i);
-    await user.type(input, '$175,000 USD base');
-
-    const saveBtn = screen.getByRole('button', { name: /Save to Q&A memory/i });
-    await user.click(saveBtn);
-
-    await waitFor(() => {
-      expect(api.saveApplicationAnswer).toHaveBeenCalledWith({
-        questionText: 'What are your salary expectations for this role?',
-        answer: '$175,000 USD base',
-      });
-    });
-
-    // The answer should update in local state and flagged banner disappear
-    await waitFor(() => {
-      expect(screen.queryByText(/1 flagged for review/i)).not.toBeInTheDocument();
-    });
+    await waitFor(() => expect(screen.getByText(/1 needs your answer/i)).toBeInTheDocument());
   });
 });

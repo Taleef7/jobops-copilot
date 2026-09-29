@@ -425,7 +425,12 @@ export interface ApplicationPackQuestionAnswer {
   answer: string;
   category: 'work_authorization' | 'salary' | 'why_us' | 'behavioral' | 'custom';
   source: 'qa_memory' | 'profile' | 'preferences' | 'research' | 'generated' | 'unanswerable';
+  /** True until the user has answered or confirmed this question. */
+  needsReview: boolean;
+  /** Alias of `needsReview`, kept while older clients still read it. */
   flagged?: boolean;
+  /** One short line explaining where the answer came from, or why it is blank. */
+  note?: string;
 }
 
 export interface ApplicationPackPayload {
