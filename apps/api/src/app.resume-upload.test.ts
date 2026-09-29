@@ -4,6 +4,7 @@ import http from 'node:http';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
+import { Worker } from 'node:worker_threads';
 import { createApp } from './app';
 import { getUserProfile } from '@/data/profile-store';
 import { extractPdfText, PdfUnreadableError } from '@/lib/pdf-text';
@@ -95,9 +96,23 @@ test('extraction stops at the page limit, the text limit and the time limit', as
   assert.equal(short.truncated, false);
   assert.match(short.text, /One/);
 
-  const long = await extractPdfText(buildPdf(Array.from({ length: 8 }, () => 'word '.repeat(2_000))), { maxChars: 20_000 });
+  // The text is cut inside the worker: what crosses to the main thread is already capped.
+  const posted: number[] = [];
+  const emit = Worker.prototype.emit;
+  Worker.prototype.emit = function (this: Worker, event: string | symbol, ...args: unknown[]) {
+    const message = args[0] as { text?: unknown } | undefined;
+    if (event === 'message' && typeof message?.text === 'string') posted.push(message.text.length);
+    return emit.call(this, event, ...args);
+  };
+  let long;
+  try {
+    long = await extractPdfText(buildPdf(Array.from({ length: 8 }, () => 'word '.repeat(2_000))), { maxChars: 20_000 });
+  } finally {
+    Worker.prototype.emit = emit;
+  }
   assert.equal(long.truncated, true);
   assert.equal(long.text.length, 20_000);
+  assert.deepEqual(posted, [20_000]);
 
   await assert.rejects(extractPdfText(buildPdf(Array.from({ length: 11 }, () => 'p'))), PdfUnreadableError);
   await assert.rejects(extractPdfText(buildPdf(['slow']), { timeoutMs: 1 }), PdfUnreadableError);

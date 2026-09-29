@@ -43,11 +43,20 @@ export interface PdfTextOptions {
 // Plain JavaScript run with `eval`, so it works the same from the TypeScript sources in
 // tests and from the compiled build. pdf-parse is loaded by absolute path: its index.js
 // has a debug block that reads a test file when it isn't required as a dependency.
+// The text is cut in the worker, so an oversized result is never copied to the main thread.
 const WORKER_SOURCE = `
 const { parentPort, workerData } = require('node:worker_threads');
 const pdfParse = require(workerData.modulePath);
 pdfParse(Buffer.from(workerData.data), { max: workerData.maxPages })
-  .then((result) => parentPort.postMessage({ ok: true, text: result.text || '', pages: result.numpages || 0 }))
+  .then((result) => {
+    const text = (result.text || '').trim();
+    parentPort.postMessage({
+      ok: true,
+      text: text.slice(0, workerData.maxChars),
+      truncated: text.length > workerData.maxChars,
+      pages: result.numpages || 0,
+    });
+  })
   .catch((error) => parentPort.postMessage({ ok: false, error: String((error && error.message) || error) }));
 `;
 
@@ -63,7 +72,7 @@ export function extractPdfText(data: Buffer, options: PdfTextOptions = {}): Prom
   return new Promise<PdfText>((resolve, reject) => {
     const worker = new Worker(WORKER_SOURCE, {
       eval: true,
-      workerData: { data, modulePath, maxPages },
+      workerData: { data, modulePath, maxPages, maxChars },
       resourceLimits: { maxOldGenerationSizeMb: PDF_WORKER_MEMORY_MB },
     });
     let settled = false;
@@ -88,7 +97,7 @@ export function extractPdfText(data: Buffer, options: PdfTextOptions = {}): Prom
       }
     }, intervalMs);
 
-    worker.once('message', (message: { ok: boolean; text?: string; pages?: number; error?: string }) => {
+    worker.once('message', (message: { ok: boolean; text?: string; truncated?: boolean; pages?: number; error?: string }) => {
       if (!message.ok) {
         finish(() => reject(new PdfUnreadableError(message.error ?? 'The PDF could not be read.')));
         return;
@@ -100,10 +109,8 @@ export function extractPdfText(data: Buffer, options: PdfTextOptions = {}): Prom
         );
         return;
       }
-      const text = (message.text ?? '').trim();
-      finish(() =>
-        resolve({ text: text.slice(0, maxChars), pages, truncated: text.length > maxChars }),
-      );
+      const text = message.text ?? '';
+      finish(() => resolve({ text, pages, truncated: message.truncated === true }));
     });
     worker.once('error', (error) => finish(() => reject(new PdfUnreadableError(error.message))));
     worker.once('exit', (code) => finish(() => reject(new PdfUnreadableError(`The PDF reader stopped (exit ${code}).`))));
