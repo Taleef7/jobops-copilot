@@ -19,6 +19,28 @@ test('detectJobCountry treats a US state name or trailing state code as the Unit
   assert.equal(detectJobCountry('Remote - California'), 'the United States');
 });
 
+test('a two-letter code that is also a country code is ambiguous, unless a US ZIP code settles it', () => {
+  // CA is California or Canada, DE is Delaware or Germany, IN is Indiana or India.
+  assert.equal(detectJobCountry('Toronto, CA'), null);
+  assert.equal(detectJobCountry('Berlin, DE'), null);
+  assert.equal(detectJobCountry('Remote - IN'), null);
+  assert.equal(detectJobCountry('San Francisco, CA'), null);
+  assert.equal(detectJobCountry('San Francisco, CA 94105'), 'the United States');
+  assert.equal(detectJobCountry('Wilmington, DE 19801-1234'), 'the United States');
+  // Codes that are only US states stay unambiguous.
+  assert.equal(detectJobCountry('Austin, TX'), 'the United States');
+  assert.equal(detectJobCountry('Brooklyn, NY'), 'the United States');
+});
+
+test('state names that are also country names are read carefully', () => {
+  assert.equal(detectJobCountry('Albuquerque, New Mexico'), 'the United States');
+  assert.equal(detectJobCountry('Mexico City, Mexico'), 'Mexico');
+  // Georgia is a US state and a country.
+  assert.equal(detectJobCountry('Atlanta, Georgia'), null);
+  assert.equal(detectJobCountry('Tbilisi, Georgia'), null);
+  assert.equal(detectJobCountry('Atlanta, Georgia, USA'), 'the United States');
+});
+
 test('detectJobCountry returns null when the location does not say', () => {
   assert.equal(detectJobCountry(null), null);
   assert.equal(detectJobCountry(undefined), null);

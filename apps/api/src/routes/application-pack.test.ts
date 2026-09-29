@@ -198,6 +198,41 @@ test('with no readable country, a single saved country is offered for review, ne
   });
 });
 
+test('an answer confirmed for one countryless job is only offered for review on the next one', async () => {
+  await withFreshStores(async () => {
+    // The user confirmed "Yes" for a remote job whose country wasn't stated.
+    await upsertApplicationAnswer(USER, {
+      questionText: 'Are you legally authorized to work in the country where this role is based?',
+      answer: 'Yes',
+    });
+    await upsertApplicationAnswer(USER, {
+      questionText: 'Will you now or in the future require visa sponsorship to work in the country where this role is based?',
+      answer: 'No',
+    });
+
+    const { pack } = await generatePack({ company: 'Other Co', title: 'Engineer', location: 'Remote' });
+    for (const qa of byCategory(pack, 'work_authorization')) {
+      assert.match(qa.questionText, /country where this role is based/);
+      assert.equal(qa.source, 'qa_memory');
+      assert.equal(qa.flagged, true, `${qa.questionText}: a countryless answer must never be reused silently`);
+      assert.equal(qa.needsReview, true);
+      assert.match(qa.note ?? '', /another role/);
+      assert.ok(pack.flaggedQuestions.includes(qa.questionText));
+    }
+  });
+});
+
+test('a country-specific job never reuses a countryless answer', async () => {
+  await withFreshStores(async () => {
+    await upsertApplicationAnswer(USER, {
+      questionText: 'Are you legally authorized to work in the country where this role is based?',
+      answer: 'Yes',
+    });
+    const { pack } = await generatePack({ company: 'Palantir', title: 'Engineer', location: 'London, United Kingdom' });
+    assertNeedsAnswer(byCategory(pack, 'work_authorization')[0], 'UK authorization');
+  });
+});
+
 test('with no readable country and answers for two countries, nothing is reused', async () => {
   await withFreshStores(async () => {
     await upsertApplicationAnswer(USER, { questionText: US_AUTH, answer: 'Yes' });

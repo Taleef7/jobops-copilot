@@ -122,28 +122,46 @@ export async function buildApplicationPack(userId: string, job: JobRecord): Prom
     { text: `Are you legally authorized to work in ${where}?`, pattern: AUTH_QUESTION },
     { text: `Will you now or in the future require visa sponsorship to work in ${where}?`, pattern: SPONSOR_QUESTION },
   ];
+  const pushForReview = (q: ReturnType<typeof saved>, answer: string, note: string) =>
+    answers.push({
+      questionText: q.questionText,
+      questionHash: q.questionHash,
+      answer,
+      category: 'work_authorization',
+      source: 'qa_memory',
+      needsReview: true,
+      flagged: true,
+      note,
+    });
   for (const { text, pattern } of legalQuestions) {
     const q = saved(text, 'work_authorization');
-    if (q.answer) {
+    // A saved answer is final only when it names this job's country.
+    if (country && q.answer) {
       pushSaved(q);
       continue;
     }
-    // Unknown country: offer the user's answer only when they saved exactly one
-    // country's answer to this question, and keep it flagged for review.
-    const savedCountries = country ? [] : savedAnswersByCountry(qaMemory, pattern);
-    if (savedCountries.length === 1) {
-      const [only] = savedCountries;
-      answers.push({
-        questionText: q.questionText,
-        questionHash: q.questionHash,
-        answer: only!.answer,
-        category: 'work_authorization',
-        source: 'qa_memory',
-        needsReview: true,
-        flagged: true,
-        note: `Based on your saved answer for ${only!.country}. The posting doesn't say which country this role is in, so confirm it applies.`,
-      });
-      continue;
+    if (!country) {
+      // The countryless question is shared by every job whose country is unknown, so
+      // an answer confirmed for one of them is only ever offered for review.
+      if (q.answer) {
+        pushForReview(
+          q,
+          q.answer,
+          `Based on the answer you gave for another role whose country wasn't stated. Confirm it applies to this one.`,
+        );
+        continue;
+      }
+      // Otherwise offer the user's answer only when they saved exactly one country's.
+      const savedCountries = savedAnswersByCountry(qaMemory, pattern);
+      if (savedCountries.length === 1) {
+        const [only] = savedCountries;
+        pushForReview(
+          q,
+          only!.answer,
+          `Based on your saved answer for ${only!.country}. The posting doesn't say which country this role is in, so confirm it applies.`,
+        );
+        continue;
+      }
     }
     pushBlank(
       q,
