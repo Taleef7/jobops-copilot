@@ -409,21 +409,6 @@ export interface UpsertApplicationAnswerBody {
   questionHash?: string;
 }
 
-export interface ExtTokenRecord {
-  id: string;
-  userId: string;
-  tokenHash: string;
-  label: string;
-  lastUsedAt?: string | null;
-  revokedAt?: string | null;
-  createdAt: string;
-}
-
-export interface CreateExtTokenResult {
-  token: string;
-  record: ExtTokenRecord;
-}
-
 export interface ApplicationPackContactBlock {
   name?: string;
   email?: string;

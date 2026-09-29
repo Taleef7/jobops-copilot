@@ -2,7 +2,7 @@ using './main.bicep'
 
 // Non-secret defaults — safe to commit. Match the live topology (RG `projects`,
 // reconciled 2026-07-25). Config params whose main.bicep defaults already match live
-// (corsAllowedOrigins, adzunaCountry, aiDailyBudgetUsd, timeouts, openAiModel,
+// (adzunaCountry, aiDailyBudgetUsd, timeouts, openAiModel,
 // langfuseHost, langfusePublicKey, acrUsername) are intentionally omitted here.
 param appLocation = 'mexicocentral'
 param platformLocation = 'eastus'

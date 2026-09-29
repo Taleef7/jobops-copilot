@@ -34,11 +34,13 @@ check "API job detail unauth -> 401"    "401" "$(code "$API/api/jobs/00000000-00
 check "n8n webhook unauth -> 401"       "401" "$(code -X POST "$API/api/n8n/job-intake" -H 'Content-Type: application/json' -d '{}')"
 check "assistant stream unauth -> 401"  "401" "$(code -X POST "$API/api/ai/assistant/stream" -H 'Content-Type: application/json' -d '{}')"
 
-echo "== CORS allowlist (QA·F) =="
+echo "== No CORS; extension paused (#342) =="
 acao_evil="$(curl -s -m 25 -D - -o /dev/null -H "Origin: https://evil.example.com" "$API/api/health" | grep -i 'access-control-allow-origin' | tr -d '\r')"
-acao_web="$(curl -s -m 25 -D - -o /dev/null -H "Origin: $WEB" "$API/api/health" | grep -io 'access-control-allow-origin:.*' | tr -d '\r')"
-check "disallowed origin -> no ACAO"    ""    "$acao_evil"
-[ -n "$acao_web" ] && printf '  ✓ %-46s %s\n' "web origin -> ACAO echoed" "$acao_web" && pass=$((pass+1)) || { printf '  ✗ web origin missing ACAO\n'; fail=$((fail+1)); }
+acao_ext="$(curl -s -m 25 -D - -o /dev/null -H "Origin: chrome-extension://abcdefghijklmnop" "$API/api/health" | grep -i 'access-control-allow-origin' | tr -d '\r')"
+check "other origin -> no ACAO"         ""    "$acao_evil"
+check "extension origin -> no ACAO"     ""    "$acao_ext"
+check "extension API -> 410"            "410" "$(code "$API/api/ext/verify")"
+check "extension tokens API -> 410"     "410" "$(code "$API/api/ext-tokens")"
 
 echo "== Public surface (QA·H) =="
 robots="$(curl -s -m 25 "$WEB/robots.txt")"

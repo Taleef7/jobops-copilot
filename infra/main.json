@@ -5,7 +5,7 @@
     "_generator": {
       "name": "bicep",
       "version": "0.43.8.12551",
-      "templateHash": "1146104565213407647"
+      "templateHash": "12167641241156707609"
     }
   },
   "parameters": {
@@ -56,13 +56,6 @@
       "defaultValue": "",
       "metadata": {
         "description": "Clerk publishable key — non-secret; ships to the browser (NEXT_PUBLIC_*)."
-      }
-    },
-    "corsAllowedOrigins": {
-      "type": "string",
-      "defaultValue": "https://jobops-web.azurewebsites.net",
-      "metadata": {
-        "description": "CORS allow-list for the API (comma-separated origins)."
       }
     },
     "adzunaAppId": {
@@ -410,10 +403,6 @@
             {
               "name": "CLERK_SECRET_KEY",
               "value": "[format('@Microsoft.KeyVault(SecretUri={0}secrets/CLERK-SECRET-KEY)', reference(resourceId('Microsoft.KeyVault/vaults', variables('keyVaultName')), '2023-07-01').vaultUri)]"
-            },
-            {
-              "name": "CORS_ALLOWED_ORIGINS",
-              "value": "[parameters('corsAllowedOrigins')]"
             },
             {
               "name": "AI_DAILY_BUDGET_USD",

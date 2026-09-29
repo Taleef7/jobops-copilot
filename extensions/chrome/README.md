@@ -1,3 +1,5 @@
+> **Paused on 2026-09-28.** Not built, tested or supported; the API answers 410. See parked X01–X05 (#334–#338). Restore the API side from tag `extension-paused-2026-09-28`.
+
 # JobOps Copilot — Chrome Extension (MV3)
 
 Personal Chrome Manifest V3 extension for **JobOps Copilot**. Provides browser-level **Apply Copilot** capabilities: autofilling application form fields on supported ATS platforms (Greenhouse, Lever, Ashby, Workday) and automatically capturing submission confirmations into your JobOps CRM tracker.
