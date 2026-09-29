@@ -146,13 +146,19 @@ function countriesMentioned(location: string): Set<string> | null {
   for (const [pattern, country] of COUNTRY_NAMES) take(pattern, country);
 
   const parts = rest.split(/[,/|·]|\s-\s/).map((part) => part.trim()).filter(Boolean);
+  let possiblyUS = false;
   for (const part of parts) {
     if (COUNTRY_CODES[part]) found.add(COUNTRY_CODES[part]!);
     const withZip = STATE_WITH_ZIP.exec(part);
     if (withZip && US_STATE_CODES.has(withZip[1]!)) found.add(US);
-    // A code that is also a country (CA = Canada or California) stays ambiguous.
-    if (US_STATE_CODES.has(part) && !isAlsoCountryCode(part)) found.add(US);
+    if (US_STATE_CODES.has(part)) {
+      if (!isAlsoCountryCode(part)) found.add(US);
+      // A code that is also a country (TN = Tennessee or Tunisia) proves nothing on its
+      // own, but it still might be the US: it conflicts with any other country named.
+      else possiblyUS = true;
+    }
   }
+  if (possiblyUS && [...found].some((country) => country !== US)) return null;
   return found;
 }
 

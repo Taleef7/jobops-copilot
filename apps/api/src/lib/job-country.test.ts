@@ -70,6 +70,16 @@ test('every country is recognized, not just a short list', () => {
   assert.equal(detectJobCountry('Hoboken, NJ'), 'the United States');
 });
 
+test('an ambiguous state code still counts against a foreign city name', () => {
+  // US towns named after countries, with a state code that is also a country code.
+  assert.equal(detectJobCountry('Lebanon, TN'), null);
+  assert.equal(detectJobCountry('Mexico, MO'), null);
+  assert.equal(detectJobCountry('Berlin, DE, Germany'), null);
+  // With nothing else named, the code alone still decides nothing.
+  assert.equal(detectJobCountry('Nashville, TN'), null);
+  assert.equal(detectJobCountry('Nashville, TN 37203'), 'the United States');
+});
+
 test('a capitalised US or UK anywhere names the country; lower-case "us" does not', () => {
   assert.equal(detectJobCountry('Remote (US only)'), 'the United States');
   assert.equal(detectJobCountry('Remote (UK)'), 'the United Kingdom');
