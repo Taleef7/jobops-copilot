@@ -103,3 +103,27 @@ test('extraction stops at the page limit, the text limit and the time limit', as
   await assert.rejects(extractPdfText(buildPdf(['slow']), { timeoutMs: 1 }), PdfUnreadableError);
   await assert.rejects(extractPdfText(Buffer.from('%PDF-1.4 not really a pdf')), PdfUnreadableError);
 });
+
+test('a PDF sent with no type, or as octet-stream, is judged by its bytes', async () => {
+  await withApi(async (base) => {
+    const bytes = buildPdf(['Backend engineer. Go.']);
+    assert.equal((await upload(base, [{ data: bytes, type: 'application/octet-stream', name: 'resume.pdf' }])).status, 200);
+    assert.equal((await upload(base, [{ data: bytes, type: '', name: 'resume.pdf' }])).status, 200);
+    // Unknown type, but not a PDF inside: the byte check refuses it.
+    assert.equal((await upload(base, [{ data: fakePng(), type: 'application/octet-stream', name: 'resume.pdf' }])).status, 415);
+    // A declared non-PDF type is refused up front.
+    assert.equal((await upload(base, [{ data: bytes, type: 'image/png', name: 'resume.png' }])).status, 415);
+  });
+});
+
+test('extraction stops when the process grows past the memory budget', async () => {
+  // Inflated streams live outside the V8 heap, so the worker's heap limit doesn't bound
+  // them: a watchdog stops the worker when the process's memory grows too far.
+  let reading = 0;
+  await assert.rejects(
+    extractPdfText(buildPdf(['A page']), {
+      memory: { budgetBytes: 100 * 1024 * 1024, intervalMs: 1, read: () => (reading += 64 * 1024 * 1024) },
+    }),
+    (error: unknown) => error instanceof PdfUnreadableError && /memory/i.test(error.message),
+  );
+});

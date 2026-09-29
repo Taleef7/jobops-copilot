@@ -13,6 +13,9 @@ export const PDF_MAX_PAGES = 10;
 export const PDF_MAX_CHARS = 50_000;
 const PDF_TIMEOUT_MS = 10_000;
 const PDF_WORKER_MEMORY_MB = 256;
+/** How far the process may grow while a PDF is read (inflated streams live outside V8's heap). */
+const PDF_MEMORY_BUDGET_BYTES = 256 * 1024 * 1024;
+const PDF_MEMORY_CHECK_MS = 25;
 
 /** The PDF can't be read: malformed, too many pages, too slow, or too big to parse. */
 export class PdfUnreadableError extends Error {
@@ -33,28 +36,28 @@ export interface PdfTextOptions {
   timeoutMs?: number;
   maxPages?: number;
   maxChars?: number;
+  /** The memory watchdog; `read` returns the process's resident memory in bytes. */
+  memory?: { budgetBytes?: number; intervalMs?: number; read?: () => number };
 }
 
 // Plain JavaScript run with `eval`, so it works the same from the TypeScript sources in
 // tests and from the compiled build. pdf-parse is loaded by absolute path: its index.js
 // has a debug block that reads a test file when it isn't required as a dependency.
-//
-// The bytes are copied into a Buffer with memory of its own. Small Buffers are slices of a
-// shared pool, and this pdf.js reads the whole underlying memory, so offsets land in the
-// wrong place and small PDFs fail with "bad XRef entry" depending on where they sit.
 const WORKER_SOURCE = `
 const { parentPort, workerData } = require('node:worker_threads');
 const pdfParse = require(workerData.modulePath);
-const source = new Uint8Array(workerData.data);
-const bytes = Buffer.alloc(source.length);
-bytes.set(source);
-pdfParse(bytes, { max: workerData.maxPages })
+pdfParse(Buffer.from(workerData.data), { max: workerData.maxPages })
   .then((result) => parentPort.postMessage({ ok: true, text: result.text || '', pages: result.numpages || 0 }))
   .catch((error) => parentPort.postMessage({ ok: false, error: String((error && error.message) || error) }));
 `;
 
 export function extractPdfText(data: Buffer, options: PdfTextOptions = {}): Promise<PdfText> {
   const { timeoutMs = PDF_TIMEOUT_MS, maxPages = PDF_MAX_PAGES, maxChars = PDF_MAX_CHARS } = options;
+  const {
+    budgetBytes = PDF_MEMORY_BUDGET_BYTES,
+    intervalMs = PDF_MEMORY_CHECK_MS,
+    read = () => process.memoryUsage.rss(),
+  } = options.memory ?? {};
   const modulePath = require.resolve('pdf-parse/lib/pdf-parse.js');
 
   return new Promise<PdfText>((resolve, reject) => {
@@ -68,6 +71,7 @@ export function extractPdfText(data: Buffer, options: PdfTextOptions = {}): Prom
       if (settled) return;
       settled = true;
       clearTimeout(timer);
+      clearInterval(watchdog);
       void worker.terminate();
       outcome();
     };
@@ -75,6 +79,14 @@ export function extractPdfText(data: Buffer, options: PdfTextOptions = {}): Prom
       () => finish(() => reject(new PdfUnreadableError('Reading the PDF took too long.'))),
       timeoutMs,
     );
+    // The worker's heap limit doesn't cover the buffers pdf.js inflates compressed streams
+    // into, so the whole process is watched: a PDF that makes it grow too far is stopped.
+    const baseline = read();
+    const watchdog = setInterval(() => {
+      if (read() - baseline > budgetBytes) {
+        finish(() => reject(new PdfUnreadableError('Reading the PDF needed too much memory.')));
+      }
+    }, intervalMs);
 
     worker.once('message', (message: { ok: boolean; text?: string; pages?: number; error?: string }) => {
       if (!message.ok) {

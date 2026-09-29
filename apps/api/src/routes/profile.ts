@@ -14,12 +14,16 @@ class NotAPdfError extends Error {}
 
 const NOT_A_PDF_MESSAGE = 'Upload your résumé as a PDF, or paste its text.';
 
+// Browsers sometimes send a real PDF with no type or as octet-stream; the %PDF- check
+// below decides for those. A declared non-PDF type is refused before it's read.
+const MAYBE_PDF_TYPES = new Set(['application/pdf', 'application/x-pdf', 'application/octet-stream', '']);
+
 // One PDF of at most 5 MB, and nothing else in the form (#389).
 const upload = multer({
   storage: multer.memoryStorage(),
   limits: { files: 1, fields: 5, fieldNameSize: 100, parts: 6, fileSize: 5 * 1024 * 1024 },
   fileFilter: (_request, file, accept) => {
-    if (file.mimetype === 'application/pdf') accept(null, true);
+    if (MAYBE_PDF_TYPES.has(file.mimetype)) accept(null, true);
     else accept(new NotAPdfError());
   },
 });
