@@ -45,7 +45,7 @@ const samplePack: ApplicationPackPayload = {
       source: 'qa_memory',
       needsReview: true,
       flagged: true,
-      note: "Based on your saved answer for the United States. The posting doesn't say which country this role is in, so confirm it applies.",
+      note: "Based on your saved answer for the United States. JobOps couldn't tell which country this role is in from its location, so confirm it applies.",
     },
     {
       questionText: SALARY_Q,

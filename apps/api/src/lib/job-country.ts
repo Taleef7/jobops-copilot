@@ -9,6 +9,11 @@
  *
  * Used to phrase work-authorization questions for the right country, so an
  * answer the user saved for one country is never reused for another (#343).
+ *
+ * Known limits: a code that is only a US state here can be another country's region
+ * ("Perth, WA" in Australia), and a foreign city named without its country is not
+ * recognized ("New York or London"). The question names the country it assumed, so
+ * the user can see it.
  */
 
 const US = 'the United States';
@@ -109,10 +114,31 @@ const US_STATE_CODES = new Set([
   'ME', 'MD', 'MA', 'MI', 'MN', 'MS', 'MO', 'MT', 'NE', 'NV', 'NH', 'NJ', 'NM', 'NY', 'NC', 'ND', 'OH', 'OK',
   'OR', 'PA', 'RI', 'SC', 'SD', 'TN', 'TX', 'UT', 'VT', 'VA', 'WA', 'WV', 'WI', 'WY', 'DC',
 ]);
-// Country codes are only trusted as their own comma-separated part, in capitals.
-const COUNTRY_CODES: Record<string, string> = { US, UK, GB: UK };
-// A US ZIP code right after a state code ("CA 94105") settles that it is a US state.
-const STATE_WITH_ZIP = /^([A-Z]{2})\s+\d{5}(-\d{4})?$/;
+// Country codes are only trusted as their own part, in capitals.
+const COUNTRY_CODES = new Map([['US', US], ['UK', UK], ['GB', UK]]);
+// A state code with a ZIP code ("TX 78701").
+const STATE_WITH_ZIP = /^([A-Z]{2})\s+\d{5}(?:-\d{4})?$/;
+// Parts of a location: "Austin, TX", "US/UK", "Remote - NY".
+const PART_SEPARATORS = /[,/|;·]|\s[-–—]\s/;
+// Codes that are a US state and a country: CA (California or Canada), DE (Delaware
+// or Germany), IN (Indiana or India), TN (Tennessee or Tunisia), and so on.
+const AMBIGUOUS_CODE = new RegExp(
+  `(?<![\\p{L}\\p{N}])(?:${[...US_STATE_CODES].filter(isAlsoCountryCode).join('|')})(?![\\p{L}\\p{N}])`,
+  'u',
+);
+
+// A US address ends "City, ST[ ZIP], USA". Only there is a code that is also a
+// country's (CA, DE, IN) read as a state: "San Francisco, CA 94105, USA".
+const US_ADDRESS = /,\s*([A-Z]{2})(?:\s+\d{5}(?:-\d{4})?)?(?:\s*,\s*|\s+)([^,]+)$/u;
+const US_NAME = /^(?:united states(?: of america)?|u\.s\.a\.?|usa|u\.s\.)$/i;
+
+/** The location before its US address ending ("San Francisco"), or null if it has none. */
+function beforeUSAddress(location: string): string | null {
+  const match = US_ADDRESS.exec(location);
+  if (!match || !US_STATE_CODES.has(match[1]!)) return null;
+  const country = match[2]!.trim();
+  return country === 'US' || US_NAME.test(country) ? location.slice(0, match.index) : null;
+}
 
 /**
  * Every country the location points to. More than one means the location is
@@ -132,6 +158,11 @@ function countriesMentioned(location: string): Set<string> | null {
     }
   };
 
+  const beforeAddress = beforeUSAddress(location);
+  if (beforeAddress !== null) {
+    found.add(US);
+    rest = beforeAddress;
+  }
   take(US_EXPLICIT, US);
   take(US_CODE, US);
   take(UK_CODE, UK);
@@ -145,20 +176,18 @@ function countriesMentioned(location: string): Set<string> | null {
   }
   for (const [pattern, country] of COUNTRY_NAMES) take(pattern, country);
 
-  const parts = rest.split(/[,/|·]|\s-\s/).map((part) => part.trim()).filter(Boolean);
-  let possiblyUS = false;
+  // Doubt is read loosely: an ambiguous code anywhere outside a US address could be
+  // the other country ("US/CA", "Remote (US, CA)", or "Berlin, DE 10115", where the
+  // postal code is German), so the location is unknown.
+  if (AMBIGUOUS_CODE.test(rest)) return null;
+  // Evidence is read strictly: a code counts only as a part of its own.
+  const parts = rest.split(PART_SEPARATORS).map((part) => part.trim()).filter(Boolean);
   for (const part of parts) {
-    if (COUNTRY_CODES[part]) found.add(COUNTRY_CODES[part]!);
-    const withZip = STATE_WITH_ZIP.exec(part);
-    if (withZip && US_STATE_CODES.has(withZip[1]!)) found.add(US);
-    if (US_STATE_CODES.has(part)) {
-      if (!isAlsoCountryCode(part)) found.add(US);
-      // A code that is also a country (TN = Tennessee or Tunisia) proves nothing on its
-      // own, but it still might be the US: it conflicts with any other country named.
-      else possiblyUS = true;
-    }
+    const country = COUNTRY_CODES.get(part);
+    if (country) found.add(country);
+    const code = STATE_WITH_ZIP.exec(part)?.[1] ?? part;
+    if (US_STATE_CODES.has(code)) found.add(US);
   }
-  if (possiblyUS && [...found].some((country) => country !== US)) return null;
   return found;
 }
 

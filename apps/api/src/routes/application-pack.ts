@@ -158,7 +158,7 @@ export async function buildApplicationPack(userId: string, job: JobRecord): Prom
         pushForReview(
           q,
           only!.answer,
-          `Based on your saved answer for ${only!.country}. The posting doesn't say which country this role is in, so confirm it applies.`,
+          `Based on your saved answer for ${only!.country}. JobOps couldn't tell which country this role is in from its location, so confirm it applies.`,
         );
         continue;
       }
@@ -167,7 +167,7 @@ export async function buildApplicationPack(userId: string, job: JobRecord): Prom
       q,
       country
         ? `Answer this yourself. It's a legal question, so it is never filled in for you.`
-        : `The posting doesn't say which country this role is in. Answer this yourself.`,
+        : `JobOps couldn't tell which country this role is in from its location. Answer this yourself.`,
     );
   }
 
