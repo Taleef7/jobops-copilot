@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, type FormEvent } from 'react';
 import {
   Check,
   Copy,
@@ -8,21 +8,23 @@ import {
   Globe,
   Loader2,
   Mail,
-  ShieldCheck,
   Sparkles,
   Trash2,
+  UserPlus,
   Users,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { StatusPill } from '@/components/status-pill';
-import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
 import { OptionSelect } from '@/components/ui/option-select';
+import { Textarea } from '@/components/ui/textarea';
 import {
+  createJobContact,
   deleteContact,
   draftContactOutreach,
-  scoutJobContacts,
   updateContactStatus,
 } from '@/lib/api';
 import type { JobContactRecord, JobContactStatus } from '@/types/job';
@@ -43,6 +45,8 @@ const STATUS_OPTIONS: { value: JobContactStatus; label: string }[] = [
   { value: 'archived', label: 'Archived' },
 ];
 
+const EMPTY_FORM = { name: '', roleTitle: '', link: '', notes: '' };
+
 interface JobContactsPanelProps {
   jobId: string;
   company: string;
@@ -55,7 +59,9 @@ export function JobContactsPanel({
   initialContacts = [],
 }: JobContactsPanelProps) {
   const [contacts, setContacts] = useState<JobContactRecord[]>(initialContacts);
-  const [isScouting, setIsScouting] = useState(false);
+  const [showForm, setShowForm] = useState(false);
+  const [form, setForm] = useState(EMPTY_FORM);
+  const [isSaving, setIsSaving] = useState(false);
   const [draftingId, setDraftingId] = useState<string | null>(null);
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [activeDraft, setActiveDraft] = useState<{
@@ -63,21 +69,35 @@ export function JobContactsPanel({
     draftText: string;
   } | null>(null);
 
-  async function handleScout() {
-    setIsScouting(true);
+  function closeForm() {
+    setShowForm(false);
+    setForm(EMPTY_FORM);
+  }
+
+  async function handleAddContact(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const name = form.name.trim();
+    const roleTitle = form.roleTitle.trim();
+    if (!name || !roleTitle) return;
+    const link = form.link.trim();
+    const notes = form.notes.trim();
+
+    setIsSaving(true);
     try {
-      const res = await scoutJobContacts(jobId);
-      setContacts(res.contacts);
-      if (res.newDiscovered > 0) {
-        toast.success(`Discovered ${res.newDiscovered} new verified contacts at ${company}`);
-      } else {
-        toast.info(`Contacts for ${company} are up to date (${res.count} verified contacts)`);
-      }
+      const created = await createJobContact(jobId, {
+        name,
+        roleTitle,
+        ...(link ? { linkedinUrl: link } : {}),
+        ...(notes ? { notes } : {}),
+      });
+      setContacts((prev) => [...prev, created]);
+      closeForm();
+      toast.success(`Added ${created.name}`);
     } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : 'Failed to scout contacts';
+      const msg = err instanceof Error ? err.message : 'Failed to add contact';
       toast.error(msg);
     } finally {
-      setIsScouting(false);
+      setIsSaving(false);
     }
   }
 
@@ -92,7 +112,7 @@ export function JobContactsPanel({
         contactId: contact.id,
         draftText: res.draft.draftText,
       });
-      toast.success(`Personalized outreach drafted for ${contact.name}`);
+      toast.success(`Outreach drafted for ${contact.name}`);
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : 'Failed to draft outreach';
       toast.error(msg);
@@ -139,81 +159,101 @@ export function JobContactsPanel({
 
   return (
     <div className="space-y-6">
-      {/* Top Banner & Action */}
+      {/* Header & Action */}
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between border-b pb-4">
         <div>
-          <div className="flex items-center gap-2">
-            <h2 className="font-heading text-lg font-semibold tracking-tight">
-              Connection Scout & People
-            </h2>
-            <Badge variant="outline" className="gap-1 border-primary/30 text-primary">
-              <ShieldCheck className="size-3.5" />
-              Verified Public Evidence
-            </Badge>
-          </div>
+          <h2 className="font-heading text-lg font-semibold tracking-tight">People</h2>
           <p className="text-muted-foreground text-sm mt-0.5">
-            Verified recruiters and hiring leaders for {company}. Strictly fail-closed to public web directories.
+            People at {company} you know or found yourself. Drafts are never sent for you.
           </p>
         </div>
-        <Button
-          onClick={handleScout}
-          disabled={isScouting}
-          className="gap-2 shrink-0"
-          id="scout-people-btn"
-        >
-          {isScouting ? (
-            <>
-              <Loader2 className="size-4 animate-spin" />
-              Scouting...
-            </>
-          ) : (
-            <>
-              <Sparkles className="size-4" />
-              Scout People
-            </>
-          )}
-        </Button>
+        {!showForm ? (
+          <Button onClick={() => setShowForm(true)} className="gap-2 shrink-0">
+            <UserPlus className="size-4" />
+            Add contact
+          </Button>
+        ) : null}
       </div>
 
-      {/* Fail-closed Notice */}
-      <div className="rounded-lg border border-border/60 bg-muted/30 p-3.5 text-xs text-muted-foreground flex items-start gap-2.5">
-        <ShieldCheck className="size-4 text-emerald-600 dark:text-emerald-400 shrink-0 mt-0.5" />
-        <div>
-          <span className="font-medium text-foreground">Fail-Closed Guarantee:</span> Every contact
-          discovered carries verifiable public directory URLs. We never scrape private networks, and
-          outreach drafts are strictly approve-then-send (never auto-sent).
-        </div>
-      </div>
+      {/* Add Contact Form */}
+      {showForm ? (
+        <Card className="p-4 sm:p-5">
+          <form onSubmit={handleAddContact} className="space-y-4">
+            <div className="grid gap-4 sm:grid-cols-2">
+              <div className="space-y-1.5">
+                <Label htmlFor="contact-name">Name</Label>
+                <Input
+                  id="contact-name"
+                  value={form.name}
+                  onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))}
+                  required
+                  autoFocus
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="contact-role">Role</Label>
+                <Input
+                  id="contact-role"
+                  value={form.roleTitle}
+                  onChange={(e) => setForm((f) => ({ ...f, roleTitle: e.target.value }))}
+                  placeholder="Recruiter, hiring manager…"
+                  required
+                />
+              </div>
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="contact-link">LinkedIn or other link (optional)</Label>
+              <Input
+                id="contact-link"
+                type="url"
+                value={form.link}
+                onChange={(e) => setForm((f) => ({ ...f, link: e.target.value }))}
+                placeholder="https://www.linkedin.com/in/…"
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="contact-notes">Note (optional)</Label>
+              <Textarea
+                id="contact-notes"
+                value={form.notes}
+                onChange={(e) => setForm((f) => ({ ...f, notes: e.target.value }))}
+                placeholder="How you know them, what you talked about…"
+                rows={2}
+              />
+            </div>
+            <div className="flex items-center justify-end gap-2">
+              <Button type="button" variant="ghost" onClick={closeForm} disabled={isSaving}>
+                Cancel
+              </Button>
+              <Button type="submit" disabled={isSaving} className="gap-2">
+                {isSaving ? <Loader2 className="size-4 animate-spin" /> : null}
+                Save contact
+              </Button>
+            </div>
+          </form>
+        </Card>
+      ) : null}
 
       {/* Contacts List or Empty State */}
       {contacts.length === 0 ? (
-        <Card className="flex flex-col items-center justify-center p-12 text-center border-dashed">
-          <div className="bg-primary/10 rounded-full p-4 mb-4">
-            <Users className="size-8 text-primary" />
-          </div>
-          <h3 className="font-heading text-base font-semibold">No contacts scouted yet</h3>
-          <p className="text-muted-foreground text-sm max-w-sm mt-1 mb-6">
-            Click &ldquo;Scout People&rdquo; to discover hiring managers, technical recruiters, and team
-            leads at {company} backed by public directory evidence.
-          </p>
-          <Button onClick={handleScout} disabled={isScouting} className="gap-2">
-            {isScouting ? (
-              <>
-                <Loader2 className="size-4 animate-spin" />
-                Scouting {company}...
-              </>
-            ) : (
-              <>
-                <Sparkles className="size-4" />
-                Scout People Now
-              </>
-            )}
-          </Button>
-        </Card>
+        showForm ? null : (
+          <Card className="flex flex-col items-center justify-center p-12 text-center border-dashed">
+            <div className="bg-primary/10 rounded-full p-4 mb-4">
+              <Users className="size-8 text-primary" />
+            </div>
+            <p className="text-muted-foreground text-sm max-w-sm mb-6">
+              No contacts for this job. Add someone you know or found yourself.
+            </p>
+            <Button onClick={() => setShowForm(true)} variant="outline" className="gap-2">
+              <UserPlus className="size-4" />
+              Add contact
+            </Button>
+          </Card>
+        )
       ) : (
         <div className="space-y-4">
           <div className="flex items-center justify-between text-xs text-muted-foreground px-1">
-            <span>{contacts.length} verified contact{contacts.length === 1 ? '' : 's'}</span>
+            <span>{contacts.length} contact{contacts.length === 1 ? '' : 's'}</span>
           </div>
 
           <div className="grid gap-4">
@@ -235,6 +275,9 @@ export function JobContactsPanel({
                       <p className="text-xs text-muted-foreground/90 mt-1">
                         <span className="font-medium text-foreground/80">Relevance:</span> {contact.relevance}
                       </p>
+                    ) : null}
+                    {contact.notes ? (
+                      <p className="text-xs text-muted-foreground whitespace-pre-line mt-1">{contact.notes}</p>
                     ) : null}
                   </div>
 
@@ -260,12 +303,12 @@ export function JobContactsPanel({
                   </div>
                 </div>
 
-                {/* Evidence Section */}
+                {/* Links */}
                 {contact.evidence && contact.evidence.length > 0 ? (
                   <div className="rounded-md border border-border/50 bg-muted/20 p-3 space-y-1.5 text-xs">
                     <div className="flex items-center gap-1.5 font-medium text-foreground">
                       <Globe className="size-3.5 text-primary" />
-                      <span>Verified Public Evidence:</span>
+                      <span>Links</span>
                     </div>
                     <div className="space-y-1 pl-5">
                       {contact.evidence.map((item, idx) => (
@@ -308,7 +351,7 @@ export function JobContactsPanel({
                         className="inline-flex items-center gap-1.5 hover:text-foreground transition-colors"
                       >
                         <LinkedInIcon className="size-3.5 text-[#0A66C2]" />
-                        <span>Company Profile</span>
+                        <span>LinkedIn</span>
                         <ExternalLink className="size-2.5" />
                       </a>
                     ) : null}
@@ -345,7 +388,7 @@ export function JobContactsPanel({
                       <div className="flex items-center gap-2">
                         <Sparkles className="size-4 text-primary" />
                         <span className="font-heading text-xs font-semibold text-foreground uppercase tracking-wide">
-                          Personalized Outreach Draft
+                          Outreach Draft
                         </span>
                       </div>
                       <Button

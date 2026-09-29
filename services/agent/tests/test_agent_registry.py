@@ -7,11 +7,11 @@ from app.config import settings
 from app.graph.registry import AGENT_IDS, build_registry, make_thread_id
 
 
-def test_registry_has_exactly_the_four_specialist_ids():
-    assert AGENT_IDS == ("feed-curator", "resume-tailor", "apply-copilot", "connection-scout")
+def test_registry_has_exactly_the_three_specialist_ids():
+    assert AGENT_IDS == ("feed-curator", "resume-tailor", "apply-copilot")
     registry = build_registry()
     assert set(registry) == set(AGENT_IDS)
-    assert len({id(graph) for graph in registry.values()}) == 4
+    assert len({id(graph) for graph in registry.values()}) == 3
 
 
 def test_thread_id_is_user_agent_and_optional_job_scoped():

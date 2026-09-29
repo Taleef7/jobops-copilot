@@ -59,7 +59,7 @@ def build_specialist_tools(
     user_id: str = "anonymous",
     default_job_id: str | None = None,
 ) -> list[BaseTool]:
-    """The four specialist tools closed over the graph registry and user_id."""
+    """The three specialist tools closed over the graph registry and user_id."""
     if isinstance(registry, str) and not isinstance(user_id, dict):
         user_id, registry = registry, user_id
     if registry is None:
@@ -90,16 +90,7 @@ def build_specialist_tools(
             registry, "apply-copilot", user_id, {"job_id": effective_job_id}
         )
 
-    @tool
-    async def scout_connections(job_id: str = "") -> str:
-        """Find publicly-verifiable people (recruiters, hiring managers, teammates)
-        relevant to one job. Public web only; nothing is contacted."""
-        effective_job_id = (job_id or "").strip() or (default_job_id or "").strip()
-        return await _run_specialist(
-            registry, "connection-scout", user_id, {"job_id": effective_job_id}
-        )
-
-    return [run_feed_curation, tailor_resume, build_application_pack, scout_connections]
+    return [run_feed_curation, tailor_resume, build_application_pack]
 
 
 create_specialist_tools = build_specialist_tools

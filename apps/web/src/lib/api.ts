@@ -712,10 +712,11 @@ export interface JobContactsResponse {
   contacts: JobContactRecord[];
 }
 
-export interface ScoutJobContactsResponse {
-  contacts: JobContactRecord[];
-  count: number;
-  newDiscovered: number;
+export interface CreateJobContactInput {
+  name: string;
+  roleTitle: string;
+  linkedinUrl?: string;
+  notes?: string;
 }
 
 export interface DraftContactOutreachResponse {
@@ -728,10 +729,12 @@ export async function fetchJobContacts(jobId: string): Promise<JobContactRecord[
   return data.contacts;
 }
 
-export async function scoutJobContacts(jobId: string): Promise<ScoutJobContactsResponse> {
-  return requestJson<ScoutJobContactsResponse>(`/api/jobs/${encodeURIComponent(jobId)}/scout`, {
+export async function createJobContact(jobId: string, body: CreateJobContactInput): Promise<JobContactRecord> {
+  const res = await requestJson<{ contact: JobContactRecord }>(`/api/jobs/${encodeURIComponent(jobId)}/contacts`, {
     method: 'POST',
+    body: JSON.stringify(body),
   });
+  return res.contact;
 }
 
 export async function draftContactOutreach(contactId: string): Promise<DraftContactOutreachResponse> {

@@ -13,7 +13,6 @@ def test_agent_tags_mapping_constants():
     assert AGENT_TAGS["feed-curator"] == ["feed"]
     assert AGENT_TAGS["resume-tailor"] == ["tailor"]
     assert AGENT_TAGS["apply-copilot"] == ["apply"]
-    assert AGENT_TAGS["connection-scout"] == ["scout"]
 
 
 def test_tags_for_and_get_agent_tags():
@@ -22,7 +21,6 @@ def test_tags_for_and_get_agent_tags():
     assert tags_for("feed-curator") == ["feed"]
     assert tags_for("resume-tailor") == ["tailor"]
     assert tags_for("apply-copilot") == ["apply"]
-    assert tags_for("connection-scout") == ["scout"]
     assert tags_for("unknown-agent") == ["unknown-agent"]
 
     assert get_agent_tags("feed-curator") == ["feed"]

@@ -14,7 +14,7 @@ import { getBaseResumeVersion } from '@/data/resume-version-store';
 import { resolveOutreachDraft } from '@/lib/agent-client';
 import { requireUser } from '@/lib/auth';
 import { emitApprovalNeededNotification } from '@/lib/notify/events';
-import type { JobContactRecord, JobContactStatus, OutreachDraft } from '@/types';
+import type { JobContactStatus, OutreachDraft } from '@/types';
 
 export const contactsRouter = Router();
 
@@ -25,6 +25,35 @@ const VALID_STATUSES = new Set<JobContactStatus>([
   'replied',
   'archived',
 ]);
+
+function isHttpUrl(value: string): boolean {
+  try {
+    const { protocol } = new URL(value);
+    return protocol === 'https:' || protocol === 'http:';
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * A contact's links are rendered as links, so only http(s) URLs are accepted.
+ * Evidence is optional: a person the user knows needs none (#344).
+ */
+function linkError(evidence: unknown, linkedinUrl: unknown): string | null {
+  if (evidence !== undefined) {
+    if (!Array.isArray(evidence)) {
+      return 'evidence must be an array of URLs or evidence objects';
+    }
+    const normalized = normalizeEvidence(evidence);
+    if (normalized.length !== evidence.length || !normalized.every((item) => isHttpUrl(item.url))) {
+      return 'Each evidence link must be an http(s) URL';
+    }
+  }
+  if (typeof linkedinUrl === 'string' && linkedinUrl.trim() && !isHttpUrl(linkedinUrl.trim())) {
+    return 'linkedinUrl must be an http(s) URL';
+  }
+  return null;
+}
 
 // 1. List contacts for a job
 contactsRouter.get('/jobs/:id/contacts', async (request, response) => {
@@ -68,15 +97,9 @@ contactsRouter.post('/jobs/:id/contacts', async (request, response) => {
     return response.status(400).json({ error: 'roleTitle is required and must be a non-empty string' });
   }
 
-  if (!Array.isArray(evidence)) {
-    return response.status(400).json({ error: 'evidence must be an array of URLs or evidence objects' });
-  }
-
-  const normalizedEvidence = normalizeEvidence(evidence);
-  if (normalizedEvidence.length === 0) {
-    return response.status(400).json({
-      error: 'Every contact must carry at least 1 public evidence URL',
-    });
+  const createLinkError = linkError(evidence, linkedinUrl);
+  if (createLinkError) {
+    return response.status(400).json({ error: createLinkError });
   }
 
   if (status !== undefined && !VALID_STATUSES.has(status)) {
@@ -89,7 +112,7 @@ contactsRouter.post('/jobs/:id/contacts', async (request, response) => {
     const created = await insertJobContact(userId, jobId, {
       name: name.trim(),
       roleTitle: roleTitle.trim(),
-      evidence: normalizedEvidence,
+      evidence: evidence === undefined ? [] : normalizeEvidence(evidence),
       relevance: typeof relevance === 'string' ? relevance.trim() : undefined,
       email: typeof email === 'string' ? email.trim() : undefined,
       linkedinUrl: typeof linkedinUrl === 'string' ? linkedinUrl.trim() : undefined,
@@ -126,16 +149,9 @@ contactsRouter.patch('/contacts/:id', async (request, response) => {
     return response.status(400).json({ error: 'roleTitle must be a non-empty string' });
   }
 
-  if (evidence !== undefined) {
-    if (!Array.isArray(evidence)) {
-      return response.status(400).json({ error: 'evidence must be an array of URLs or evidence objects' });
-    }
-    const normalized = normalizeEvidence(evidence);
-    if (normalized.length === 0) {
-      return response.status(400).json({
-        error: 'Every contact must carry at least 1 public evidence URL',
-      });
-    }
+  const updateLinkError = linkError(evidence, linkedinUrl);
+  if (updateLinkError) {
+    return response.status(400).json({ error: updateLinkError });
   }
 
   if (status !== undefined && !VALID_STATUSES.has(status)) {
@@ -185,85 +201,7 @@ contactsRouter.delete('/contacts/:id', async (request, response) => {
   }
 });
 
-// 5. Scout contacts for a job (Connection Scout)
-contactsRouter.post('/jobs/:id/scout', async (request, response) => {
-  const userId = requireUser(request, response);
-  if (!userId) return;
-
-  const jobId = request.params.id;
-  const job = await getJobById(userId, jobId);
-  if (!job) {
-    return response.status(404).json({ error: 'Job not found' });
-  }
-
-  try {
-    // Generate verified public domain contacts grounded in company's public presence
-    const cleanCompany = job.company.replace(/[^\w\s]/g, '').toLowerCase().replace(/\s+/g, '');
-    const companyDomain = cleanCompany ? `${cleanCompany}.com` : 'example.com';
-    const teamUrl = `https://${companyDomain}/about`;
-    const careersUrl = `https://${companyDomain}/careers`;
-
-    const candidates = [
-      {
-        name: `${job.company} Talent Acquisition`,
-        roleTitle: `Technical Recruiting Partner at ${job.company}`,
-        evidence: [
-          {
-            url: careersUrl,
-            title: `${job.company} Careers Directory`,
-            snippet: `Official talent acquisition and recruiting directory for ${job.company}`,
-          },
-        ],
-        relevance: `Primary talent acquisition partner for ${job.title} openings at ${job.company}`,
-        email: `careers@${companyDomain}`,
-        linkedinUrl: `https://www.linkedin.com/company/${cleanCompany}`,
-        notes: `Discovered from verified public careers directory for ${job.company}`,
-      },
-      {
-        name: `${job.company} Engineering Leadership`,
-        roleTitle: `Engineering Leadership Team at ${job.company}`,
-        evidence: [
-          {
-            url: teamUrl,
-            title: `${job.company} Team & Leadership Directory`,
-            snippet: `Verified public leadership and department directory for ${job.company}`,
-          },
-        ],
-        relevance: `Hiring team leadership for ${job.title}`,
-        email: `engineering@${companyDomain}`,
-        linkedinUrl: `https://www.linkedin.com/company/${cleanCompany}`,
-        notes: `Discovered from verified public leadership directory for ${job.company}`,
-      },
-    ];
-
-    const existingContacts = await listJobContacts(userId, jobId);
-    const createdContacts: JobContactRecord[] = [];
-
-    for (const c of candidates) {
-      const alreadyExists = existingContacts.some(
-        (ex) =>
-          ex.name.toLowerCase() === c.name.toLowerCase() &&
-          ex.roleTitle.toLowerCase() === c.roleTitle.toLowerCase(),
-      );
-      if (!alreadyExists) {
-        const created = await insertJobContact(userId, jobId, c);
-        createdContacts.push(created);
-      }
-    }
-
-    const allContacts = await listJobContacts(userId, jobId);
-    return response.status(200).json({
-      contacts: allContacts,
-      count: allContacts.length,
-      newDiscovered: createdContacts.length,
-    });
-  } catch (error) {
-    console.error('Error scouting contacts:', error);
-    return response.status(500).json({ error: 'Failed to scout contacts' });
-  }
-});
-
-// 6. Draft personalized outreach for a specific contact
+// 5. Draft personalized outreach for a specific contact
 contactsRouter.post('/contacts/:id/draft-outreach', async (request, response) => {
   const userId = requireUser(request, response);
   if (!userId) return;
@@ -283,9 +221,17 @@ contactsRouter.post('/contacts/:id/draft-outreach', async (request, response) =>
     const baseVersion = await getBaseResumeVersion(userId);
     const profile = await getUserProfile(userId);
     const resume = baseVersion?.structuredResume || profile?.baseResume;
+    // The draft is written from the user's own background, never an invented one.
     const candidateSummary =
-      resume?.basics?.summary ||
-      `Software professional interested in ${job.title} at ${job.company}.`;
+      resume?.basics?.summary?.trim() ||
+      profile?.profileText?.trim() ||
+      profile?.resumeText?.trim().slice(0, 1200);
+    if (!candidateSummary) {
+      return response.status(409).json({
+        code: 'RESUME_REQUIRED',
+        error: 'Add your résumé in Settings first, so the draft is written from your real background.',
+      });
+    }
 
     const draftResult = await resolveOutreachDraft({
       message_type: 'recruiter_email',

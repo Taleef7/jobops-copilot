@@ -6,7 +6,6 @@ AGENT_TAGS: dict[str, list[str]] = {
     "feed-curator": ["feed"],
     "resume-tailor": ["tailor"],
     "apply-copilot": ["apply"],
-    "connection-scout": ["scout"],
 }
 
 

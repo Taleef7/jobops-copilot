@@ -108,11 +108,7 @@ export async function insertJobContact(
 ): Promise<JobContactRecord> {
   const id = randomUUID();
   const now = new Date().toISOString();
-  const evidence = normalizeEvidence(body.evidence);
-
-  if (evidence.length === 0) {
-    throw new Error('Every contact must carry at least 1 public evidence URL');
-  }
+  const evidence = normalizeEvidence(body.evidence ?? []);
 
   const { rows } = await poolOrThrow().query<JobContactRow>(
     `INSERT INTO job_contacts (
@@ -150,11 +146,7 @@ export async function updateJobContact(
   const now = new Date().toISOString();
   let updatedEvidence = existing.evidence;
   if (patch.evidence !== undefined) {
-    const normalized = normalizeEvidence(patch.evidence);
-    if (normalized.length === 0) {
-      throw new Error('Every contact must carry at least 1 public evidence URL');
-    }
-    updatedEvidence = normalized;
+    updatedEvidence = normalizeEvidence(patch.evidence);
   }
 
   const { rows } = await poolOrThrow().query<JobContactRow>(

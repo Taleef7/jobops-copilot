@@ -1,4 +1,4 @@
-"""Registry of the four Jobright-parity specialist graph entrypoints.
+"""Registry of the three Jobright-parity specialist graph entrypoints.
 
 The graphs intentionally remain no-cost echo stubs until the specialist behavior is
 implemented in later tickets. They are still real, separately compiled LangGraph
@@ -15,12 +15,11 @@ from langgraph.graph import END, START, StateGraph
 from app.graph.agent_state import AgentRunState
 from app.graph.apply_copilot import build_apply_copilot_graph
 from app.graph.budget import charge_tokens
-from app.graph.connection_scout import build_connection_scout_graph
 from app.graph.feed_curator import build_feed_curator_graph
 from app.graph.resume_tailor import build_resume_tailor_graph
 from app.llm.provider import get_model_for_agent
 
-AGENT_IDS = ("feed-curator", "resume-tailor", "apply-copilot", "connection-scout")
+AGENT_IDS = ("feed-curator", "resume-tailor", "apply-copilot")
 
 
 def make_thread_id(user_id: str, agent_id: str, job_id: str | None = None) -> str:
@@ -58,14 +57,12 @@ def _build_graph(agent_id: str, checkpointer=None, store=None):
 build_feed_curator = build_feed_curator_graph
 build_resume_tailor = build_resume_tailor_graph
 build_apply_copilot = build_apply_copilot_graph
-build_connection_scout = build_connection_scout_graph
 
 
 _FACTORIES = {
     "feed-curator": build_feed_curator_graph,
     "resume-tailor": build_resume_tailor_graph,
     "apply-copilot": build_apply_copilot_graph,
-    "connection-scout": build_connection_scout_graph,
 }
 
 

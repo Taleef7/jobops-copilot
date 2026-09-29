@@ -6,7 +6,8 @@ import { join } from 'node:path';
 import test from 'node:test';
 import { createApp } from '@/app';
 import { _resetContactStoreForTests } from '@/data/contact-store';
-import { createJob, resetJobStoreForTests } from '@/data/job-store';
+import { createJob, getJobById, resetJobStoreForTests } from '@/data/job-store';
+import { deleteUserProfile, upsertUserProfile } from '@/data/profile-store';
 import type { JobContactRecord } from '@/types';
 
 async function withServer(run: (baseUrl: string) => Promise<void>) {
@@ -38,7 +39,7 @@ function hdrs(userId?: string) {
   };
 }
 
-test('contacts API route lifecycle and fail-closed validation', async () => {
+test('contacts API route lifecycle and validation', async () => {
   const originalCwd = process.cwd();
   delete process.env.DATABASE_URL;
   const tempDir = await mkdtemp(join(tmpdir(), 'jobops-contacts-test-'));
@@ -78,24 +79,42 @@ test('contacts API route lifecycle and fail-closed validation', async () => {
         headers: hdrs(USER_A),
         body: JSON.stringify({
           roleTitle: 'Engineering Manager',
-          evidence: ['https://acme.com/team'],
         }),
       });
       assert.equal(badRes1.status, 400);
 
-      // 4. Invariant: Fail closed when evidence is empty
-      const badEvidenceRes = await fetch(`${baseUrl}/api/jobs/${jobA.id}/contacts`, {
+      // 4. A person the user knows needs no evidence: a name and a role are enough.
+      const knownRes = await fetch(`${baseUrl}/api/jobs/${jobA.id}/contacts`, {
         method: 'POST',
         headers: hdrs(USER_A),
-        body: JSON.stringify({
-          name: 'Sarah Connor',
-          roleTitle: 'Engineering Director',
-          evidence: [],
-        }),
+        body: JSON.stringify({ name: 'Jamie Lee', roleTitle: 'Recruiter' }),
       });
-      assert.equal(badEvidenceRes.status, 400);
-      const badEvidenceJson = (await badEvidenceRes.json()) as { error: string };
-      assert.match(badEvidenceJson.error, /at least 1 public evidence URL/);
+      assert.equal(knownRes.status, 201);
+      const known = ((await knownRes.json()) as { contact: JobContactRecord }).contact;
+      assert.deepEqual(known.evidence, []);
+      assert.equal(known.status, 'found');
+
+      const emptyEvidenceRes = await fetch(`${baseUrl}/api/jobs/${jobA.id}/contacts`, {
+        method: 'POST',
+        headers: hdrs(USER_A),
+        body: JSON.stringify({ name: 'Priya Shah', roleTitle: 'Engineering Manager', evidence: [] }),
+      });
+      assert.equal(emptyEvidenceRes.status, 201);
+
+      // Links are rendered as links, so they must be http(s).
+      for (const body of [
+        { name: 'X', roleTitle: 'Y', evidence: 'https://acme.com' },
+        { name: 'X', roleTitle: 'Y', evidence: ['javascript:alert(1)'] },
+        { name: 'X', roleTitle: 'Y', linkedinUrl: 'javascript:alert(1)' },
+        { name: 'X', roleTitle: 'Y', linkedinUrl: 'linkedin.com/in/x' },
+      ]) {
+        const res = await fetch(`${baseUrl}/api/jobs/${jobA.id}/contacts`, {
+          method: 'POST',
+          headers: hdrs(USER_A),
+          body: JSON.stringify(body),
+        });
+        assert.equal(res.status, 400, JSON.stringify(body));
+      }
 
       // 5. Successful contact creation
       const createRes = await fetch(`${baseUrl}/api/jobs/${jobA.id}/contacts`, {
@@ -131,8 +150,8 @@ test('contacts API route lifecycle and fail-closed validation', async () => {
       });
       assert.equal(listRes2.status, 200);
       const listData2 = (await listRes2.json()) as { contacts: JobContactRecord[] };
-      assert.equal(listData2.contacts.length, 1);
-      assert.equal(listData2.contacts[0]?.id, contactId);
+      assert.equal(listData2.contacts.length, 3);
+      assert.ok(listData2.contacts.some((c) => c.id === contactId));
 
       // 7. Update contact status and notes
       const patchRes = await fetch(`${baseUrl}/api/contacts/${contactId}`, {
@@ -148,15 +167,24 @@ test('contacts API route lifecycle and fail-closed validation', async () => {
       assert.equal(patchData.contact.status, 'outreach_drafted');
       assert.equal(patchData.contact.notes, 'Cold email draft prepared with shared background in Kafka');
 
-      // 8. Invariant: Updating evidence to empty must fail closed
-      const badPatchRes = await fetch(`${baseUrl}/api/contacts/${contactId}`, {
+      // 8. Evidence can be cleared, and a link must still be http(s)
+      const clearPatchRes = await fetch(`${baseUrl}/api/contacts/${contactId}`, {
         method: 'PATCH',
         headers: hdrs(USER_A),
         body: JSON.stringify({
           evidence: [],
         }),
       });
-      assert.equal(badPatchRes.status, 400);
+      assert.equal(clearPatchRes.status, 200);
+      const cleared = ((await clearPatchRes.json()) as { contact: JobContactRecord }).contact;
+      assert.deepEqual(cleared.evidence, []);
+
+      const badLinkPatchRes = await fetch(`${baseUrl}/api/contacts/${contactId}`, {
+        method: 'PATCH',
+        headers: hdrs(USER_A),
+        body: JSON.stringify({ linkedinUrl: 'javascript:alert(1)' }),
+      });
+      assert.equal(badLinkPatchRes.status, 400);
 
       // 9. Cross-user isolation: USER_B cannot patch or delete USER_A's contact
       const isolatePatchRes = await fetch(`${baseUrl}/api/contacts/${contactId}`, {
@@ -179,50 +207,43 @@ test('contacts API route lifecycle and fail-closed validation', async () => {
       });
       assert.equal(deleteRes.status, 200);
 
-      // 11. Contacts list is empty again
+      // 11. The deleted contact is gone
       const listRes3 = await fetch(`${baseUrl}/api/jobs/${jobA.id}/contacts`, {
         headers: hdrs(USER_A),
       });
       assert.equal(listRes3.status, 200);
       const listData3 = (await listRes3.json()) as { contacts: JobContactRecord[] };
-      assert.equal(listData3.contacts.length, 0);
+      assert.deepEqual(
+        listData3.contacts.map((c) => c.name).sort(),
+        ['Jamie Lee', 'Priya Shah'],
+      );
 
-      // 12. Connection Scout: POST /api/jobs/:id/scout
-      const scoutRes1 = await fetch(`${baseUrl}/api/jobs/${jobA.id}/scout`, {
+      // 12. Scout People is gone: it invented contacts from the company name
+      const scoutRes = await fetch(`${baseUrl}/api/jobs/${jobA.id}/scout`, {
         method: 'POST',
         headers: hdrs(USER_A),
       });
-      assert.equal(scoutRes1.status, 200);
-      const scoutData1 = (await scoutRes1.json()) as {
-        contacts: JobContactRecord[];
-        count: number;
-        newDiscovered: number;
-      };
-      assert.ok(scoutData1.count >= 2);
-      assert.equal(scoutData1.newDiscovered, scoutData1.count);
+      assert.equal(scoutRes.status, 404);
 
-      // Invariant check on scouted contacts: 100% have valid public evidence URLs
-      for (const c of scoutData1.contacts) {
-        assert.ok(c.name);
-        assert.ok(c.roleTitle);
-        assert.ok(c.evidence.length >= 1);
-        for (const ev of c.evidence) {
-          assert.match(ev.url, /^https?:\/\//);
-        }
-      }
-
-      // Re-scouting should not duplicate contacts
-      const scoutRes2 = await fetch(`${baseUrl}/api/jobs/${jobA.id}/scout`, {
+      // 13. Drafting outreach with no résumé on file is refused, and nothing is written
+      const noResumeRes = await fetch(`${baseUrl}/api/contacts/${known.id}/draft-outreach`, {
         method: 'POST',
         headers: hdrs(USER_A),
       });
-      assert.equal(scoutRes2.status, 200);
-      const scoutData2 = (await scoutRes2.json()) as { count: number; newDiscovered: number };
-      assert.equal(scoutData2.newDiscovered, 0);
-      assert.equal(scoutData2.count, scoutData1.count);
+      assert.equal(noResumeRes.status, 409);
+      const noResume = (await noResumeRes.json()) as { code: string; error: string };
+      assert.equal(noResume.code, 'RESUME_REQUIRED');
+      assert.match(noResume.error, /résumé/);
+      assert.equal((await getJobById(USER_A, jobA.id))?.outreach?.length ?? 0, 0);
+      const afterRefusal = await fetch(`${baseUrl}/api/jobs/${jobA.id}/contacts`, { headers: hdrs(USER_A) });
+      const refusedContact = ((await afterRefusal.json()) as { contacts: JobContactRecord[] }).contacts.find(
+        (c) => c.id === known.id,
+      );
+      assert.equal(refusedContact?.status, 'found');
 
-      // 13. Draft Outreach: POST /api/contacts/:id/draft-outreach
-      const targetContact = scoutData1.contacts[0]!;
+      // 14. With a résumé on file, the draft is written from it
+      await upsertUserProfile(USER_A, { resumeText: 'Backend engineer, five years of Go and Kafka.' });
+      const targetContact = known;
       const draftRes1 = await fetch(`${baseUrl}/api/contacts/${targetContact.id}/draft-outreach`, {
         method: 'POST',
         headers: hdrs(USER_A),
@@ -245,6 +266,7 @@ test('contacts API route lifecycle and fail-closed validation', async () => {
       assert.equal(draftData1.draft.contactName, targetContact.name);
       assert.equal(draftData1.draft.status, 'drafted');
       assert.ok(draftData1.draft.draftText.length > 0);
+      assert.equal((await getJobById(USER_A, jobA.id))?.outreach?.length, 1);
 
       // Cross-user isolation: USER_B cannot draft outreach for USER_A's contact
       const isolateDraftRes = await fetch(
@@ -257,6 +279,7 @@ test('contacts API route lifecycle and fail-closed validation', async () => {
       assert.equal(isolateDraftRes.status, 404);
     });
   } finally {
+    await deleteUserProfile(USER_A);
     process.chdir(originalCwd);
     await resetJobStoreForTests();
     await _resetContactStoreForTests([]);
