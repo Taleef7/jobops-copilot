@@ -29,6 +29,7 @@ import type {
   StructuredResume,
 } from '@/types';
 import { noteAgentCall } from '@/lib/ai-call-context';
+import { capAgentPayload } from '@/lib/input-caps';
 
 const AGENT_URL = process.env.AGENT_SERVICE_URL?.trim().replace(/\/$/, '');
 const AGENT_TIMEOUT_MS = Number(process.env.AGENT_TIMEOUT_MS ?? 60_000);
@@ -68,10 +69,12 @@ export function isAgentEnabled(): boolean {
   return Boolean(agentServiceUrl());
 }
 
-/** POST a paid request to the agent, noting it for the budget (#345). */
+/** POST a paid request to the agent, with its text cut to the LLM limits and noted for the budget (#345). */
 function postToAgent(path: string, payload: unknown, timeoutMs: number): Promise<Response> {
-  const body = JSON.stringify(payload);
-  noteAgentCall(body.length);
+  const capped = capAgentPayload(payload);
+  if (capped.truncated) console.warn(`agent ${path}: input cut to the LLM limit`);
+  const body = JSON.stringify(capped.payload);
+  noteAgentCall(body.length, capped.truncated);
   return fetch(`${agentServiceUrl()}${path}`, {
     method: 'POST',
     headers: agentHeaders({ 'Content-Type': 'application/json' }),

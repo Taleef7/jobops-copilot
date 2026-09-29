@@ -10,6 +10,8 @@ import { AsyncLocalStorage } from 'node:async_hooks';
 export interface AiCallContext {
   reachedAgent: boolean;
   inputChars: number;
+  /** Some input was cut to the LLM limit (lib/input-caps.ts). */
+  inputTruncated?: boolean;
 }
 
 const storage = new AsyncLocalStorage<AiCallContext>();
@@ -19,9 +21,15 @@ export function runWithAiCallContext<T>(context: AiCallContext, run: () => T): T
 }
 
 /** Called by the agent client right before it sends a paid request. */
-export function noteAgentCall(inputChars: number): void {
+export function noteAgentCall(inputChars: number, truncated = false): void {
   const context = storage.getStore();
   if (!context) return;
   context.reachedAgent = true;
   context.inputChars += inputChars;
+  if (truncated) context.inputTruncated = true;
+}
+
+/** True when this request's agent input was cut to the LLM limit. */
+export function inputWasTruncated(): boolean {
+  return storage.getStore()?.inputTruncated === true;
 }

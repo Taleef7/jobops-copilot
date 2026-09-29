@@ -38,6 +38,7 @@ import {
   emitJobMatchNotification,
 } from '@/lib/notify/events';
 import type { DraftOutreachBody, OutreachDraft, ParseJobBody, ScoreFitBody, WeeklyReportBody } from '@/types';
+import { inputWasTruncated } from '@/lib/ai-call-context';
 
 export const aiRouter = Router();
 
@@ -150,6 +151,8 @@ aiRouter.post('/score-fit', async (request, response, next) => {
     return response.json({
       job_id: body.job_id,
       ...scored,
+      // The posting or résumé was cut to the LLM limit (#345).
+      ...(inputWasTruncated() ? { input_truncated: true } : {}),
     });
   } catch (error) {
     next(error);

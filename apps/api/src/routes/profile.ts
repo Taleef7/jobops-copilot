@@ -4,6 +4,7 @@ import { getUserProfile, upsertUserProfile } from '@/data/profile-store';
 import { listJobs } from '@/data/job-store';
 import { listWeeklyReports } from '@/data/report-store';
 import { requireUser } from '@/lib/auth';
+import { isTooLong, STORED_TEXT_MAX, TOO_LONG_MESSAGE } from '@/lib/input-caps';
 
 export const profileRouter = Router();
 
@@ -42,6 +43,9 @@ profileRouter.put('/', async (request, response, next) => {
     const userId = requireUser(request, response);
     if (!userId) return;
     const body = request.body as { profileText?: string };
+    if (isTooLong(body.profileText, STORED_TEXT_MAX)) {
+      return response.status(413).json({ error: TOO_LONG_MESSAGE });
+    }
     const updated = await upsertUserProfile(userId, {
       profileText: body.profileText?.trim() || undefined,
     });
@@ -58,6 +62,9 @@ profileRouter.post('/resume', upload.single('file'), async (request, response, n
     if (!userId) return;
 
     const body = request.body as { resume_text?: string };
+    if (isTooLong(body.resume_text, STORED_TEXT_MAX)) {
+      return response.status(413).json({ error: TOO_LONG_MESSAGE });
+    }
     let resumeText = body.resume_text?.trim();
     let resumeFileName: string | undefined;
 
