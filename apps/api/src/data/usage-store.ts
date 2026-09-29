@@ -91,9 +91,10 @@ export async function reserveDailyBudget(
   userId: string,
   ceilingUsd: number,
   costUsd: number,
+  calls = 1,
 ): Promise<Reservation> {
   if (hasPostgresConnection()) {
-    return postgresStore.reserveDailyBudget(userId, ceilingUsd, costUsd);
+    return postgresStore.reserveDailyBudget(userId, ceilingUsd, costUsd, calls);
   }
   return runExclusive(async () => {
     const all = await ensureLoaded();
@@ -106,9 +107,9 @@ export async function reserveDailyBudget(
     }
     if (existing) {
       existing.costUsd += costUsd;
-      existing.calls += 1;
+      existing.calls += calls;
     } else {
-      all.push({ userId, date, costUsd, calls: 1 });
+      all.push({ userId, date, costUsd, calls });
     }
     await persist();
     return { allowed: true, costUsd: current + costUsd };

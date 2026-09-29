@@ -78,6 +78,10 @@ profileRouter.post('/resume', upload.single('file'), async (request, response, n
     if (!resumeText) {
       return response.status(400).json({ error: 'Provide a PDF file or resume_text.' });
     }
+    // Checked again after extraction: a small PDF can hold more text than the cap (#345).
+    if (isTooLong(resumeText, STORED_TEXT_MAX)) {
+      return response.status(413).json({ error: TOO_LONG_MESSAGE });
+    }
 
     const updated = await upsertUserProfile(userId, {
       resumeText,

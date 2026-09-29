@@ -13,10 +13,10 @@
 import type { NextFunction, Request, Response } from 'express';
 import { adjustDailyUsage, type Reservation, reserveDailyBudget } from '@/data/usage-store';
 import { type AiCallContext, runWithAiCallContext } from '@/lib/ai-call-context';
-import { dailyBudgetUsd, estimateCallCostUsd, estimateCostFromChars } from '@/lib/cost';
+import { dailyBudgetUsd, estimateCallCostUsd } from '@/lib/cost';
 
 export interface BudgetDeps {
-  reserve: (userId: string, ceilingUsd: number, costUsd: number) => Promise<Reservation>;
+  reserve: (userId: string, ceilingUsd: number, costUsd: number, calls?: number) => Promise<Reservation>;
   adjust: (userId: string, deltaUsd: number, deltaCalls: number) => Promise<void>;
 }
 
@@ -33,10 +33,10 @@ export async function reserveAiBudget(userId: string, op: string): Promise<boole
 /**
  * Build the budget-guard middleware; the store is injectable for tests.
  *
- * It reserves a flat estimate up front (the atomic ceiling check), then settles when the
- * response is done (#345): a request that never reached the agent (a 400, a 404, a
- * disabled agent) is refunded, and one whose input cost more than the reservation is
- * topped up by its size.
+ * It reserves a flat estimate up front (the atomic ceiling check). Before each paid call
+ * the agent client reserves what a large input costs on top, also against the ceiling
+ * (lib/ai-call-context.ts). When the response completes, a request that never reached
+ * the agent (a 400, a 404, a disabled agent) is refunded (#345).
  */
 export function createDailyBudgetGuard(
   deps: BudgetDeps = { reserve: reserveDailyBudget, adjust: adjustDailyUsage },
@@ -60,7 +60,18 @@ export function createDailyBudgetGuard(
       return;
     }
 
-    const context: AiCallContext = { reachedAgent: false, inputChars: 0 };
+    const context: AiCallContext = {
+      reachedAgent: false,
+      inputChars: 0,
+      reservedUsd,
+      reserveMore: async (usd) => {
+        try {
+          return (await deps.reserve(userId, dailyBudgetUsd(), usd, 0)).allowed;
+        } catch {
+          return true; // fail open, like the up-front reservation
+        }
+      },
+    };
     let settled = false;
     const settle = () => {
       if (settled) return;
@@ -68,11 +79,8 @@ export function createDailyBudgetGuard(
       // A client that disconnects doesn't stop the handler, which may still call the agent,
       // so only a completed response is settled. An aborted one keeps its reservation.
       if (!response.writableFinished) return;
-      const [deltaUsd, deltaCalls] = context.reachedAgent
-        ? [Math.max(estimateCostFromChars(context.inputChars) - reservedUsd, 0), 0]
-        : [-reservedUsd, -1];
-      if (deltaUsd === 0 && deltaCalls === 0) return;
-      deps.adjust(userId, deltaUsd, deltaCalls).catch(() => undefined);
+      if (context.reachedAgent) return;
+      deps.adjust(userId, -context.reservedUsd, -1).catch(() => undefined);
     };
     response.once('finish', settle);
     response.once('close', settle);

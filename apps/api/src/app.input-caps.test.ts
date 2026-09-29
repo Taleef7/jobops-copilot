@@ -6,6 +6,7 @@ import { join } from 'node:path';
 import test from 'node:test';
 import { createApp } from './app';
 import { createJob, resetJobStoreForTests } from '@/data/job-store';
+import { renderCoverLetterPdf } from '@/lib/cover-letter-pdf';
 
 /** #345: stored text has a ceiling, so a huge posting or résumé is refused up front. */
 test('over-long job and résumé text is refused with a plain message', async () => {
@@ -46,6 +47,13 @@ test('over-long job and résumé text is refused with a plain message', async ()
     assert.equal((await send('POST', '/api/profile/resume', { resume_text: 'r'.repeat(100_001) })).status, 413);
     assert.equal((await send('PUT', '/api/profile', { profileText: 'p'.repeat(100_001) })).status, 413);
     assert.equal((await send('POST', '/api/profile/resume', { resume_text: 'Backend engineer.' })).status, 200);
+
+    // A small PDF can hold more text than the cap: the extracted text is checked too.
+    const bodyText = Array.from({ length: 2600 }, (_, i) => `Line ${i} of a very long resume with many words in it.`).join('\n');
+    const form = new FormData();
+    form.append('file', new Blob([renderCoverLetterPdf({ candidateName: 'A', bodyText })], { type: 'application/pdf' }), 'resume.pdf');
+    const upload = await fetch(`${base}/api/profile/resume`, { method: 'POST', headers: { 'X-User-Id': 'u_caps' }, body: form });
+    assert.equal(upload.status, 413);
   } finally {
     server.closeAllConnections();
     await new Promise<void>((resolve) => server.close(() => resolve()));

@@ -4,6 +4,7 @@ import { attachUserId, clerkAuth } from '@/lib/auth';
 import { safeEqual } from '@/lib/safe-equal';
 import { globalLimiter, strictLimiter } from '@/lib/rate-limit';
 import { enforceDailyBudget } from '@/lib/budget';
+import { AiBudgetExceededError } from '@/lib/ai-call-context';
 import { aiRouter } from '@/routes/ai';
 import { assistantStreamRouter } from '@/routes/assistant';
 import { assistantChatRouter } from '@/routes/assistant-chat';
@@ -166,6 +167,10 @@ export function createApp(dependencies: AppDependencies = {}) {
   });
 
   app.use((error: unknown, _request: express.Request, response: express.Response, next: express.NextFunction) => {
+    if (error instanceof AiBudgetExceededError) {
+      response.status(429).json({ error: 'Daily AI budget reached' });
+      return;
+    }
     console.error(error);
     response.status(500).json({
       error: 'Internal server error',

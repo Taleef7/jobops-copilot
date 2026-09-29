@@ -25,17 +25,18 @@ export async function reserveDailyBudget(
   userId: string,
   ceilingUsd: number,
   costUsd: number,
+  calls = 1,
 ): Promise<Reservation> {
   const { rows } = await poolOrThrow().query<{ cost_usd: string }>(
     `insert into ai_usage (user_id, usage_date, cost_usd, calls)
-     select $1, (now() at time zone 'utc')::date, $2::numeric, 1
+     select $1, (now() at time zone 'utc')::date, $2::numeric, $4::int
      where $2::numeric <= $3::numeric
      on conflict (user_id, usage_date) do update
        set cost_usd = ai_usage.cost_usd + excluded.cost_usd,
-           calls = ai_usage.calls + 1
+           calls = ai_usage.calls + excluded.calls
        where ai_usage.cost_usd + excluded.cost_usd <= $3::numeric
      returning cost_usd`,
-    [userId, costUsd, ceilingUsd],
+    [userId, costUsd, ceilingUsd, calls],
   );
   const row = rows[0];
   return row ? { allowed: true, costUsd: Number(row.cost_usd) } : { allowed: false, costUsd: ceilingUsd };

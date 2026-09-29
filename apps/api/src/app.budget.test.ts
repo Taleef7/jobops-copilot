@@ -88,3 +88,48 @@ test('rejected and agent-less /api/ai requests are not charged; an agent call is
     await rm(tempDir, { recursive: true, force: true });
   }
 });
+
+test('a large input that would pass the daily ceiling is refused before the agent is called', async () => {
+  const originalCwd = process.cwd();
+  const tempDir = await mkdtemp(join(tmpdir(), 'jobops-budget-ceiling-'));
+  const saved = { agent: process.env.AGENT_SERVICE_URL, budget: process.env.AI_DAILY_BUDGET_USD };
+  delete process.env.DATABASE_URL;
+  process.chdir(tempDir);
+  await resetJobStoreForTests();
+  resetUsageStoreForTests();
+  const agentCalls: string[] = [];
+  const agent = await listen((request, response) => {
+    agentCalls.push(`${request.method} ${request.url}`);
+    request.resume();
+    response.writeHead(200, { 'Content-Type': 'application/json' }).end('{}');
+  });
+  process.env.AGENT_SERVICE_URL = agent.url;
+  // Room for the flat $0.01 reservation, but not for a 20k-character parse on top.
+  process.env.AI_DAILY_BUDGET_USD = '0.011';
+  const api = await listen(createApp());
+  try {
+    await upsertUserProfile(USER, { resumeText: 'Backend engineer. Go, Postgres.' });
+    const job = await createJob(USER, { company: 'Acme', title: 'Engineer', descriptionText: 'Build APIs. '.repeat(8_000) });
+    const response = await fetch(`${api.url}/api/ai/score-fit`, {
+      method: 'POST',
+      headers: { 'X-User-Id': USER, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ job_id: job.id }),
+    });
+    assert.equal(response.status, 429);
+    assert.deepEqual(await response.json(), { error: 'Daily AI budget reached' });
+    assert.deepEqual(agentCalls, [], 'the agent must not be called');
+    await settled();
+    assert.deepEqual(await getTodayUsage(USER), { costUsd: 0, calls: 0 });
+  } finally {
+    for (const [key, value] of [['AGENT_SERVICE_URL', saved.agent], ['AI_DAILY_BUDGET_USD', saved.budget]] as const) {
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
+    }
+    await api.close();
+    await agent.close();
+    process.chdir(originalCwd);
+    await resetJobStoreForTests();
+    resetUsageStoreForTests();
+    await rm(tempDir, { recursive: true, force: true });
+  }
+});

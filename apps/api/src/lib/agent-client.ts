@@ -28,7 +28,7 @@ import type {
   ResumeWorkExperience,
   StructuredResume,
 } from '@/types';
-import { noteAgentCall } from '@/lib/ai-call-context';
+import { AiBudgetExceededError, beforeAgentCall } from '@/lib/ai-call-context';
 import { capAgentPayload } from '@/lib/input-caps';
 
 const AGENT_URL = process.env.AGENT_SERVICE_URL?.trim().replace(/\/$/, '');
@@ -69,12 +69,15 @@ export function isAgentEnabled(): boolean {
   return Boolean(agentServiceUrl());
 }
 
-/** POST a paid request to the agent, with its text cut to the LLM limits and noted for the budget (#345). */
-function postToAgent(path: string, payload: unknown, timeoutMs: number): Promise<Response> {
+/**
+ * POST a paid request to the agent, with its text cut to the LLM limits and its size-based
+ * cost reserved against the daily budget first (#345).
+ */
+async function postToAgent(path: string, payload: unknown, timeoutMs: number): Promise<Response> {
   const capped = capAgentPayload(payload);
   if (capped.truncated) console.warn(`agent ${path}: input cut to the LLM limit`);
   const body = JSON.stringify(capped.payload);
-  noteAgentCall(body.length, capped.truncated);
+  await beforeAgentCall(body.length, capped.truncated);
   return fetch(`${agentServiceUrl()}${path}`, {
     method: 'POST',
     headers: agentHeaders({ 'Content-Type': 'application/json' }),
@@ -199,7 +202,7 @@ export async function fetchEvDemoViaAgent(): Promise<TelemetryInsights> {
   if (!isAgentEnabled()) {
     throw new AgentDisabledError();
   }
-  noteAgentCall(0);
+  await beforeAgentCall(0);
   const response = await fetch(`${agentServiceUrl()}/telemetry/ev-demo`, {
     headers: agentHeaders(),
     signal: AbortSignal.timeout(AGENT_TASK_TIMEOUT_MS),
@@ -260,6 +263,7 @@ export async function resolveParsedJob(descriptionText: string): Promise<ParsedJ
       }
       console.warn('agent /parse-job returned an invalid payload; falling back to mock');
     } catch (error) {
+      if (error instanceof AiBudgetExceededError) throw error;
       console.warn('agent /parse-job failed; falling back to mock', error);
     }
   }
@@ -292,6 +296,7 @@ export async function resolveFitScore(input: ScoreFitInput): Promise<FitScoreOut
       }
       console.warn('agent /score-fit returned an invalid payload; falling back to mock');
     } catch (error) {
+      if (error instanceof AiBudgetExceededError) throw error;
       console.warn('agent /score-fit failed; falling back to mock', error);
     }
   }
@@ -318,6 +323,7 @@ export async function resolveOutreachDraft(
       }
       console.warn('agent /draft-outreach returned an invalid payload; falling back to mock');
     } catch (error) {
+      if (error instanceof AiBudgetExceededError) throw error;
       console.warn('agent /draft-outreach failed; falling back to mock', error);
     }
   }
@@ -472,6 +478,7 @@ export async function resolveResumeParse(resumeText: string): Promise<Structured
       }
       console.warn('agent /parse-resume returned an invalid payload; falling back to mock');
     } catch (error) {
+      if (error instanceof AiBudgetExceededError) throw error;
       console.warn('agent /parse-resume failed; falling back to mock', error);
     }
   }
