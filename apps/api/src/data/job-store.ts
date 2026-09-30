@@ -9,6 +9,7 @@ import type {
   JobRecord,
   JobStatusEvent,
   OutreachDraft,
+  TrackedJobRef,
   UpdateOutreachBody,
   UpdateJobBody,
 } from '@/types';
@@ -20,6 +21,7 @@ import { paginateArray, type PageParams } from '@/lib/pagination';
 import * as postgresStore from '@/data/job-store.postgres';
 import { seedJobs } from '@/data/mock-store';
 import { computeContentHash, parseSalaryFromText, parseSeniority } from '@/lib/job-enrich';
+import { canonicalJobUrl } from '@/lib/job-sources/normalize';
 import { buildOutcomeStats, rankFeedJobs } from '@/lib/feed-ranking';
 import { deleteResumeVersions } from '@/data/resume-version-store';
 import { JOB_FIELD_MAX, JOB_NOTE_MAX, STORED_TEXT_MAX } from '@/lib/input-caps';
@@ -266,6 +268,23 @@ export async function countJobs(userId: string): Promise<number> {
 
   const jobs = await ensureLoaded();
   return jobs.filter((entry) => entry.userId === userId).length;
+}
+
+/** The user's job for this posting, reached through any of its URLs (#346). */
+export async function findJobByCanonicalUrl(userId: string, jobUrl: string): Promise<TrackedJobRef | undefined> {
+  if (hasPostgresConnection()) {
+    return postgresStore.findJobByCanonicalUrl(userId, jobUrl);
+  }
+
+  const key = canonicalJobUrl(jobUrl);
+  const jobs = await ensureLoaded();
+  const job = jobs.find((entry) => entry.userId === userId && entry.jobUrl && canonicalJobUrl(entry.jobUrl) === key);
+  return job ? { id: job.id, company: job.company, title: job.title } : undefined;
+}
+
+/** Fill canonical URLs stored before migration 026 (Postgres only; file mode computes them on read). */
+export async function backfillCanonicalUrls(): Promise<number> {
+  return hasPostgresConnection() ? postgresStore.backfillCanonicalUrls() : 0;
 }
 
 export async function getJobById(userId: string, jobId: string): Promise<JobRecord | undefined> {

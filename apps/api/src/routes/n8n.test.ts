@@ -8,6 +8,7 @@ import express from 'express';
 import { createN8nRouter } from './n8n';
 import { listWeeklyReports, resetWeeklyReportStoreForTests } from '@/data/report-store';
 import type { JobRecord } from '@/types';
+import { canonicalJobUrl } from '@/lib/job-sources/normalize';
 
 function snapshotEnv(keys: string[]) {
   const snapshot = new Map<string, string | undefined>();
@@ -131,6 +132,7 @@ test('rejects n8n webhooks without the shared secret', async () => {
   try {
     await withServer(
       createN8nRouter({
+        findJobByCanonicalUrl: async () => undefined,
         createJob: async () => makeJob(),
         listJobs: async () => [],
         saveJobAnalysis: async () => makeJob(),
@@ -166,6 +168,7 @@ test('rejects n8n webhooks when the secret is not configured', async () => {
   try {
     await withServer(
       createN8nRouter({
+        findJobByCanonicalUrl: async () => undefined,
         createJob: async () => makeJob(),
         listJobs: async () => [],
         saveJobAnalysis: async () => makeJob(),
@@ -232,6 +235,7 @@ test('creates and enriches a job-intake webhook payload', async () => {
     process.chdir(tempDir);
     await withServer(
       createN8nRouter({
+        findJobByCanonicalUrl: async () => undefined,
         createJob: async (_userId, body) => {
           createdJobBody = body;
           return createdJob;
@@ -317,6 +321,7 @@ test('returns a dedupe response when the webhook payload already exists', async 
             jobUrl: 'https://example.com/jobs/ai-automation-engineer',
           }),
         ],
+        findJobByCanonicalUrl: async () => ({ id: 'existing-job', company: 'Northwind Labs', title: 'AI Automation Engineer' }),
         saveJobAnalysis: async () => makeJob(),
         updateJob: async () => makeJob(),
       }),
@@ -350,6 +355,44 @@ test('returns a dedupe response when the webhook payload already exists', async 
   }
 });
 
+// #346: the intake recognises a posting it already has through any of its URLs.
+test('the intake answers 409 for a posting it already tracks under another URL', async () => {
+  const restore = snapshotEnv(['N8N_WEBHOOK_SECRET']);
+  process.env.N8N_WEBHOOK_SECRET = 'n8n-secret';
+
+  try {
+    await withServer(
+      createN8nRouter({
+        createJob: async () => {
+          throw new Error('createJob should not be called for duplicates');
+        },
+        listJobs: async () => [makeJob({ id: 'existing-job', jobUrl: 'https://www.adzuna.com/land/ad/42?se=a&v=b' })],
+        findJobByCanonicalUrl: async (_userId, jobUrl) =>
+          canonicalJobUrl(jobUrl) === 'adzuna:42' ? { id: 'existing-job', company: 'Northwind Labs', title: 'AI Engineer' } : undefined,
+        saveJobAnalysis: async () => makeJob(),
+        updateJob: async () => makeJob(),
+      }),
+      async (baseUrl) => {
+        const response = await fetch(`${baseUrl}/api/n8n/job-intake`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'X-N8N-Webhook-Secret': 'n8n-secret' },
+          body: JSON.stringify({
+            company: 'Northwind Labs',
+            title: 'AI Engineer',
+            description_text: 'Build internal automations.',
+            job_url: 'https://www.adzuna.com/details/42?utm_source=n8n',
+          }),
+        });
+
+        assert.equal(response.status, 409);
+        assert.equal(((await response.json()) as { existing_job_id?: string }).existing_job_id, 'existing-job');
+      },
+    );
+  } finally {
+    restore();
+  }
+});
+
 test('returns due follow-up reminders and weekly report drafts', async () => {
   const restore = snapshotEnv(['N8N_WEBHOOK_SECRET']);
   process.env.N8N_WEBHOOK_SECRET = 'n8n-secret';
@@ -357,6 +400,7 @@ test('returns due follow-up reminders and weekly report drafts', async () => {
   try {
     await withServer(
       createN8nRouter({
+        findJobByCanonicalUrl: async () => undefined,
         createJob: async () => makeJob(),
         listJobs: async () => [
           makeJob({
@@ -437,6 +481,7 @@ test('persists weekly report drafts generated through the n8n webhook', async ()
 
     await withServer(
       createN8nRouter({
+        findJobByCanonicalUrl: async () => undefined,
         createJob: async () => makeJob(),
         listJobs: async () => [
           makeJob({

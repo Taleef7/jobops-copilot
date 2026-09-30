@@ -123,12 +123,62 @@ export function fingerprintKey(job: {
   return [job.company, job.title, job.location].map((part) => clean(part).toLowerCase()).join('|');
 }
 
+/** Query parameters that track the click, not the job (#346). Adzuna's `se` and `v` change per API call. */
+const TRACKING_PARAMS = new Set(['se', 'v', 'ref', 'source', 'gh_src', 'lever-source', 'lever-origin']);
+const UUID = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/;
+
+/**
+ * One key per posting, whatever URL it was reached through (#346).
+ *
+ * - The job boards key by the posting's own id, which is unique across companies:
+ *   `adzuna:<adId>`, `greenhouse:<jobId>` (including `?gh_jid=` on a company's own
+ *   domain, which doesn't name the board), `lever:<uuid>`, `ashby:<uuid>`.
+ * - Any other URL loses its scheme, `www.`, fragment, trailing slash and tracking
+ *   parameters; the host is lower-cased and the parameters left are sorted.
+ */
+export function canonicalJobUrl(rawUrl: string): string {
+  const raw = rawUrl.trim();
+  let url: URL;
+  try {
+    url = new URL(raw);
+  } catch {
+    return raw.toLowerCase();
+  }
+  const host = url.hostname.toLowerCase().replace(/^www\./, '');
+  const path = url.pathname.toLowerCase();
+
+  if (/(^|\.)adzuna\./.test(host)) {
+    const adId = path.match(/\/(?:land\/ad|details|ad)\/(\d+)/)?.[1];
+    if (adId) return `adzuna:${adId}`;
+  }
+  const ghJobId =
+    url.searchParams.get('gh_jid') ??
+    (/(^|\.)greenhouse\.io$/.test(host) ? (path.match(/\/jobs\/(\d+)/)?.[1] ?? url.searchParams.get('token')) : null);
+  if (ghJobId && /^\d+$/.test(ghJobId)) return `greenhouse:${ghJobId}`;
+  if (host === 'jobs.lever.co') {
+    const id = path.match(UUID)?.[0];
+    if (id) return `lever:${id}`;
+  }
+  if (host === 'jobs.ashbyhq.com') {
+    const id = path.match(UUID)?.[0];
+    if (id) return `ashby:${id}`;
+  }
+
+  // Paths and parameter values can be case-sensitive, so only the host and the tracking
+  // parameter names are compared without case.
+  const params = [...url.searchParams.entries()]
+    .filter(([name]) => !name.toLowerCase().startsWith('utm_') && !TRACKING_PARAMS.has(name.toLowerCase()))
+    .sort(([a, x], [b, y]) => a.localeCompare(b) || x.localeCompare(y));
+  const query = params.length ? `?${new URLSearchParams(params).toString()}` : '';
+  return `${host}${url.pathname.replace(/\/+$/, '')}${query}`;
+}
+
 /**
  * Stable per-user dedup key: the canonical job URL when present, otherwise the
  * `company|title|location` fingerprint so URL-less postings still dedup.
  */
 export function dedupKey(job: SourcedJob): string {
-  if (job.jobUrl) return job.jobUrl.toLowerCase();
+  if (job.jobUrl) return canonicalJobUrl(job.jobUrl);
   return fingerprintKey(job);
 }
 

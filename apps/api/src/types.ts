@@ -145,6 +145,9 @@ export interface JobRecord {
   updatedAt: string;
 }
 
+/** Enough of a tracked job to point the user at it (#346). */
+export type TrackedJobRef = Pick<JobRecord, 'id' | 'company' | 'title'>;
+
 export interface WeeklyReportRecord {
   id: string;
   userId?: string;

@@ -712,3 +712,53 @@ test('sequential scoring skips AI scoring entirely when sweep AI scoring budget 
   }
 });
 
+
+// #346: live discovery re-inserted the same Adzuna ads on every run.
+const ADZUNA = (id: string, se: string) =>
+  `https://www.adzuna.com/land/ad/${id}?se=${se}&utm_medium=api&utm_source=abc&v=${se.toUpperCase()}`;
+
+test('an Adzuna ad seen again with new tracking parameters is not re-inserted', async () => {
+  const { deps, created } = makeDeps(
+    [sourced(ADZUNA('5001', 'second-call'), { company: 'ManTech', title: 'Software Engineer', location: 'Fort Meade' })],
+    [{ id: 'kept', jobUrl: ADZUNA('5001', 'first-call'), company: 'ManTech', title: 'Software Engineer', location: 'Fort Meade', status: 'discovered' }],
+  );
+
+  const result = await runDiscoveryForUser('u', deps);
+
+  assert.equal(created.length, 0);
+  assert.equal(result.skipped, 1);
+});
+
+test('the same ad twice in one feed, with different tracking parameters, is inserted once', async () => {
+  const { deps, created } = makeDeps(
+    [sourced(ADZUNA('5002', 'a'), { title: 'Jobot SE' }), sourced(`https://www.adzuna.com/details/5002?utm_source=x`, { title: 'Jobot SE' })],
+    [],
+  );
+
+  await runDiscoveryForUser('u', deps);
+
+  assert.equal(created.length, 1);
+});
+
+test('a job re-listed under a new URL is recognised by company, title and location', async () => {
+  const { deps, created } = makeDeps(
+    [sourced(ADZUNA('6002', 'x'), { company: 'Jobot', title: 'Software Engineer', location: 'Arlington' })],
+    [{ id: 'kept', jobUrl: ADZUNA('6001', 'y'), company: 'jobot ', title: 'Software Engineer', location: 'Arlington', status: 'discovered' }],
+  );
+
+  const result = await runDiscoveryForUser('u', deps);
+
+  assert.equal(created.length, 0);
+  assert.equal(result.skipped, 1);
+});
+
+test('an archived (passed) job is never brought back by discovery', async () => {
+  const { deps, created } = makeDeps(
+    [sourced(ADZUNA('7001', 'new'), { company: 'Vaco LLC', title: 'Software Engineer', location: 'Fort Wayne' })],
+    [{ id: 'passed', jobUrl: ADZUNA('7001', 'old'), company: 'Vaco LLC', title: 'Software Engineer', location: 'Fort Wayne', status: 'archived' }],
+  );
+
+  await runDiscoveryForUser('u', deps);
+
+  assert.equal(created.length, 0);
+});

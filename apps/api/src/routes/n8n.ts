@@ -1,6 +1,8 @@
-import { Router } from 'express';
+import { Router, type Response } from 'express';
+import { DuplicateJobError } from '@/data/duplicate-job';
 import {
   createJob,
+  findJobByCanonicalUrl,
   listJobs,
   saveJobAnalysis,
   updateJob,
@@ -40,6 +42,7 @@ const allowedWorkplaceTypes = new Set<JobWorkplaceType>(['remote', 'hybrid', 'on
 
 interface N8nDependencies {
   createJob: typeof createJob;
+  findJobByCanonicalUrl: typeof findJobByCanonicalUrl;
   listJobs: typeof listJobs;
   saveJobAnalysis: typeof saveJobAnalysis;
   updateJob: typeof updateJob;
@@ -47,6 +50,7 @@ interface N8nDependencies {
 
 const defaultDependencies: N8nDependencies = {
   createJob,
+  findJobByCanonicalUrl,
   listJobs,
   saveJobAnalysis,
   updateJob,
@@ -164,6 +168,16 @@ function validateFollowUpBody(body: Partial<N8nFollowUpRemindersBody>) {
   };
 }
 
+function alreadyTracked(response: Response, existingJobId: string) {
+  response.status(409).json({
+    error: 'A job with this URL already exists.',
+    fields: {
+      job_url: 'A job with this URL already exists.',
+    },
+    existing_job_id: existingJobId,
+  });
+}
+
 export function createN8nRouter(dependencies: N8nDependencies = defaultDependencies) {
   const router = Router();
 
@@ -184,18 +198,11 @@ export function createN8nRouter(dependencies: N8nDependencies = defaultDependenc
         return;
       }
 
-      const existingJobs = await dependencies.listJobs(userId);
-
+      // Any URL of a posting it already has (#346), by one indexed lookup.
       if (validation.normalized.jobUrl) {
-        const existingJob = existingJobs.find((job) => job.jobUrl === validation.normalized.jobUrl);
+        const existingJob = await dependencies.findJobByCanonicalUrl(userId, validation.normalized.jobUrl);
         if (existingJob) {
-          response.status(409).json({
-            error: 'A job with this URL already exists.',
-            fields: {
-              job_url: 'A job with this URL already exists.',
-            },
-            existing_job_id: existingJob.id,
-          });
+          alreadyTracked(response, existingJob.id);
           return;
         }
       }
@@ -313,6 +320,11 @@ export function createN8nRouter(dependencies: N8nDependencies = defaultDependenc
             : 'Job created and parsed. Fit scoring can run once resume/profile context is available.',
       });
     } catch (error) {
+      // Added at the same moment by another request (createJob re-checks under a lock).
+      if (error instanceof DuplicateJobError) {
+        alreadyTracked(response, error.existingJob.id);
+        return;
+      }
       next(error);
     }
   });

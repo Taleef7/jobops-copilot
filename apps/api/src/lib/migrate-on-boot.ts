@@ -25,6 +25,7 @@
  * is wedging startup). Readiness then reports the pending migrations instead
  * of pretending the schema is current.
  */
+import { backfillCanonicalUrls } from '@/data/job-store';
 import { findMigrationDir, listMigrationFiles, pendingMigrations, runMigrations } from '@/lib/migrations';
 import { getPool, hasPostgresConnection } from '@/lib/postgres';
 
@@ -73,6 +74,16 @@ export async function migrateOnBoot(): Promise<void> {
 
   const { applied, skipped } = await runMigrations(pool, dir);
   console.log(`Migrations up to date: ${applied} applied, ${skipped} already present.`);
+
+  // Rows stored before migration 026 get their canonical URL here, with the same rule new
+  // rows use (#346). A failure only leaves old rows unmatched until the next boot, so it
+  // doesn't stop the API.
+  try {
+    const filled = await backfillCanonicalUrls();
+    if (filled > 0) console.log(`Filled the canonical URL of ${filled} job(s).`);
+  } catch (error) {
+    console.error('Could not fill canonical job URLs:', error);
+  }
 }
 
 export type MigrationStatus =
