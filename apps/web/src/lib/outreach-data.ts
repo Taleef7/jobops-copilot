@@ -12,11 +12,12 @@ export interface OutreachInboxItem {
 
 export interface OutreachDataResult {
   items: OutreachInboxItem[];
-  source: 'api' | 'seed';
+  /** Why the drafts couldn't be loaded; null when they were (#349). */
+  error: string | null;
 }
 
 export async function loadOutreach(): Promise<OutreachDataResult> {
-  const { jobs, source } = await loadJobs();
+  const { jobs, error } = await loadJobs();
   const items = jobs
     .flatMap((job) =>
       job.outreach.map((draft) => ({
@@ -30,8 +31,5 @@ export async function loadOutreach(): Promise<OutreachDataResult> {
     )
     .sort((a, b) => new Date(b.draft.createdAt).getTime() - new Date(a.draft.createdAt).getTime());
 
-  return {
-    items,
-    source,
-  };
+  return { items, error };
 }

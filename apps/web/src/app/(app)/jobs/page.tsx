@@ -1,12 +1,13 @@
 import type { Metadata } from 'next';
 import { Briefcase, Compass, Plus, Sparkles } from 'lucide-react';
 import Link from 'next/link';
+import { ErrorState } from '@/components/error-state';
 import { JobsTable } from '@/components/jobs-table';
+import { LoadFailure } from '@/components/load-failure';
 import { SavedSearchesManager } from '@/components/saved-searches';
 import { SectionCard } from '@/components/section-card';
 import { TodaysBestFeed } from '@/components/todays-best-feed';
 import { Button } from '@/components/ui/button';
-import { Card } from '@/components/ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { loadJobs, loadRankedFeed } from '@/lib/job-data';
 
@@ -19,7 +20,7 @@ export default async function JobsPage({
 }: {
   searchParams: Promise<{ q?: string | string[]; tab?: string | string[] }>;
 }) {
-  const [{ jobs, source: jobsSource }, { feed, source: feedSource }, { q, tab }] = await Promise.all([
+  const [{ jobs, error }, { feed, error: feedError }, { q, tab }] = await Promise.all([
     loadJobs(),
     loadRankedFeed({ limit: 50 }),
     searchParams,
@@ -27,7 +28,7 @@ export default async function JobsPage({
 
   const initialQuery = Array.isArray(q) ? (q[0] ?? '') : (q ?? '');
   const activeTab = (Array.isArray(tab) ? tab[0] : tab) || 'feed';
-  const source = feedSource === 'seed' || jobsSource === 'seed' ? 'seed' : 'api';
+  if (error) return <LoadFailure heading="Jobs" title="Couldn't load your jobs" message={error} />;
 
   return (
     <div className="space-y-6">
@@ -43,14 +44,6 @@ export default async function JobsPage({
         </Button>
       </div>
 
-      {source === 'seed' ? (
-        <Card className="border-amber-500/30 bg-amber-500/5 gap-1 p-4">
-          <p className="text-sm font-medium text-amber-700 dark:text-amber-400">Seed data shown</p>
-          <p className="text-muted-foreground text-sm">
-            The API is not reachable, so this page is rendering the local seed dataset.
-          </p>
-        </Card>
-      ) : null}
 
       <Tabs defaultValue={activeTab} className="w-full space-y-6">
         <TabsList className="grid w-full grid-cols-3 max-w-md">
@@ -69,7 +62,11 @@ export default async function JobsPage({
         </TabsList>
 
         <TabsContent value="feed" className="space-y-4">
-          <TodaysBestFeed initialFeed={feed} source={feedSource} />
+          {feed ? (
+            <TodaysBestFeed initialFeed={feed} />
+          ) : (
+            <ErrorState title="Couldn't load today's best" message={feedError} />
+          )}
         </TabsContent>
 
         <TabsContent value="pipeline" keepMounted className="space-y-4">

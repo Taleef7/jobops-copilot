@@ -8,6 +8,7 @@ import { JobAgentsPanel } from '@/components/job-agents-panel';
 import { JobAnalysisActions } from '@/components/job-analysis-actions';
 import { JobEditPanel } from '@/components/job-edit-panel';
 import { JobOutreachActions } from '@/components/job-outreach-actions';
+import { LoadFailure } from '@/components/load-failure';
 import { SkillChipList } from '@/components/skill-chip';
 import { StatusPill } from '@/components/status-pill';
 import { Badge } from '@/components/ui/badge';
@@ -43,7 +44,7 @@ export default async function JobDetailPage({ params }: JobDetailParams) {
   const { jobId } = await params;
   // Fetch the profile + persisted agent outputs alongside the job. Neither is
   // load-bearing for the page, so a failure of either must not break it.
-  const [{ job, source }, profile, agentOutputs, resumeVersions, applicationPack, contacts] = await Promise.all([
+  const [{ job, error }, profile, agentOutputs, resumeVersions, applicationPack, contacts] = await Promise.all([
     loadJob(jobId),
     fetchProfile().catch(() => null),
     fetchAgentOutputs(jobId).catch(() => []),
@@ -51,6 +52,7 @@ export default async function JobDetailPage({ params }: JobDetailParams) {
     fetchJobApplicationPack(jobId).catch(() => null),
     fetchJobContacts(jobId).catch(() => []),
   ]);
+  if (error) return <LoadFailure heading="Job detail" title="Couldn't load this job" message={error} />;
   if (!job) notFound();
 
   // Null until a real fit score succeeds (#349).
@@ -93,14 +95,6 @@ export default async function JobDetailPage({ params }: JobDetailParams) {
         </div>
       </Card>
 
-      {source === 'seed' ? (
-        <Card className="border-amber-500/30 bg-amber-500/5 gap-1 p-4">
-          <p className="text-sm font-medium text-amber-700 dark:text-amber-400">Seed data shown</p>
-          <p className="text-muted-foreground text-sm">
-            The backend is not reachable, so this page renders the local seed record.
-          </p>
-        </Card>
-      ) : null}
 
       <div className="grid gap-6 lg:grid-cols-3">
         {/* Main: tabbed content */}
@@ -216,7 +210,6 @@ export default async function JobDetailPage({ params }: JobDetailParams) {
                 <JobOutreachActions
                   jobId={job.id}
                   jobContext={job.descriptionText}
-                  disabled={source === 'seed'}
                 />
               </Card>
               {job.outreach.length ? (

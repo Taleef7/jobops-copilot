@@ -11,7 +11,6 @@ import type { FeedItem, FeedResult, JobSeniority, JobStatus, WorkplaceType } fro
 
 interface TodaysBestFeedProps {
   initialFeed: FeedResult;
-  source: 'api' | 'seed';
 }
 
 const defaultFilters: FeedFilterState = {
@@ -23,7 +22,7 @@ const defaultFilters: FeedFilterState = {
   status: 'all',
 };
 
-export function TodaysBestFeed({ initialFeed, source }: TodaysBestFeedProps) {
+export function TodaysBestFeed({ initialFeed }: TodaysBestFeedProps) {
   const [filters, setFilters] = useState<FeedFilterState>(defaultFilters);
   const [feed, setFeed] = useState<FeedResult>(initialFeed);
   const [isPending, startTransition] = useTransition();
@@ -127,9 +126,6 @@ export function TodaysBestFeed({ initialFeed, source }: TodaysBestFeedProps) {
           </span>
           <span className="text-muted-foreground/60">·</span>
           <span>Ranked by interview conversion feedback & fit</span>
-          {source === 'seed' && (
-            <span className="text-amber-600 dark:text-amber-400 font-medium">· Demo mode</span>
-          )}
         </div>
 
         {isPending && (

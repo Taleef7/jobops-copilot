@@ -1,6 +1,7 @@
 import { Briefcase, FileBarChart, Plus, Send, Target, TimerReset } from 'lucide-react';
 import Link from 'next/link';
 import { FitScoreRing } from '@/components/fit-score-ring';
+import { LoadFailure } from '@/components/load-failure';
 import { LoadSampleDataButton } from '@/components/load-sample-data-button';
 import { SectionCard } from '@/components/section-card';
 import { StatTile } from '@/components/stat-tile';
@@ -24,7 +25,9 @@ const FUNNEL = [
 ] as const;
 
 export default async function DashboardPage() {
-  const { jobs, source } = await loadJobs();
+  const { jobs, error } = await loadJobs();
+  if (error) return <LoadFailure heading="Welcome back" title="Couldn't load your dashboard" message={error} />;
+
   const summary = getDashboardSummary(jobs);
   const recentJobs = [...jobs]
     .sort((a, b) => new Date(b.discoveredAt).getTime() - new Date(a.discoveredAt).getTime())
@@ -57,15 +60,6 @@ export default async function DashboardPage() {
         </div>
       </div>
 
-      {source === 'seed' ? (
-        <Card className="border-amber-500/30 bg-amber-500/5 gap-1 p-4">
-          <p className="text-sm font-medium text-amber-700 dark:text-amber-400">Seed data shown</p>
-          <p className="text-muted-foreground text-sm">
-            The API is not reachable, so the dashboard is rendering local seed data. It switches to
-            live CRM data automatically once the backend is up.
-          </p>
-        </Card>
-      ) : null}
 
       {summary.totalJobs === 0 ? (
         <Card className="flex flex-col items-center gap-3 p-10 text-center">

@@ -43,11 +43,9 @@ type Result = {
 export function JobOutreachActions({
   jobId,
   jobContext,
-  disabled = false,
 }: {
   jobId: string;
   jobContext: string;
-  disabled?: boolean;
 }) {
   const router = useRouter();
   const [form, setForm] = useState<FormState>({
@@ -65,7 +63,6 @@ export function JobOutreachActions({
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (disabled) return;
     setResult(null);
     setIsSubmitting(true);
     try {
@@ -95,7 +92,7 @@ export function JobOutreachActions({
     }
   }
 
-  const busy = disabled || isSubmitting;
+  const busy = isSubmitting;
 
   async function copy(text: string, label: string) {
     try {
@@ -112,15 +109,6 @@ export function JobOutreachActions({
         The AI drafts from the job description and your resume snapshot, then stores a
         <span className="text-foreground font-medium"> human-reviewed draft</span> — nothing is sent.
       </p>
-
-      {disabled ? (
-        <Card className="border-amber-500/30 bg-amber-500/5 gap-1 p-3">
-          <p className="text-sm font-medium text-amber-700 dark:text-amber-400">API unavailable</p>
-          <p className="text-muted-foreground text-sm">
-            Draft generation is disabled while showing seed data.
-          </p>
-        </Card>
-      ) : null}
 
       <div className="grid gap-3 sm:grid-cols-2">
         <div className="space-y-1.5">
