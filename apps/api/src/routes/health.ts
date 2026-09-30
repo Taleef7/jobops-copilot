@@ -1,6 +1,8 @@
 import { Router } from 'express';
 import { getStoreMode } from '@/data/job-store';
-import { isAgentEnabled } from '@/lib/agent-client';
+import { agentHeaders, isAgentEnabled } from '@/lib/agent-client';
+import { requireUser } from '@/lib/auth';
+import { getLlmCanaryResult } from '@/lib/llm-canary';
 import { getMigrationStatus, type MigrationStatus } from '@/lib/migrate-on-boot';
 import { pingDatabase } from '@/lib/postgres';
 
@@ -78,28 +80,46 @@ healthRouter.get('/health/ready', async (_request, response) => {
   response.status(statusCode).json(body);
 });
 
-// Richer status for the Settings page: real provider/model + integration config,
-// so the UI reflects the truth instead of hardcoded values.
-healthRouter.get('/status', async (_request, response, next) => {
-  try {
-    const agentUrl = process.env.AGENT_SERVICE_URL?.trim().replace(/\/$/, '');
-    let agent: Record<string, unknown> = { enabled: isAgentEnabled(), reachable: false };
+// What the agent runs, from its key-protected /health/details, kept for a minute so the
+// status page can't be used to keep a scale-to-zero agent awake (#348).
+const AGENT_DETAILS_TTL_MS = 60_000;
+let agentDetails: { at: number; value: Record<string, unknown> } | null = null;
 
-    if (agentUrl) {
-      try {
-        const res = await fetch(`${agentUrl}/health`, { signal: AbortSignal.timeout(8000) });
-        if (res.ok) {
-          const agentHealth = (await res.json()) as Record<string, unknown>;
-          agent = { ...agentHealth, enabled: true, reachable: true };
-        }
-      } catch {
-        // Agent asleep/unreachable — report enabled but not reachable.
-      }
+async function readAgentDetails(): Promise<Record<string, unknown>> {
+  if (agentDetails && Date.now() - agentDetails.at < AGENT_DETAILS_TTL_MS) return agentDetails.value;
+  const agentUrl = process.env.AGENT_SERVICE_URL?.trim().replace(/\/$/, '');
+  let value: Record<string, unknown> = { enabled: isAgentEnabled(), reachable: false };
+  if (agentUrl) {
+    try {
+      const res = await fetch(`${agentUrl}/health/details`, {
+        headers: agentHeaders(),
+        signal: AbortSignal.timeout(8000),
+      });
+      if (res.ok) value = { ...((await res.json()) as Record<string, unknown>), enabled: true, reachable: true };
+    } catch {
+      // Agent asleep or unreachable: enabled but not reachable.
     }
+  }
+  agentDetails = { at: Date.now(), value };
+  return value;
+}
+
+/** Test seam. */
+export function resetStatusCacheForTests(): void {
+  agentDetails = null;
+}
+
+// Status for the Settings page: the real provider and model, the integrations, and the
+// last LLM canary result. Signed-in only (#348), and it never calls the model.
+healthRouter.get('/status', async (request, response, next) => {
+  try {
+    if (!requireUser(request, response)) return;
+    const agent = await readAgentDetails();
 
     response.json({
       storeMode: getStoreMode(),
       agent,
+      llmCanary: await getLlmCanaryResult(),
       integrations: {
         gmailDrafts: process.env.GMAIL_DRAFTS_ENABLED === 'true',
         n8nWebhook: Boolean(process.env.N8N_WEBHOOK_SECRET?.trim()),

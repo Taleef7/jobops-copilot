@@ -5,6 +5,7 @@ import { runLivenessSweep, type LivenessDeps } from '@/lib/liveness';
 import { fetchJobPage } from '@/lib/job-url-fetch';
 import { generateDailyDigest } from '@/lib/notify/digest';
 import { listUsersForDigest } from '@/data/notification-store';
+import { runLlmCanary, saveLlmCanaryResult, type LlmCanaryResult } from '@/lib/llm-canary';
 import type { NotificationRecord, NotificationSettings } from '@/types';
 
 export interface DigestDeps {
@@ -12,10 +13,16 @@ export interface DigestDeps {
   listUsersForDigest: (targetHour?: number) => Promise<Array<{ userId: string; settings: NotificationSettings }>>;
 }
 
+export interface LlmCanaryDeps {
+  run: () => Promise<LlmCanaryResult>;
+  save: (result: LlmCanaryResult) => Promise<void>;
+}
+
 export interface InternalRouterDeps {
   discovery: DiscoveryRouterDeps;
   liveness: LivenessDeps;
   digest: DigestDeps;
+  llmCanary: LlmCanaryDeps;
 }
 
 const defaultInternalDeps: InternalRouterDeps = {
@@ -27,6 +34,7 @@ const defaultInternalDeps: InternalRouterDeps = {
     generateDailyDigest,
     listUsersForDigest,
   },
+  llmCanary: { run: runLlmCanary, save: saveLlmCanaryResult },
 };
 
 export function createInternalRouter(deps: Partial<InternalRouterDeps> = {}) {
@@ -34,6 +42,7 @@ export function createInternalRouter(deps: Partial<InternalRouterDeps> = {}) {
     discovery: deps.discovery ?? defaultInternalDeps.discovery,
     liveness: deps.liveness ?? defaultInternalDeps.liveness,
     digest: deps.digest ?? defaultInternalDeps.digest,
+    llmCanary: deps.llmCanary ?? defaultInternalDeps.llmCanary,
   };
 
   const router = Router();
@@ -42,6 +51,18 @@ export function createInternalRouter(deps: Partial<InternalRouterDeps> = {}) {
   router.post('/discovery/run', async (_request, response, next) => {
     try {
       response.json(await runDiscoverySweep(resolvedDeps.discovery));
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  // The LLM canary (#348): one tiny real model call through the agent, run by the daily
+  // workflow and after deploys. 503 when the model fails, so a scheduled run goes red.
+  router.post('/llm-canary', async (_request, response, next) => {
+    try {
+      const result = await resolvedDeps.llmCanary.run();
+      await resolvedDeps.llmCanary.save(result);
+      response.status(result.ok ? 200 : 503).json(result);
     } catch (error) {
       next(error);
     }
