@@ -15,7 +15,7 @@ const json = (status: number, error: string) => Response.json({ error }, { statu
  * The origin this app is served from: `APP_ORIGIN` when set, else the request's own host.
  * A browser always sends the real host, so a cross-site page can't make these match.
  */
-function appOrigin(request: NextRequest): string {
+export function appOrigin(request: NextRequest): string {
   const configured = process.env.APP_ORIGIN?.trim();
   if (configured) return configured.replace(/\/$/, '');
   const host = request.headers.get('x-forwarded-host') ?? request.headers.get('host') ?? request.nextUrl.host;
