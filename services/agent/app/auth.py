@@ -5,9 +5,9 @@ FQDN by the Node API (different compute, different region), so network isolation
 isn't available. Every request must therefore present the shared secret in the
 ``Authorization: Bearer <AGENT_API_KEY>`` (or ``X-Agent-Key``) header.
 
-Exemptions: the liveness probe and the OpenAPI/docs surface stay open so the
-container health probe and ``scripts/azure/deploy-agent.sh`` verify keep working
-without the secret. When ``AGENT_API_KEY`` is unset, auth is disabled entirely
+Exemption: the liveness probe (``/health``, which says only ``{"status": "ok"}``) stays
+open for the container health probe. Everything else, including ``/openapi.json`` and the
+model details, needs the secret (#348). When ``AGENT_API_KEY`` is unset, auth is disabled entirely
 (local dev / before the secret is provisioned in prod).
 """
 
@@ -19,12 +19,10 @@ from collections.abc import Mapping
 
 from app.config import settings
 
-# Reachable without the shared secret, kept minimal on purpose:
-#   /health       -> container liveness probe + the API's agent-status check
-#   /openapi.json -> the scripts/azure/deploy-agent.sh verify greps it for routes
-# The rendered doc explorers (/docs, /redoc) are deliberately NOT exempt so an
-# unauthenticated caller can't browse the full route map on an internet-facing service.
-PUBLIC_PATHS: frozenset[str] = frozenset({"/health", "/openapi.json"})
+# Reachable without the shared secret: only the liveness probe, whose body is just
+# {"status": "ok"}. The route map (/openapi.json, /docs, /redoc), the model details
+# (/health/details) and the paid canary (/health/llm) all need the key (#348).
+PUBLIC_PATHS: frozenset[str] = frozenset({"/health"})
 
 
 def is_production_runtime() -> bool:

@@ -10,6 +10,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import time
 import uuid
 from contextlib import asynccontextmanager
 
@@ -31,6 +32,7 @@ from app.graph.assistant import build_assistant_graph
 from app.graph.budget import TokenBudgetExceeded
 from app.graph.memory import open_durable_backends, prune_checkpoints
 from app.graph.registry import AGENT_IDS, build_registry, make_thread_id
+from app.llm.canary import run_llm_canary
 from app.llm.provider import LLMNotConfigured, get_model, llm_available, resolve_provider
 from app.obs import traced_config, traced_span
 from app.obs.agent_tags import tags_for
@@ -233,6 +235,14 @@ def _active_model(provider: str | None) -> str | None:
 
 @app.get("/health")
 def health() -> dict:
+    """Public liveness: says only that the process is up (#348). No model, provider or SHA."""
+    return {"status": "ok"}
+
+
+@app.get("/health/details")
+def health_details() -> dict:
+    """What the agent runs, behind the shared key (#348): the API's status page and the
+    agent-drift-check workflow read it."""
     provider = resolve_provider()
     return {
         "status": "ok",
@@ -245,6 +255,31 @@ def health() -> dict:
         # The agent-drift-check workflow compares this to the latest agent commit.
         "build_sha": os.getenv("AGENT_BUILD_SHA") or "unknown",
     }
+
+
+@app.get("/health/llm")
+def health_llm():
+    """The LLM canary (#348), behind the shared key: one tiny real model call.
+
+    200 ``{ok, model, latency_ms}`` when the model answers, 503 ``{ok: false, model, error}``
+    with the provider's error text when it doesn't. Called on a schedule by the API's
+    /internal/llm-canary, never on a user's request.
+    """
+    model = _active_model(resolve_provider())
+    if not llm_available():
+        return JSONResponse(
+            status_code=503,
+            content={"ok": False, "model": model, "error": "No LLM provider is configured."},
+        )
+    started = time.perf_counter()
+    try:
+        run_llm_canary()
+    except Exception as error:  # noqa: BLE001 - the canary reports any provider failure as it is
+        return JSONResponse(
+            status_code=503,
+            content={"ok": False, "model": model, "error": str(error)[:500]},
+        )
+    return {"ok": True, "model": model, "latency_ms": int((time.perf_counter() - started) * 1000)}
 
 
 @app.post("/parse-job", response_model=ParsedJob)
