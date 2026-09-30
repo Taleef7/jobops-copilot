@@ -7,7 +7,7 @@ import { listSavedSearches as listSavedSearchesStore } from '@/data/saved-search
 import { prerankAnalysis } from '@/lib/local-fit';
 import { analysisFromFit, type FitScoreOutput } from '@/lib/analysis-core';
 import type { JobSource } from '@/lib/job-sources';
-import { dedupKey, fingerprintKey, type SourcedJob } from '@/lib/job-sources/normalize';
+import { canonicalJobUrl, fingerprintKey, type SourcedJob } from '@/lib/job-sources/normalize';
 import { fetchTargetCompanyBoards } from '@/lib/job-sources/boards';
 import { FULL_JD_MIN_CHARS, type upgradeToFullJd } from '@/lib/jd-upgrade';
 import type { SponsorLikelihood, TargetCompany } from '@/types';
@@ -52,7 +52,7 @@ export interface DiscoveryDeps {
  */
 function keysFor(job: { jobUrl?: string; company?: string; title?: string; location?: string }): string[] {
   const fingerprint = fingerprintKey(job);
-  return job.jobUrl ? [job.jobUrl.toLowerCase(), fingerprint] : [fingerprint];
+  return job.jobUrl ? [canonicalJobUrl(job.jobUrl), fingerprint] : [fingerprint];
 }
 
 /**
@@ -107,18 +107,20 @@ export async function runDiscoveryForUser(userId: string, deps: DiscoveryDeps): 
   const contributingSources = new Set<string>();
 
   async function insertIfNew(job: SourcedJob): Promise<void> {
-    const key = dedupKey(job);
-    if (seen.has(key)) {
-      const existingId = existingJobIdByKey.get(key);
+    // A posting is a duplicate when its canonical URL OR its company|title|location
+    // matches a job the user already has (any status, so a passed job stays passed)
+    // or one inserted earlier in this run (#346).
+    const keys = keysFor(job);
+    const known = keys.find((k) => seen.has(k));
+    if (known) {
+      const existingId = existingJobIdByKey.get(known);
       if (existingId) {
         reSeenJobIds.add(existingId);
       }
       skipped += 1;
       return;
     }
-    // Reserve every key this posting occupies so a later URL-less/URL-backed
-    // copy in the same run is recognised as a duplicate.
-    for (const k of keysFor(job)) seen.add(k);
+    for (const k of keys) seen.add(k);
     try {
       const currentDesc = job.descriptionText ?? '';
       const remainingBudgetMs = jdUpgradeDeadline - Date.now();

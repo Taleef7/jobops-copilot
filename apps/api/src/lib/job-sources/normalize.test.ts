@@ -1,6 +1,13 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { adzunaCountryCurrency, dedupKey, normalizeAdzuna, normalizeRemotive, type SourcedJob } from './normalize';
+import {
+  adzunaCountryCurrency,
+  canonicalJobUrl,
+  dedupKey,
+  normalizeAdzuna,
+  normalizeRemotive,
+  type SourcedJob,
+} from './normalize';
 
 test('normalizeAdzuna maps and trims an Adzuna result', () => {
   const job = normalizeAdzuna({
@@ -99,7 +106,7 @@ test('dedupKey uses the url when present, else company|title|location', () => {
     source: 'adzuna',
     descriptionText: '',
   };
-  assert.equal(dedupKey(withUrl), 'https://x/a');
+  assert.equal(dedupKey(withUrl), 'x/a');
   assert.equal(dedupKey(withoutUrl), 'acme|ai eng|nyc');
 });
 
@@ -117,4 +124,53 @@ test('normalizeAdzuna respects the supplied currency parameter', () => {
   assert.equal(job.salaryCurrency, 'GBP');
   assert.equal(job.salaryMin, 50000);
   assert.equal(job.salaryMax, 70000);
+});
+
+// #346: the same posting reached through different URLs must give one key.
+test('canonicalJobUrl gives one key for an Adzuna ad, whatever the tracking parameters or URL shape', () => {
+  const keys = [
+    'https://www.adzuna.com/land/ad/5012345678?se=abc&utm_medium=api&utm_source=1b2c&v=A1B2',
+    'https://www.adzuna.com/land/ad/5012345678?se=xyz&utm_medium=api&utm_source=9f8e&v=C3D4',
+    'https://www.adzuna.com/details/5012345678?utm_medium=api&utm_source=1b2c',
+  ].map(canonicalJobUrl);
+  assert.deepEqual(new Set(keys), new Set(['adzuna:5012345678']));
+  assert.notEqual(canonicalJobUrl('https://www.adzuna.com/land/ad/5012345679?se=abc'), 'adzuna:5012345678');
+});
+
+test('canonicalJobUrl keys Greenhouse by job id, on a board or a custom domain', () => {
+  const keys = [
+    'https://stripe.com/jobs/search?gh_jid=8172503',
+    'https://job-boards.greenhouse.io/stripe/jobs/8172503',
+    'https://boards.greenhouse.io/stripe/jobs/8172503?gh_src=abc123',
+    'https://boards.greenhouse.io/embed/job_app?for=stripe&token=8172503',
+  ].map(canonicalJobUrl);
+  assert.deepEqual(new Set(keys), new Set(['greenhouse:8172503']));
+});
+
+test('canonicalJobUrl keys Lever and Ashby by posting id, ignoring the apply page and case', () => {
+  const lever = [
+    'https://jobs.lever.co/palantir/10dfc8bc-99ad-4ca2-ab76-853cb90a92c2',
+    'https://jobs.lever.co/Palantir/10DFC8BC-99AD-4CA2-AB76-853CB90A92C2/apply?lever-source=LinkedIn',
+  ].map(canonicalJobUrl);
+  assert.deepEqual(new Set(lever), new Set(['lever:10dfc8bc-99ad-4ca2-ab76-853cb90a92c2']));
+
+  const ashby = [
+    'https://jobs.ashbyhq.com/openai/2a9f5a4e-1c3b-4d5e-8f70-123456789abc?utm_source=Simplify',
+    'https://jobs.ashbyhq.com/openai/2a9f5a4e-1c3b-4d5e-8f70-123456789abc/application',
+  ].map(canonicalJobUrl);
+  assert.deepEqual(new Set(ashby), new Set(['ashby:2a9f5a4e-1c3b-4d5e-8f70-123456789abc']));
+});
+
+test('canonicalJobUrl strips tracking from other URLs but keeps the parameters that name the job', () => {
+  assert.equal(
+    canonicalJobUrl('https://www.themuse.com/jobs/acme/software-engineer/?utm_source=x&ref=y&source=z#apply'),
+    'themuse.com/jobs/acme/software-engineer',
+  );
+  assert.equal(
+    canonicalJobUrl('http://Example.com/careers/job?b=1&id=2'),
+    canonicalJobUrl('https://www.example.com/careers/job?id=2&b=1&utm_campaign=spring'),
+  );
+  assert.notEqual(canonicalJobUrl('https://example.com/job?id=2'), canonicalJobUrl('https://example.com/job?id=3'));
+  // Not a URL: still a stable key.
+  assert.equal(canonicalJobUrl('  Not A URL '), 'not a url');
 });
