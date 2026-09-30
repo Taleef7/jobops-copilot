@@ -11,6 +11,8 @@ const isPublicRoute = createRouteMatcher([
   '/twitter-image(.*)',
   '/sign-in(.*)',
   '/sign-up(.*)',
+  // Report-only CSP violations arrive from signed-out pages too (#347).
+  '/api/csp-report',
 ]);
 
 export default clerkMiddleware(async (auth, request) => {
