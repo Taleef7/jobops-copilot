@@ -47,7 +47,7 @@ function countSkills(jobs: JobRecord[]) {
   const skillCounts = new Map<string, number>();
 
   for (const job of jobs) {
-    for (const skill of job.analysis.missingSkills) {
+    for (const skill of job.analysis?.missingSkills ?? []) {
       skillCounts.set(skill, (skillCounts.get(skill) ?? 0) + 1);
     }
   }

@@ -49,51 +49,6 @@ function clone<T>(value: T): T {
   return JSON.parse(JSON.stringify(value)) as T;
 }
 
-function defaultAnalysis(descriptionText: string): JobAnalysis {
-  const matched = extractKeywords(descriptionText);
-
-  return {
-    requiredSkills: matched.slice(0, 4),
-    preferredSkills: matched.slice(4, 6),
-    matchedSkills: matched.slice(0, 3),
-    missingSkills: matched.slice(3, 5),
-    atsKeywords: matched,
-    fitSummary:
-      'Initial baseline fit generated at job intake. Re-run analysis or score fit for full evaluation.',
-    recommendedResumeAngle: 'Highlight transferable delivery and full-stack ownership.',
-    applyRecommendation: 'review',
-    confidenceScore: 0.65,
-    modelUsed: 'mock-analysis-v1',
-  };
-}
-
-function extractKeywords(text: string): string[] {
-  const keywords = [
-    'TypeScript',
-    'JavaScript',
-    'React',
-    'Next.js',
-    'Azure Functions',
-    'Azure Blob Storage',
-    'PostgreSQL',
-    'SQL',
-    'n8n',
-    'Zapier',
-    'Make.com',
-    'OpenAI',
-    'Azure OpenAI',
-    'LLM',
-    'Express',
-    'Python',
-    'Node.js',
-    'Workflow automation',
-    'CRM',
-    'Analytics',
-  ];
-
-  return keywords.filter((keyword) => text.toLowerCase().includes(keyword.toLowerCase()));
-}
-
 function createBaseJob(userId: string, body: CreateJobBody): JobRecord {
   const timestamp = new Date().toISOString();
   const parsedSalary =
@@ -134,7 +89,8 @@ function createBaseJob(userId: string, body: CreateJobBody): JobRecord {
     notes: body.notes?.trim() || undefined,
     nextAction: body.nextAction ?? UNSCORED_NEXT_ACTION,
     nextActionDue: undefined,
-    analysis: defaultAnalysis(body.descriptionText),
+    // No analysis until a real fit score succeeds (#349).
+    analysis: null,
     outreach: [],
     salaryMin,
     salaryMax,

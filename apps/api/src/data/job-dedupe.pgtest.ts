@@ -6,13 +6,13 @@ import express from 'express';
 import { insertJobContact, listJobContacts } from './contact-store';
 import { applyJobDedupe, loadDedupeRows } from './job-dedupe.postgres';
 import { backfillCanonicalUrls, createJob, findJobByCanonicalUrl, listJobs, saveJobAnalysis } from './job-store';
-import { getDefaultAnalysis } from '@/lib/analysis-core';
 import { runDiscoveryForUser } from '@/lib/discovery';
 import { dedupeJobs, planJobDedupe } from '@/lib/job-dedupe';
 import type { SourcedJob } from '@/lib/job-sources/normalize';
 import { migrateOnBoot } from '@/lib/migrate-on-boot';
 import { getPool } from '@/lib/postgres';
 import { jobsRouter } from '@/routes/jobs';
+import { sampleAnalysis } from '@/test-support/analysis';
 
 // #346: discovery re-inserted the same Adzuna ads on every run. Runs only against a real,
 // ephemeral Postgres (see the `db` CI job).
@@ -297,8 +297,8 @@ test('the cleanup sees which copies have a fit score', { skip }, async () => {
   const older = await createJob(userId, { company: 'Kforce', title: 'Software Engineer', descriptionText: 'x', jobUrl: adzuna('9600', 'a') });
   const prerank = await createJob(userId, { company: 'Kforce', title: 'Software Engineer', descriptionText: 'x', jobUrl: 'https://example.com/kforce/1' });
   const scored = await createJob(userId, { company: 'Kforce', title: 'Software Engineer', descriptionText: 'x', jobUrl: 'https://example.com/kforce/2' });
-  await saveJobAnalysis(userId, prerank.id, { ...getDefaultAnalysis('x'), modelUsed: 'local-prerank' }, 40);
-  await saveJobAnalysis(userId, scored.id, { ...getDefaultAnalysis('x'), modelUsed: 'openai:gpt-5.4-nano' }, 62);
+  await saveJobAnalysis(userId, prerank.id, sampleAnalysis({ modelUsed: 'local-prerank' }), 40);
+  await saveJobAnalysis(userId, scored.id, sampleAnalysis({ modelUsed: 'openai:gpt-5.4-nano' }), 62);
 
   const rows = await loadDedupeRows(userId);
   const byId = new Map(rows.map((r) => [r.id, r.scored]));

@@ -5,6 +5,7 @@ import { createJob, getJobById, getStoreMode, listJobs, saveJobAnalysis, updateJ
 import { createSavedSearch, deleteSavedSearch, listSavedSearches } from './saved-search-store';
 import { ANALYZED_NEXT_ACTION, UNSCORED_NEXT_ACTION } from '@/lib/analysis-workflow';
 import { PRERANK_MODEL } from '@/lib/local-fit';
+import { sampleAnalysis } from '@/test-support/analysis';
 
 // This suite runs ONLY against a real Postgres. It is named *.pgtest.ts so the file-mode
 // runner (`npm test`, which globs *.test.ts) never picks it up; run it via `npm run test:pg`
@@ -62,7 +63,7 @@ test(
       });
       assert.equal(job.nextAction, UNSCORED_NEXT_ACTION, 'a new job asks to be scored');
 
-      const analysis = { ...job.analysis, modelUsed: 'gpt-4o', fitSummary: 'Strong overlap' };
+      const analysis = sampleAnalysis({ modelUsed: 'gpt-4o', fitSummary: 'Strong overlap' });
       const scored = await saveJobAnalysis(userA, job.id, analysis, 82);
 
       assert.equal(scored?.fitScore, 82);
@@ -78,7 +79,7 @@ test(
         descriptionText: 'Airflow, dbt',
       });
 
-      const estimate = { ...job.analysis, modelUsed: PRERANK_MODEL };
+      const estimate = sampleAnalysis({ modelUsed: PRERANK_MODEL });
       const prerank = await saveJobAnalysis(userA, job.id, estimate, 100);
 
       assert.equal(
@@ -97,8 +98,7 @@ test(
       });
 
       const parsed = await saveJobAnalysis(userA, job.id, {
-        ...job.analysis,
-        modelUsed: 'mock-analysis-v1',
+        ...sampleAnalysis(),
       });
 
       assert.equal(parsed?.nextAction, UNSCORED_NEXT_ACTION, 'a parse is not a scoring run');
@@ -121,7 +121,7 @@ test(
       const scored = await saveJobAnalysis(
         userA,
         job.id,
-        { ...job.analysis, modelUsed: 'gpt-4o' },
+        sampleAnalysis({ modelUsed: 'gpt-4o' }),
         88,
       );
 
