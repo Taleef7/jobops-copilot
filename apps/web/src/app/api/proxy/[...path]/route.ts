@@ -1,5 +1,7 @@
 import { auth } from '@clerk/nextjs/server';
 import type { NextRequest } from 'next/server';
+import { isProxyPathAllowed } from '../allowed-paths';
+import { fetchUpstream, readBoundedBody, refuseCrossSiteWrite } from '@/lib/edge-guard';
 
 /**
  * Server-side proxy to the Express API.
@@ -8,14 +10,29 @@ import type { NextRequest } from 'next/server';
  * attaches the Clerk session token and the shared secret server-side, so the
  * token is never exposed to the browser and there is one auth choke point.
  * Server components call the Express API directly (see lib/api.ts).
+ *
+ * It forwards only the routes the client calls, refuses cross-site writes, caps the
+ * body, and gives the API 90 s (#347).
  */
 
 const API_BASE = (process.env.NEXT_PUBLIC_API_BASE_URL ?? 'http://127.0.0.1:4000').replace(/\/$/, '');
 const SHARED_SECRET = process.env.API_SHARED_SECRET?.trim();
 
+// x-total-count carries the unpaginated list total so the client can page; Retry-After and
+// the RateLimit-* headers let it back off on a 429.
+const PASSED_BACK = /^(content-type|content-disposition|x-total-count|retry-after|ratelimit-[a-z]+)$/;
+
 async function handler(request: NextRequest, context: { params: Promise<{ path: string[] }> }) {
   const { path } = await context.params;
-  const target = `${API_BASE}/${path.join('/')}${request.nextUrl.search}`;
+  if (!isProxyPathAllowed(path)) {
+    return Response.json({ error: 'Not found' }, { status: 404 });
+  }
+  const crossSite = refuseCrossSiteWrite(request);
+  if (crossSite) return crossSite;
+  const body = await readBoundedBody(request);
+  if (body instanceof Response) return body;
+
+  const target = `${API_BASE}/${path.map(encodeURIComponent).join('/')}${request.nextUrl.search}`;
 
   const headers = new Headers();
   const contentType = request.headers.get('content-type');
@@ -30,25 +47,21 @@ async function handler(request: NextRequest, context: { params: Promise<{ path: 
   }
   if (SHARED_SECRET) headers.set('x-api-key', SHARED_SECRET);
 
-  const hasBody = request.method !== 'GET' && request.method !== 'HEAD';
-  const body = hasBody ? await request.arrayBuffer() : undefined;
-
-  const upstream = await fetch(target, {
+  const { upstream, refused } = await fetchUpstream(target, {
     method: request.method,
     headers,
     body,
     redirect: 'manual',
     cache: 'no-store',
   });
+  if (refused) return refused;
 
   const responseHeaders = new Headers();
-  // x-total-count carries the unpaginated list total so the client can page.
-  for (const key of ['content-type', 'content-disposition', 'x-total-count']) {
-    const value = upstream.headers.get(key);
-    if (value) responseHeaders.set(key, value);
-  }
+  upstream.headers.forEach((value, key) => {
+    if (PASSED_BACK.test(key)) responseHeaders.set(key, value);
+  });
 
-  return new Response(await upstream.arrayBuffer(), {
+  return new Response(upstream.body, {
     status: upstream.status,
     headers: responseHeaders,
   });
