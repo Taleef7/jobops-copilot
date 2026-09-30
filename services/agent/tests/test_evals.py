@@ -240,6 +240,7 @@ def _stub_keyed_run(monkeypatch, parse_metrics, fit_metrics):
     monkeypatch.setattr(run, "_load_jsonl", lambda path: [{}])
     monkeypatch.setattr(run, "run_parse_job_eval", lambda rows: parse_metrics)
     monkeypatch.setattr(run, "run_fit_score_eval", lambda rows, resume: fit_metrics)
+    monkeypatch.setattr(run, "run_parse_resume_eval", lambda rows: {})
     return run
 
 
@@ -278,3 +279,75 @@ def test_main_gate_passes_on_skip(tmp_path, monkeypatch):
 
     monkeypatch.setattr(run, "resolve_provider", lambda: None)
     assert run.main(output_dir=tmp_path, gate=True) == 0
+
+
+# --- #350: résumé parse ---------------------------------------------------------
+
+
+def test_parse_resume_gold_set_is_well_formed():
+    import json
+
+    from evals import run
+
+    rows = [
+        json.loads(line)
+        for line in (run._DATA_DIR / "parse_resume.jsonl").read_text(encoding="utf-8").splitlines()
+        if line.strip()
+    ]
+    assert rows
+    for row in rows:
+        assert row["resume_text"].strip()
+        assert row["expected"]["work"], "each row names the roles it expects"
+        for role in row["expected"]["work"]:
+            assert {"company", "position", "start"} <= set(role)
+    # The glued text live produced is in the set, so the eval covers the real failure.
+    assert any("Encoded9" in row["resume_text"] for row in rows)
+
+
+def test_parse_resume_eval_scores_companies_positions_and_starts(monkeypatch):
+    from app.schemas import ResumeBasics, ResumeWorkExperience, StructuredResume
+    from evals import run
+
+    def fake_parse(text, config=None):
+        return StructuredResume(
+            basics=ResumeBasics(name="A", email="a@example.com"),
+            work=[
+                ResumeWorkExperience(
+                    company="Encoded9", position="Software Developer", start_date="2026-05-01"
+                ),
+                ResumeWorkExperience(company="Riccle", position="Analyst", start_date="2025-09-01"),
+            ],
+        )
+
+    monkeypatch.setattr(run, "parse_resume_text", fake_parse)
+    row = {
+        "resume_text": "x",
+        "expected": {
+            "work": [
+                {
+                    "company": "Medical Informatics Engineering",
+                    "position": "Software Developer",
+                    "start": "2026-05",
+                },
+                {"company": "Riccle", "position": "Analyst", "start": "2025-09"},
+            ]
+        },
+    }
+    out = run.run_parse_resume_eval([row])
+    assert out["n"] == 1 and out["errors"] == 0
+    assert out["company_accuracy"] == 0.5
+    assert out["position_accuracy"] == 1.0
+    assert out["start_accuracy"] == 1.0
+    assert out["glued_companies"] == 1
+
+
+def test_parse_resume_prompt_keeps_the_candidates_words():
+    from app.chains.parse_resume import PARSE_RESUME_SYSTEM
+
+    prompt = PARSE_RESUME_SYSTEM.lower()
+    # Company and position come from the role's header line, never from a bullet.
+    assert "header line" in prompt
+    assert "never from a bullet" in prompt
+    # Bullets are kept as written, and no summary is made up.
+    assert "concise bullet points" not in prompt
+    assert "synthesize" not in prompt

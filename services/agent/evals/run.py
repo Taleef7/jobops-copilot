@@ -13,11 +13,13 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 from collections.abc import Callable
 from datetime import UTC, datetime
 from pathlib import Path
 
 from app.chains.parse_job import parse_job
+from app.chains.parse_resume import parse_resume_text
 from app.chains.score_fit import score_fit
 from app.config import settings
 from app.llm.provider import get_model, resolve_provider
@@ -116,6 +118,56 @@ def run_parse_job_eval(rows: list[dict]) -> dict:
         "skill_f1": mean(f1s),
         "title_accuracy": mean(titles),
         "seniority_accuracy": mean(seniorities),
+    }
+
+
+# A company with a number or a bracket stuck to a word: "Encoded9", "Riccle(early-stage".
+_GLUED = re.compile(r"[a-z]\d|\d[a-z]|[a-z]\(", re.IGNORECASE)
+
+
+def _company_key(value: str | None) -> str:
+    """Compare companies without case or a trailing description in brackets."""
+    return re.sub(r"\s*\(.*\)\s*$", "", (value or "")).strip().lower()
+
+
+def run_parse_resume_eval(rows: list[dict]) -> dict:
+    """Résumé parse (#350): each expected role's company, position and start month.
+
+    Report-only: the gate reads parse-job and score-fit, so this shows a regression in the
+    report without failing the run.
+    """
+    companies, positions, starts = [], [], []
+    errors = glued = 0
+    for row in rows:
+        expected = row["expected"]["work"]
+        try:
+            work = parse_resume_text(row["resume_text"]).work
+        except Exception:  # noqa: BLE001 - one bad row shouldn't kill the run
+            logger.exception("parse_resume failed for %s", row.get("id"))
+            errors += 1
+            companies += [0.0] * len(expected)
+            positions += [0.0] * len(expected)
+            starts += [0.0] * len(expected)
+            continue
+        glued += sum(1 for role in work if _GLUED.search(role.company or ""))
+        for index, want in enumerate(expected):
+            got = work[index] if index < len(work) else None
+            companies.append(
+                float(bool(got) and _company_key(got.company) == _company_key(want["company"]))
+            )
+            positions.append(
+                float(
+                    bool(got) and (got.position or "").strip().lower() == want["position"].lower()
+                )
+            )
+            starts.append(float(bool(got) and (got.start_date or "")[:7] == want["start"]))
+    return {
+        "n": len(rows),
+        "errors": errors,
+        "company_accuracy": mean(companies),
+        "position_accuracy": mean(positions),
+        "start_accuracy": mean(starts),
+        "glued_companies": glued,
     }
 
 
@@ -224,6 +276,20 @@ def render_markdown(report: dict) -> str:
         f"| context recall | {ragas.get('context_recall')} |",
         f"| examples (errors) | {fs['n']} ({fs['errors']}) |",
     ]
+    pr = report.get("parse_resume")
+    if pr:
+        lines += [
+            "",
+            "## parse-resume (report-only)",
+            "",
+            "| metric | score |",
+            "| --- | --- |",
+            f"| company accuracy | {pr['company_accuracy']} |",
+            f"| position accuracy | {pr['position_accuracy']} |",
+            f"| start-month accuracy | {pr['start_accuracy']} |",
+            f"| glued companies | {pr['glued_companies']} |",
+            f"| examples (errors) | {pr['n']} ({pr['errors']}) |",
+        ]
     return "\n".join(lines) + "\n"
 
 
@@ -330,6 +396,7 @@ def main(output_dir: Path | None = None, gate: bool = False) -> int:
                 _load_jsonl(_DATA_DIR / "fit_score.jsonl"),
                 (_DATA_DIR / "sample_resume.txt").read_text(encoding="utf-8"),
             ),
+            "parse_resume": run_parse_resume_eval(_load_jsonl(_DATA_DIR / "parse_resume.jsonl")),
         }
 
     output_dir.mkdir(parents=True, exist_ok=True)
