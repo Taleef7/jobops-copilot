@@ -28,11 +28,15 @@ export class ApiRequestError extends Error {
 
   fields?: ApiErrorFields;
 
-  constructor(message: string, status: number, fields?: ApiErrorFields) {
+  /** On a 409, the job the request duplicates (#346). */
+  existingJobId?: string;
+
+  constructor(message: string, status: number, fields?: ApiErrorFields, existingJobId?: string) {
     super(message);
     this.name = 'ApiRequestError';
     this.status = status;
     this.fields = fields;
+    this.existingJobId = existingJobId;
   }
 }
 
@@ -881,17 +885,19 @@ async function requestJson<T>(path: string, init: RequestInit = {}): Promise<T> 
 
   if (!response.ok) {
     let fields: ApiErrorFields | undefined;
+    let existingJobId: string | undefined;
     let message = `Request failed with status ${response.status}`;
 
     try {
-      const payload = (await response.json()) as { error?: string; fields?: ApiErrorFields };
+      const payload = (await response.json()) as { error?: string; fields?: ApiErrorFields; existingJobId?: unknown };
       message = payload.error ?? message;
       fields = payload.fields;
+      existingJobId = typeof payload.existingJobId === 'string' ? payload.existingJobId : undefined;
     } catch {
       // Ignore non-JSON error bodies and keep the generic message.
     }
 
-    throw new ApiRequestError(message, response.status, fields);
+    throw new ApiRequestError(message, response.status, fields, existingJobId);
   }
 
   return (await response.json()) as T;

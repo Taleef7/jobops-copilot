@@ -1,6 +1,7 @@
 'use client';
 
 import { Download, Loader2, Sparkles } from 'lucide-react';
+import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import type { FormEvent } from 'react';
 import { useRef, useState } from 'react';
@@ -62,6 +63,8 @@ export function JobCreateForm() {
   const router = useRouter();
   const [form, setForm] = useState<FormState>(initialState);
   const [errors, setErrors] = useState<Record<string, string>>({});
+  // The job this URL is already tracked as (a 409 from the API, #346).
+  const [existingJobId, setExistingJobId] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isExtracting, setIsExtracting] = useState(false);
   const [autofillNote, setAutofillNote] = useState<string | null>(null);
@@ -76,6 +79,7 @@ export function JobCreateForm() {
     if (errors[field]) {
       setErrors((prev) => ({ ...prev, [field]: '' }));
     }
+    if (field === 'jobUrl') setExistingJobId(null);
   }
 
   async function handleAutofill() {
@@ -166,6 +170,7 @@ export function JobCreateForm() {
     } catch (error) {
       if (error instanceof ApiRequestError) {
         setErrors(error.fields ?? {});
+        setExistingJobId(error.status === 409 ? (error.existingJobId ?? null) : null);
         toast.error(error.message);
       } else {
         toast.error(error instanceof Error ? error.message : 'Failed to create the job.');
@@ -280,7 +285,17 @@ export function JobCreateForm() {
             </Button>
           </div>
           {errors.jobUrl ? (
-            <p id="job-url-error" className="text-destructive text-xs">{errors.jobUrl}</p>
+            <p id="job-url-error" className="text-destructive text-xs">
+              {errors.jobUrl}
+              {existingJobId ? (
+                <>
+                  {' '}
+                  <Link href={`/jobs/${existingJobId}`} className="text-foreground font-medium underline underline-offset-2">
+                    Open the job
+                  </Link>
+                </>
+              ) : null}
+            </p>
           ) : null}
           {/* Always-present live region so a screen reader announces a failed autofill. */}
           <p role="status" className="text-muted-foreground text-xs empty:hidden">

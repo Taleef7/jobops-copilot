@@ -8,6 +8,7 @@ import type {
   JobStatus,
   JobStatusEvent,
   OutreachDraft,
+  TrackedJobRef,
   UpdateJobBody,
   UpdateOutreachBody,
 } from '@/types';
@@ -18,6 +19,7 @@ import type { PageParams } from '@/lib/pagination';
 import { deriveOutreachJobUpdate } from '@/lib/outreach-workflow';
 import { seedJobs } from '@/data/mock-store';
 import { computeContentHash, parseSalaryFromText, parseSeniority } from '@/lib/job-enrich';
+import { canonicalJobUrl } from '@/lib/job-sources/normalize';
 import { buildOutcomeStats, rankFeedJobs } from '@/lib/feed-ranking';
 
 type JobRow = {
@@ -263,6 +265,39 @@ export async function countJobs(userId: string): Promise<number> {
   return rows[0]?.count ?? 0;
 }
 
+/** The user's job for this posting, reached through any of its URLs (#346). Uses the canonical-URL index. */
+export async function findJobByCanonicalUrl(userId: string, jobUrl: string): Promise<TrackedJobRef | undefined> {
+  const { rows } = await poolOrThrow().query<TrackedJobRef>(
+    'select id, company, title from jobs where user_id = $1 and canonical_url = $2 order by created_at limit 1',
+    [userId, canonicalJobUrl(jobUrl)],
+  );
+  return rows[0];
+}
+
+/**
+ * Fill `canonical_url` for rows stored before migration 026, with the same rule new rows
+ * use. Runs at boot after migrations; only touches rows still missing it, so it is cheap
+ * once done. Returns how many rows it filled.
+ */
+export async function backfillCanonicalUrls(batchSize = 500): Promise<number> {
+  const pool = poolOrThrow();
+  let filled = 0;
+  for (;;) {
+    const { rows } = await pool.query<{ id: string; job_url: string }>(
+      'select id, job_url from jobs where canonical_url is null and job_url is not null limit $1',
+      [batchSize],
+    );
+    if (rows.length === 0) return filled;
+    await pool.query(
+      `update jobs set canonical_url = batch.canonical_url
+         from unnest($1::uuid[], $2::text[]) as batch(id, canonical_url)
+        where jobs.id = batch.id`,
+      [rows.map((row) => row.id), rows.map((row) => canonicalJobUrl(row.job_url))],
+    );
+    filled += rows.length;
+  }
+}
+
 export async function getJobById(userId: string, jobId: string): Promise<JobRecord | undefined> {
   const pool = poolOrThrow();
 
@@ -349,9 +384,10 @@ export async function createJob(userId: string, body: CreateJobBody): Promise<Jo
           last_seen_at,
           liveness,
           created_at,
-          updated_at
+          updated_at,
+          canonical_url
         ) values (
-          $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27
+          $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28
         )
         returning *
       `,
@@ -383,6 +419,7 @@ export async function createJob(userId: string, body: CreateJobBody): Promise<Jo
         liveness,
         timestamp,
         timestamp,
+        body.jobUrl ? canonicalJobUrl(body.jobUrl) : null,
       ],
     );
 
@@ -908,9 +945,9 @@ export async function seedDemoData(userId: string): Promise<void> {
           fit_score, notes, next_action, next_action_due,
           salary_min, salary_max, salary_currency, seniority, sponsor_likelihood,
           content_hash, last_seen_at, liveness,
-          created_at, updated_at
+          created_at, updated_at, canonical_url
         ) values (
-          $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28
+          $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29
         )`,
         [
           jobId,
@@ -945,6 +982,7 @@ export async function seedDemoData(userId: string): Promise<void> {
           job.liveness ?? 'active',
           job.createdAt,
           job.updatedAt,
+          job.jobUrl ? canonicalJobUrl(job.jobUrl) : null,
         ],
       );
 

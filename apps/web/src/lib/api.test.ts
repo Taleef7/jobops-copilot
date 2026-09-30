@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { ApiRequestError, draftOutreach, parseJob, scoreFit, uploadResumeFile } from './api';
+import { ApiRequestError, createJob, draftOutreach, parseJob, scoreFit, uploadResumeFile } from './api';
 
 // Under jsdom `window` is defined, so apiFetch routes through the same-origin
 // Next proxy (`/api/proxy/*`). We mock global fetch and inspect the call.
@@ -70,6 +70,25 @@ describe('requestJson error handling', () => {
       message: 'Bad input',
       fields: { descriptionText: 'required' },
     });
+  });
+
+  it('keeps the id of the job a 409 points at (#346)', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue({
+        ok: false,
+        status: 409,
+        json: async () => ({
+          error: 'You already added this job.',
+          fields: { jobUrl: 'You already added this job.' },
+          existingJobId: 'job-123',
+        }),
+      }),
+    );
+
+    await expect(
+      createJob({ company: 'Stripe', title: 'Engineer', descriptionText: 'x', jobUrl: 'https://stripe.com/jobs?gh_jid=1' }),
+    ).rejects.toMatchObject({ status: 409, existingJobId: 'job-123', fields: { jobUrl: 'You already added this job.' } });
   });
 
   it('falls back to a generic message when the error body is not JSON', async () => {

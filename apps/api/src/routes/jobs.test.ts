@@ -106,3 +106,46 @@ test('POST /api/jobs accepts and returns enriched schema fields', async () => {
     await rm(tempDir, { recursive: true, force: true });
   }
 });
+
+// #346: re-adding a tracked posting, through any of its URLs, points at the existing job.
+test('POST /api/jobs answers 409 with the existing job when the posting is already tracked', async () => {
+  const originalCwd = process.cwd();
+  delete process.env.DATABASE_URL;
+  const tempDir = await mkdtemp(join(tmpdir(), 'jobops-route-jobs-dup-'));
+
+  try {
+    process.chdir(tempDir);
+    resetJobStoreForTests();
+
+    await withServer((app) => app.use('/api/jobs', jobsRouter), async (baseUrl) => {
+      const post = (userId: string, jobUrl: string) =>
+        fetch(`${baseUrl}/api/jobs`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'X-User-Id': userId },
+          body: JSON.stringify({ company: 'Stripe', title: 'Engineer', descriptionText: 'Build payments.', jobUrl }),
+        });
+
+      const first = await post('test-user', 'https://job-boards.greenhouse.io/stripe/jobs/8172503');
+      assert.equal(first.status, 201);
+      const created = ((await first.json()) as { job: JobRecord }).job;
+
+      const again = await post('test-user', 'https://stripe.com/jobs/search?gh_jid=8172503&utm_source=linkedin');
+      assert.equal(again.status, 409);
+      const body = (await again.json()) as {
+        existingJobId?: string;
+        existingJob?: { id: string; company: string; title: string };
+        fields?: Record<string, string>;
+      };
+      assert.equal(body.existingJobId, created.id);
+      assert.deepEqual(body.existingJob, { id: created.id, company: 'Stripe', title: 'Engineer' });
+      assert.equal(body.fields?.jobUrl, 'You already added this job.');
+
+      // Another user can track the same posting.
+      assert.equal((await post('someone-else', 'https://stripe.com/jobs/search?gh_jid=8172503')).status, 201);
+    });
+  } finally {
+    process.chdir(originalCwd);
+    resetJobStoreForTests();
+    await rm(tempDir, { recursive: true, force: true });
+  }
+});

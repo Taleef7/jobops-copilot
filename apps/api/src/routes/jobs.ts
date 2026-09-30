@@ -2,6 +2,7 @@ import { Router } from 'express';
 import {
   countJobs,
   createJob,
+  findJobByCanonicalUrl,
   getJobById,
   listJobs,
   updateJob,
@@ -73,7 +74,6 @@ jobsRouter.post('/', async (request, response, next) => {
       return response.status(413).json({ error: TOO_LONG_MESSAGE });
     }
     const errors: Record<string, string> = {};
-    const existingJobs = await listJobs(userId);
     const normalizedJobUrl = body.jobUrl?.trim();
 
     if (!body.company?.trim()) {
@@ -98,9 +98,6 @@ jobsRouter.post('/', async (request, response, next) => {
     }
     if (normalizedJobUrl && !isValidUrl(normalizedJobUrl)) {
       errors.jobUrl = 'Job URL must be a valid URL.';
-    }
-    if (normalizedJobUrl && existingJobs.some((job) => job.jobUrl === normalizedJobUrl)) {
-      errors.jobUrl = 'A job with this URL already exists.';
     }
     if (body.priority && !allowedPriorities.has(body.priority)) {
       errors.priority = 'Priority must be high, medium, or low.';
@@ -148,6 +145,20 @@ jobsRouter.post('/', async (request, response, next) => {
 
     if (Object.keys(errors).length > 0) {
       response.status(400).json({ error: 'Invalid job payload', fields: errors });
+      return;
+    }
+
+    // The same posting reached through another URL (tracking parameters, a board or the
+    // company's own site) is the same job (#346). One indexed lookup, not the whole list.
+    const existingJob = normalizedJobUrl ? await findJobByCanonicalUrl(userId, normalizedJobUrl) : undefined;
+    if (existingJob) {
+      const message = 'You already added this job.';
+      response.status(409).json({
+        error: message,
+        fields: { jobUrl: message },
+        existingJobId: existingJob.id,
+        existingJob,
+      });
       return;
     }
 

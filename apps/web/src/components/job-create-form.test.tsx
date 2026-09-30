@@ -12,10 +12,20 @@ vi.mock('next/navigation', () => ({ useRouter: () => ({ push: vi.fn(), refresh: 
 vi.mock('@/lib/api', () => ({
   extractJobFromUrl,
   createJob,
-  ApiRequestError: class ApiRequestError extends Error {},
+  ApiRequestError: class ApiRequestError extends Error {
+    constructor(
+      message: string,
+      public status: number,
+      public fields?: Record<string, string>,
+      public existingJobId?: string,
+    ) {
+      super(message);
+    }
+  },
 }));
 
 import { toast } from 'sonner';
+import { ApiRequestError } from '@/lib/api';
 import { JobCreateForm } from './job-create-form';
 
 afterEach(() => {
@@ -102,4 +112,21 @@ it('toasts an error when the extraction request fails', async () => {
     expect(vi.mocked(toast.error)).toHaveBeenCalledWith('Could not read that job posting.'),
   );
   expect(screen.getByLabelText(/job title/i)).toHaveValue('');
+});
+
+it('links to the job you already added when the URL is tracked (#346)', async () => {
+  createJob.mockRejectedValue(
+    new ApiRequestError('You already added this job.', 409, { jobUrl: 'You already added this job.' }, 'job-123'),
+  );
+  const user = userEvent.setup();
+  render(<JobCreateForm />);
+
+  await user.type(screen.getByLabelText(/job description/i), 'Build payments.');
+  await user.type(screen.getByLabelText(/company/i), 'Stripe');
+  await user.type(screen.getByLabelText(/job title/i), 'Engineer');
+  await user.type(screen.getByLabelText(/job url/i), 'https://stripe.com/jobs/search?gh_jid=8172503');
+  await user.click(screen.getByRole('button', { name: /save/i }));
+
+  expect(await screen.findByText('You already added this job.')).toBeInTheDocument();
+  expect(screen.getByRole('link', { name: /open the job/i })).toHaveAttribute('href', '/jobs/job-123');
 });

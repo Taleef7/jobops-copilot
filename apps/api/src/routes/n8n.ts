@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import {
   createJob,
+  findJobByCanonicalUrl,
   listJobs,
   saveJobAnalysis,
   updateJob,
@@ -40,6 +41,7 @@ const allowedWorkplaceTypes = new Set<JobWorkplaceType>(['remote', 'hybrid', 'on
 
 interface N8nDependencies {
   createJob: typeof createJob;
+  findJobByCanonicalUrl: typeof findJobByCanonicalUrl;
   listJobs: typeof listJobs;
   saveJobAnalysis: typeof saveJobAnalysis;
   updateJob: typeof updateJob;
@@ -47,6 +49,7 @@ interface N8nDependencies {
 
 const defaultDependencies: N8nDependencies = {
   createJob,
+  findJobByCanonicalUrl,
   listJobs,
   saveJobAnalysis,
   updateJob,
@@ -184,10 +187,9 @@ export function createN8nRouter(dependencies: N8nDependencies = defaultDependenc
         return;
       }
 
-      const existingJobs = await dependencies.listJobs(userId);
-
+      // Any URL of a posting it already has (#346), by one indexed lookup.
       if (validation.normalized.jobUrl) {
-        const existingJob = existingJobs.find((job) => job.jobUrl === validation.normalized.jobUrl);
+        const existingJob = await dependencies.findJobByCanonicalUrl(userId, validation.normalized.jobUrl);
         if (existingJob) {
           response.status(409).json({
             error: 'A job with this URL already exists.',
