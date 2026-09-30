@@ -1,22 +1,19 @@
 /**
  * Client for the Python AI agent service (services/agent).
  *
- * When AGENT_SERVICE_URL is set, analysis is delegated to the real-LLM agent
- * service. On any failure (unset URL, network error, non-2xx, invalid payload),
- * we transparently fall back to the deterministic mock in analysis-core /
- * mock-store. This preserves the project's offline/demo resilience: the app
- * always returns a valid, validated result.
+ * Every AI result comes from the agent. When it can't give one (not configured,
+ * unreachable, too slow, an error, or an answer the app can't use), the call throws
+ * `AiUnavailableError`, which the API answers with 503 and `retryable: true` (#349).
+ * There is no fallback: a keyword-based fake used to be returned and saved as if it
+ * were the AI's answer.
  */
 
 import {
-  parseJobDescription,
-  scoreJobFit,
   validateFitScoreOutput,
   validateParsedJobOutput,
   type FitScoreOutput,
   type ParsedJobOutput,
 } from '@/lib/analysis-core';
-import { draftOutreachBody } from '@/data/mock-store';
 import type { ActivityPoint, TelemetryInsights } from '@/lib/telemetry';
 import type {
   DraftOutreachBody,
@@ -53,12 +50,35 @@ export function agentHeaders(extra?: Record<string, string>): Record<string, str
   return headers;
 }
 
-/** Thrown when an agent task is requested but the service is not configured. */
-export class AgentDisabledError extends Error {
+/**
+ * The AI couldn't answer this time. The message is shown to the user as is; the API
+ * answers 503 with `retryable: true`, and nothing is saved (#349).
+ */
+export class AiUnavailableError extends Error {
+  constructor(message: string, options?: { cause?: unknown }) {
+    super(message, options);
+    this.name = 'AiUnavailableError';
+  }
+}
+
+/** Thrown when an agent call is requested but the service is not configured. */
+export class AgentDisabledError extends AiUnavailableError {
   constructor() {
-    super('The AI agent service is not configured.');
+    super('The AI service is not set up on this server.');
     this.name = 'AgentDisabledError';
   }
+}
+
+const UNUSABLE_ANSWER = "The AI's answer couldn't be used. Try again.";
+
+/** Any failure of an agent call, as the error the user sees. The budget error passes through. */
+function asAiUnavailable(error: unknown, path: string): unknown {
+  if (error instanceof AiBudgetExceededError || error instanceof AiUnavailableError) return error;
+  console.warn(`agent ${path} failed`, error);
+  if (isColdStartError(error)) {
+    return new AiUnavailableError('The AI took too long to answer. Try again in a moment.', { cause: error });
+  }
+  return new AiUnavailableError("The AI couldn't be reached. Try again in a moment.", { cause: error });
 }
 
 function agentServiceUrl(): string | undefined {
@@ -88,13 +108,22 @@ async function postToAgent(path: string, payload: unknown, timeoutMs: number): P
 
 async function callAgent<T>(path: string, payload: unknown, timeoutMs = AGENT_TIMEOUT_MS): Promise<T> {
   if (!agentServiceUrl()) throw new AgentDisabledError();
-  const response = await postToAgent(path, payload, timeoutMs);
-
-  if (!response.ok) {
-    throw new Error(`agent ${path} responded with ${response.status}`);
+  let response: Response;
+  try {
+    response = await postToAgent(path, payload, timeoutMs);
+  } catch (error) {
+    throw asAiUnavailable(error, path);
   }
-
-  return (await response.json()) as T;
+  if (!response.ok) {
+    console.warn(`agent ${path} responded with ${response.status}`);
+    await response.body?.cancel();
+    throw new AiUnavailableError("The AI couldn't answer this time. Try again in a moment.");
+  }
+  try {
+    return (await response.json()) as T;
+  } catch (error) {
+    throw asAiUnavailable(error, path);
+  }
 }
 
 /**
@@ -103,6 +132,8 @@ async function callAgent<T>(path: string, payload: unknown, timeoutMs = AGENT_TI
  * errors (TypeError) are not cold starts.
  */
 export function isColdStartError(error: unknown): boolean {
+  // callAgent wraps a timeout in AiUnavailableError; the timeout is its cause.
+  if (error instanceof AiUnavailableError) return isColdStartError(error.cause);
   return error instanceof Error && (error.name === 'TimeoutError' || error.name === 'AbortError');
 }
 
@@ -133,9 +164,8 @@ export async function withColdStartWake<T>(op: () => Promise<T>): Promise<T> {
 }
 
 /**
- * Run a Phase 8 agent task (interview-prep, research, skill-gap). Unlike the
- * analysis resolvers, these have no mock fallback — they are net-new
- * capabilities — so this throws AgentDisabledError when the service is unset.
+ * Run a Phase 8 agent task (interview-prep, research, skill-gap). Throws
+ * `AiUnavailableError` (or `AgentDisabledError` when the service is unset).
  */
 export async function runAgentTask<T>(path: string, payload: unknown): Promise<T> {
   if (!isAgentEnabled()) {
@@ -151,7 +181,7 @@ export interface AssistantRunInput {
   userId?: string;
 }
 
-/** Start an application-assistant run (LangGraph). Net-new — no mock fallback. */
+/** Start an application-assistant run (LangGraph). */
 export async function runAssistant(input: AssistantRunInput): Promise<unknown> {
   if (!isAgentEnabled()) {
     throw new AgentDisabledError();
@@ -176,12 +206,26 @@ export async function resumeAssistant(threadId: string, approved: boolean): Prom
   return callAgent('/assistant/resume', { thread_id: threadId, approved }, AGENT_TASK_TIMEOUT_MS);
 }
 
+/**
+ * POST to a streaming agent route and return the raw response to pipe. A failure to reach
+ * the agent is an AiUnavailableError (503, retryable), like every other agent call.
+ */
+function openAgentStream(path: string, payload: unknown): Promise<Response> {
+  return withColdStartWake(async () => {
+    try {
+      return await postToAgent(path, payload, AGENT_TASK_TIMEOUT_MS);
+    } catch (error) {
+      throw asAiUnavailable(error, path);
+    }
+  });
+}
+
 /** Open the agent's SSE assistant stream; returns the raw upstream Response to pipe. */
 export async function streamAssistantUpstream(payload: unknown): Promise<Response> {
   if (!isAgentEnabled()) {
     throw new AgentDisabledError();
   }
-  return withColdStartWake(() => postToAgent('/assistant/stream', payload, AGENT_TASK_TIMEOUT_MS));
+  return openAgentStream('/assistant/stream', payload);
 }
 
 /** Open the conversational chat token stream on the agent service (Phase 5). */
@@ -189,7 +233,7 @@ export async function streamAssistantChatUpstream(payload: unknown): Promise<Res
   if (!isAgentEnabled()) {
     throw new AgentDisabledError();
   }
-  return withColdStartWake(() => postToAgent('/assistant/chat', payload, AGENT_TASK_TIMEOUT_MS));
+  return openAgentStream('/assistant/chat', payload);
 }
 
 /** Analyze the activity series via the agent (pandas + LLM narration). */
@@ -217,14 +261,14 @@ export async function fetchEvDemoViaAgent(): Promise<TelemetryInsights> {
 export async function streamAgentUpstream(agentId: string, payload: unknown): Promise<Response> {
   if (!isAgentEnabled()) throw new AgentDisabledError();
   const encodedId = encodeURIComponent(agentId);
-  return withColdStartWake(() => postToAgent(`/agents/${encodedId}/stream`, payload, AGENT_TASK_TIMEOUT_MS));
+  return openAgentStream(`/agents/${encodedId}/stream`, payload);
 }
 
 /** Resume a generic specialist-agent stream and return the raw response for piping. */
 export async function resumeAgentUpstream(agentId: string, payload: unknown): Promise<Response> {
   if (!isAgentEnabled()) throw new AgentDisabledError();
   const encodedId = encodeURIComponent(agentId);
-  return withColdStartWake(() => postToAgent(`/agents/${encodedId}/resume`, payload, AGENT_TASK_TIMEOUT_MS));
+  return openAgentStream(`/agents/${encodedId}/resume`, payload);
 }
 
 export interface ScoreFitInput {
@@ -247,87 +291,55 @@ export interface OutreachDraftResult {
   safety_notes?: string;
 }
 
-/** Parse a job description via the agent, falling back to the mock parser. */
+/** Parse a job description via the agent. Throws `AiUnavailableError` when it can't. */
 export async function resolveParsedJob(descriptionText: string): Promise<ParsedJobOutput> {
-  if (isAgentEnabled()) {
-    try {
-      const parsed = await withColdStartWake(() =>
-        callAgent<ParsedJobOutput>(
-          '/parse-job',
-          { description_text: descriptionText },
-          AGENT_TIMEOUT_MS,
-        ),
-      );
-      if (validateParsedJobOutput(parsed)) {
-        return parsed;
-      }
-      console.warn('agent /parse-job returned an invalid payload; falling back to mock');
-    } catch (error) {
-      if (error instanceof AiBudgetExceededError) throw error;
-      console.warn('agent /parse-job failed; falling back to mock', error);
-    }
-  }
-  return parseJobDescription(descriptionText);
+  const parsed = await withColdStartWake(() =>
+    callAgent<ParsedJobOutput>('/parse-job', { description_text: descriptionText }, AGENT_TIMEOUT_MS),
+  );
+  if (!validateParsedJobOutput(parsed)) throw new AiUnavailableError(UNUSABLE_ANSWER);
+  return parsed;
 }
 
-/** Score job fit via the agent, falling back to the mock scorer. */
+/** Score job fit via the agent. Throws `AiUnavailableError` when it can't. */
 export async function resolveFitScore(input: ScoreFitInput): Promise<FitScoreOutput> {
-  if (isAgentEnabled()) {
-    try {
-      const scored = await withColdStartWake(() =>
-        callAgent<FitScoreOutput>(
-          '/score-fit',
-          {
-            user_id: input.userId,
-            description_text: input.descriptionText,
-            resume_text: input.resumeText,
-            profile_text: input.profileText,
-            title: input.title,
-            required_skills: input.requiredSkills,
-            preferred_skills: input.preferredSkills,
-            ats_keywords: input.atsKeywords,
-            retrieved_context: input.retrievedContext,
-          },
-          AGENT_TIMEOUT_MS,
-        ),
-      );
-      if (validateFitScoreOutput(scored)) {
-        return scored;
-      }
-      console.warn('agent /score-fit returned an invalid payload; falling back to mock');
-    } catch (error) {
-      if (error instanceof AiBudgetExceededError) throw error;
-      console.warn('agent /score-fit failed; falling back to mock', error);
-    }
-  }
-  return scoreJobFit(input);
+  const scored = await withColdStartWake(() =>
+    callAgent<FitScoreOutput>(
+      '/score-fit',
+      {
+        user_id: input.userId,
+        description_text: input.descriptionText,
+        resume_text: input.resumeText,
+        profile_text: input.profileText,
+        title: input.title,
+        required_skills: input.requiredSkills,
+        preferred_skills: input.preferredSkills,
+        ats_keywords: input.atsKeywords,
+        retrieved_context: input.retrievedContext,
+      },
+      AGENT_TIMEOUT_MS,
+    ),
+  );
+  if (!validateFitScoreOutput(scored)) throw new AiUnavailableError(UNUSABLE_ANSWER);
+  return scored;
 }
 
-/** Draft outreach via the agent, falling back to the mock drafter. */
+/** Draft outreach via the agent. Throws `AiUnavailableError` when it can't. */
 export async function resolveOutreachDraft(
   payload: DraftOutreachBody & { company?: string; retrieved_context?: string[] },
 ): Promise<OutreachDraftResult> {
-  if (isAgentEnabled()) {
-    try {
-      const draft = await callAgent<OutreachDraftResult>('/draft-outreach', {
-        message_type: payload.message_type,
-        contact_name: payload.contact_name,
-        contact_role: payload.contact_role,
-        company: payload.company,
-        job_context: payload.job_context,
-        resume_summary: payload.resume_summary,
-        retrieved_context: payload.retrieved_context,
-      });
-      if (draft && typeof draft.draft_text === 'string' && draft.draft_text.trim()) {
-        return draft;
-      }
-      console.warn('agent /draft-outreach returned an invalid payload; falling back to mock');
-    } catch (error) {
-      if (error instanceof AiBudgetExceededError) throw error;
-      console.warn('agent /draft-outreach failed; falling back to mock', error);
-    }
+  const draft = await callAgent<OutreachDraftResult>('/draft-outreach', {
+    message_type: payload.message_type,
+    contact_name: payload.contact_name,
+    contact_role: payload.contact_role,
+    company: payload.company,
+    job_context: payload.job_context,
+    resume_summary: payload.resume_summary,
+    retrieved_context: payload.retrieved_context,
+  });
+  if (!draft || typeof draft.draft_text !== 'string' || !draft.draft_text.trim()) {
+    throw new AiUnavailableError(UNUSABLE_ANSWER);
   }
-  return draftOutreachBody(payload);
+  return draft;
 }
 
 function asString(val: unknown, fallback = ''): string {
@@ -461,50 +473,13 @@ export function normalizeStructuredResume(raw: unknown): StructuredResume | null
   };
 }
 
-/** Parse resume text into a StructuredResume via the agent, with deterministic mock fallback. */
+/** Parse résumé text into a StructuredResume via the agent. Throws `AiUnavailableError` when it can't. */
 export async function resolveResumeParse(resumeText: string): Promise<StructuredResume> {
-  if (isAgentEnabled()) {
-    try {
-      const parsed = await withColdStartWake(() =>
-        callAgent<unknown>(
-          '/parse-resume',
-          { resume_text: resumeText },
-          AGENT_TIMEOUT_MS,
-        ),
-      );
-      const normalized = normalizeStructuredResume(parsed);
-      if (normalized) {
-        return normalized;
-      }
-      console.warn('agent /parse-resume returned an invalid payload; falling back to mock');
-    } catch (error) {
-      if (error instanceof AiBudgetExceededError) throw error;
-      console.warn('agent /parse-resume failed; falling back to mock', error);
-    }
-  }
-  return mockParseResume(resumeText);
-}
-
-/**
- * Deterministic mock resume parser for offline/demo/test mode.
- * Extracts basic structure from the raw text with simple heuristics.
- */
-function mockParseResume(resumeText: string): StructuredResume {
-  // Best-effort extraction: pull lines, look for a name-like first line, email, etc.
-  const lines = resumeText.split('\n').map((l) => l.trim()).filter(Boolean);
-  const emailMatch = resumeText.match(/[\w.+-]+@[\w-]+\.[\w.-]+/);
-  const phoneMatch = resumeText.match(/\+?[\d\s().-]{7,}/);
-
-  return {
-    basics: {
-      name: lines[0] ?? 'Unknown',
-      email: emailMatch?.[0] ?? 'unknown@example.com',
-      phone: phoneMatch?.[0]?.trim(),
-      summary: lines.length > 2 ? lines.slice(1, 4).join(' ') : '',
-    },
-    work: [],
-    education: [],
-    skills: [{ category: 'General', skills: ['(Resume parsed in offline mode — edit to add real skills)'] }],
-  };
+  const parsed = await withColdStartWake(() =>
+    callAgent<unknown>('/parse-resume', { resume_text: resumeText }, AGENT_TIMEOUT_MS),
+  );
+  const normalized = normalizeStructuredResume(parsed);
+  if (!normalized) throw new AiUnavailableError(UNUSABLE_ANSWER);
+  return normalized;
 }
 

@@ -8,6 +8,7 @@ import { createApp } from './app';
 import { createJob, resetJobStoreForTests } from '@/data/job-store';
 import { upsertUserProfile } from '@/data/profile-store';
 import { getTodayUsage, resetUsageStoreForTests } from '@/data/usage-store';
+import { fakeAgentAnswer } from '@/test-support/fake-agent';
 
 /**
  * #345: the AI budget is only charged for requests that reach the agent. Before, every
@@ -46,7 +47,7 @@ test('rejected and agent-less /api/ai requests are not charged; an agent call is
   const agent = await listen((request, response) => {
     agentCalls.push(`${request.method} ${request.url}`);
     request.resume();
-    response.writeHead(200, { 'Content-Type': 'application/json' }).end('{}');
+    response.writeHead(200, { 'Content-Type': 'application/json' }).end(JSON.stringify(fakeAgentAnswer(request.url)));
   });
   const post = (body: unknown) =>
     fetch(`${api.url}/api/ai/score-fit`, {
@@ -63,9 +64,9 @@ test('rejected and agent-less /api/ai requests are not charged; an agent call is
     await settled();
     assert.deepEqual(await getTodayUsage(USER), { costUsd: 0, calls: 0 }, '4xx responses must not be charged');
 
-    // With no agent configured the score comes from the local fallback: nothing was paid for.
+    // With no agent configured there is no score (#349: no made-up fallback), and nothing was paid for.
     await upsertUserProfile(USER, { resumeText: 'Backend engineer. Go, Postgres.' });
-    assert.equal((await post({ job_id: job.id })).status, 200);
+    assert.equal((await post({ job_id: job.id })).status, 503);
     await settled();
     assert.deepEqual(await getTodayUsage(USER), { costUsd: 0, calls: 0 }, 'a request that never reached the agent is refunded');
 
@@ -101,7 +102,7 @@ test('a large input that would pass the daily ceiling is refused before the agen
   const agent = await listen((request, response) => {
     agentCalls.push(`${request.method} ${request.url}`);
     request.resume();
-    response.writeHead(200, { 'Content-Type': 'application/json' }).end('{}');
+    response.writeHead(200, { 'Content-Type': 'application/json' }).end(JSON.stringify(fakeAgentAnswer(request.url)));
   });
   process.env.AGENT_SERVICE_URL = agent.url;
   // Room for the flat $0.01 reservation, but not for a 20k-character parse on top.

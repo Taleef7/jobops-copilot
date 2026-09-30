@@ -11,7 +11,7 @@ import {
 import { appendOutreachDraft, getJobById } from '@/data/job-store';
 import { getUserProfile } from '@/data/profile-store';
 import { getBaseResumeVersion } from '@/data/resume-version-store';
-import { resolveOutreachDraft } from '@/lib/agent-client';
+import { AiUnavailableError, resolveOutreachDraft } from '@/lib/agent-client';
 import { requireUser } from '@/lib/auth';
 import { emitApprovalNeededNotification } from '@/lib/notify/events';
 import type { JobContactStatus, OutreachDraft, StructuredResume } from '@/types';
@@ -316,6 +316,10 @@ contactsRouter.post('/contacts/:id/draft-outreach', async (request, response) =>
       draft: outreachDraft,
     });
   } catch (error) {
+    // The AI couldn't write the draft: 503 and retryable, and nothing was saved (#349).
+    if (error instanceof AiUnavailableError) {
+      return response.status(503).json({ error: error.message, retryable: true });
+    }
     console.error('Error drafting outreach:', error);
     return response.status(500).json({ error: 'Failed to draft outreach' });
   }

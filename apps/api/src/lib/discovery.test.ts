@@ -4,6 +4,7 @@ import type { CreateJobBody, JobRecord, SavedSearch, TargetCompany } from '@/typ
 import { runDiscoveryForUser, type DiscoveryDeps } from './discovery';
 import { BUDGET_SPENT } from '@/lib/budget';
 import type { SourcedJob } from '@/lib/job-sources/normalize';
+import { AiUnavailableError } from '@/lib/agent-client';
 
 const SEARCH: SavedSearch = {
   id: 's1',
@@ -761,4 +762,22 @@ test('an archived (passed) job is never brought back by discovery', async () => 
   await runDiscoveryForUser('u', deps);
 
   assert.equal(created.length, 0);
+});
+
+// #349: when the AI is unavailable, discovery keeps its labelled pre-rank and never saves a
+// made-up AI score (it used to receive the keyword fallback and save it as the AI's).
+test('an unavailable AI leaves the labelled local pre-rank, not an AI score', async () => {
+  const { deps, analyses } = makeDeps(
+    [sourced('https://x/job-ai-down', { title: 'Engineer', descriptionText: 'TypeScript React Node.js' })],
+    [],
+  );
+  deps.runBudgeted = async (_userId, _op, run) => run();
+  deps.resolveFitScore = async () => {
+    throw new AiUnavailableError("The AI couldn't be reached. Try again in a moment.");
+  };
+
+  const result = await runDiscoveryForUser('user-1', deps);
+
+  assert.equal(result.inserted, 1);
+  assert.deepEqual(analyses.map((a) => a.modelUsed), ['local-prerank']);
 });

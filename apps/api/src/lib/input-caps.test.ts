@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import http from 'node:http';
 import test from 'node:test';
 import { capAgentPayload, LLM_JOB_TEXT_MAX, LLM_PROFILE_TEXT_MAX } from './input-caps';
+import { fakeAgentAnswer } from '@/test-support/fake-agent';
 
 test('capAgentPayload truncates known text fields and reports it', () => {
   const long = 'x'.repeat(50_000);
@@ -37,7 +38,7 @@ test('the agent receives at most the capped length, whatever was stored (#345)',
     request.on('data', (chunk) => (raw += chunk));
     request.on('end', () => {
       bodies.push(JSON.parse(raw) as Record<string, unknown>);
-      response.writeHead(200, { 'Content-Type': 'application/json' }).end('{}');
+      response.writeHead(200, { 'Content-Type': 'application/json' }).end(JSON.stringify(fakeAgentAnswer(request.url)));
     });
   });
   await new Promise<void>((resolve) => server.listen(0, resolve));
