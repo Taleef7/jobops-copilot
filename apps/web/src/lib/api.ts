@@ -17,6 +17,7 @@ import type {
   NotificationSettings,
 } from '@/types/notification';
 import type { LlmCanaryResult } from '@/lib/llm-check';
+import { AI_REQUEST_TIMEOUT_MS, REQUEST_TIMEOUT_MS } from '@/lib/timeouts';
 
 const apiBaseUrl = (process.env.NEXT_PUBLIC_API_BASE_URL ?? 'http://127.0.0.1:4000').replace(/\/$/, '');
 
@@ -917,16 +918,6 @@ async function apiFetch(path: string, init: RequestInit): Promise<Response> {
 
   return fetch(`/api/proxy${path}`, { ...init, headers });
 }
-
-/** How long a plain API call may take before the client gives up (#349). */
-const REQUEST_TIMEOUT_MS = 30_000;
-
-/**
- * How long a call that waits on the AI may take. The API's own agent limit is 120 s
- * (AGENT_TASK_TIMEOUT_MS); the client waits a little past it so the API's answer, a 503
- * with the reason, arrives first.
- */
-const AI_REQUEST_TIMEOUT_MS = 130_000;
 
 type RequestOptions = RequestInit & {
   /** Defaults to REQUEST_TIMEOUT_MS; AI calls pass AI_REQUEST_TIMEOUT_MS. */
