@@ -63,9 +63,10 @@ def test_health_exempt_without_key(monkeypatch):
     assert client.get("/health").status_code == 200
 
 
-def test_openapi_exempt_without_key(monkeypatch):
+def test_openapi_not_exempt(monkeypatch):
+    # The route map is not public (#348): deploy-agent.sh sends the key to read it.
     monkeypatch.setattr(settings, "agent_api_key", KEY)
-    assert client.get("/openapi.json").status_code == 200
+    assert client.get("/openapi.json").status_code == 401
 
 
 def test_docs_explorer_not_exempt(monkeypatch):

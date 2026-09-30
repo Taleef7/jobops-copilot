@@ -49,24 +49,32 @@ az containerapp update -g "$RG" -n "$APP" --image "$IMAGE:$deploy_tag" -o none
 
 echo "==> Verifying the new revision (waking the scale-to-zero app)"
 fqdn="$(az containerapp show -g "$RG" -n "$APP" --query properties.configuration.ingress.fqdn -o tsv)"
+# Everything but the bare liveness probe needs the shared key (#348). Read it from the
+# app's own secret so it never has to be copied anywhere.
+key="$(az containerapp secret show -g "$RG" -n "$APP" --secret-name agent-api-key --query value -o tsv)"
 health="000"
 for _ in 1 2 3 4 5 6 7 8; do
   health="$(curl -s -o /dev/null -w '%{http_code}' --max-time 50 "https://$fqdn/health" || true)"
   [ "$health" = "200" ] && break
   sleep 5
 done
-stream="$(curl -s "https://$fqdn/openapi.json" --max-time 50 | grep -c '/assistant/stream' || true)"
+stream="$(curl -s -H "X-Agent-Key: $key" "https://$fqdn/openapi.json" --max-time 50 | grep -c '/assistant/stream' || true)"
+# The LLM canary: one tiny real model call, so a model the provider rejects fails the
+# deploy instead of every user's request (#348).
+canary_body="$(curl -s -H "X-Agent-Key: $key" -w '\n%{http_code}' --max-time 90 "https://$fqdn/health/llm" || true)"
+canary="$(printf '%s' "$canary_body" | tail -n1)"
 
 echo ""
 echo "    health           : $health"
 echo "    /assistant/stream: $([ "${stream:-0}" -gt 0 ] && echo 'present ✓' || echo 'MISSING ✗')"
+echo "    LLM canary       : $canary $(printf '%s' "$canary_body" | sed '$d')"
 echo "    agent            : https://$fqdn"
 
 # Hard-fail on a bad activation so a broken deploy can't go unnoticed (the whole
 # point of this tool is to make stale/broken agents impossible to miss).
-if [ "$health" = "200" ] && [ "${stream:-0}" -gt 0 ]; then
+if [ "$health" = "200" ] && [ "${stream:-0}" -gt 0 ] && [ "$canary" = "200" ]; then
   echo "==> Done ✓"
 else
-  echo "==> Verify FAILED — agent unhealthy or /assistant/stream missing" >&2
+  echo "==> Verify FAILED — agent unhealthy, /assistant/stream missing, or the model call failed" >&2
   exit 1
 fi

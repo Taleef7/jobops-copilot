@@ -8,10 +8,10 @@ from app.schemas import FitScoreResponse, OutreachDraftResponse, ParsedJob
 client = TestClient(main.app)
 
 
-def test_health_reports_llm_state(monkeypatch):
+def test_health_details_reports_llm_state(monkeypatch):
     monkeypatch.setattr(main, "llm_available", lambda: False)
     monkeypatch.setattr(main, "resolve_provider", lambda: None)
-    body = client.get("/health").json()
+    body = client.get("/health/details").json()
     assert body["status"] == "ok"
     assert body["llm_configured"] is False
     # Build SHA is always reported (defaults to "unknown" when unset) so the

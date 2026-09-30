@@ -36,6 +36,8 @@ jobs:
         id: check
         env:
           AGENT_FQDN: ${{ vars.AGENT_FQDN }}
+          # The build SHA is behind the agent's shared key since #348 (/health/details).
+          AGENT_API_KEY: ${{ secrets.AGENT_API_KEY }}
         run: |
           if [ -z "${AGENT_FQDN}" ]; then
             echo "::error::Repo variable AGENT_FQDN is not set; cannot check the live agent." >&2
@@ -61,7 +63,7 @@ jobs:
           TITLE="🔴 Agent deployment check failed"
           RUN="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
           if [ "${REASON}" = "unreachable" ]; then
-            DETAIL="The agent \`/health\` did not return 200 — it may be down, mid-deploy, or slow to scale from zero."
+            DETAIL="The agent \`/health/details\` did not return 200 — it may be down, mid-deploy, slow to scale from zero, or the \`AGENT_API_KEY\` secret is missing."
           else
             DETAIL="$(printf 'The live agent is stale (running `%s`); the latest agent build is `%s`.\n\nActivate locally (needs your `az login`):\n```bash\nbash scripts/azure/deploy-agent.sh --activate %s\n```' "${LIVE:-unknown}" "${EXPECTED}" "${EXPECTED}")"
           fi
