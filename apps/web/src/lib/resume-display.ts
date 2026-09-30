@@ -33,3 +33,9 @@ export function isResumeEmpty(resume: StructuredResume | null | undefined): bool
     (resume.certificates ?? []).length === 0
   );
 }
+
+/** Typing a real end date ends a role the parse marked current (#350). */
+export function withEndDate<T extends { endDate?: string; current?: boolean }>(item: T, endDate: string): T {
+  const ended = endDate.trim() !== '' && !isOpenEnded(endDate.trim());
+  return { ...item, endDate, current: ended ? false : item.current };
+}

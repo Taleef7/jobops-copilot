@@ -5,7 +5,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { StructuredResume } from '@/types/job';
 
 const { saveBaseResume, uploadResumeFile, parseResume, fetchResumeText, toastFn } = vi.hoisted(() => {
-  const toastFn = Object.assign(vi.fn(), { success: vi.fn(), error: vi.fn() });
+  const toastFn = Object.assign(vi.fn(), { success: vi.fn(), error: vi.fn(), dismiss: vi.fn() });
   return {
     saveBaseResume: vi.fn(async (resume: unknown) => resume),
     uploadResumeFile: vi.fn(),
@@ -160,5 +160,101 @@ describe('ResumePanel (#350)', () => {
 
     await user.click(screen.getByText(/what we read from your pdf/i));
     expect(await screen.findByText('Encoded 9 regulatory measures')).toBeInTheDocument();
+  });
+});
+
+describe('ResumePanel review fixes (#350)', () => {
+  const nameless: StructuredResume = { ...resume, basics: { name: '', email: '', summary: '' } };
+
+  it('won\'t save a section while the résumé has no name, and says where to add it', async () => {
+    const user = userEvent.setup();
+    render(<ResumePanel initial={nameless} updatedAt={null} resumeFileName={null} hasStoredText={false} />);
+
+    const experience = section('Experience');
+    await user.click(within(experience).getByRole('button', { name: /edit/i }));
+    await user.type(screen.getByLabelText('Title', { selector: '#resume-work-1-position' }), ' II');
+    await user.click(within(experience).getByRole('button', { name: /^save$/i }));
+
+    expect(saveBaseResume).not.toHaveBeenCalled();
+    expect(within(experience).getByRole('alert')).toHaveTextContent(/add your name in basics first/i);
+  });
+
+  it('won\'t save Basics with a blank name', async () => {
+    const user = userEvent.setup();
+    render(<ResumePanel initial={resume} updatedAt={null} resumeFileName={null} hasStoredText={false} />);
+
+    await user.click(within(section('Basics')).getByRole('button', { name: /edit/i }));
+    await user.clear(screen.getByLabelText('Name', { selector: '#resume-basics-name' }));
+    expect(within(section('Basics')).getByRole('button', { name: /^save$/i })).toBeDisabled();
+  });
+
+  it('shows the load failure instead of an empty résumé, with no way to overwrite it', () => {
+    render(<ResumePanel initial={null} updatedAt={null} resumeFileName="cv.pdf" hasStoredText loadError="API unreachable" />);
+
+    expect(screen.getByRole('alert')).toHaveTextContent("Couldn't load your résumé");
+    expect(screen.queryByRole('button', { name: /^edit/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /replace from file/i })).not.toBeInTheDocument();
+  });
+
+  it('closes an open section when an import is saved, so it can\'t undo the import', async () => {
+    uploadResumeFile.mockResolvedValue({ profile: null, resumeText: 'NEW' });
+    parseResume.mockResolvedValue({ structuredResume: { ...resume, work: [resume.work[0]!] }, flags: [] });
+    const user = userEvent.setup();
+    render(<ResumePanel initial={resume} updatedAt={null} resumeFileName="cv.pdf" hasStoredText />);
+
+    await user.click(within(section('Experience')).getByRole('button', { name: /edit/i }));
+    await user.upload(screen.getByLabelText('Résumé PDF'), new File(['%PDF'], 'new.pdf', { type: 'application/pdf' }));
+    await user.click(await screen.findByRole('button', { name: /looks right/i }));
+
+    expect(within(section('Experience')).queryByRole('button', { name: /^save$/i })).not.toBeInTheDocument();
+    expect(within(section('Experience')).queryByText('Riccle · Sep 2025 – May 2026')).not.toBeInTheDocument();
+  });
+
+  it('ends a "current" role when an end date is typed', async () => {
+    const current: StructuredResume = { ...resume, work: [{ ...resume.work[0]!, current: true }] };
+    const user = userEvent.setup();
+    render(<ResumePanel initial={current} updatedAt={null} resumeFileName={null} hasStoredText={false} />);
+
+    await user.click(within(section('Experience')).getByRole('button', { name: /edit/i }));
+    await user.type(screen.getByLabelText('End', { selector: '#resume-work-0-end' }), '2026-08');
+    await user.click(within(section('Experience')).getByRole('button', { name: /^save$/i }));
+
+    const saved = saveBaseResume.mock.calls[0]![0] as StructuredResume;
+    expect(saved.work[0]!.current).toBe(false);
+    expect(await screen.findByText('Medical Informatics Engineering · May 2026 – Aug 2026')).toBeInTheDocument();
+  });
+
+  it('drops a blank added role on save, and a blank one alone is not a change', async () => {
+    const user = userEvent.setup();
+    render(<ResumePanel initial={resume} updatedAt={null} resumeFileName={null} hasStoredText={false} />);
+
+    const experience = section('Experience');
+    await user.click(within(experience).getByRole('button', { name: /edit/i }));
+    await user.click(within(experience).getByRole('button', { name: /add a role/i }));
+    expect(within(experience).getByRole('button', { name: /^save$/i })).toBeDisabled();
+  });
+
+  it('moves focus to the discard question, so it can\'t go unnoticed', async () => {
+    const user = userEvent.setup();
+    render(<ResumePanel initial={resume} updatedAt={null} resumeFileName="cv.pdf" hasStoredText />);
+
+    await user.click(within(section('Experience')).getByRole('button', { name: /edit/i }));
+    await user.type(screen.getByLabelText('Company', { selector: '#resume-work-1-company' }), ' Inc');
+    await user.click(within(section('Skills')).getByRole('button', { name: /edit/i }));
+
+    expect(screen.getByRole('button', { name: /keep editing/i })).toHaveFocus();
+  });
+
+  it('dismisses a pending Undo when the section closes', async () => {
+    const user = userEvent.setup();
+    render(<ResumePanel initial={resume} updatedAt={null} resumeFileName="cv.pdf" hasStoredText />);
+
+    const experience = section('Experience');
+    await user.click(within(experience).getByRole('button', { name: /edit/i }));
+    toastFn.mockReturnValueOnce('toast-1');
+    await user.click(within(experience).getByRole('button', { name: /remove riccle/i }));
+    await user.click(within(experience).getByRole('button', { name: /cancel/i }));
+
+    expect(toastFn.dismiss).toHaveBeenCalledWith('toast-1');
   });
 });

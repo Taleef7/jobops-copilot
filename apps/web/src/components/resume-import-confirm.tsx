@@ -6,7 +6,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import type { ResumeFlag } from '@/lib/api';
-import { formatResumeRange } from '@/lib/resume-display';
+import { formatResumeRange, withEndDate } from '@/lib/resume-display';
 import { cn } from '@/lib/utils';
 import type { ResumeWorkExperience, StructuredResume } from '@/types/job';
 
@@ -58,7 +58,12 @@ export function ResumeImportConfirm({ parsed, flags, onConfirm, onCancel, saving
   const unsettled = flags.filter((flag) => !kept.has(flag.path) && valueAt(flag.path) === flag.value);
 
   const update = (index: number, field: RoleField, value: string) =>
-    setWork((roles) => roles.map((role, i) => (i === index ? { ...role, [field]: value } : role)));
+    setWork((roles) =>
+      roles.map((role, i) => {
+        if (i !== index) return role;
+        return field === 'endDate' ? withEndDate(role, value) : { ...role, [field]: value };
+      }),
+    );
 
   const others = [
     [parsed.education.length, 'education entry', 'education entries'],

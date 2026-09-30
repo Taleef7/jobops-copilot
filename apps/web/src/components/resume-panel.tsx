@@ -13,7 +13,7 @@ import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { errorMessage, fetchResumeText, parseResume, saveBaseResume, uploadResumeFile, type ResumeFlag } from '@/lib/api';
 import { formatDate } from '@/lib/format';
-import { formatResumeRange } from '@/lib/resume-display';
+import { formatResumeRange, withEndDate } from '@/lib/resume-display';
 import type {
   ResumeBasics,
   ResumeCertificate,
@@ -53,19 +53,28 @@ const sectionOf = (resume: StructuredResume, key: SectionKey): SectionValue =>
 
 const copy = <T,>(value: T): T => JSON.parse(JSON.stringify(value)) as T;
 
-/** Drop the blank lines and empty entries that editing leaves behind. */
+const blank = (...values: Array<string | undefined>) => values.every((value) => !value?.trim());
+
+/** Drop the blank lines, and the items left empty, that editing leaves behind. */
 function tidy(key: SectionKey, value: SectionValue): SectionValue {
   if (key === 'work') {
-    return (value as ResumeWorkExperience[]).map((role) => ({
-      ...role,
-      highlights: role.highlights.map((line) => line.trim()).filter(Boolean),
-    }));
+    return (value as ResumeWorkExperience[])
+      .map((role) => ({ ...role, highlights: role.highlights.map((line) => line.trim()).filter(Boolean) }))
+      .filter((role) => !blank(role.company, role.position, role.startDate, role.endDate, role.location) || role.highlights.length > 0);
   }
   if (key === 'skills') {
-    return (value as ResumeSkill[]).map((group) => ({
-      ...group,
-      skills: group.skills.map((skill) => skill.trim()).filter(Boolean),
-    }));
+    return (value as ResumeSkill[])
+      .map((group) => ({ ...group, skills: group.skills.map((skill) => skill.trim()).filter(Boolean) }))
+      .filter((group) => !blank(group.category) || group.skills.length > 0);
+  }
+  if (key === 'education') {
+    return (value as ResumeEducation[]).filter((entry) => !blank(entry.institution, entry.studyType, entry.area, entry.endDate));
+  }
+  if (key === 'projects') {
+    return (value as ResumeProject[]).filter((project) => !blank(project.name, project.url, project.description));
+  }
+  if (key === 'certificates') {
+    return (value as ResumeCertificate[]).filter((certificate) => !blank(certificate.name, certificate.issuer, certificate.date));
   }
   return value;
 }
@@ -76,7 +85,7 @@ type ImportState =
   | { kind: 'error'; title: string; message: string; retry?: () => void }
   | { kind: 'confirming'; parsed: StructuredResume; flags: ResumeFlag[]; saving: boolean; error: string | null };
 
-type Pending = { kind: 'switch'; key: SectionKey } | { kind: 'replace' };
+type Pending = { kind: 'switch'; key: SectionKey } | { kind: 'replace' } | { kind: 'read' };
 
 interface ResumePanelProps {
   initial: StructuredResume | null;
@@ -84,6 +93,8 @@ interface ResumePanelProps {
   resumeFileName: string | null;
   /** A résumé's text is on file, so it can be read without a new upload. */
   hasStoredText: boolean;
+  /** Why the résumé couldn't be loaded. Then nothing is editable: a save would overwrite it. */
+  loadError?: string | null;
 }
 
 /**
@@ -93,7 +104,7 @@ interface ResumePanelProps {
  * It replaces a 3,500 px wall of inputs whose only Save sat at the bottom, whose placeholders
  * looked like real data, and whose re-import overwrote edits without asking.
  */
-export function ResumePanel({ initial, updatedAt, resumeFileName, hasStoredText }: ResumePanelProps) {
+export function ResumePanel({ initial, updatedAt, resumeFileName, hasStoredText, loadError }: ResumePanelProps) {
   const router = useRouter();
   const [saved, setSaved] = useState<StructuredResume>(() => initial ?? emptyResume());
   const [hasResume, setHasResume] = useState(initial !== null);
@@ -111,9 +122,24 @@ export function ResumePanel({ initial, updatedAt, resumeFileName, hasStoredText 
   const fileRef = useRef<HTMLInputElement>(null);
   // Each edit session has its own number, so an Undo from a closed section changes nothing.
   const session = useRef(0);
+  // The Undo toasts of the open section, dismissed when it closes.
+  const undoToasts = useRef<Array<string | number>>([]);
+  const keepEditingRef = useRef<HTMLButtonElement>(null);
 
   const dirty =
-    editing !== null && draft !== null && JSON.stringify(draft) !== JSON.stringify(sectionOf(saved, editing));
+    editing !== null &&
+    draft !== null &&
+    JSON.stringify(tidy(editing, draft)) !== JSON.stringify(sectionOf(saved, editing));
+  // A résumé is saved whole, and the API needs a name on it.
+  const nameMissing =
+    editing === 'basics' ? !(draft as ResumeBasics | null)?.name.trim() : !saved.basics.name.trim();
+
+  // The discard question can open far from the button that raised it: bring it to the user.
+  useEffect(() => {
+    if (!pending) return;
+    keepEditingRef.current?.scrollIntoView?.({ block: 'center' });
+    keepEditingRef.current?.focus();
+  }, [pending]);
 
   useEffect(() => {
     if (!dirty) return;
@@ -122,7 +148,13 @@ export function ResumePanel({ initial, updatedAt, resumeFileName, hasStoredText 
     return () => window.removeEventListener('beforeunload', warn);
   }, [dirty]);
 
+  function dismissUndos() {
+    for (const id of undoToasts.current) toast.dismiss(id);
+    undoToasts.current = [];
+  }
+
   function open(key: SectionKey) {
+    dismissUndos();
     session.current += 1;
     setEditing(key);
     setDraft(copy(sectionOf(saved, key)));
@@ -131,6 +163,7 @@ export function ResumePanel({ initial, updatedAt, resumeFileName, hasStoredText 
   }
 
   function close() {
+    dismissUndos();
     session.current += 1;
     setEditing(null);
     setDraft(null);
@@ -148,18 +181,29 @@ export function ResumePanel({ initial, updatedAt, resumeFileName, hasStoredText 
     else fileRef.current?.click();
   }
 
+  function requestRead() {
+    if (dirty) setPending({ kind: 'read' });
+    else void read();
+  }
+
   function discardAndContinue() {
     if (pending?.kind === 'switch') {
       open(pending.key);
       return;
     }
+    const next = pending?.kind;
     close();
-    fileRef.current?.click();
+    if (next === 'read') void read();
+    else fileRef.current?.click();
   }
 
   async function saveSection() {
     if (!editing || draft === null) return;
     const next = { ...saved, [editing]: tidy(editing, draft) } as StructuredResume;
+    if (!next.basics.name.trim()) {
+      setSectionError(editing === 'basics' ? 'Add your name.' : 'Add your name in Basics first. The résumé is saved as a whole.');
+      return;
+    }
     setSaving(true);
     setSectionError(null);
     try {
@@ -183,7 +227,7 @@ export function ResumePanel({ initial, updatedAt, resumeFileName, hasStoredText 
     const item = list[index];
     const at = session.current;
     setDraft(list.filter((_, i) => i !== index) as SectionValue);
-    toast(`Removed ${label}.`, {
+    const id = toast(`Removed ${label}.`, {
       duration: 5000,
       action: {
         label: 'Undo',
@@ -191,12 +235,13 @@ export function ResumePanel({ initial, updatedAt, resumeFileName, hasStoredText 
           if (session.current !== at) return;
           setDraft((current) => {
             const items = [...((current as unknown[]) ?? [])];
-            items.splice(index, 0, item);
+            items.splice(Math.min(index, items.length), 0, item);
             return items as SectionValue;
           });
         },
       },
     });
+    if (id !== undefined) undoToasts.current.push(id);
   }
 
   async function read(text?: string) {
@@ -236,6 +281,8 @@ export function ResumePanel({ initial, updatedAt, resumeFileName, hasStoredText 
     setImportState({ ...importState, saving: true, error: null });
     try {
       const result = await saveBaseResume(resume);
+      // An editor left open holds the old section; its Save would undo the import.
+      close();
       setSaved(result ?? resume);
       setHasResume(true);
       setLastUpdated(new Date().toISOString());
@@ -258,6 +305,10 @@ export function ResumePanel({ initial, updatedAt, resumeFileName, hasStoredText 
 
   const busy = importState.kind === 'reading' || (importState.kind === 'confirming' && importState.saving);
 
+  if (loadError) {
+    return <ErrorState title="Couldn't load your résumé" message={loadError} />;
+  }
+
   return (
     <div className="space-y-5" data-testid="resume-panel">
       {/* The file */}
@@ -267,7 +318,7 @@ export function ResumePanel({ initial, updatedAt, resumeFileName, hasStoredText 
           <p className="text-muted-foreground truncate text-xs">{fileName ?? 'No file yet'}</p>
         </div>
         {!hasResume && textOnFile ? (
-          <Button size="sm" disabled={busy} onClick={() => void read()}>
+          <Button size="sm" disabled={busy} onClick={requestRead}>
             Read my résumé
           </Button>
         ) : null}
@@ -366,24 +417,30 @@ export function ResumePanel({ initial, updatedAt, resumeFileName, hasStoredText 
                       <p id={`resume-${key}-discard`} className="text-sm">
                         {pending.kind === 'replace'
                           ? `Replacing from file will discard your changes to ${title}.`
-                          : `Discard your changes to ${title}?`}
+                          : pending.kind === 'read'
+                            ? `Reading your résumé will discard your changes to ${title}.`
+                            : `Discard your changes to ${title}?`}
                       </p>
                       <div className="flex gap-2">
-                        <Button size="sm" variant="outline" onClick={() => setPending(null)}>
+                        <Button ref={keepEditingRef} size="sm" variant="outline" onClick={() => setPending(null)}>
                           Keep editing
                         </Button>
                         <Button size="sm" variant="ghost" onClick={discardAndContinue}>
-                          {pending.kind === 'replace' ? 'Discard and replace' : 'Discard'}
+                          {pending.kind === 'replace' ? 'Discard and replace' : pending.kind === 'read' ? 'Discard and read' : 'Discard'}
                         </Button>
                       </div>
                     </div>
                   ) : null}
-                  {sectionError ? <p className="text-destructive text-sm">{sectionError}</p> : null}
+                  {sectionError ? (
+                    <p role="alert" className="text-destructive text-sm">
+                      {sectionError}
+                    </p>
+                  ) : null}
                   <div className="flex justify-end gap-2">
                     <Button variant="ghost" size="sm" onClick={close} disabled={saving}>
                       Cancel
                     </Button>
-                    <Button size="sm" onClick={() => void saveSection()} disabled={saving || !dirty}>
+                    <Button size="sm" onClick={() => void saveSection()} disabled={saving || !dirty || (key === 'basics' && nameMissing)}>
                       {saving ? 'Saving…' : 'Save'}
                     </Button>
                   </div>
@@ -565,7 +622,12 @@ function SectionEditor({ sectionKey, value, onChange, onRemove }: EditorProps) {
                 <Input id={`resume-work-${index}-start`} value={role.startDate} placeholder="e.g. 2024-06" onChange={(e) => set(index, 'startDate', e.target.value)} />
               </Field>
               <Field id={`resume-work-${index}-end`} label="End">
-                <Input id={`resume-work-${index}-end`} value={role.endDate ?? ''} placeholder="Leave empty if current" onChange={(e) => set(index, 'endDate', e.target.value)} />
+                <Input
+                  id={`resume-work-${index}-end`}
+                  value={role.endDate ?? ''}
+                  placeholder="Leave empty if current"
+                  onChange={(e) => onChange(roles.map((item, i) => (i === index ? withEndDate(item, e.target.value) : item)))}
+                />
               </Field>
               <Field id={`resume-work-${index}-location`} label="Location">
                 <Input id={`resume-work-${index}-location`} value={role.location ?? ''} onChange={(e) => set(index, 'location', e.target.value)} />

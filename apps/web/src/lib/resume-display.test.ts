@@ -19,7 +19,7 @@ describe('résumé display (#350)', () => {
     expect(formatResumeRange('2026-05-01', undefined)).toBe('May 2026 – Present');
     expect(formatResumeRange('2026-05-01', 'Present')).toBe('May 2026 – Present');
     expect(formatResumeRange('', '')).toBe('');
-    expect(formatResumeRange('', '2016-05-15')).toBe('May 2016');
+    expect(formatResumeRange('', '2019-05-20')).toBe('May 2019');
   });
 
   it('knows an empty résumé', () => {

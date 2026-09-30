@@ -24,13 +24,11 @@ const bare = (word: string) => word.toLowerCase().replace(/[^a-z]/g, '');
  */
 export function flagResume(resume: StructuredResume): ResumeFlag[] {
   const flags: ResumeFlag[] = [];
-  // The first word of every bullet in the résumé.
-  const bulletStarts = new Set(
-    resume.work.flatMap((role) => (role.highlights ?? []).map((line) => bare(line.trim().split(/\s+/)[0] ?? ''))),
-  );
-  bulletStarts.delete('');
 
   resume.work.forEach((role, index) => {
+    // The first word of each of this role's bullets: the misread took one of its own.
+    const bulletStarts = new Set((role.highlights ?? []).map((line) => bare(line.trim().split(/\s+/)[0] ?? '')));
+    bulletStarts.delete('');
     const company = (role.company ?? '').trim();
     const path = `work[${index}].company`;
     if (!company) {

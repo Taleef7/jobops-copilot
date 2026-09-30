@@ -65,3 +65,10 @@ test('a bracket stuck to a word, and a missing company or title, are flagged', (
     ['work[0].company', 'work[1].company', 'work[1].position'],
   );
 });
+
+test("a company is only compared with its own role's bullets", () => {
+  assert.deepEqual(
+    flagResume(resume([role('Riccle', 'Analyst'), role('Stripe', 'Engineer', ['Riccle integration for payouts'])])),
+    [],
+  );
+});

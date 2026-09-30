@@ -10,7 +10,7 @@ import { TargetCompaniesManager } from '@/components/target-companies';
 import { NotificationSettingsManager } from '@/components/notification-settings-manager';
 import { Badge } from '@/components/ui/badge';
 import { Card } from '@/components/ui/card';
-import { fetchBaseResume, fetchNotificationSettings, fetchProfile, fetchStatus } from '@/lib/api';
+import { errorMessage, fetchBaseResume, fetchNotificationSettings, fetchProfile, fetchStatus } from '@/lib/api';
 import { describeLlmCheck } from '@/lib/llm-check';
 import { cn } from '@/lib/utils';
 
@@ -34,7 +34,12 @@ export default async function SettingsPage() {
     currentUser().catch(() => null),
     fetchProfile().catch(() => null),
     fetchStatus().catch(() => null),
-    fetchBaseResume().catch(() => ({ baseResume: null, updatedAt: null })),
+    // A failed load must not look like an empty résumé: a save would overwrite the real one (#350).
+    fetchBaseResume().catch((error: unknown) => ({
+      baseResume: null,
+      updatedAt: null,
+      error: errorMessage(error, "The API couldn't be reached. Try again in a moment."),
+    })),
     fetchNotificationSettings().catch(() => null),
   ]);
   const fullName = user?.fullName ?? user?.firstName ?? null;
@@ -130,6 +135,7 @@ export default async function SettingsPage() {
           updatedAt={baseResume.updatedAt}
           resumeFileName={profile?.resumeFileName ?? null}
           hasStoredText={Boolean(profile?.hasResume)}
+          loadError={'error' in baseResume ? baseResume.error : null}
         />
       </SectionCard>
 
