@@ -11,7 +11,7 @@ type LoadFailureProps = {
 
 /**
  * What a page shows when its data couldn't be loaded (#349): the page heading, the reason,
- * and "Try again". It used to show a local sample dataset under a "Seed data shown" note.
+ * and "Try again". It used to show a local sample dataset under an easy-to-miss note.
  */
 export function LoadFailure({ heading, title, message }: LoadFailureProps) {
   return (

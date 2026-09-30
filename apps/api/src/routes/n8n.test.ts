@@ -236,7 +236,7 @@ test('creates and enriches a job-intake webhook payload', async () => {
       recommendedResumeAngle: 'Lead with truthful automation and serverless delivery examples.',
       applyRecommendation: 'Apply with a customized resume and a short human-reviewed outreach message.',
       confidenceScore: 90,
-      modelUsed: 'mock-fit-scorer-v1',
+      modelUsed: 'gpt-test',
     },
     nextAction: 'Review the AI analysis and decide whether to shortlist.',
   });

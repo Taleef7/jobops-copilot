@@ -162,7 +162,7 @@ test('PUT /api/profile/base-resume rejects payload without basics.name', async (
 });
 
 // #349: a résumé import is the AI's reading of the résumé, or an error to retry. It used to
-// return a keyword guess with the skills "(Resume parsed in offline mode ...)".
+// return a keyword guess labelled as a parse.
 test('POST /api/profile/base-resume/parse-resume answers 503 retryable when the AI is unavailable', async () => {
   const originalCwd = process.cwd();
   delete process.env.DATABASE_URL;

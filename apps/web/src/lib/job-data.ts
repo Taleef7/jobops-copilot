@@ -3,8 +3,7 @@ import type { FeedQueryOptions, FeedResult, Job } from '@/types/job';
 
 /**
  * Server-side loaders for the pages. When the API fails, they return the reason (#349).
- * They used to return a local sample dataset instead, shown under a "Seed data shown"
- * note that was easy to miss.
+ * They used to return a local sample dataset instead, under a note that was easy to miss.
  */
 
 export interface JobDataResult {
