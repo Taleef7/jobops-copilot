@@ -5,7 +5,7 @@
 # (The per-user daily AI budget kill-switch is a *config* test — see docs/TESTING.md —
 #  and is deliberately NOT here because it mutates an App Service setting.)
 #
-# Usage:  bash scripts/verify-live.sh
+# Usage:  bash scripts/verify-live.sh            (AGENT_API_KEY=<key> also prints the agent build SHA)
 set -uo pipefail
 
 WEB="https://jobops-web.azurewebsites.net"
@@ -21,8 +21,15 @@ check() { # check "<label>" "<expected>" "<actual>"
 
 echo "== Health =="
 check "API /api/health"                "200" "$(code "$API/api/health")"
-check "agent /health (exempt)"         "200" "$(code "$AGENT/health")"
-check "agent /openapi.json (exempt)"   "200" "$(code "$AGENT/openapi.json")"
+# The agent scales to zero: give the first call time to wake it (curl takes the last -m).
+check "agent /health (exempt)"         "200" "$(code -m 70 "$AGENT/health")"
+# #348: the public /health says only that the process is up; the route map, the model
+# details and the paid LLM canary all need the shared key.
+check "agent /health body is just ok"  '{"status":"ok"}' "$(curl -s -m 25 "$AGENT/health")"
+check "agent /openapi.json unauth -> 401" "401" "$(code "$AGENT/openapi.json")"
+check "agent /health/details unauth -> 401" "401" "$(code "$AGENT/health/details")"
+check "agent /health/llm unauth -> 401" "401" "$(code "$AGENT/health/llm")"
+check "API /api/status unauth -> 401"  "401" "$(code "$API/api/status")"
 
 echo "== Agent service-to-service auth (QA·A) =="
 check "agent /rag/search unauth -> 401" "401" "$(code -X POST "$AGENT/rag/search" -H 'Content-Type: application/json' -d '{"query":"x"}')"
@@ -47,8 +54,13 @@ robots="$(curl -s -m 25 "$WEB/robots.txt")"
 echo "$robots" | grep -q 'Disallow: /dashboard' && printf '  ✓ robots.txt disallows authed routes\n' && pass=$((pass+1)) || { printf '  ✗ robots.txt missing authed-route disallow\n'; fail=$((fail+1)); }
 
 echo "== Agent freshness (#110) =="
-live_sha="$(curl -s -m 70 "$AGENT/health" | sed -n 's/.*"build_sha"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p')"
-printf '  • live agent build_sha: %s\n' "${live_sha:-<none>}"
+# build_sha is behind the key since #348 (/health/details).
+if [ -n "${AGENT_API_KEY:-}" ]; then
+  live_sha="$(curl -s -m 70 -H "X-Agent-Key: ${AGENT_API_KEY}" "$AGENT/health/details" | sed -n 's/.*"build_sha"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p')"
+  printf '  • live agent build_sha: %s\n' "${live_sha:-<none>}"
+else
+  printf '  • live agent build_sha: set AGENT_API_KEY to read it\n'
+fi
 
 echo ""
 echo "== $pass passed, $fail failed =="
