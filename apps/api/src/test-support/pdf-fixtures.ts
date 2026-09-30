@@ -1,7 +1,11 @@
 /**
- * Builds small, valid PDFs for tests: one text line per page. Generated at test time so
- * the repo carries no binary fixtures.
+ * Builds small, valid PDFs for tests. Generated at test time so the repo carries no binary
+ * fixtures.
  */
+
+const escapePdfText = (text: string) => text.replace(/[\\()]/g, (char) => `\\${char}`);
+
+/** One text line per page. */
 export function buildPdf(pages: string[]): Buffer {
   const objects: string[] = [];
   const pageIds = pages.map((_, index) => 4 + index * 2);
@@ -11,14 +15,67 @@ export function buildPdf(pages: string[]): Buffer {
   pages.forEach((text, index) => {
     const pageId = 4 + index * 2;
     const contentId = pageId + 1;
-    const escaped = text.replace(/[\\()]/g, (char) => `\\${char}`);
-    const stream = `BT /F1 12 Tf 72 720 Td (${escaped}) Tj ET`;
+    const stream = `BT /F1 12 Tf 72 720 Td (${escapePdfText(text)}) Tj ET`;
     objects[pageId] =
       `<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] ` +
       `/Resources << /Font << /F1 3 0 R >> >> /Contents ${contentId} 0 R >>`;
     objects[contentId] = `<< /Length ${Buffer.byteLength(stream, 'latin1')} >>\nstream\n${stream}\nendstream`;
   });
+  return writePdf(objects);
+}
 
+/** A piece of text drawn at its own position, the way PDF writers emit bold runs. */
+export interface PdfRun {
+  text: string;
+  /** Left edge in points. */
+  x: number;
+  bold?: boolean;
+}
+
+/**
+ * One page whose lines are drawn as separately positioned runs, in Helvetica and
+ * Helvetica-Bold (WinAnsi, so "–" and "•" work). Each line is 16 pt below the last. This is
+ * how a real résumé reaches the text extractor: "Encoded", a bold "9" and "regulatory…"
+ * arrive as three items with only a gap between them, no space character.
+ */
+export function buildPdfFromRuns(lines: PdfRun[][]): Buffer {
+  const objects: string[] = [];
+  objects[1] = '<< /Type /Catalog /Pages 2 0 R >>';
+  objects[2] = '<< /Type /Pages /Kids [5 0 R] /Count 1 >>';
+  objects[3] = '<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>';
+  objects[4] = '<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold /Encoding /WinAnsiEncoding >>';
+  const toWinAnsi = (text: string) => text.replace(/–/g, '\x96').replace(/•/g, '\x95');
+  const stream = lines
+    .flatMap((runs, index) =>
+      runs.map(
+        (run) =>
+          `BT /${run.bold ? 'F2' : 'F1'} 11 Tf 1 0 0 1 ${run.x.toFixed(2)} ${720 - index * 16} Tm ` +
+          `(${escapePdfText(toWinAnsi(run.text))}) Tj ET`,
+      ),
+    )
+    .join('\n');
+  objects[5] =
+    '<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] ' +
+    '/Resources << /Font << /F1 3 0 R /F2 4 0 R >> >> /Contents 6 0 R >>';
+  objects[6] = `<< /Length ${Buffer.byteLength(stream, 'latin1')} >>\nstream\n${stream}\nendstream`;
+  return writePdf(objects);
+}
+
+/** Helvetica advance widths (per 1000 units of font size) for the characters the tests use. */
+const HELVETICA_WIDTHS: Record<string, number> = {
+  E: 667, R: 722, a: 556, c: 500, d: 556, e: 556, g: 556, l: 222, n: 556, o: 556, r: 333, t: 278, u: 556, y: 500,
+};
+
+/** The width of `text` in regular Helvetica at `size`, as pdf.js measures it. */
+export function helveticaWidth(text: string, size = 11): number {
+  return [...text].reduce((sum, char) => {
+    const width = HELVETICA_WIDTHS[char];
+    if (width === undefined) throw new Error(`helveticaWidth: no width for ${JSON.stringify(char)}`);
+    return sum + (width * size) / 1000;
+  }, 0);
+}
+
+function writePdf(objects: string[]): Buffer {
   // The conventional layout (a binary marker line, CRLF cross-reference entries), padded with
   // comment lines to about 4 KB: the pdf.js inside pdf-parse misreads some PDFs under ~2 KB,
   // which real résumés never are.

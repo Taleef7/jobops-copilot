@@ -142,3 +142,23 @@ test('extraction stops when the process grows past the memory budget', async () 
     (error: unknown) => error instanceof PdfUnreadableError && /memory/i.test(error.message),
   );
 });
+
+// #350: Settings shows what was read from the PDF, so a misread is visible before it spreads.
+test('the upload answers with the text it read, and only the owner can read it back', async () => {
+  await withApi(async (base) => {
+    const response = await upload(base, [pdf(buildPdf(['Backend engineer. Go, Postgres, Kafka.']))]);
+    const body = (await response.json()) as { profile: Record<string, unknown>; resumeText?: string };
+    assert.equal(response.status, 200);
+    assert.match(body.resumeText ?? '', /Backend engineer\. Go, Postgres, Kafka\./);
+    assert.equal(body.profile.resumeText, undefined, 'the profile itself still never carries the text');
+
+    const mine = await fetch(`${base}/api/profile/resume-text`, { headers: { 'X-User-Id': USER } });
+    assert.equal(mine.status, 200);
+    const read = (await mine.json()) as { resumeText: string | null; resumeFileName: string | null };
+    assert.match(read.resumeText ?? '', /Backend engineer/);
+    assert.equal(read.resumeFileName, 'resume.pdf');
+
+    const other = await fetch(`${base}/api/profile/resume-text`, { headers: { 'X-User-Id': 'u_someone_else' } });
+    assert.deepEqual(await other.json(), { resumeText: null, resumeFileName: null, updatedAt: null });
+  });
+});
