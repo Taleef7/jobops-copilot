@@ -13,7 +13,7 @@ import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { errorMessage, fetchResumeText, parseResume, saveBaseResume, uploadResumeFile, type ResumeFlag } from '@/lib/api';
 import { formatDate } from '@/lib/format';
-import { formatResumeRange, withEndDate } from '@/lib/resume-display';
+import { formatResumeDate, formatResumeRange, withEndDate } from '@/lib/resume-display';
 import type {
   ResumeBasics,
   ResumeCertificate,
@@ -398,7 +398,14 @@ export function ResumePanel({ initial, updatedAt, resumeFileName, hasStoredText,
                   {title}
                 </h3>
                 {!isEditing ? (
-                  <Button variant="ghost" size="sm" onClick={() => startEdit(key)} aria-label={`Edit ${title}`}>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => startEdit(key)}
+                    aria-label={`Edit ${title}`}
+                    // An import being read or checked would replace the section and drop the edit.
+                    disabled={importState.kind === 'reading' || importState.kind === 'confirming'}
+                  >
                     Edit
                   </Button>
                 ) : null}
@@ -550,7 +557,7 @@ function SectionView({ sectionKey, resume }: { sectionKey: SectionKey; resume: S
       {certificates.map((certificate, index) => (
         <li key={index}>
           <span className="font-medium">{certificate.name}</span>
-          {[certificate.issuer, formatResumeRange(certificate.date)].filter((part) => part?.trim()).map((part) => ` · ${part}`)}
+          {[certificate.issuer, formatResumeDate(certificate.date)].filter((part) => part?.trim()).map((part) => ` · ${part}`)}
         </li>
       ))}
     </ul>

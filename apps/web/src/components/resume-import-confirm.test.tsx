@@ -78,3 +78,15 @@ describe('ResumeImportConfirm', () => {
     expect(onConfirm).not.toHaveBeenCalled();
   });
 });
+
+it('asks for a name when none was read, since the résumé can’t be saved without one', async () => {
+  const onConfirm = vi.fn();
+  const user = userEvent.setup();
+  const nameless = { ...parsed, basics: { ...parsed.basics, name: '' } };
+  render(<ResumeImportConfirm parsed={nameless} flags={[]} onConfirm={onConfirm} onCancel={vi.fn()} />);
+
+  expect(screen.getByRole('button', { name: /looks right/i })).toBeDisabled();
+  await user.type(screen.getByLabelText('Name', { selector: '#import-basics-name' }), 'Jane Candidate');
+  await user.click(screen.getByRole('button', { name: /looks right/i }));
+  expect((onConfirm.mock.calls[0]![0] as StructuredResume).basics.name).toBe('Jane Candidate');
+});

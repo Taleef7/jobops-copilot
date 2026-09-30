@@ -43,6 +43,10 @@ const roleLine = (role: ResumeWorkExperience) => {
  */
 export function ResumeImportConfirm({ parsed, flags, onConfirm, onCancel, saving = false, error }: ResumeImportConfirmProps) {
   const [work, setWork] = useState<ResumeWorkExperience[]>(parsed.work);
+  // A résumé is saved with a name; when none was read, it's asked for here.
+  const [name, setName] = useState(parsed.basics.name);
+  const nameWasRead = parsed.basics.name.trim() !== '';
+  const result = (): StructuredResume => ({ ...parsed, basics: { ...parsed.basics, name: name.trim() }, work });
   const [kept, setKept] = useState<Set<string>>(new Set());
   // Flagged roles start open; any other can be opened to correct.
   const [open, setOpen] = useState<Set<number>>(
@@ -85,10 +89,26 @@ export function ResumeImportConfirm({ parsed, flags, onConfirm, onCancel, saving
         </p>
       </div>
 
-      <p className="text-sm">
-        {parsed.basics.name.trim() || 'No name found'}
-        {parsed.basics.email ? <span className="text-muted-foreground"> · {parsed.basics.email}</span> : null}
-      </p>
+      {nameWasRead ? (
+        <p className="text-sm">
+          {parsed.basics.name}
+          {parsed.basics.email ? <span className="text-muted-foreground"> · {parsed.basics.email}</span> : null}
+        </p>
+      ) : (
+        <div className="max-w-sm space-y-1">
+          <Label htmlFor="import-basics-name">Name</Label>
+          <Input
+            id="import-basics-name"
+            value={name}
+            aria-describedby="import-basics-name-note"
+            className={cn(!name.trim() && 'border-amber-500 focus-visible:ring-amber-500/40')}
+            onChange={(event) => setName(event.target.value)}
+          />
+          <p id="import-basics-name-note" className="text-xs text-amber-700 dark:text-amber-400">
+            No name was found. Add it to save the résumé.
+          </p>
+        </div>
+      )}
 
       <ol className="divide-y">
         {work.map((role, index) => {
@@ -157,7 +177,7 @@ export function ResumeImportConfirm({ parsed, flags, onConfirm, onCancel, saving
       ) : null}
 
       {error ? (
-        <ErrorState title="Couldn't save your résumé" message={error} onRetry={() => onConfirm({ ...parsed, work })} />
+        <ErrorState title="Couldn't save your résumé" message={error} onRetry={() => onConfirm(result())} />
       ) : null}
 
       <div className="flex flex-wrap items-center justify-end gap-2 border-t pt-3">
@@ -169,7 +189,7 @@ export function ResumeImportConfirm({ parsed, flags, onConfirm, onCancel, saving
         <Button variant="ghost" onClick={onCancel} disabled={saving}>
           Cancel
         </Button>
-        <Button onClick={() => onConfirm({ ...parsed, work })} disabled={saving || unsettled.length > 0}>
+        <Button onClick={() => onConfirm(result())} disabled={saving || unsettled.length > 0 || !name.trim()}>
           {saving ? 'Saving…' : 'Looks right'}
         </Button>
       </div>

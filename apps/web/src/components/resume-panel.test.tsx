@@ -258,3 +258,28 @@ describe('ResumePanel review fixes (#350)', () => {
     expect(toastFn.dismiss).toHaveBeenCalledWith('toast-1');
   });
 });
+
+describe('ResumePanel Codex fixes (#350)', () => {
+  it('holds section editing while an import waits for confirmation', async () => {
+    uploadResumeFile.mockResolvedValue({ profile: null, resumeText: 'NEW' });
+    parseResume.mockResolvedValue({ structuredResume: resume, flags: [] });
+    const user = userEvent.setup();
+    render(<ResumePanel initial={resume} updatedAt={null} resumeFileName="cv.pdf" hasStoredText />);
+
+    await user.upload(screen.getByLabelText('Résumé PDF'), new File(['%PDF'], 'new.pdf', { type: 'application/pdf' }));
+    await screen.findByText('Check what we read');
+    expect(within(section('Experience')).getByRole('button', { name: /edit/i })).toBeDisabled();
+  });
+
+  it('shows a certificate date as a date, not a range', () => {
+    render(
+      <ResumePanel
+        initial={{ ...resume, certificates: [{ name: 'AZ-900', issuer: 'Microsoft', date: '2024-09' }] }}
+        updatedAt={null}
+        resumeFileName={null}
+        hasStoredText={false}
+      />,
+    );
+    expect(within(section('Certificates')).getByText(/Microsoft · Sep 2024$/)).toBeInTheDocument();
+  });
+});
