@@ -6,6 +6,7 @@ import {
   insertResumeVersion,
 } from '@/data/resume-version-store';
 import { resolveResumeParse } from '@/lib/agent-client';
+import { flagResume } from '@/lib/resume-flags';
 import { requireUser } from '@/lib/auth';
 import type { ResumeVersionRecord, StructuredResume } from '@/types';
 
@@ -105,8 +106,10 @@ baseResumeRouter.put('/', async (request, response, next) => {
 /**
  * POST /api/profile/base-resume/parse-resume
  *
- * Parse the user's stored resume text into a StructuredResume.
- * Uses the AI agent when available, deterministic mock otherwise.
+ * Parse the user's stored resume text into a StructuredResume with the AI (503 retryable
+ * when it can't answer, #349). Answers `{ structuredResume, flags }`: `flags` are fields that
+ * look misread (#350), which the confirmation screen holds until the user fixes or
+ * confirms them.
  *
  * Does NOT auto-save; the client should review the result and then
  * PUT /api/profile/base-resume to persist.
@@ -139,7 +142,7 @@ baseResumeRouter.post(
 
     const structuredResume = await resolveResumeParse(resumeText);
 
-    return response.json({ structuredResume });
+    return response.json({ structuredResume, flags: flagResume(structuredResume) });
   } catch (error) {
     next(error);
   }

@@ -10,7 +10,7 @@ import { demoRouter } from './demo';
 import { resetResumeVersionStore } from '@/data/resume-version-store';
 import type { StructuredResume } from '@/types';
 import { apiErrorHandler } from '@/lib/api-error-handler';
-import { fakeAgentAnswer } from '@/test-support/fake-agent';
+import { FAKE_STRUCTURED_RESUME, fakeAgentAnswer } from '@/test-support/fake-agent';
 
 async function withServer(
   mount: (app: express.Express) => void,
@@ -223,6 +223,62 @@ test('POST /api/profile/base-resume/parse-resume returns the AI reading of the r
         assert.equal(data.structuredResume.basics.name, 'Ada Lovelace');
         assert.equal(data.structuredResume.work[0]?.company, 'Globex');
         assert.deepEqual(data.structuredResume.skills[0]?.skills, ['Go', 'Python']);
+        assert.deepEqual((data as unknown as { flags: unknown[] }).flags, []);
+      },
+    );
+  } finally {
+    process.chdir(originalCwd);
+    if (savedAgent === undefined) delete process.env.AGENT_SERVICE_URL;
+    else process.env.AGENT_SERVICE_URL = savedAgent;
+    agent.closeAllConnections();
+    await new Promise<void>((resolve) => agent.close(() => resolve()));
+  }
+});
+
+// #350: fields that look misread come back flagged, for the confirmation screen to hold.
+test('POST /api/profile/base-resume/parse-resume flags a bullet word read as an employer', async () => {
+  const originalCwd = process.cwd();
+  const savedAgent = process.env.AGENT_SERVICE_URL;
+  delete process.env.DATABASE_URL;
+  const tempDir = await mkdtemp(join(tmpdir(), 'jobops-base-resume-parse-flags-'));
+  const agent = http.createServer((request, response) => {
+    request.resume();
+    response.writeHead(200, { 'Content-Type': 'application/json' }).end(
+      JSON.stringify({
+        ...FAKE_STRUCTURED_RESUME,
+        work: [
+          {
+            company: 'Encoded9',
+            position: 'Software Developer',
+            start_date: '2026-05',
+            highlights: ['Encoded 9 regulatory measures as documented business rules'],
+          },
+        ],
+      }),
+    );
+  });
+  await new Promise<void>((resolve) => agent.listen(0, resolve));
+  const agentAddress = agent.address();
+  if (!agentAddress || typeof agentAddress === 'string') throw new Error('no agent address');
+  process.env.AGENT_SERVICE_URL = `http://127.0.0.1:${agentAddress.port}`;
+
+  try {
+    process.chdir(tempDir);
+    await resetResumeVersionStore();
+    await withServer(
+      (app) => app.use('/api/profile/base-resume', baseResumeRouter),
+      async (baseUrl) => {
+        const res = await fetch(`${baseUrl}/api/profile/base-resume/parse-resume`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'X-User-Id': 'user-br-flags' },
+          body: JSON.stringify({ resume_text: 'Medical Informatics EngineeringMay 2026 Encoded9 regulatory measures' }),
+        });
+        assert.equal(res.status, 200);
+        const data = (await res.json()) as { flags: Array<{ path: string; value: string; reason: string }> };
+        assert.deepEqual(
+          data.flags.map((flag) => [flag.path, flag.value]),
+          [['work[0].company', 'Encoded9']],
+        );
       },
     );
   } finally {
