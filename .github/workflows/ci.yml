@@ -241,10 +241,9 @@ jobs:
       - name: npm audit (critical)
         run: npm audit --audit-level=critical
 
-      # Production dependencies at high and above (#389). Report-only for now; it becomes
-      # blocking once it has run green on main.
+      # Production dependencies at high and above (#389). Blocking since it ran green on
+      # main after #394.
       - name: npm audit (production, high)
-        continue-on-error: true
         run: npm audit --omit=dev --audit-level=high
 
       # The npm gate above left the Python services (agent + mcp) — which pull in the
