@@ -12,7 +12,8 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { OptionSelect } from '@/components/ui/option-select';
 import { CoverLetterDownloadButton } from '@/components/cover-letter-download-button';
-import { ApiRequestError, draftOutreach } from '@/lib/api';
+import { ErrorState } from '@/components/error-state';
+import { draftOutreach } from '@/lib/api';
 import type { OutreachMessageType } from '@/types/job';
 
 const messageTypeOptions: { label: string; value: OutreachMessageType }[] = [
@@ -55,6 +56,8 @@ export function JobOutreachActions({
     contactEmail: '',
   });
   const [result, setResult] = useState<Result | null>(null);
+  // Why the last draft failed, shown inline with a retry; the form keeps what was typed (#349).
+  const [draftError, setDraftError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   function updateField<K extends keyof FormState>(field: K, value: FormState[K]) {
@@ -63,7 +66,12 @@ export function JobOutreachActions({
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    await generate();
+  }
+
+  async function generate() {
     setResult(null);
+    setDraftError(null);
     setIsSubmitting(true);
     try {
       const draft = await draftOutreach({
@@ -86,7 +94,7 @@ export function JobOutreachActions({
       toast.success('Draft created — review it in the inbox before sending.');
       router.refresh();
     } catch (error) {
-      toast.error(error instanceof ApiRequestError ? error.message : 'Failed to draft outreach.');
+      setDraftError(error instanceof Error ? error.message : 'Failed to draft outreach.');
     } finally {
       setIsSubmitting(false);
     }
@@ -157,6 +165,10 @@ export function JobOutreachActions({
       <Button type="submit" disabled={busy} className="gap-1.5">
         {isSubmitting ? 'Drafting…' : 'Generate outreach'}
       </Button>
+
+      {draftError ? (
+        <ErrorState title="Couldn't draft outreach" message={draftError} onRetry={() => void generate()} />
+      ) : null}
 
       {result ? (
         <Card className="gap-2 p-4">

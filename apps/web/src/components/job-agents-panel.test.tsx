@@ -10,6 +10,7 @@ const { runInterviewPrep, runResearch, runSkillGap } = vi.hoisted(() => ({
   runSkillGap: vi.fn(),
 }));
 vi.mock('sonner', () => ({ toast: { success: vi.fn(), error: vi.fn() } }));
+vi.mock('next/navigation', () => ({ useRouter: () => ({ refresh: vi.fn() }) }));
 vi.mock('@/lib/api', () => ({
   runInterviewPrep,
   runResearch,
@@ -79,4 +80,23 @@ it('regenerate calls the agent API and replaces the shown result', async () => {
   await waitFor(() => expect(runInterviewPrep).toHaveBeenCalledWith({ jobId: 'job-1' }));
   expect(await screen.findByText('A fresh question')).toBeInTheDocument();
   expect(screen.queryByText('Tell me about a hard bug')).not.toBeInTheDocument();
+});
+
+// #349: a failed run shows the reason where it happened, with a retry that runs it again.
+it('shows the reason and a retry when an agent run fails', async () => {
+  runInterviewPrep.mockRejectedValueOnce(new Error('The AI service is unavailable right now. Try again in a moment.'));
+  const user = userEvent.setup();
+  render(<JobAgentsPanel jobId="job-1" />);
+
+  await user.click(screen.getByRole('button', { name: /run agent/i }));
+
+  const alert = await screen.findByRole('alert');
+  expect(alert).toHaveTextContent("Couldn't run interview prep");
+  expect(alert).toHaveTextContent('The AI service is unavailable right now.');
+
+  runInterviewPrep.mockResolvedValueOnce(interviewOutput.payload);
+  await user.click(screen.getByRole('button', { name: /try again/i }));
+  expect(runInterviewPrep).toHaveBeenCalledTimes(2);
+  expect(await screen.findByText('Tell me about a hard bug')).toBeInTheDocument();
+  expect(screen.queryByRole('alert')).not.toBeInTheDocument();
 });

@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { ApiRequestError, createJob, draftOutreach, parseJob, scoreFit, uploadResumeFile } from './api';
+import { ApiRequestError, createJob, draftOutreach, fetchJobs, parseJob, scoreFit, uploadResumeFile } from './api';
 
 // Under jsdom `window` is defined, so apiFetch routes through the same-origin
 // Next proxy (`/api/proxy/*`). We mock global fetch and inspect the call.
@@ -125,5 +125,46 @@ describe('uploadResumeFile', () => {
     mockFetch({ ok: false, status: 502, json: async () => { throw new Error('not json'); } });
     const error = await uploadResumeFile(new File(['x'], 'r.pdf')).catch((caught: unknown) => caught);
     expect((error as ApiRequestError).message).toBe('Failed to upload resume');
+  });
+});
+
+// #349: a request that hangs or can't connect ends with a plain reason, not a spinner forever.
+describe('requestJson timeouts and network failures', () => {
+  it('gives plain API calls 30 seconds and AI calls longer than the server does', async () => {
+    const timeout = vi.spyOn(AbortSignal, 'timeout');
+    mockFetch({ json: async () => ({ jobs: [] }) });
+    await fetchJobs();
+    expect(timeout).toHaveBeenLastCalledWith(30_000);
+
+    mockFetch({ json: async () => ({ fit_score: 80 }) });
+    await scoreFit({ jobId: 'job-1' });
+    // The API's own agent limit is 120 s; the client waits a little past it so the
+    // API's answer (a 503 with the reason) arrives first.
+    expect(timeout).toHaveBeenLastCalledWith(130_000);
+    timeout.mockRestore();
+  });
+
+  it('says the API took too long when the request times out', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new DOMException('signal timed out', 'TimeoutError')));
+    const error = await fetchJobs().catch((e: unknown) => e);
+    expect(error).toBeInstanceOf(ApiRequestError);
+    expect((error as ApiRequestError).message).toBe('The API took too long to answer. Try again in a moment.');
+    expect((error as ApiRequestError).status).toBe(408);
+  });
+
+  it("says the API couldn't be reached on a network failure", async () => {
+    vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new TypeError('Failed to fetch')));
+    const error = await fetchJobs().catch((e: unknown) => e);
+    expect(error).toBeInstanceOf(ApiRequestError);
+    expect((error as ApiRequestError).message).toBe("The API couldn't be reached. Try again in a moment.");
+    expect((error as ApiRequestError).status).toBe(0);
+  });
+});
+
+describe('uploadResumeFile network failures', () => {
+  it('says the API took too long when the upload times out', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new DOMException('signal timed out', 'TimeoutError')));
+    const file = new File(['%PDF'], 'cv.pdf', { type: 'application/pdf' });
+    await expect(uploadResumeFile(file)).rejects.toThrow('The API took too long to answer. Try again in a moment.');
   });
 });

@@ -9,7 +9,12 @@ const { clearMyData, seedDemoData } = vi.hoisted(() => ({
 }));
 vi.mock('sonner', () => ({ toast: { success: vi.fn(), error: vi.fn() } }));
 vi.mock('next/navigation', () => ({ useRouter: () => ({ refresh: vi.fn() }) }));
-vi.mock('@/lib/api', () => ({ clearMyData, seedDemoData, uploadResumeFile: vi.fn() }));
+vi.mock('@/lib/api', () => ({
+  clearMyData,
+  seedDemoData,
+  uploadResumeFile: vi.fn(),
+  errorMessage: (_error: unknown, fallback: string) => fallback,
+}));
 
 import { toast } from 'sonner';
 import { DemoDataActions } from './settings-actions';

@@ -8,6 +8,7 @@ import { Input } from '@/components/ui/input';
 import {
   createTargetCompany,
   deleteTargetCompany,
+  errorMessage,
   fetchTargetCompanies,
   setTargetCompanyEnabled,
   type TargetCompanyBoardType,
@@ -33,7 +34,7 @@ export function TargetCompaniesManager() {
   useEffect(() => {
     fetchTargetCompanies()
       .then(setCompanies)
-      .catch(() => toast.error('Could not load target companies.'))
+      .catch((error: unknown) => toast.error(errorMessage(error, 'Could not load target companies.')))
       .finally(() => setLoading(false));
   }, []);
 
@@ -57,7 +58,7 @@ export function TargetCompaniesManager() {
       if (typeof error === 'object' && error !== null && 'status' in error && (error as { status: number }).status === 409) {
         toast.error('This board is already tracked.');
       } else {
-        toast.error('Could not add the target company.');
+        toast.error(errorMessage(error, 'Could not add the target company.'));
       }
     } finally {
       setAdding(false);
@@ -69,8 +70,8 @@ export function TargetCompaniesManager() {
     try {
       const updated = await setTargetCompanyEnabled(entry.id, !entry.enabled);
       setCompanies((prev) => prev.map((c) => (c.id === entry.id ? updated : c)));
-    } catch {
-      toast.error('Could not update target company.');
+    } catch (error) {
+      toast.error(errorMessage(error, 'Could not update target company.'));
     } finally {
       setTogglingId(null);
     }
@@ -81,8 +82,8 @@ export function TargetCompaniesManager() {
     try {
       await deleteTargetCompany(id);
       setCompanies((prev) => prev.filter((entry) => entry.id !== id));
-    } catch {
-      toast.error('Could not delete the target company.');
+    } catch (error) {
+      toast.error(errorMessage(error, 'Could not delete the target company.'));
     } finally {
       setDeletingId(null);
     }

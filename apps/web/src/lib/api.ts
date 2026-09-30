@@ -41,6 +41,14 @@ export class ApiRequestError extends Error {
   }
 }
 
+/**
+ * What to tell the user when a call fails: the API's own reason (which now also covers a
+ * timeout or an unreachable API, #349), else the caller's plain fallback.
+ */
+export function errorMessage(error: unknown, fallback: string): string {
+  return error instanceof ApiRequestError ? error.message : fallback;
+}
+
 export interface JobsResponse {
   jobs: Job[];
 }
@@ -201,6 +209,7 @@ export async function updateJob(jobId: string, payload: UpdateJobPayload): Promi
 
 export async function parseJob(payload: ParseJobPayload): Promise<ParseJobResponse> {
   return requestJson<ParseJobResponse>('/api/ai/parse-job', {
+    timeoutMs: AI_REQUEST_TIMEOUT_MS,
     method: 'POST',
     body: JSON.stringify({
       job_id: payload.jobId,
@@ -211,6 +220,7 @@ export async function parseJob(payload: ParseJobPayload): Promise<ParseJobRespon
 
 export async function scoreFit(payload: ScoreFitPayload): Promise<ScoreFitResponse> {
   return requestJson<ScoreFitResponse>('/api/ai/score-fit', {
+    timeoutMs: AI_REQUEST_TIMEOUT_MS,
     method: 'POST',
     body: JSON.stringify({
       job_id: payload.jobId,
@@ -222,6 +232,7 @@ export async function scoreFit(payload: ScoreFitPayload): Promise<ScoreFitRespon
 
 export async function draftOutreach(payload: DraftOutreachPayload): Promise<DraftOutreachResponse> {
   return requestJson<DraftOutreachResponse>('/api/ai/draft-outreach', {
+    timeoutMs: AI_REQUEST_TIMEOUT_MS,
     method: 'POST',
     body: JSON.stringify({
       job_id: payload.jobId,
@@ -278,6 +289,7 @@ export async function runInterviewPrep(payload: {
   resumeText?: string;
 }): Promise<InterviewPrepResponse> {
   return requestJson<InterviewPrepResponse>('/api/ai/agents/interview-prep', {
+    timeoutMs: AI_REQUEST_TIMEOUT_MS,
     method: 'POST',
     body: JSON.stringify({ job_id: payload.jobId, resume_text: payload.resumeText }),
   });
@@ -285,6 +297,7 @@ export async function runInterviewPrep(payload: {
 
 export async function runResearch(payload: { jobId: string }): Promise<ResearchBriefResponse> {
   return requestJson<ResearchBriefResponse>('/api/ai/agents/research', {
+    timeoutMs: AI_REQUEST_TIMEOUT_MS,
     method: 'POST',
     body: JSON.stringify({ job_id: payload.jobId }),
   });
@@ -295,6 +308,7 @@ export async function runSkillGap(payload: {
   resumeText?: string;
 }): Promise<SkillGapPlanResponse> {
   return requestJson<SkillGapPlanResponse>('/api/ai/agents/skill-gap', {
+    timeoutMs: AI_REQUEST_TIMEOUT_MS,
     method: 'POST',
     body: JSON.stringify({ job_id: payload.jobId, resume_text: payload.resumeText }),
   });
@@ -336,7 +350,10 @@ export interface TelemetryInsightsResponse {
 }
 
 export async function fetchTelemetryInsights(): Promise<TelemetryInsightsResponse> {
-  return requestJson<TelemetryInsightsResponse>('/api/telemetry/insights', { cache: 'no-store' });
+  return requestJson<TelemetryInsightsResponse>('/api/telemetry/insights', {
+    cache: 'no-store',
+    timeoutMs: AI_REQUEST_TIMEOUT_MS,
+  });
 }
 
 export async function fetchEvTelemetryDemo(): Promise<TelemetryInsightsResponse> {
@@ -391,7 +408,17 @@ export async function updateProfile(payload: {
 export async function uploadResumeFile(file: File): Promise<UserProfile | null> {
   const form = new FormData();
   form.append('file', file);
-  const response = await fetch('/api/proxy/api/profile/resume', { method: 'POST', body: form });
+  let response: Response;
+  try {
+    // The upload can parse the resume with the AI, so it gets the AI limit (#349).
+    response = await fetch('/api/proxy/api/profile/resume', {
+      method: 'POST',
+      body: form,
+      signal: AbortSignal.timeout(AI_REQUEST_TIMEOUT_MS),
+    });
+  } catch (error) {
+    throw requestFailure(error);
+  }
   if (!response.ok) {
     // The API says why (not a PDF, too large, unreadable); show that, not a generic failure.
     let message = 'Failed to upload resume';
@@ -443,6 +470,7 @@ export async function parseResumeToStructured(
   const response = await requestJson<{ structuredResume: StructuredResume }>(
     '/api/profile/base-resume/parse-resume',
     {
+      timeoutMs: AI_REQUEST_TIMEOUT_MS,
       method: 'POST',
       body: JSON.stringify(resumeText ? { resume_text: resumeText } : {}),
     },
@@ -467,6 +495,7 @@ export async function tailorResumeForJob(
   const response = await requestJson<{ version: ResumeVersionRecord }>(
     `/api/jobs/${jobId}/tailor`,
     {
+      timeoutMs: AI_REQUEST_TIMEOUT_MS,
       method: 'POST',
       body: JSON.stringify(options ?? {}),
     },
@@ -568,6 +597,7 @@ export async function generateJobApplicationPack(jobId: string): Promise<Applica
   const response = await requestJson<{ applicationPack: ApplicationPackPayload }>(
     `/api/jobs/${jobId}/application-pack`,
     {
+      timeoutMs: AI_REQUEST_TIMEOUT_MS,
       method: 'POST',
       body: JSON.stringify({}),
     },
@@ -704,7 +734,11 @@ export interface DiscoveryRunResult {
 }
 
 export async function runDiscovery(): Promise<DiscoveryRunResult> {
-  return requestJson<DiscoveryRunResult>('/api/discovery/run', { method: 'POST', body: '{}' });
+  return requestJson<DiscoveryRunResult>('/api/discovery/run', {
+    method: 'POST',
+    body: '{}',
+    timeoutMs: AI_REQUEST_TIMEOUT_MS,
+  });
 }
 
 export interface ExtractedJobResponse {
@@ -756,6 +790,7 @@ export async function createJobContact(jobId: string, body: CreateJobContactInpu
 
 export async function draftContactOutreach(contactId: string): Promise<DraftContactOutreachResponse> {
   return requestJson<DraftContactOutreachResponse>(`/api/contacts/${encodeURIComponent(contactId)}/draft-outreach`, {
+    timeoutMs: AI_REQUEST_TIMEOUT_MS,
     method: 'POST',
   });
 }
@@ -883,8 +918,43 @@ async function apiFetch(path: string, init: RequestInit): Promise<Response> {
   return fetch(`/api/proxy${path}`, { ...init, headers });
 }
 
-async function requestJson<T>(path: string, init: RequestInit = {}): Promise<T> {
-  const response = await apiFetch(path, init);
+/** How long a plain API call may take before the client gives up (#349). */
+const REQUEST_TIMEOUT_MS = 30_000;
+
+/**
+ * How long a call that waits on the AI may take. The API's own agent limit is 120 s
+ * (AGENT_TASK_TIMEOUT_MS); the client waits a little past it so the API's answer, a 503
+ * with the reason, arrives first.
+ */
+const AI_REQUEST_TIMEOUT_MS = 130_000;
+
+type RequestOptions = RequestInit & {
+  /** Defaults to REQUEST_TIMEOUT_MS; AI calls pass AI_REQUEST_TIMEOUT_MS. */
+  timeoutMs?: number;
+};
+
+function isTimeout(error: unknown): boolean {
+  // A DOMException, which isn't an Error in every runtime, so check the name only.
+  const name = (error as { name?: unknown } | null)?.name;
+  return name === 'TimeoutError' || name === 'AbortError';
+}
+
+/** A request that never got an answer, in words the page can show as is (never "Failed to fetch"). */
+function requestFailure(error: unknown): ApiRequestError {
+  if (isTimeout(error)) {
+    return new ApiRequestError('The API took too long to answer. Try again in a moment.', 408);
+  }
+  return new ApiRequestError("The API couldn't be reached. Try again in a moment.", 0);
+}
+
+async function requestJson<T>(path: string, options: RequestOptions = {}): Promise<T> {
+  const { timeoutMs = REQUEST_TIMEOUT_MS, ...init } = options;
+  let response: Response;
+  try {
+    response = await apiFetch(path, { ...init, signal: AbortSignal.timeout(timeoutMs) });
+  } catch (error) {
+    throw requestFailure(error);
+  }
 
   if (!response.ok) {
     let fields: ApiErrorFields | undefined;

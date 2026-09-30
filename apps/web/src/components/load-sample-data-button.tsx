@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation';
 import { Database, Loader2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
-import { seedDemoData } from '@/lib/api';
+import { errorMessage, seedDemoData } from '@/lib/api';
 
 export function LoadSampleDataButton() {
   const router = useRouter();
@@ -17,8 +17,8 @@ export function LoadSampleDataButton() {
       await seedDemoData();
       toast.success('Sample data loaded.');
       router.refresh();
-    } catch {
-      toast.error('Could not load sample data.');
+    } catch (error) {
+      toast.error(errorMessage(error, 'Could not load sample data.'));
     } finally {
       setBusy(false);
     }

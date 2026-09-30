@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation';
 import { Database, Download, Loader2, Upload } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
-import { ApiRequestError, clearMyData, seedDemoData, uploadResumeFile } from '@/lib/api';
+import { ApiRequestError, clearMyData, errorMessage, seedDemoData, uploadResumeFile } from '@/lib/api';
 
 export function ResumeReupload() {
   const router = useRouter();
@@ -116,8 +116,8 @@ export function DemoDataActions() {
         toast.success('Your data has been cleared.');
       }
       router.refresh();
-    } catch {
-      toast.error('Action failed. Please try again.');
+    } catch (error) {
+      toast.error(errorMessage(error, 'Action failed. Please try again.'));
     } finally {
       setBusy(null);
       setConfirmingClear(false);

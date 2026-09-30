@@ -93,6 +93,24 @@ describe('BaseResumeEditor', () => {
     expect(toast.success).toHaveBeenCalledWith(expect.stringContaining('parsed'));
   });
 
+  // #349: a failed import shows the reason inline with a retry, not a toast that vanishes.
+  it('shows the reason and a retry when the import fails', async () => {
+    parseResumeToStructured.mockRejectedValueOnce(new Error('The AI service is unavailable right now. Try again in a moment.'));
+    const user = userEvent.setup();
+    render(<BaseResumeEditor initial={null} hasStoredResume={true} />);
+
+    await user.click(screen.getByRole('button', { name: /^import$/i }));
+
+    const alert = await screen.findByRole('alert');
+    expect(alert).toHaveTextContent("Couldn't import your resume");
+    expect(alert).toHaveTextContent('The AI service is unavailable right now.');
+
+    parseResumeToStructured.mockResolvedValueOnce(sampleResume);
+    await user.click(screen.getByRole('button', { name: /try again/i }));
+    expect(await screen.findByDisplayValue('Jane Doe')).toBeInTheDocument();
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+  });
+
   it('allows adding and removing work experience entries', async () => {
     const user = userEvent.setup();
     render(<BaseResumeEditor initial={sampleResume} hasStoredResume={false} />);

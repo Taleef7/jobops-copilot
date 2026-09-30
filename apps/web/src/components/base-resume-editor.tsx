@@ -4,6 +4,7 @@ import { useState, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import { Loader2, Plus, Sparkles, Save, Trash2, Briefcase, GraduationCap, Wrench, FolderKanban, Award } from 'lucide-react';
 import { toast } from 'sonner';
+import { ErrorState } from '@/components/error-state';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -61,6 +62,8 @@ export function BaseResumeEditor({ initial, hasStoredResume }: BaseResumeEditorP
   const [resume, setResume] = useState<StructuredResume>(initial ?? emptyResume());
   const [saving, setSaving] = useState(false);
   const [parsing, setParsing] = useState(false);
+  // Why the last import failed, shown inline with a retry (#349).
+  const [importError, setImportError] = useState<string | null>(null);
   const hasContent = Boolean(resume.basics.name);
 
   const updateBasics = useCallback(
@@ -141,14 +144,13 @@ export function BaseResumeEditor({ initial, hasStoredResume }: BaseResumeEditorP
   // --- Import from stored resume ---
   async function handleImportFromResume() {
     setParsing(true);
+    setImportError(null);
     try {
       const parsed = await parseResumeToStructured();
       setResume(parsed);
       toast.success('Resume parsed into structured form. Review and save when ready.');
     } catch (error) {
-      toast.error(
-        error instanceof Error ? error.message : 'Failed to parse resume. Try again.',
-      );
+      setImportError(error instanceof Error ? error.message : 'Failed to parse resume. Try again.');
     } finally {
       setParsing(false);
     }
@@ -189,6 +191,14 @@ export function BaseResumeEditor({ initial, hasStoredResume }: BaseResumeEditorP
             {parsing ? 'Parsing…' : 'Import'}
           </Button>
         </div>
+      ) : null}
+
+      {importError ? (
+        <ErrorState
+          title="Couldn't import your resume"
+          message={importError}
+          onRetry={() => void handleImportFromResume()}
+        />
       ) : null}
 
       {/* Basics */}

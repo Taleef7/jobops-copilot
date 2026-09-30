@@ -9,6 +9,7 @@ import { Input } from '@/components/ui/input';
 import {
   createSavedSearch,
   deleteSavedSearch,
+  errorMessage,
   fetchSavedSearches,
   runDiscovery,
   type SavedSearchItem,
@@ -27,7 +28,7 @@ export function SavedSearchesManager() {
   useEffect(() => {
     fetchSavedSearches()
       .then(setSearches)
-      .catch(() => toast.error('Could not load saved searches.'))
+      .catch((error: unknown) => toast.error(errorMessage(error, 'Could not load saved searches.')))
       .finally(() => setLoading(false));
   }, []);
 
@@ -42,8 +43,8 @@ export function SavedSearchesManager() {
       setQuery('');
       setLocation('');
       toast.success('Saved search added.');
-    } catch {
-      toast.error('Could not add the saved search.');
+    } catch (error) {
+      toast.error(errorMessage(error, 'Could not add the saved search.'));
     } finally {
       setAdding(false);
     }
@@ -54,8 +55,8 @@ export function SavedSearchesManager() {
     try {
       await deleteSavedSearch(id);
       setSearches((prev) => prev.filter((entry) => entry.id !== id));
-    } catch {
-      toast.error('Could not delete the saved search.');
+    } catch (error) {
+      toast.error(errorMessage(error, 'Could not delete the saved search.'));
     } finally {
       setDeletingId(null);
     }
@@ -71,8 +72,8 @@ export function SavedSearchesManager() {
           : `No new jobs found (${result.skipped} already tracked).`,
       );
       router.refresh();
-    } catch {
-      toast.error('Discovery failed. Add at least one saved search first.');
+    } catch (error) {
+      toast.error(errorMessage(error, 'Discovery failed. Add at least one saved search first.'));
     } finally {
       setDiscovering(false);
     }
