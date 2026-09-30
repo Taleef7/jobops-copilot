@@ -85,8 +85,9 @@ test('GET /api/profile/base-resume returns null when no base resume exists', asy
           headers: { 'X-User-Id': 'user-br-1' },
         });
         assert.equal(res.status, 200);
-        const data = (await res.json()) as { baseResume: StructuredResume | null };
+        const data = (await res.json()) as { baseResume: StructuredResume | null; updatedAt: string | null };
         assert.equal(data.baseResume, null);
+        assert.equal(data.updatedAt, null);
       },
     );
   } finally {
@@ -126,6 +127,9 @@ test('PUT /api/profile/base-resume saves and GET retrieves the structured resume
         assert.equal(getData.baseResume.basics.name, 'Jane Doe');
         assert.equal(getData.baseResume.basics.email, 'jane@example.com');
         assert.deepEqual(getData.baseResume.skills?.[0]?.skills, ['TypeScript', 'Python', 'Go']);
+        // #350: Settings shows when the résumé was last saved.
+        const { updatedAt } = getData as unknown as { updatedAt: string | null };
+        assert.ok(updatedAt && !Number.isNaN(Date.parse(updatedAt)), `updatedAt: ${updatedAt}`);
       },
     );
   } finally {

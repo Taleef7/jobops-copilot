@@ -26,20 +26,13 @@ baseResumeRouter.get('/', async (request, response, next) => {
     const userId = requireUser(request, response);
     if (!userId) return;
 
-    const profile = await getUserProfile(userId);
+    const [profile, baseVersion] = await Promise.all([getUserProfile(userId), getBaseResumeVersion(userId)]);
+    // When it was last saved, for "Last updated" in Settings (#350).
+    const updatedAt = baseVersion?.updatedAt ?? profile?.updatedAt ?? null;
 
-    // Prefer the denormalized copy on the profile (faster, no version-store query).
-    if (profile?.baseResume) {
-      return response.json({ baseResume: profile.baseResume });
-    }
-
-    // Fallback: check resume_versions for an is_base row.
-    const baseVersion = await getBaseResumeVersion(userId);
-    if (baseVersion) {
-      return response.json({ baseResume: baseVersion.structuredResume });
-    }
-
-    return response.json({ baseResume: null });
+    // Prefer the denormalized copy on the profile; the base version is the fallback.
+    const baseResume = profile?.baseResume ?? baseVersion?.structuredResume ?? null;
+    return response.json({ baseResume, updatedAt: baseResume ? updatedAt : null });
   } catch (error) {
     next(error);
   }

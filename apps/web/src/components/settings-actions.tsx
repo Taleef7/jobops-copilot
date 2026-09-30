@@ -2,51 +2,10 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { Database, Download, Loader2, Upload } from 'lucide-react';
+import { Database, Download, Loader2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
-import { ApiRequestError, clearMyData, errorMessage, seedDemoData, uploadResumeFile } from '@/lib/api';
-
-export function ResumeReupload() {
-  const router = useRouter();
-  const inputRef = useRef<HTMLInputElement>(null);
-  const [busy, setBusy] = useState(false);
-
-  async function onFile(file: File) {
-    setBusy(true);
-    try {
-      await uploadResumeFile(file);
-      toast.success('Resume updated.');
-      router.refresh();
-    } catch (error) {
-      // A refused upload says why (not a PDF, too large, unreadable).
-      toast.error(
-        error instanceof ApiRequestError && error.status < 500 ? error.message : 'Could not upload the resume.',
-      );
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  return (
-    <>
-      <Button variant="outline" size="sm" disabled={busy} onClick={() => inputRef.current?.click()}>
-        {busy ? <Loader2 className="size-4 animate-spin" /> : <Upload className="size-4" />}
-        Re-upload
-      </Button>
-      <input
-        ref={inputRef}
-        type="file"
-        accept="application/pdf"
-        className="sr-only"
-        onChange={(event) => {
-          const file = event.target.files?.[0];
-          if (file) void onFile(file);
-        }}
-      />
-    </>
-  );
-}
+import { clearMyData, errorMessage, seedDemoData } from '@/lib/api';
 
 export function ExportDataButton() {
   const [busy, setBusy] = useState(false);
