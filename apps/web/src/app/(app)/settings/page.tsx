@@ -11,6 +11,7 @@ import { NotificationSettingsManager } from '@/components/notification-settings-
 import { Badge } from '@/components/ui/badge';
 import { Card } from '@/components/ui/card';
 import { fetchBaseResume, fetchNotificationSettings, fetchProfile, fetchStatus } from '@/lib/api';
+import { describeLlmCheck } from '@/lib/llm-check';
 import { cn } from '@/lib/utils';
 
 export const metadata: Metadata = { title: 'Settings' };
@@ -57,6 +58,7 @@ export default async function SettingsPage() {
     : agentEnabled
       ? 'Idle — the agent scales to zero and wakes on the first request'
       : 'Deterministic mock (no LLM provider attached)';
+  const llmCheck = describeLlmCheck(status?.llmCanary);
   const initial = (fullName ?? 'You').slice(0, 1).toUpperCase();
 
   const integrations = [
@@ -140,6 +142,12 @@ export default async function SettingsPage() {
             </Badge>
           </div>
           <p className="text-muted-foreground text-xs">{providerDetail}</p>
+          <p
+            className={cn('text-xs', llmCheck.ok === false ? 'text-destructive' : 'text-muted-foreground')}
+            data-testid="llm-check"
+          >
+            {llmCheck.text}
+          </p>
         </Card>
       </SectionCard>
 

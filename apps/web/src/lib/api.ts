@@ -16,6 +16,7 @@ import type {
   NotificationItem,
   NotificationSettings,
 } from '@/types/notification';
+import type { LlmCanaryResult } from '@/lib/llm-check';
 
 const apiBaseUrl = (process.env.NEXT_PUBLIC_API_BASE_URL ?? 'http://127.0.0.1:4000').replace(/\/$/, '');
 
@@ -354,6 +355,8 @@ export interface SystemStatus {
     tavily_configured?: boolean;
   };
   integrations: { gmailDrafts: boolean; n8nWebhook: boolean; tavily: boolean };
+  /** The last scheduled LLM canary (#348); null before the first run. */
+  llmCanary?: LlmCanaryResult | null;
 }
 
 export async function fetchStatus(): Promise<SystemStatus> {
