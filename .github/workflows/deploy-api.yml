@@ -162,3 +162,29 @@ jobs:
           echo "migrations:pending means the schema is behind this build; check the App Service log" >&2
           echo "stream for the migration that failed, or RUN_MIGRATIONS_ON_BOOT=false to recover." >&2
           exit 1
+
+      - name: LLM canary (one real model call through the agent)
+        env:
+          API_NAME: ${{ vars.AZURE_WEBAPP_NAME_API }}
+          API_CRON_SECRET: ${{ secrets.API_CRON_SECRET }}
+        run: |
+          set -euo pipefail
+          # #348: every health check stayed green for 6 days while the model rejected every
+          # call. The readiness gate above can be answered by the previous instance for a
+          # minute or two after the upload (#380), and that one may not have this route yet
+          # (404), so retry for a few minutes before failing.
+          if [ -z "${API_CRON_SECRET:-}" ]; then
+            echo "::warning::API_CRON_SECRET is not set; skipping the LLM canary. The daily llm-canary workflow fails until it is."
+            exit 0
+          fi
+          url="https://${API_NAME}.azurewebsites.net/internal/llm-canary"
+          for i in $(seq 1 10); do
+            response="$(curl -sS -X POST "$url" -H "X-N8N-Webhook-Secret: ${API_CRON_SECRET}" \
+              --max-time 150 -w '\n%{http_code}' || true)"
+            code="$(printf '%s' "$response" | tail -n1)"
+            echo "attempt $i: HTTP ${code} $(printf '%s' "$response" | sed '$d')"
+            [ "$code" = "200" ] && exit 0
+            sleep 30
+          done
+          echo "::error::The LLM canary did not pass: the model is not answering real calls." >&2
+          exit 1

@@ -1,0 +1,51 @@
+# Daily LLM canary (#348).
+#
+# A model the provider rejected (gpt-6-luna) failed every live AI call for 6 days in
+# September 2026, while every health check stayed green because none of them called the
+# model. This asks the API to run one tiny real model call through the agent
+# (POST /internal/llm-canary) and fails when it doesn't answer, so GitHub emails the owner.
+#
+# Needs the repo secret API_CRON_SECRET, holding the API's N8N_WEBHOOK_SECRET value. It is
+# deliberately NOT named N8N_WEBHOOK_SECRET: that secret would also switch on the discovery
+# sweep in discover.yml, which is F01's decision.
+name: LLM canary (daily)
+
+on:
+  schedule:
+    - cron: '17 13 * * *' # daily, 13:17 UTC
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: llm-canary
+  cancel-in-progress: false
+
+jobs:
+  canary:
+    name: Call the model once
+    runs-on: ubuntu-latest
+    steps:
+      - name: Run the LLM canary
+        env:
+          API_BASE_URL: ${{ vars.NEXT_PUBLIC_API_BASE_URL }}
+          API_CRON_SECRET: ${{ secrets.API_CRON_SECRET }}
+        run: |
+          set -euo pipefail
+          if [ -z "${API_BASE_URL:-}" ] || [ -z "${API_CRON_SECRET:-}" ]; then
+            echo "::error::Set the NEXT_PUBLIC_API_BASE_URL variable and the API_CRON_SECRET secret: without them the model is not being checked." >&2
+            exit 1
+          fi
+          # A cold agent (scale-to-zero) takes a while before it answers.
+          response="$(curl -sS -X POST "${API_BASE_URL%/}/internal/llm-canary" \
+            -H "X-N8N-Webhook-Secret: ${API_CRON_SECRET}" \
+            --max-time 150 -w '\n%{http_code}' || true)"
+          code="$(printf '%s' "$response" | tail -n1)"
+          body="$(printf '%s' "$response" | sed '$d')"
+          echo "HTTP ${code}"
+          echo "${body}"
+          if [ "${code}" != "200" ]; then
+            echo "::error::The LLM canary failed (HTTP ${code}): the model did not answer a real call." >&2
+            exit 1
+          fi
