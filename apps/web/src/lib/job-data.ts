@@ -25,7 +25,7 @@ function mockFeedResult(options: FeedQueryOptions = {}): FeedResult {
   if (options.minScore != null) filtered = filtered.filter((j) => (j.fitScore ?? 0) >= (options.minScore ?? 0));
 
   const items: FeedItem[] = filtered.map((job) => {
-    const subSignals = job.analysis.subSignals ?? {
+    const subSignals = job.analysis?.subSignals ?? {
       skills_match: job.fitScore ?? 75,
       title_seniority: job.seniority === 'senior' ? 85 : 75,
       salary_fit: 80,

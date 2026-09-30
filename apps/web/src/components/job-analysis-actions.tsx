@@ -4,9 +4,9 @@ import { Target } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import { useEffect, useRef, useState } from 'react';
 import { toast } from 'sonner';
+import { ErrorState } from '@/components/error-state';
 import { Button } from '@/components/ui/button';
 import { ApiRequestError, scoreFit } from '@/lib/api';
-import { isHeuristicAnalysis } from '@/lib/analysis-display';
 
 type JobAnalysisActionsProps = {
   jobId: string;
@@ -21,6 +21,8 @@ type JobAnalysisActionsProps = {
 export function JobAnalysisActions({ jobId, autoScore = false }: JobAnalysisActionsProps) {
   const router = useRouter();
   const [isScoring, setIsScoring] = useState(false);
+  // Why the last Score fit failed, shown under the button with a retry (#349).
+  const [failure, setFailure] = useState<string | null>(null);
   // Track which job we auto-scored, not just whether we did, so a reused
   // component instance (client-side nav to a different job) still upgrades the
   // new estimate exactly once.
@@ -28,27 +30,19 @@ export function JobAnalysisActions({ jobId, autoScore = false }: JobAnalysisActi
 
   async function handleScore({ silent = false }: { silent?: boolean } = {}) {
     setIsScoring(true);
+    setFailure(null);
     try {
       const scored = await scoreFit({ jobId });
-      // /score-fit answers 200 whether the agent scored the job or the request
-      // fell through to the rule-based heuristic (agent-client.ts falls back on
-      // any agent failure — a cold start on the scale-to-zero container is the
-      // common case). Without this the two are indistinguishable to the user,
-      // who sees a confident number and no hint that the AI never ran.
-      if (isHeuristicAnalysis(scored.model_used)) {
-        toast.warning(`Estimated fit: ${scored.fit_score}/100`, {
-          description: 'The AI scorer was unavailable, so this is a rule-based estimate. Try again in a moment for a full analysis.',
-        });
-      } else if (!silent) {
-        toast.success(`Fit score saved: ${scored.fit_score}/100`);
-      }
+      // A score is always the AI's: when it can't answer, the API says so (503) instead
+      // of making one up (#349).
+      if (!silent) toast.success(`Fit score saved: ${scored.fit_score}/100`);
       // Always refresh so the upgraded score is reflected in the UI, even silently.
       router.refresh();
     } catch (error) {
       // The automatic upgrade stays quiet on expected failures (e.g. daily budget
       // reached): the estimate remains and the manual button is the fallback.
       if (!silent) {
-        toast.error(error instanceof ApiRequestError ? error.message : 'Failed to score the fit.');
+        setFailure(error instanceof ApiRequestError ? error.message : 'Scoring failed. Try again.');
       } else if (!(error instanceof ApiRequestError)) {
         // Surface unexpected failures (network/parse/bugs) to the console even in
         // silent mode so they aren't swallowed entirely.
@@ -71,11 +65,16 @@ export function JobAnalysisActions({ jobId, autoScore = false }: JobAnalysisActi
   }, [autoScore, jobId]);
 
   return (
-    <div className="flex flex-wrap gap-2">
-      <Button onClick={() => void handleScore()} disabled={isScoring} className="gap-1.5">
-        <Target className="size-4" />
-        {isScoring ? 'Scoring…' : 'Score fit'}
-      </Button>
+    <div className="space-y-3">
+      <div className="flex flex-wrap gap-2">
+        <Button onClick={() => void handleScore()} disabled={isScoring} className="gap-1.5">
+          <Target className="size-4" />
+          {isScoring ? 'Scoring…' : 'Score fit'}
+        </Button>
+      </div>
+      {failure ? (
+        <ErrorState title="Couldn't score this job" message={failure} onRetry={() => void handleScore()} />
+      ) : null}
     </div>
   );
 }
