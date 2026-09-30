@@ -68,3 +68,57 @@ test('every AI route answers 503 retryable when the agent is down, and nothing i
     await rm(tempDir, { recursive: true, force: true });
   }
 });
+
+test('interview prep, research and skill gap answer 503 retryable on an unusable answer, and save nothing', async () => {
+  const originalCwd = process.cwd();
+  const originalAgent = process.env.AGENT_SERVICE_URL;
+  const tempDir = await mkdtemp(join(tmpdir(), 'jobops-ai-unusable-'));
+  // The agent answers 200 with an empty object: reachable, but nothing the app can show.
+  const agent = http.createServer((_request, response) => {
+    response.writeHead(200, { 'Content-Type': 'application/json' });
+    response.end('{}');
+  });
+  await new Promise<void>((resolve) => agent.listen(0, resolve));
+  const agentAddress = agent.address();
+  if (!agentAddress || typeof agentAddress === 'string') throw new Error('no agent address');
+  delete process.env.DATABASE_URL;
+  process.env.AGENT_SERVICE_URL = `http://127.0.0.1:${agentAddress.port}`;
+  process.chdir(tempDir);
+  await resetJobStoreForTests();
+  const server = http.createServer(createApp());
+  await new Promise<void>((resolve) => server.listen(0, resolve));
+  const address = server.address();
+  if (!address || typeof address === 'string') throw new Error('no server address');
+  const base = `http://127.0.0.1:${address.port}`;
+  const send = (method: string, path: string, body?: unknown) =>
+    fetch(`${base}${path}`, {
+      method,
+      headers: { 'X-User-Id': 'u_ai_unusable', 'Content-Type': 'application/json' },
+      body: body === undefined ? undefined : JSON.stringify(body),
+    });
+
+  try {
+    const created = await send('POST', '/api/jobs', { company: 'Acme', title: 'Engineer', descriptionText: 'Build APIs in Python.' });
+    const jobId = ((await created.json()) as { job: { id: string } }).job.id;
+
+    for (const path of ['/api/ai/agents/interview-prep', '/api/ai/agents/research', '/api/ai/agents/skill-gap']) {
+      const response = await send('POST', path, { job_id: jobId });
+      const payload = (await response.json()) as { retryable?: boolean };
+      assert.equal(response.status, 503, `${path}: expected 503, got ${response.status} ${JSON.stringify(payload)}`);
+      assert.equal(payload.retryable, true, `${path}: retryable`);
+    }
+
+    const outputs = (await (await send('GET', `/api/jobs/${jobId}/agent-outputs`)).json()) as { outputs: unknown[] };
+    assert.deepEqual(outputs.outputs, [], 'an unusable answer is never saved as an agent output');
+  } finally {
+    server.closeAllConnections();
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+    agent.closeAllConnections();
+    await new Promise<void>((resolve) => agent.close(() => resolve()));
+    process.chdir(originalCwd);
+    if (originalAgent === undefined) delete process.env.AGENT_SERVICE_URL;
+    else process.env.AGENT_SERVICE_URL = originalAgent;
+    await resetJobStoreForTests();
+    await rm(tempDir, { recursive: true, force: true });
+  }
+});

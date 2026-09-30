@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import { requireUser } from '@/lib/auth';
 import { getJobById } from '@/data/job-store';
-import { AgentDisabledError, streamAssistantChatUpstream } from '@/lib/agent-client';
+import { AI_NO_ANSWER, AgentDisabledError, streamAssistantChatUpstream } from '@/lib/agent-client';
 import type { UpstreamStream } from '@/routes/assistant';
 
 const AGENT_DISABLED_MESSAGE =
@@ -128,8 +128,10 @@ export function createAssistantChatRouter(deps: AssistantChatDeps = defaultDeps)
       return;
     }
 
+    // A failed or empty upstream is the AI being unavailable: 503, retryable (#349).
     if (!upstream.ok || !upstream.body) {
-      response.status(upstream.status || 502).json({ error: 'Assistant chat unavailable' });
+      await upstream.body?.cancel().catch(() => undefined);
+      response.status(503).json({ error: AI_NO_ANSWER, retryable: true });
       return;
     }
 

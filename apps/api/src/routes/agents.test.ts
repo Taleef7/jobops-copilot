@@ -120,14 +120,15 @@ test('stream emits a generic terminal error event when upstream fails after a fr
   });
 });
 
-test('stream preserves upstream non-OK status', async () => {
-  await withServer({ openStream: async () => ({ ok: false, status: 429, body: null }) }, async (baseUrl) => {
+test('stream answers 503 retryable when the upstream is not OK (#349)', async () => {
+  await withServer({ openStream: async () => ({ ok: false, status: 500, body: null }) }, async (baseUrl) => {
     const response = await fetch(`${baseUrl}/api/agents/feed-curator/stream`, { method: 'POST', ...auth });
-    assert.equal(response.status, 429);
+    assert.equal(response.status, 503);
+    assert.equal(((await response.json()) as { retryable?: boolean }).retryable, true);
   });
 });
 
-test('stream returns 502 when an otherwise-successful upstream has no body', async () => {
+test('stream answers 503 retryable when an otherwise-successful upstream has no body', async () => {
   await withServer(
     { openStream: async () => ({ ok: true, status: 200, body: null }) },
     async (baseUrl) => {
@@ -135,7 +136,8 @@ test('stream returns 502 when an otherwise-successful upstream has no body', asy
         method: 'POST',
         ...auth,
       });
-      assert.equal(response.status, 502);
+      assert.equal(response.status, 503);
+      assert.equal(((await response.json()) as { retryable?: boolean }).retryable, true);
     },
   );
 });

@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { isAgentId } from '@/data/agent-config-store';
 import { requireUser } from '@/lib/auth';
 import {
+  AI_NO_ANSWER,
   AgentDisabledError,
   resumeAgentUpstream,
   streamAgentUpstream,
@@ -27,12 +28,10 @@ function isObject(value: unknown): value is Record<string, unknown> {
 }
 
 async function pipeSse(upstream: UpstreamStream, response: import('express').Response) {
-  if (!upstream.ok) {
-    response.status(upstream.status || 502).json({ error: 'Agent stream unavailable' });
-    return;
-  }
-  if (!upstream.body) {
-    response.status(502).json({ error: 'Agent stream unavailable' });
+  // A failed or empty upstream is the AI being unavailable: 503, retryable (#349).
+  if (!upstream.ok || !upstream.body) {
+    await upstream.body?.cancel().catch(() => undefined);
+    response.status(503).json({ error: AI_NO_ANSWER, retryable: true });
     return;
   }
 

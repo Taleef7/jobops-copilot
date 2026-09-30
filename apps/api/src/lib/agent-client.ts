@@ -71,6 +71,9 @@ export class AgentDisabledError extends AiUnavailableError {
 
 const UNUSABLE_ANSWER = "The AI's answer couldn't be used. Try again.";
 
+/** The agent answered with an error status (or a stream with nothing in it). */
+export const AI_NO_ANSWER = "The AI couldn't answer this time. Try again in a moment.";
+
 /** Any failure of an agent call, as the error the user sees. The budget error passes through. */
 function asAiUnavailable(error: unknown, path: string): unknown {
   if (error instanceof AiBudgetExceededError || error instanceof AiUnavailableError) return error;
@@ -117,7 +120,7 @@ async function callAgent<T>(path: string, payload: unknown, timeoutMs = AGENT_TI
   if (!response.ok) {
     console.warn(`agent ${path} responded with ${response.status}`);
     await response.body?.cancel();
-    throw new AiUnavailableError("The AI couldn't answer this time. Try again in a moment.");
+    throw new AiUnavailableError(AI_NO_ANSWER);
   }
   try {
     return (await response.json()) as T;
@@ -171,8 +174,47 @@ export async function runAgentTask<T>(path: string, payload: unknown): Promise<T
   if (!isAgentEnabled()) {
     throw new AgentDisabledError();
   }
-  return callAgent<T>(path, payload, AGENT_TASK_TIMEOUT_MS);
+  const result = await callAgent<unknown>(path, payload, AGENT_TASK_TIMEOUT_MS);
+  // An answer the page can't show is not saved as a result (#349).
+  const isUsable = SPECIALIST_ANSWERS[path];
+  if (isUsable && !isUsable(result)) {
+    console.warn(`agent ${path} returned an unusable answer`);
+    throw new AiUnavailableError(UNUSABLE_ANSWER);
+  }
+  return result as T;
 }
+
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+  typeof value === 'object' && value !== null && !Array.isArray(value);
+const isText = (value: unknown): value is string => typeof value === 'string';
+const isTextList = (value: unknown): value is string[] => Array.isArray(value) && value.every(isText);
+
+/** What the job page reads from each specialist's answer. */
+const SPECIALIST_ANSWERS: Record<string, (value: unknown) => boolean> = {
+  '/agents/interview-prep': (value) =>
+    isRecord(value) &&
+    isTextList(value.likely_questions) &&
+    isTextList(value.talking_points) &&
+    isTextList(value.gaps_to_address) &&
+    isTextList(value.questions_to_ask),
+  '/agents/research': (value) =>
+    isRecord(value) &&
+    isText(value.company_summary) &&
+    isTextList(value.recent_signals) &&
+    isTextList(value.talking_points) &&
+    isTextList(value.questions_to_ask),
+  '/agents/skill-gap': (value) =>
+    isRecord(value) &&
+    isText(value.summary) &&
+    Array.isArray(value.prioritized_skills) &&
+    value.prioritized_skills.every(
+      (item) =>
+        isRecord(item) &&
+        isText(item.skill) &&
+        isText(item.why_it_matters) &&
+        (item.learning_resources === undefined || isTextList(item.learning_resources)),
+    ),
+};
 
 export interface AssistantRunInput {
   descriptionText: string;
@@ -212,11 +254,18 @@ export async function resumeAssistant(threadId: string, approved: boolean): Prom
  */
 function openAgentStream(path: string, payload: unknown): Promise<Response> {
   return withColdStartWake(async () => {
+    let response: Response;
     try {
-      return await postToAgent(path, payload, AGENT_TASK_TIMEOUT_MS);
+      response = await postToAgent(path, payload, AGENT_TASK_TIMEOUT_MS);
     } catch (error) {
       throw asAiUnavailable(error, path);
     }
+    if (!response.ok) {
+      console.warn(`agent ${path} responded with ${response.status}`);
+      await response.body?.cancel();
+      throw new AiUnavailableError(AI_NO_ANSWER);
+    }
+    return response;
   });
 }
 
