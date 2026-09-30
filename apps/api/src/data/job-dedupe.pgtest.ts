@@ -6,6 +6,7 @@ import express from 'express';
 import { insertJobContact, listJobContacts } from './contact-store';
 import { applyJobDedupe, loadDedupeRows } from './job-dedupe.postgres';
 import { backfillCanonicalUrls, createJob, findJobByCanonicalUrl, listJobs, saveJobAnalysis } from './job-store';
+import { getDefaultAnalysis } from '@/lib/analysis-core';
 import { runDiscoveryForUser } from '@/lib/discovery';
 import { dedupeJobs, planJobDedupe } from '@/lib/job-dedupe';
 import type { SourcedJob } from '@/lib/job-sources/normalize';
@@ -25,6 +26,16 @@ function db() {
   const pool = getPool();
   assert.ok(pool, 'DATABASE_URL is set but there is no pool');
   return pool;
+}
+
+/**
+ * A copy stored before #346: createJob now refuses a second copy of a posting, so the
+ * duplicates live accounts already hold are written directly.
+ */
+async function storeLegacyCopy(userId: string, body: Parameters<typeof createJob>[1]) {
+  const job = await createJob(userId, { ...body, jobUrl: undefined });
+  await db().query('update jobs set job_url = $2, canonical_url = null where id = $1', [job.id, body.jobUrl]);
+  return { ...job, jobUrl: body.jobUrl };
 }
 
 async function canonicalOf(jobId: string): Promise<string | null> {
@@ -171,7 +182,7 @@ test('the cleanup keeps the worked-on copy, moves notifications to it, and delet
   const bystander = newUser();
   const pool = db();
   const add = (owner: string, se: string, extra: { adId?: string; location?: string } = {}) =>
-    createJob(owner, {
+    storeLegacyCopy(owner, {
       company: 'ManTech',
       title: 'Software Engineer',
       location: extra.location ?? 'Fort Meade',
@@ -185,7 +196,7 @@ test('the cleanup keeps the worked-on copy, moves notifications to it, and delet
   });
   await pool.query("update jobs set status = 'archived' where id = $1", [passed.id]);
   await insertJobContact(userId, passed.id, { name: 'A Recruiter', roleTitle: 'Recruiter' });
-  const back = await createJob(userId, {
+  const back = await storeLegacyCopy(userId, {
     company: 'Vaco LLC', title: 'Software Engineer', location: 'Fort Wayne', descriptionText: 'x', jobUrl: adzuna('9100', 'new'),
   });
   // Six copies of one job: five ad variants, and one under a new ad id.
@@ -213,6 +224,7 @@ test('the cleanup keeps the worked-on copy, moves notifications to it, and delet
   const { rows: notes } = await pool.query<{ job_id: string }>('select job_id from notifications where user_id = $1', [userId]);
   assert.deepEqual(notes.map((note) => note.job_id), [copies[0]!.id], 'the notification points at the kept job');
   assert.equal((await listJobs(bystander)).length, 2, "another user's jobs are untouched");
+  await backfillCanonicalUrls(); // as the API does at boot
   assert.equal((await findJobByCanonicalUrl(bystander, adzuna('9001', 'z')))?.id, other.id);
   assert.deepEqual(planJobDedupe(await loadDedupeRows(userId)).groups, [], 'nothing left to clean');
 });
@@ -220,7 +232,7 @@ test('the cleanup keeps the worked-on copy, moves notifications to it, and delet
 test('dedupe-jobs is a dry run unless told to apply, and applies only to the user it is given', { skip }, async () => {
   const userId = newUser();
   for (const se of ['a', 'b', 'c']) {
-    await createJob(userId, { company: 'Jobot', title: 'Software Engineer', location: 'Arlington', descriptionText: 'x', jobUrl: adzuna('9300', se) });
+    await storeLegacyCopy(userId, { company: 'Jobot', title: 'Software Engineer', location: 'Arlington', descriptionText: 'x', jobUrl: adzuna('9300', se) });
   }
   const lines: string[] = [];
   const log = (line: string) => lines.push(line);
@@ -235,4 +247,61 @@ test('dedupe-jobs is a dry run unless told to apply, and applies only to the use
   await dedupeJobs(['--apply', '--user', userId], log);
   assert.equal((await listJobs(userId)).length, 1);
   assert.match(lines.join('\n'), /Deleted 2 job/);
+});
+
+test('two requests adding the same posting at once store it once; the second is refused as a duplicate', { skip }, async () => {
+  const userId = newUser();
+  const add = (se: string) =>
+    createJob(userId, { company: 'Telos', title: 'Software Engineer', descriptionText: 'x', jobUrl: adzuna('9400', se) });
+
+  const results = await Promise.allSettled([add('one'), add('two'), add('three')]);
+
+  assert.equal(results.filter((r) => r.status === 'fulfilled').length, 1);
+  for (const r of results.filter((r): r is PromiseRejectedResult => r.status === 'rejected')) {
+    assert.equal((r.reason as { code?: string }).code, '23505', 'discovery counts this as a skip');
+  }
+  assert.equal((await listJobs(userId)).length, 1);
+});
+
+test('concurrent manual adds of one posting answer 201 and 409', { skip }, async () => {
+  const userId = newUser();
+  const app = express();
+  app.use(express.json());
+  app.use((request, _response, next) => {
+    request.userId = userId;
+    next();
+  });
+  app.use('/api/jobs', jobsRouter);
+  const server = http.createServer(app);
+  await new Promise<void>((resolve) => server.listen(0, resolve));
+  const address = server.address();
+  try {
+    if (!address || typeof address === 'string') throw new Error('no server address');
+    const post = (se: string) =>
+      fetch(`http://127.0.0.1:${address.port}/api/jobs`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ company: 'Telos', title: 'Engineer', descriptionText: 'x', jobUrl: adzuna('9500', se) }),
+      });
+    const statuses = (await Promise.all([post('a'), post('b')])).map((response) => response.status).sort();
+    assert.deepEqual(statuses, [201, 409]);
+    assert.equal((await listJobs(userId)).length, 1);
+  } finally {
+    server.closeAllConnections();
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+  }
+});
+
+test('the cleanup sees which copies have a fit score', { skip }, async () => {
+  const userId = newUser();
+  const older = await createJob(userId, { company: 'Kforce', title: 'Software Engineer', descriptionText: 'x', jobUrl: adzuna('9600', 'a') });
+  const prerank = await createJob(userId, { company: 'Kforce', title: 'Software Engineer', descriptionText: 'x', jobUrl: 'https://example.com/kforce/1' });
+  const scored = await createJob(userId, { company: 'Kforce', title: 'Software Engineer', descriptionText: 'x', jobUrl: 'https://example.com/kforce/2' });
+  await saveJobAnalysis(userId, prerank.id, { ...getDefaultAnalysis('x'), modelUsed: 'local-prerank' }, 40);
+  await saveJobAnalysis(userId, scored.id, { ...getDefaultAnalysis('x'), modelUsed: 'openai:gpt-5.4-nano' }, 62);
+
+  const rows = await loadDedupeRows(userId);
+  const byId = new Map(rows.map((r) => [r.id, r.scored]));
+  assert.deepEqual([byId.get(older.id), byId.get(prerank.id), byId.get(scored.id)], [false, false, true]);
+  assert.equal(planJobDedupe(rows).groups[0]?.keep, scored.id);
 });

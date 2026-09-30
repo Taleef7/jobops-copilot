@@ -14,6 +14,7 @@ function row(id: string, overrides: Partial<DedupeRow> = {}): DedupeRow {
     createdAt: `2026-09-2${id.length}T00:00:00.000Z`,
     notes: null,
     activity: 0,
+    scored: false,
     ...overrides,
   };
 }
@@ -41,6 +42,16 @@ test('keeps the row the user worked on, so a passed job stays passed', () => {
 
   assert.equal(plan.groups[0]?.keep, 'passed');
   assert.deepEqual(plan.groups[0]?.remove, ['new']);
+});
+
+test('keeps a fit-scored copy over an older unscored one, so the analysis is not deleted', () => {
+  const plan = planJobDedupe([
+    row('older', { createdAt: '2026-09-20T00:00:00.000Z' }),
+    row('scored', { createdAt: '2026-09-25T00:00:00.000Z', scored: true }),
+  ]);
+
+  assert.equal(plan.groups[0]?.keep, 'scored');
+  assert.deepEqual(plan.groups[0]?.remove, ['older']);
 });
 
 test('notes count as work', () => {

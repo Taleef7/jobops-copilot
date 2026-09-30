@@ -4,6 +4,7 @@
  */
 import type { DedupePlan, DedupeRow } from '@/lib/job-dedupe';
 import { canonicalJobUrl } from '@/lib/job-sources/normalize';
+import { PRERANK_MODEL } from '@/lib/local-fit';
 import { getPool } from '@/lib/postgres';
 
 function poolOrThrow() {
@@ -32,16 +33,19 @@ export async function loadDedupeRows(userId: string): Promise<DedupeRow[]> {
     created_at: Date;
     notes: string | null;
     activity: number;
+    scored: boolean;
   }>(
     `select j.id, j.job_url, j.company, j.title, j.location, j.status, j.created_at, j.notes,
             ((select count(*) from outreach o where o.job_id = j.id)
              + (select count(*) from job_contacts c where c.job_id = j.id)
              + (select count(*) from resume_versions r where r.job_id = j.id)
-             + (select count(*) from agent_outputs a where a.job_id = j.id))::int as activity
+             + (select count(*) from agent_outputs a where a.job_id = j.id))::int as activity,
+            (j.fit_score is not null
+             and exists (select 1 from job_analysis s where s.job_id = j.id and s.model_used <> $2)) as scored
        from jobs j
       where j.user_id = $1
       order by j.created_at, j.id`,
-    [userId],
+    [userId, PRERANK_MODEL],
   );
   return rows.map((row) => ({
     id: row.id,
@@ -53,6 +57,7 @@ export async function loadDedupeRows(userId: string): Promise<DedupeRow[]> {
     createdAt: row.created_at.toISOString(),
     notes: row.notes,
     activity: row.activity,
+    scored: row.scored,
   }));
 }
 

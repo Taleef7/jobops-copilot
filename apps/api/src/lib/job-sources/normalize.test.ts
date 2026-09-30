@@ -106,7 +106,7 @@ test('dedupKey uses the url when present, else company|title|location', () => {
     source: 'adzuna',
     descriptionText: '',
   };
-  assert.equal(dedupKey(withUrl), 'x/a');
+  assert.equal(dedupKey(withUrl), 'x/A');
   assert.equal(dedupKey(withoutUrl), 'acme|ai eng|nyc');
 });
 
@@ -173,4 +173,11 @@ test('canonicalJobUrl strips tracking from other URLs but keeps the parameters t
   assert.notEqual(canonicalJobUrl('https://example.com/job?id=2'), canonicalJobUrl('https://example.com/job?id=3'));
   // Not a URL: still a stable key.
   assert.equal(canonicalJobUrl('  Not A URL '), 'not a url');
+});
+
+test('canonicalJobUrl keeps the case of a path and of parameter values, which can name different postings', () => {
+  assert.notEqual(canonicalJobUrl('https://careers.example.com/jobs/AbC'), canonicalJobUrl('https://careers.example.com/jobs/abc'));
+  assert.notEqual(canonicalJobUrl('https://example.com/job?id=AbC'), canonicalJobUrl('https://example.com/job?id=abc'));
+  // The host and the tracking parameter names are still case-insensitive.
+  assert.equal(canonicalJobUrl('https://Careers.Example.com/jobs/AbC?UTM_Source=x'), 'careers.example.com/jobs/AbC');
 });

@@ -1,4 +1,5 @@
-import { Router } from 'express';
+import { Router, type Response } from 'express';
+import { DuplicateJobError } from '@/data/duplicate-job';
 import {
   countJobs,
   createJob,
@@ -16,6 +17,7 @@ import type {
   JobPriority,
   JobSeniority,
   JobStatus,
+  TrackedJobRef,
   UpdateJobBody,
 } from '@/types';
 
@@ -149,16 +151,11 @@ jobsRouter.post('/', async (request, response, next) => {
     }
 
     // The same posting reached through another URL (tracking parameters, a board or the
-    // company's own site) is the same job (#346). One indexed lookup, not the whole list.
+    // company's own site) is the same job (#346). One indexed lookup, not the whole list;
+    // createJob checks again under a lock, for two adds at once.
     const existingJob = normalizedJobUrl ? await findJobByCanonicalUrl(userId, normalizedJobUrl) : undefined;
     if (existingJob) {
-      const message = 'You already added this job.';
-      response.status(409).json({
-        error: message,
-        fields: { jobUrl: message },
-        existingJobId: existingJob.id,
-        existingJob,
-      });
+      alreadyAdded(response, existingJob);
       return;
     }
 
@@ -186,9 +183,18 @@ jobsRouter.post('/', async (request, response, next) => {
 
     response.status(201).json({ job });
   } catch (error) {
+    if (error instanceof DuplicateJobError) {
+      alreadyAdded(response, error.existingJob);
+      return;
+    }
     next(error);
   }
 });
+
+function alreadyAdded(response: Response, existingJob: TrackedJobRef) {
+  const message = 'You already added this job.';
+  response.status(409).json({ error: message, fields: { jobUrl: message }, existingJobId: existingJob.id, existingJob });
+}
 
 jobsRouter.get('/:id', async (request, response, next) => {
   try {

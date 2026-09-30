@@ -4,8 +4,8 @@
  * Rows are the same job when they share a canonical URL or a company|title|location
  * fingerprint, transitively (a job re-listed under a new ad id links to its earlier copy
  * through the fingerprint). In each group the row the user worked on is kept (a status
- * beyond "discovered", notes, outreach, contacts, résumé versions, agent outputs), else the
- * oldest. A group where more than one row has work is left alone: deleting a copy would
+ * beyond "discovered", notes, outreach, contacts, résumé versions, agent outputs), then one
+ * with a fit score, else the oldest. A group where more than one row has work is left alone: deleting a copy would
  * cascade away that work, so it is reported for the user to merge by hand.
  */
 import { applyJobDedupe, listUsersWithJobs, loadDedupeRows } from '@/data/job-dedupe.postgres';
@@ -22,6 +22,8 @@ export interface DedupeRow {
   notes: string | null;
   /** Outreach, contacts, résumé versions and agent outputs attached to the row. */
   activity: number;
+  /** It has a fit score from a model, not only the local pre-rank every discovered job gets. */
+  scored: boolean;
 }
 
 export interface DedupeGroup {
@@ -70,6 +72,7 @@ export function planJobDedupe(rows: DedupeRow[]): DedupePlan {
       (a, b) =>
         Number(hasWork(b)) - Number(hasWork(a)) ||
         b.activity - a.activity ||
+        Number(b.scored) - Number(a.scored) ||
         a.createdAt.localeCompare(b.createdAt) ||
         a.id.localeCompare(b.id),
     );

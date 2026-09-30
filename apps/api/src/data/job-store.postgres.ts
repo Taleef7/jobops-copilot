@@ -20,6 +20,7 @@ import { deriveOutreachJobUpdate } from '@/lib/outreach-workflow';
 import { seedJobs } from '@/data/mock-store';
 import { computeContentHash, parseSalaryFromText, parseSeniority } from '@/lib/job-enrich';
 import { canonicalJobUrl } from '@/lib/job-sources/normalize';
+import { DuplicateJobError } from './duplicate-job';
 import { buildOutcomeStats, rankFeedJobs } from '@/lib/feed-ranking';
 
 type JobRow = {
@@ -352,8 +353,22 @@ export async function createJob(userId: string, body: CreateJobBody): Promise<Jo
         : body.sponsorLikelihood
       : null;
 
+  const canonicalUrl = body.jobUrl ? canonicalJobUrl(body.jobUrl) : null;
+
   try {
     await client.query('begin');
+
+    // One row per posting even when two requests add it at once (#346): the check and the
+    // insert run under a per-(user, posting) lock held until commit. It stands in for a
+    // unique index, which can't be built while live accounts still hold duplicates.
+    if (canonicalUrl) {
+      await client.query('select pg_advisory_xact_lock(hashtextextended($1, 346))', [`${userId}|${canonicalUrl}`]);
+      const existing = await client.query<TrackedJobRef>(
+        'select id, company, title from jobs where user_id = $1 and canonical_url = $2 order by created_at limit 1',
+        [userId, canonicalUrl],
+      );
+      if (existing.rows[0]) throw new DuplicateJobError(existing.rows[0]);
+    }
 
     const { rows } = await client.query<JobRow>(
       `
@@ -419,7 +434,7 @@ export async function createJob(userId: string, body: CreateJobBody): Promise<Jo
         liveness,
         timestamp,
         timestamp,
-        body.jobUrl ? canonicalJobUrl(body.jobUrl) : null,
+        canonicalUrl,
       ],
     );
 

@@ -133,8 +133,8 @@ const UUID = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/;
  * - The job boards key by the posting's own id, which is unique across companies:
  *   `adzuna:<adId>`, `greenhouse:<jobId>` (including `?gh_jid=` on a company's own
  *   domain, which doesn't name the board), `lever:<uuid>`, `ashby:<uuid>`.
- * - Any other URL is lower-cased without its scheme, `www.`, fragment, trailing slash
- *   and tracking parameters; the parameters left are sorted.
+ * - Any other URL loses its scheme, `www.`, fragment, trailing slash and tracking
+ *   parameters; the host is lower-cased and the parameters left are sorted.
  */
 export function canonicalJobUrl(rawUrl: string): string {
   const raw = rawUrl.trim();
@@ -164,11 +164,13 @@ export function canonicalJobUrl(rawUrl: string): string {
     if (id) return `ashby:${id}`;
   }
 
+  // Paths and parameter values can be case-sensitive, so only the host and the tracking
+  // parameter names are compared without case.
   const params = [...url.searchParams.entries()]
     .filter(([name]) => !name.toLowerCase().startsWith('utm_') && !TRACKING_PARAMS.has(name.toLowerCase()))
     .sort(([a, x], [b, y]) => a.localeCompare(b) || x.localeCompare(y));
   const query = params.length ? `?${new URLSearchParams(params).toString()}` : '';
-  return `${host}${path.replace(/\/+$/, '')}${query}`.toLowerCase();
+  return `${host}${url.pathname.replace(/\/+$/, '')}${query}`;
 }
 
 /**
