@@ -72,7 +72,7 @@ const mockFeedResult: FeedResult = {
 };
 
 it('renders feed items and summary count', () => {
-  render(<TodaysBestFeed initialFeed={mockFeedResult} source="api" />);
+  render(<TodaysBestFeed initialFeed={mockFeedResult} />);
 
   expect(screen.getByText(/2 curated opportunities/i)).toBeInTheDocument();
   expect(screen.getByText('Senior Backend Engineer')).toBeInTheDocument();
@@ -83,7 +83,7 @@ it('renders feed items and summary count', () => {
 
 it('filters items client-side by query string', async () => {
   const user = userEvent.setup();
-  render(<TodaysBestFeed initialFeed={mockFeedResult} source="api" />);
+  render(<TodaysBestFeed initialFeed={mockFeedResult} />);
 
   const searchInput = screen.getByRole('searchbox', { name: /filter today's best/i });
   await user.type(searchInput, 'stripe');
@@ -94,7 +94,7 @@ it('filters items client-side by query string', async () => {
 
 it('shows empty state when no items match the search', async () => {
   const user = userEvent.setup();
-  render(<TodaysBestFeed initialFeed={mockFeedResult} source="api" />);
+  render(<TodaysBestFeed initialFeed={mockFeedResult} />);
 
   const searchInput = screen.getByRole('searchbox', { name: /filter today's best/i });
   await user.type(searchInput, 'nonexistentcompanyname');

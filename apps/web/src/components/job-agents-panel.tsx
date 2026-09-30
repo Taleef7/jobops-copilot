@@ -2,14 +2,13 @@
 
 import { Bot, GraduationCap, Loader2, Search } from 'lucide-react';
 import { useState, useSyncExternalStore } from 'react';
-import { toast } from 'sonner';
+import { ErrorState } from '@/components/error-state';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { formatCompactDateTime } from '@/lib/format';
 import {
-  ApiRequestError,
   runInterviewPrep,
   runResearch,
   runSkillGap,
@@ -44,9 +43,9 @@ function modelFrom(payload: unknown): string | undefined {
 }
 
 const AGENTS = [
-  { kind: 'interview' as const, icon: GraduationCap, label: 'Interview prep', desc: 'Likely questions, talking points & gaps' },
-  { kind: 'research' as const, icon: Search, label: 'Research company', desc: 'Tool-using agent with web search' },
-  { kind: 'skillGap' as const, icon: Bot, label: 'Skill-gap plan', desc: 'Prioritized learning plan' },
+  { kind: 'interview' as const, icon: GraduationCap, label: 'Interview prep', desc: 'Likely questions, talking points & gaps', failed: "Couldn't run interview prep" },
+  { kind: 'research' as const, icon: Search, label: 'Research company', desc: 'Tool-using agent with web search', failed: "Couldn't research the company" },
+  { kind: 'skillGap' as const, icon: Bot, label: 'Skill-gap plan', desc: 'Prioritized learning plan', failed: "Couldn't build the skill-gap plan" },
 ];
 
 function EmptyHint({ label }: { label: string }) {
@@ -149,6 +148,8 @@ export function JobAgentsPanel({
   initialOutputs?: AgentOutputItem[];
 }) {
   const [running, setRunning] = useState<AgentKind | null>(null);
+  // The last failed run and why, shown in its tab with a retry (#349).
+  const [failure, setFailure] = useState<{ kind: AgentKind; message: string } | null>(null);
   const [interview, setInterview] = useState<InterviewPrepResponse | null>(
     () => seed<InterviewPrepResponse>(initialOutputs, 'interview'),
   );
@@ -166,6 +167,7 @@ export function JobAgentsPanel({
 
   async function run<T>(kind: AgentKind, task: () => Promise<T>, onDone: (result: T) => void) {
     setRunning(kind);
+    setFailure(null);
     try {
       const result = await task();
       onDone(result);
@@ -175,7 +177,7 @@ export function JobAgentsPanel({
         [kind]: { createdAt: new Date().toISOString(), modelUsed: modelFrom(result) },
       }));
     } catch (error) {
-      toast.error(error instanceof ApiRequestError ? error.message : 'The agent run failed.');
+      setFailure({ kind, message: error instanceof Error ? error.message : 'The agent run failed.' });
     } finally {
       setRunning(null);
     }
@@ -211,6 +213,13 @@ export function JobAgentsPanel({
               hasResult={Boolean(interview)}
               onRun={() => trigger('interview')}
             />
+            {failure?.kind === 'interview' ? (
+              <ErrorState
+                title={agentMeta('interview').failed}
+                message={failure.message}
+                onRetry={() => trigger('interview')}
+              />
+            ) : null}
             {interview ? (
               <>
                 <GeneratedLine meta={meta.interview} />
@@ -233,6 +242,13 @@ export function JobAgentsPanel({
               hasResult={Boolean(research)}
               onRun={() => trigger('research')}
             />
+            {failure?.kind === 'research' ? (
+              <ErrorState
+                title={agentMeta('research').failed}
+                message={failure.message}
+                onRetry={() => trigger('research')}
+              />
+            ) : null}
             {research ? (
               <>
                 <GeneratedLine meta={meta.research} />
@@ -260,6 +276,13 @@ export function JobAgentsPanel({
               hasResult={Boolean(skillGap)}
               onRun={() => trigger('skillGap')}
             />
+            {failure?.kind === 'skillGap' ? (
+              <ErrorState
+                title={agentMeta('skillGap').failed}
+                message={failure.message}
+                onRetry={() => trigger('skillGap')}
+              />
+            ) : null}
             {skillGap ? (
               <>
                 <GeneratedLine meta={meta.skillGap} />

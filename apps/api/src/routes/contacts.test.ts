@@ -10,6 +10,7 @@ import { _resetContactStoreForTests } from '@/data/contact-store';
 import { createJob, getJobById, resetJobStoreForTests } from '@/data/job-store';
 import { deleteUserProfile, upsertUserProfile } from '@/data/profile-store';
 import type { JobContactRecord } from '@/types';
+import { fakeAgentAnswer } from '@/test-support/fake-agent';
 
 async function withServer(run: (baseUrl: string) => Promise<void>) {
   const app = createApp();
@@ -42,8 +43,22 @@ function hdrs(userId?: string) {
 
 test('contacts API route lifecycle and validation', async () => {
   const originalCwd = process.cwd();
+  const savedAgent = process.env.AGENT_SERVICE_URL;
   delete process.env.DATABASE_URL;
   const tempDir = await mkdtemp(join(tmpdir(), 'jobops-contacts-test-'));
+  const agentBodies: Array<Record<string, unknown>> = [];
+  const agent = http.createServer((request, response) => {
+    let raw = '';
+    request.on('data', (chunk) => (raw += chunk));
+    request.on('end', () => {
+      if (raw) agentBodies.push(JSON.parse(raw) as Record<string, unknown>);
+      response.writeHead(200, { 'Content-Type': 'application/json' }).end(JSON.stringify(fakeAgentAnswer(request.url)));
+    });
+  });
+  await new Promise<void>((resolve) => agent.listen(0, resolve));
+  const agentAddress = agent.address();
+  if (!agentAddress || typeof agentAddress === 'string') throw new Error('no agent address');
+  process.env.AGENT_SERVICE_URL = `http://127.0.0.1:${agentAddress.port}`;
 
   try {
     process.chdir(tempDir);
@@ -288,6 +303,20 @@ test('contacts API route lifecycle and validation', async () => {
       assert.equal(draftData1.draft.status, 'drafted');
       assert.ok(draftData1.draft.draftText.length > 0);
       assert.equal((await getJobById(USER_A, jobA.id))?.outreach?.length, 1);
+      // The agent was given the user's own role and skills, not an invented background.
+      const summarySent = String(agentBodies.at(-1)?.resume_summary ?? '');
+      assert.match(summarySent, /Backend Engineer at Globex/);
+      assert.match(summarySent, /Go, Kafka/);
+
+      // 15. When the AI can't answer, the draft is refused as retryable and nothing is saved (#349).
+      process.env.AGENT_SERVICE_URL = 'http://127.0.0.1:9';
+      const unavailable = await fetch(`${baseUrl}/api/contacts/${targetContact.id}/draft-outreach`, {
+        method: 'POST',
+        headers: hdrs(USER_A),
+      });
+      assert.equal(unavailable.status, 503);
+      assert.equal(((await unavailable.json()) as { retryable?: boolean }).retryable, true);
+      assert.equal((await getJobById(USER_A, jobA.id))?.outreach?.length, 1);
 
       // Cross-user isolation: USER_B cannot draft outreach for USER_A's contact
       const isolateDraftRes = await fetch(
@@ -300,6 +329,10 @@ test('contacts API route lifecycle and validation', async () => {
       assert.equal(isolateDraftRes.status, 404);
     });
   } finally {
+    if (savedAgent === undefined) delete process.env.AGENT_SERVICE_URL;
+    else process.env.AGENT_SERVICE_URL = savedAgent;
+    agent.closeAllConnections();
+    await new Promise<void>((resolve) => agent.close(() => resolve()));
     await deleteUserProfile(USER_A);
     process.chdir(originalCwd);
     await resetJobStoreForTests();

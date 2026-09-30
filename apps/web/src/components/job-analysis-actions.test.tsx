@@ -9,9 +9,18 @@ vi.mock('sonner', () => ({ toast: { success: vi.fn(), error: vi.fn() } }));
 vi.mock('next/navigation', () => ({ useRouter: () => ({ refresh: vi.fn() }) }));
 vi.mock('@/lib/api', () => ({
   scoreFit,
-  ApiRequestError: class ApiRequestError extends Error {},
+  ApiRequestError: class ApiRequestError extends Error {
+    constructor(
+      message: string,
+      public status: number,
+    ) {
+      super(message);
+    }
+  },
 }));
 
+import userEvent from '@testing-library/user-event';
+import { ApiRequestError } from '@/lib/api';
 import { JobAnalysisActions } from './job-analysis-actions';
 
 afterEach(() => {
@@ -50,4 +59,19 @@ it('auto-scores again when the same instance is reused for a different job', asy
   rerender(<JobAnalysisActions jobId="job-2" autoScore />);
   await waitFor(() => expect(scoreFit).toHaveBeenCalledTimes(2));
   expect(scoreFit).toHaveBeenLastCalledWith({ jobId: 'job-2' });
+});
+
+// #349: when the AI can't score, the reason stays on the page with a way to retry. It used
+// to arrive as a made-up "estimated fit" instead.
+it('shows why scoring failed, inline, and retries from there', async () => {
+  scoreFit.mockRejectedValueOnce(new ApiRequestError("The AI couldn't be reached. Try again in a moment.", 503));
+  render(<JobAnalysisActions jobId="job-1" />);
+
+  await userEvent.click(screen.getByRole('button', { name: /score fit/i }));
+
+  const alert = await screen.findByRole('alert');
+  expect(alert).toHaveTextContent("The AI couldn't be reached.");
+  await userEvent.click(screen.getByRole('button', { name: 'Try again' }));
+  await waitFor(() => expect(scoreFit).toHaveBeenCalledTimes(2));
+  await waitFor(() => expect(screen.queryByRole('alert')).not.toBeInTheDocument());
 });

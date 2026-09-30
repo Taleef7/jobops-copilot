@@ -9,13 +9,10 @@ export const dynamic = 'force-dynamic';
 export const metadata: Metadata = { title: 'Assistant' };
 
 export default async function AssistantPage() {
-  const { jobs, source } = await loadJobs();
-
-  // `loadJobs` falls back to the local seed dataset when the API is
-  // unreachable, so `source` has to be checked before any of this is offered
-  // as "your pipeline" — otherwise an outage would put fabricated sample roles
-  // in the picker and the user could run a real assistant pass against one.
-  const pipelineReachable = source === 'api';
+  const { jobs, error } = await loadJobs();
+  // When the jobs can't be loaded the picker is hidden and the page says why; pasting a
+  // description still works.
+  const pipelineReachable = !error;
 
   // Only jobs that carry a description can be run: the assistant's first step
   // parses that text, so offering one without it would fail immediately.
@@ -41,8 +38,7 @@ export default async function AssistantPage() {
         </p>
       </div>
       {/* Say why the picker is missing, rather than letting it silently vanish
-          for someone who knows they have jobs saved. Mirrors the "Seed data
-          shown" notice on /jobs. */}
+          for someone who knows they have jobs saved. */}
       {pipelineReachable ? null : (
         <Card className="gap-1 border-amber-500/30 bg-amber-500/5 p-4">
           <p className="text-sm font-medium text-amber-700 dark:text-amber-400">

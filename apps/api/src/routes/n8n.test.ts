@@ -9,6 +9,7 @@ import { createN8nRouter } from './n8n';
 import { listWeeklyReports, resetWeeklyReportStoreForTests } from '@/data/report-store';
 import type { JobRecord } from '@/types';
 import { canonicalJobUrl } from '@/lib/job-sources/normalize';
+import { FAKE_FIT_SCORE, fakeAgentAnswer } from '@/test-support/fake-agent';
 
 function snapshotEnv(keys: string[]) {
   const snapshot = new Map<string, string | undefined>();
@@ -198,8 +199,17 @@ test('rejects n8n webhooks when the secret is not configured', async () => {
 });
 
 test('creates and enriches a job-intake webhook payload', async () => {
-  const restore = snapshotEnv(['N8N_WEBHOOK_SECRET']);
+  const restore = snapshotEnv(['N8N_WEBHOOK_SECRET', 'AGENT_SERVICE_URL']);
   process.env.N8N_WEBHOOK_SECRET = 'n8n-secret';
+  // The enrichment is the agent's parse and score (#349: no made-up fallback).
+  const agent = http.createServer((request, response) => {
+    request.resume();
+    response.writeHead(200, { 'Content-Type': 'application/json' }).end(JSON.stringify(fakeAgentAnswer(request.url)));
+  });
+  await new Promise<void>((resolve) => agent.listen(0, resolve));
+  const agentAddress = agent.address();
+  if (!agentAddress || typeof agentAddress === 'string') throw new Error('no agent address');
+  process.env.AGENT_SERVICE_URL = `http://127.0.0.1:${agentAddress.port}`;
 
   let createdJobBody: unknown;
   let savedAnalysis: unknown;
@@ -226,7 +236,7 @@ test('creates and enriches a job-intake webhook payload', async () => {
       recommendedResumeAngle: 'Lead with truthful automation and serverless delivery examples.',
       applyRecommendation: 'Apply with a customized resume and a short human-reviewed outreach message.',
       confidenceScore: 90,
-      modelUsed: 'mock-fit-scorer-v1',
+      modelUsed: 'gpt-test',
     },
     nextAction: 'Review the AI analysis and decide whether to shortlist.',
   });
@@ -292,10 +302,62 @@ test('creates and enriches a job-intake webhook payload', async () => {
           descriptionText: 'Build internal automations using TypeScript, Azure Functions, and n8n.',
         });
         assert.ok(savedAnalysis);
-        assert.equal(savedFitScore, 91);
+        assert.equal(savedFitScore, FAKE_FIT_SCORE.fit_score);
         assert.deepEqual(updatedJobBody, {
           nextAction: 'Review the AI analysis and decide whether to shortlist.',
         });
+      },
+    );
+  } finally {
+    process.chdir(originalCwd);
+    await rm(tempDir, { recursive: true, force: true });
+    agent.closeAllConnections();
+    await new Promise<void>((resolve) => agent.close(() => resolve()));
+    restore();
+  }
+});
+
+test('when the AI is unavailable the intake still creates the job, and saves no made-up analysis', async () => {
+  const restore = snapshotEnv(['N8N_WEBHOOK_SECRET', 'AGENT_SERVICE_URL']);
+  process.env.N8N_WEBHOOK_SECRET = 'n8n-secret';
+  process.env.AGENT_SERVICE_URL = 'http://127.0.0.1:9';
+  const originalCwd = process.cwd();
+  const tempDir = await mkdtemp(join(tmpdir(), 'jobops-n8n-intake-down-'));
+  let analysisSaved = false;
+
+  try {
+    process.chdir(tempDir);
+    await withServer(
+      createN8nRouter({
+        findJobByCanonicalUrl: async () => undefined,
+        createJob: async () => makeJob({ id: 'job-3' }),
+        listJobs: async () => [],
+        saveJobAnalysis: async () => {
+          analysisSaved = true;
+          return makeJob({ id: 'job-3' });
+        },
+        updateJob: async () => makeJob({ id: 'job-3' }),
+      }),
+      async (baseUrl) => {
+        const response = await fetch(`${baseUrl}/api/n8n/job-intake`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'X-N8N-Webhook-Secret': 'n8n-secret' },
+          body: JSON.stringify({
+            company: 'Northwind Labs',
+            title: 'AI Automation Engineer',
+            description_text: 'Build internal automations.',
+            resume_text: 'TypeScript',
+            profile_text: 'automation',
+          }),
+        });
+
+        assert.equal(response.status, 201);
+        const payload = (await response.json()) as { job: { id: string }; parsed: unknown; fit_status: string; fit_message: string };
+        assert.equal(payload.job.id, 'job-3');
+        assert.equal(payload.parsed, null);
+        assert.equal(payload.fit_status, 'skipped');
+        assert.match(payload.fit_message, /AI enrichment skipped/);
+        assert.equal(analysisSaved, false, 'no analysis is saved without a real AI result');
       },
     );
   } finally {

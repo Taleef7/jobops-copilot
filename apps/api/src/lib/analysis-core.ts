@@ -110,10 +110,6 @@ export const keywordCatalog = [
   'Scrum',
 ] as const;
 
-function clamp(value: number, min: number, max: number) {
-  return Math.max(min, Math.min(max, value));
-}
-
 function unique(values: string[]) {
   return [...new Set(values.map((value) => value.trim()).filter(Boolean))];
 }
@@ -181,25 +177,6 @@ function buildResponsibilities(keywords: string[]) {
 }
 
 /**
- * Map a parsed job description (from the mock parser OR the real LLM agent)
- * into a persisted JobAnalysis record. Pure function so both paths agree.
- */
-export function analysisFromParsed(parsed: ParsedJobOutput): JobAnalysis {
-  return {
-    requiredSkills: parsed.required_skills,
-    preferredSkills: parsed.preferred_skills,
-    matchedSkills: [],
-    missingSkills: parsed.required_skills.slice(0, 3),
-    atsKeywords: unique([...parsed.required_skills, ...parsed.preferred_skills]).slice(0, 6),
-    fitSummary: parsed.summary,
-    recommendedResumeAngle: 'Review the parsed job description and map it to truthful resume evidence before applying.',
-    applyRecommendation: 'Review manually before deciding whether to apply.',
-    confidenceScore: 48,
-    modelUsed: 'mock-analysis-v1',
-  };
-}
-
-/**
  * Resolve the structured-skill grounding for fit scoring. Prefers a fresh parse
  * (the LLM job parser is richer than the keyword extractor) and only falls back
  * to the job's stored analysis when the parse is missing/invalid. This is what
@@ -208,21 +185,20 @@ export function analysisFromParsed(parsed: ParsedJobOutput): JobAnalysis {
  */
 export function groundingFromParsed(
   parsed: ParsedJobOutput | null,
-  fallback: Pick<JobAnalysis, 'requiredSkills' | 'preferredSkills' | 'atsKeywords'>,
+  fallback: Pick<JobAnalysis, 'requiredSkills' | 'preferredSkills' | 'atsKeywords'> | null,
 ): { requiredSkills: string[]; preferredSkills: string[]; atsKeywords: string[] } {
   if (!parsed || !validateParsedJobOutput(parsed)) {
     return {
-      requiredSkills: fallback.requiredSkills,
-      preferredSkills: fallback.preferredSkills,
-      atsKeywords: fallback.atsKeywords,
+      requiredSkills: fallback?.requiredSkills ?? [],
+      preferredSkills: fallback?.preferredSkills ?? [],
+      atsKeywords: fallback?.atsKeywords ?? [],
     };
   }
 
-  const analysis = analysisFromParsed(parsed);
   return {
-    requiredSkills: analysis.requiredSkills,
-    preferredSkills: analysis.preferredSkills,
-    atsKeywords: analysis.atsKeywords,
+    requiredSkills: parsed.required_skills,
+    preferredSkills: parsed.preferred_skills,
+    atsKeywords: unique([...parsed.required_skills, ...parsed.preferred_skills]).slice(0, 6),
   };
 }
 
@@ -266,10 +242,6 @@ export function analysisFromFit(
   };
 }
 
-function baseAnalysis(descriptionText: string): JobAnalysis {
-  return analysisFromParsed(parseJobDescription(descriptionText));
-}
-
 export function parseJobDescription(descriptionText: string): ParsedJobOutput {
   const description = descriptionText.trim();
   const extractedSkills = extractKeywords(description);
@@ -287,75 +259,6 @@ export function parseJobDescription(descriptionText: string): ParsedJobOutput {
     automation_tools: extractedSkills.filter((keyword) => /n8n|Zapier|Make|workflow/i.test(keyword)),
     summary: `Parsed ${extractedSkills.length} keywords from the job description and grouped them into structured fields.`,
   };
-}
-
-export function buildAnalysisFromParse(descriptionText: string): JobAnalysis {
-  return baseAnalysis(descriptionText);
-}
-
-export function scoreJobFit(input: {
-  descriptionText: string;
-  resumeText: string;
-  profileText: string;
-  requiredSkills?: string[];
-  preferredSkills?: string[];
-  atsKeywords?: string[];
-}): FitScoreOutput {
-  const parsed = parseJobDescription(input.descriptionText);
-  const requiredSkills = unique(input.requiredSkills ?? parsed.required_skills);
-  const preferredSkills = unique(input.preferredSkills ?? parsed.preferred_skills);
-  const resumeProfileText = `${input.resumeText} ${input.profileText}`.toLowerCase();
-  const matchedSkills = requiredSkills.filter((skill) => resumeProfileText.includes(skill.toLowerCase()));
-  const missingSkills = requiredSkills.filter((skill) => !matchedSkills.includes(skill));
-  const atsKeywords = unique([
-    ...(input.atsKeywords ?? []),
-    ...requiredSkills,
-    ...preferredSkills,
-    ...extractKeywords(resumeProfileText),
-  ]).slice(0, 8);
-
-  const fitScore = clamp(55 + matchedSkills.length * 9 - missingSkills.length * 5, 30, 98);
-  const confidenceScore = clamp(60 + matchedSkills.length * 6 - missingSkills.length * 3, 35, 96);
-  const topMatches = matchedSkills.slice(0, 3);
-
-  return {
-    fit_score: fitScore,
-    matched_skills: matchedSkills,
-    missing_skills: missingSkills,
-    ats_keywords: atsKeywords,
-    fit_summary: matchedSkills.length
-      ? `Matched ${matchedSkills.length} of ${requiredSkills.length} required skills and left the rest for truthful review.`
-      : 'The resume/profile text does not strongly overlap with the required skills, so this should stay a cautious review.',
-    recommended_resume_angle: topMatches.length
-      ? `Lead with truthful experience around ${topMatches.join(', ')} and avoid overstating gaps.`
-      : 'Focus on truthful overlap, keyword alignment, and the strongest evidence from the resume.',
-    apply_recommendation: fitScore >= 80 ? 'apply' : fitScore >= 65 ? 'review' : 'pass',
-    confidence_score: confidenceScore,
-    model_used: 'mock-fit-scorer-v1',
-    sub_signals: {
-      skills_match: clamp(50 + matchedSkills.length * 10 - missingSkills.length * 6, 20, 95),
-      title_seniority: 70,
-      salary_fit: 60,
-      sponsorship_likelihood: 50,
-    },
-  };
-}
-
-export function buildAnalysisFromScore(input: {
-  descriptionText: string;
-  resumeText: string;
-  profileText: string;
-  requiredSkills?: string[];
-  preferredSkills?: string[];
-  atsKeywords?: string[];
-}): JobAnalysis {
-  const fit = scoreJobFit(input);
-  const parsed = parseJobDescription(input.descriptionText);
-
-  return analysisFromFit(fit, {
-    requiredSkills: input.requiredSkills ?? parsed.required_skills,
-    preferredSkills: input.preferredSkills ?? parsed.preferred_skills,
-  });
 }
 
 export function validateParsedJobOutput(value: unknown): value is ParsedJobOutput {
@@ -413,11 +316,8 @@ export function validateJobAnalysis(value: unknown): value is JobAnalysis {
     typeof record.fitSummary === 'string' &&
     typeof record.recommendedResumeAngle === 'string' &&
     typeof record.applyRecommendation === 'string' &&
-    typeof record.confidenceScore === 'number' &&
+    (typeof record.confidenceScore === 'number' || record.confidenceScore === null) &&
     typeof record.modelUsed === 'string'
   );
 }
 
-export function getDefaultAnalysis(descriptionText: string): JobAnalysis {
-  return baseAnalysis(descriptionText);
-}

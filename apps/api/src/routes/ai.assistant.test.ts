@@ -3,6 +3,7 @@ import http from 'node:http';
 import test from 'node:test';
 import express from 'express';
 import { aiRouter } from './ai';
+import { apiErrorHandler } from '@/lib/api-error-handler';
 
 // AGENT_SERVICE_URL is unset in tests, so the agent is "disabled" → assistant routes 503
 // once they pass validation. We assert auth + validation + the disabled-agent path.
@@ -15,6 +16,7 @@ async function withServer(run: (baseUrl: string) => Promise<void>) {
     next();
   });
   app.use('/api/ai', aiRouter);
+  app.use(apiErrorHandler);
 
   const server = http.createServer(app);
   await new Promise<void>((resolve) => server.listen(0, resolve));

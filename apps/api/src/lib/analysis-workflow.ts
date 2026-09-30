@@ -21,12 +21,9 @@ export const ANALYZED_NEXT_ACTION = 'Review the fit summary, then draft outreach
  *
  * Three things it deliberately will not do:
  *
- * - Advance without a fit score. `saveJobAnalysis` is called on two very
- *   different paths: POST /ai/parse-job saves a parse with no score at all,
- *   POST /ai/score-fit saves one with `scored.fit_score`. Only the second is
- *   a scoring run. A model-name check cannot tell them apart — the parse
- *   path's `mock-analysis-v1` is also used for real agent parses and for the
- *   new-job placeholder — so the presence of an actual number is the signal.
+ * - Advance without a fit score. The model name only says which model
+ *   answered, not whether it scored the role, so the presence of an actual
+ *   number is the signal.
  * - Advance on a pre-rank. Discovery's keyword estimate is tagged
  *   `local-prerank`; it can carry a number but is explicitly not a scoring
  *   run, so the prompt to actually score the role has to survive it.

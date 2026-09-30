@@ -8,6 +8,7 @@ import { createApp } from './app';
 import { createJob, resetJobStoreForTests } from '@/data/job-store';
 import { upsertUserProfile } from '@/data/profile-store';
 import { getTodayUsage, resetUsageStoreForTests } from '@/data/usage-store';
+import { fakeAgentAnswer } from '@/test-support/fake-agent';
 
 /**
  * #345: opening a job auto-scores it while the Score fit button is live, and a reload or a
@@ -43,7 +44,7 @@ test('two concurrent Score fit requests for one job make one parse and one score
     agentCalls.push(`${request.method} ${request.url}`);
     request.resume();
     // Slow enough that the second request arrives while the first is still scoring.
-    setTimeout(() => response.writeHead(200, { 'Content-Type': 'application/json' }).end('{}'), 300);
+    setTimeout(() => response.writeHead(200, { 'Content-Type': 'application/json' }).end(JSON.stringify(fakeAgentAnswer(request.url))), 300);
   });
   process.env.AGENT_SERVICE_URL = agent.url;
   const api = await listen(createApp());

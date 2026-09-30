@@ -8,6 +8,7 @@ import { JobAgentsPanel } from '@/components/job-agents-panel';
 import { JobAnalysisActions } from '@/components/job-analysis-actions';
 import { JobEditPanel } from '@/components/job-edit-panel';
 import { JobOutreachActions } from '@/components/job-outreach-actions';
+import { LoadFailure } from '@/components/load-failure';
 import { SkillChipList } from '@/components/skill-chip';
 import { StatusPill } from '@/components/status-pill';
 import { Badge } from '@/components/ui/badge';
@@ -24,7 +25,7 @@ import {
   fetchJobResumeVersions,
   fetchProfile,
 } from '@/lib/api';
-import { isHeuristicAnalysis, isPrerankAnalysis } from '@/lib/analysis-display';
+import { isPrerankAnalysis } from '@/lib/analysis-display';
 import { formatDate } from '@/lib/format';
 import { loadJob } from '@/lib/job-data';
 import { isDuplicateRemote } from '@/lib/job-display';
@@ -43,7 +44,7 @@ export default async function JobDetailPage({ params }: JobDetailParams) {
   const { jobId } = await params;
   // Fetch the profile + persisted agent outputs alongside the job. Neither is
   // load-bearing for the page, so a failure of either must not break it.
-  const [{ job, source }, profile, agentOutputs, resumeVersions, applicationPack, contacts] = await Promise.all([
+  const [{ job, error }, profile, agentOutputs, resumeVersions, applicationPack, contacts] = await Promise.all([
     loadJob(jobId),
     fetchProfile().catch(() => null),
     fetchAgentOutputs(jobId).catch(() => []),
@@ -51,14 +52,15 @@ export default async function JobDetailPage({ params }: JobDetailParams) {
     fetchJobApplicationPack(jobId).catch(() => null),
     fetchJobContacts(jobId).catch(() => []),
   ]);
+  if (error) return <LoadFailure heading="Job detail" title="Couldn't load this job" message={error} />;
   if (!job) notFound();
 
-  // Surface a rule-based heuristic score plainly (QA·B); see isHeuristicAnalysis.
-  const heuristic = isHeuristicAnalysis(job.analysis.modelUsed);
+  // Null until a real fit score succeeds (#349).
+  const analysis = job.analysis;
   // Only auto-upgrade an estimated (local-prerank) job when a resume is on file:
   // without one, /score-fit returns 400 *after* the budget guard reserves cost,
   // so auto-firing on every open would silently drain the daily AI budget.
-  const estimated = isPrerankAnalysis(job.analysis.modelUsed);
+  const estimated = isPrerankAnalysis(analysis?.modelUsed);
   const autoScore = estimated && profile?.hasResume === true;
 
   return (
@@ -93,14 +95,6 @@ export default async function JobDetailPage({ params }: JobDetailParams) {
         </div>
       </Card>
 
-      {source === 'seed' ? (
-        <Card className="border-amber-500/30 bg-amber-500/5 gap-1 p-4">
-          <p className="text-sm font-medium text-amber-700 dark:text-amber-400">Seed data shown</p>
-          <p className="text-muted-foreground text-sm">
-            The backend is not reachable, so this page renders the local seed record.
-          </p>
-        </Card>
-      ) : null}
 
       <div className="grid gap-6 lg:grid-cols-3">
         {/* Main: tabbed content */}
@@ -116,86 +110,84 @@ export default async function JobDetailPage({ params }: JobDetailParams) {
             </TabsList>
 
             <TabsContent value="analysis" className="space-y-4">
-              {heuristic ? (
-                <Card className="border-amber-500/30 bg-amber-500/5 gap-1 p-4">
-                  <p className="text-sm font-medium text-amber-700 dark:text-amber-400">
-                    Heuristic estimate — not a full AI assessment
-                  </p>
+              {!analysis ? (
+                <Card className="gap-1 p-5">
+                  <p className="text-sm font-medium">Not analysed yet</p>
                   <p className="text-muted-foreground text-sm">
-                    The AI model wasn&apos;t available (it may have been warming up), so this is a
-                    rule-based fallback. Re-run the analysis in a moment for a real model review.
+                    Run Score fit to see how your résumé fits this role.
                   </p>
                 </Card>
-              ) : null}
-              <Card className="gap-4 p-5">
-                <div className="flex flex-wrap gap-2">
-                  <Badge variant="secondary">Confidence {job.analysis.confidenceScore}</Badge>
-                  <Badge variant={heuristic ? 'outline' : 'secondary'}>
-                    {heuristic ? 'Heuristic fallback' : `Model: ${job.analysis.modelUsed}`}
-                  </Badge>
-                </div>
-                {job.analysis.subSignals && (
-                  <div>
-                    <p className="text-muted-foreground mb-2 text-xs font-medium tracking-wide uppercase">
-                      Match Signals
-                    </p>
-                    <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
-                      <div className="bg-muted/40 rounded-lg p-2.5 text-center">
-                        <p className="text-muted-foreground text-xs">Skills Match</p>
-                        <p className="font-heading text-base font-semibold">{job.analysis.subSignals.skillsMatch ?? '—'}%</p>
-                      </div>
-                      <div className="bg-muted/40 rounded-lg p-2.5 text-center">
-                        <p className="text-muted-foreground text-xs">Title & Seniority</p>
-                        <p className="font-heading text-base font-semibold">{job.analysis.subSignals.titleSeniority ?? '—'}%</p>
-                      </div>
-                      <div className="bg-muted/40 rounded-lg p-2.5 text-center">
-                        <p className="text-muted-foreground text-xs">Salary Fit</p>
-                        <p className="font-heading text-base font-semibold">{job.analysis.subSignals.salaryFit ?? '—'}%</p>
-                      </div>
-                      <div className="bg-muted/40 rounded-lg p-2.5 text-center">
-                        <p className="text-muted-foreground text-xs">Sponsorship</p>
-                        <p className="font-heading text-base font-semibold">{job.analysis.subSignals.sponsorshipLikelihood ?? '—'}%</p>
+              ) : (
+                <Card className="gap-4 p-5">
+                  <div className="flex flex-wrap gap-2">
+                    {analysis.confidenceScore != null ? (
+                      <Badge variant="secondary">Confidence {analysis.confidenceScore}</Badge>
+                    ) : null}
+                    <Badge variant="secondary">Model: {analysis.modelUsed}</Badge>
+                  </div>
+                  {analysis.subSignals && (
+                    <div>
+                      <p className="text-muted-foreground mb-2 text-xs font-medium tracking-wide uppercase">
+                        Match Signals
+                      </p>
+                      <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+                        <div className="bg-muted/40 rounded-lg p-2.5 text-center">
+                          <p className="text-muted-foreground text-xs">Skills Match</p>
+                          <p className="font-heading text-base font-semibold">{analysis.subSignals.skillsMatch ?? '—'}%</p>
+                        </div>
+                        <div className="bg-muted/40 rounded-lg p-2.5 text-center">
+                          <p className="text-muted-foreground text-xs">Title & Seniority</p>
+                          <p className="font-heading text-base font-semibold">{analysis.subSignals.titleSeniority ?? '—'}%</p>
+                        </div>
+                        <div className="bg-muted/40 rounded-lg p-2.5 text-center">
+                          <p className="text-muted-foreground text-xs">Salary Fit</p>
+                          <p className="font-heading text-base font-semibold">{analysis.subSignals.salaryFit ?? '—'}%</p>
+                        </div>
+                        <div className="bg-muted/40 rounded-lg p-2.5 text-center">
+                          <p className="text-muted-foreground text-xs">Sponsorship</p>
+                          <p className="font-heading text-base font-semibold">{analysis.subSignals.sponsorshipLikelihood ?? '—'}%</p>
+                        </div>
                       </div>
                     </div>
+                  )}
+                  <div>
+                    <p className="text-muted-foreground mb-1 text-xs font-medium tracking-wide uppercase">
+                      Fit summary
+                    </p>
+                    <p className="text-sm leading-relaxed">{analysis.fitSummary}</p>
                   </div>
-                )}
-                <div>
-                  <p className="text-muted-foreground mb-1 text-xs font-medium tracking-wide uppercase">
-                    Fit summary
-                  </p>
-                  <p className="text-sm leading-relaxed">{job.analysis.fitSummary}</p>
-                </div>
-                <div>
-                  <p className="text-muted-foreground mb-1 text-xs font-medium tracking-wide uppercase">
-                    Recommended resume angle
-                  </p>
-                  <p className="text-sm leading-relaxed">{job.analysis.recommendedResumeAngle}</p>
-                </div>
-                <div className="grid gap-4 sm:grid-cols-2">
+                  <div>
+                    <p className="text-muted-foreground mb-1 text-xs font-medium tracking-wide uppercase">
+                      Recommended resume angle
+                    </p>
+                    <p className="text-sm leading-relaxed">{analysis.recommendedResumeAngle}</p>
+                  </div>
+                  <div className="grid gap-4 sm:grid-cols-2">
+                    <div className="space-y-2">
+                      <p className="text-muted-foreground text-xs font-medium tracking-wide uppercase">
+                        Matched skills
+                      </p>
+                      <SkillChipList items={analysis.matchedSkills} variant="matched" empty="None matched yet." />
+                    </div>
+                    <div className="space-y-2">
+                      <p className="text-muted-foreground text-xs font-medium tracking-wide uppercase">
+                        Missing skills
+                      </p>
+                      <SkillChipList items={analysis.missingSkills} variant="missing" empty="None missing." />
+                    </div>
+                  </div>
                   <div className="space-y-2">
                     <p className="text-muted-foreground text-xs font-medium tracking-wide uppercase">
-                      Matched skills
+                      ATS keywords
                     </p>
-                    <SkillChipList items={job.analysis.matchedSkills} variant="matched" empty="None matched yet." />
+                    <SkillChipList items={analysis.atsKeywords} empty="Not parsed yet." />
                   </div>
-                  <div className="space-y-2">
-                    <p className="text-muted-foreground text-xs font-medium tracking-wide uppercase">
-                      Missing skills
-                    </p>
-                    <SkillChipList items={job.analysis.missingSkills} variant="missing" empty="None missing." />
+                  <div className="bg-muted/40 rounded-lg p-3">
+                    <p className="text-muted-foreground mb-0.5 text-xs">Apply recommendation</p>
+                    <p className="text-sm">{analysis.applyRecommendation}</p>
                   </div>
-                </div>
-                <div className="space-y-2">
-                  <p className="text-muted-foreground text-xs font-medium tracking-wide uppercase">
-                    ATS keywords
-                  </p>
-                  <SkillChipList items={job.analysis.atsKeywords} empty="Not parsed yet." />
-                </div>
-                <div className="bg-muted/40 rounded-lg p-3">
-                  <p className="text-muted-foreground mb-0.5 text-xs">Apply recommendation</p>
-                  <p className="text-sm">{job.analysis.applyRecommendation}</p>
-                </div>
-              </Card>
+                </Card>
+              )}
             </TabsContent>
 
             <TabsContent value="resume" className="space-y-4">
@@ -218,7 +210,6 @@ export default async function JobDetailPage({ params }: JobDetailParams) {
                 <JobOutreachActions
                   jobId={job.id}
                   jobContext={job.descriptionText}
-                  disabled={source === 'seed'}
                 />
               </Card>
               {job.outreach.length ? (

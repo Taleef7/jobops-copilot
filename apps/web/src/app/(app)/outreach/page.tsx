@@ -1,4 +1,5 @@
 import type { Metadata } from 'next';
+import { LoadFailure } from '@/components/load-failure';
 import { Archive, CheckCircle2, FileEdit, Send, ShieldCheck } from 'lucide-react';
 import Link from 'next/link';
 import { EmptyState } from '@/components/empty-state';
@@ -28,7 +29,8 @@ const COLUMN_EMPTY_HINTS: Record<OutreachStatus, { icon: typeof FileEdit; title:
 };
 
 export default async function OutreachPage() {
-  const { items, source } = await loadOutreach();
+  const { items, error } = await loadOutreach();
+  if (error) return <LoadFailure heading="Outreach" title="Couldn't load your outreach" message={error} />;
 
   return (
     <div className="space-y-6">
@@ -95,7 +97,6 @@ export default async function OutreachPage() {
                       <OutreachReviewActions
                         outreachId={item.draft.id}
                         currentStatus={item.draft.status}
-                        disabled={source === 'seed'}
                       />
                       <Link
                         href={`/jobs/${item.jobId}`}

@@ -1,10 +1,10 @@
 import type { Metadata } from 'next';
+import { LoadFailure } from '@/components/load-failure';
 import { CircleCheck, Download, Send, Target, Briefcase, CalendarCheck } from 'lucide-react';
 import { EmptyState } from '@/components/empty-state';
 import { isSkillLabelTruncated, skillLabel } from '@/lib/analysis-display';
 import { SectionCard } from '@/components/section-card';
 import { StatTile } from '@/components/stat-tile';
-import { Card } from '@/components/ui/card';
 import { loadJobs } from '@/lib/job-data';
 import { loadWeeklyReports } from '@/lib/report-data';
 import { getReportSnapshot } from '@/lib/report-snapshot';
@@ -26,7 +26,13 @@ const formatWeekRange = (report: WeeklyReport) =>
   `${formatDate(report.weekStart)} – ${formatDate(report.weekEnd)}`;
 
 export default async function ReportsPage() {
-  const [{ jobs, source }, { reports }] = await Promise.all([loadJobs(), loadWeeklyReports()]);
+  const [{ jobs, error: jobsError }, { reports, error: reportsError }] = await Promise.all([
+    loadJobs(),
+    loadWeeklyReports(),
+  ]);
+  const error = jobsError ?? reportsError;
+  if (error) return <LoadFailure heading="Weekly reports" title="Couldn't load your reports" message={error} />;
+
   const snapshot = getReportSnapshot(jobs);
 
   // Only the pure empty state when there's nothing at all. If saved reports
@@ -52,15 +58,6 @@ export default async function ReportsPage() {
         <p className="text-muted-foreground text-sm">A live snapshot of your pipeline.</p>
       </div>
 
-      {source === 'seed' ? (
-        <Card className="border-amber-500/30 bg-amber-500/5 gap-1 p-4">
-          <p className="text-sm font-medium text-amber-700 dark:text-amber-400">Seed data shown</p>
-          <p className="text-muted-foreground text-sm">
-            The API is not reachable, so these figures come from local seed data. They switch to your
-            live CRM automatically once the backend is up.
-          </p>
-        </Card>
-      ) : null}
 
       <div className="grid gap-4 grid-cols-2 lg:grid-cols-4">
         <StatTile label="Discovered" value={snapshot.discovered} icon={Briefcase} />

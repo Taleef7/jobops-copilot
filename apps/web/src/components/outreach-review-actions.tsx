@@ -11,17 +11,14 @@ import type { OutreachStatus } from '@/types/job';
 export function OutreachReviewActions({
   outreachId,
   currentStatus,
-  disabled = false,
 }: {
   outreachId: string;
   currentStatus: OutreachStatus;
-  disabled?: boolean;
 }) {
   const router = useRouter();
   const [isUpdating, setIsUpdating] = useState(false);
 
   async function setStatus(status: OutreachStatus) {
-    if (disabled) return;
     setIsUpdating(true);
     try {
       await updateOutreach(outreachId, { status });
@@ -35,9 +32,6 @@ export function OutreachReviewActions({
   }
 
   if (currentStatus === 'sent' || currentStatus === 'skipped') return null;
-  if (disabled) {
-    return <p className="text-muted-foreground text-xs">Read-only (seed data).</p>;
-  }
 
   const showApprove = currentStatus === 'drafted';
   const showSend = currentStatus === 'approved';

@@ -191,10 +191,10 @@ test('returns 503 (not 500) when the agent service is disabled', async () => {
   });
 });
 
-test('returns 502 when the upstream is unavailable', async () => {
+test('answers 503 retryable when the upstream is not OK (#349)', async () => {
   const router = createAssistantChatRouter({
     getJob: async () => undefined,
-    openUpstream: async () => ({ ok: false, status: 503, body: null }),
+    openUpstream: async () => ({ ok: false, status: 500, body: null }),
   });
   await withServer(router, async (baseUrl) => {
     const res = await fetch(`${baseUrl}/chat`, {
@@ -203,6 +203,7 @@ test('returns 502 when the upstream is unavailable', async () => {
       body: JSON.stringify({ messages: [{ role: 'user', content: 'hi' }] }),
     });
     assert.equal(res.status, 503);
+    assert.equal(((await res.json()) as { retryable?: boolean }).retryable, true);
   });
 });
 

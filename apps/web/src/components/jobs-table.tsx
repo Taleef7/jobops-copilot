@@ -216,7 +216,7 @@ export function JobsTable({ jobs, initialQuery = '' }: { jobs: Job[]; initialQue
                               via {job.source}
                             </Badge>
                           ) : null}
-                          {isPrerankAnalysis(job.analysis.modelUsed) ? (
+                          {isPrerankAnalysis(job.analysis?.modelUsed) ? (
                             <Badge
                               variant="outline"
                               className="border-amber-500/40 text-[10px] font-normal text-amber-700 dark:text-amber-400"
@@ -228,7 +228,9 @@ export function JobsTable({ jobs, initialQuery = '' }: { jobs: Job[]; initialQue
                             Posted {formatDate(recencyDate(job))}
                           </span>
                         </span>
-                        {job.analysis.matchedSkills.length > 0 ? (
+                        {!job.analysis ? (
+                          <span className="text-muted-foreground mt-1 block text-[11px]">Not analysed yet</span>
+                        ) : job.analysis.matchedSkills.length > 0 ? (
                           <span className="text-muted-foreground mt-1 block truncate text-[11px]">
                             Matches: {job.analysis.matchedSkills.slice(0, 3).join(' · ')}
                             {job.analysis.matchedSkills.length > 3

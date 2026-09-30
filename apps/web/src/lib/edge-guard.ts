@@ -1,4 +1,5 @@
 import type { NextRequest } from 'next/server';
+import { PROXY_UPSTREAM_TIMEOUT_MS } from '@/lib/timeouts';
 
 /**
  * Guards for the route handlers that forward browser requests to the Express API (#347):
@@ -7,7 +8,6 @@ import type { NextRequest } from 'next/server';
 
 /** The résumé upload's 5 MB limit plus the multipart envelope. */
 export const MAX_FORWARDED_BODY_BYTES = 6 * 1024 * 1024;
-export const UPSTREAM_TIMEOUT_MS = 90_000;
 
 const json = (status: number, error: string) => Response.json({ error }, { status });
 
@@ -82,7 +82,7 @@ export async function fetchUpstream(
   const controller = new AbortController();
   const timer = setTimeout(
     () => controller.abort(new DOMException('The API took too long to answer.', 'TimeoutError')),
-    UPSTREAM_TIMEOUT_MS,
+    PROXY_UPSTREAM_TIMEOUT_MS,
   );
   try {
     return { upstream: await fetch(url, { ...init, signal: controller.signal }) };

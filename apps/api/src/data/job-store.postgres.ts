@@ -12,7 +12,7 @@ import type {
   UpdateJobBody,
   UpdateOutreachBody,
 } from '@/types';
-import { getDefaultAnalysis, validateJobAnalysis } from '@/lib/analysis-core';
+import { validateJobAnalysis } from '@/lib/analysis-core';
 import { deriveAnalyzedNextAction, UNSCORED_NEXT_ACTION } from '@/lib/analysis-workflow';
 import { getPool } from '@/lib/postgres';
 import type { PageParams } from '@/lib/pagination';
@@ -117,9 +117,10 @@ function toTextArray(value: unknown): string[] {
   return value.filter((entry): entry is string => typeof entry === 'string');
 }
 
-function mapAnalysis(row: JobAnalysisRow | undefined, descriptionText: string): JobAnalysis {
+/** The job's analysis, or null when it has none yet (#349: no made-up default). */
+function mapAnalysis(row: JobAnalysisRow | undefined): JobAnalysis | null {
   if (!row) {
-    return getDefaultAnalysis(descriptionText);
+    return null;
   }
 
   const subSignals =
@@ -136,12 +137,12 @@ function mapAnalysis(row: JobAnalysisRow | undefined, descriptionText: string): 
     fitSummary: row.fit_summary,
     recommendedResumeAngle: row.recommended_resume_angle,
     applyRecommendation: row.apply_recommendation,
-    confidenceScore: row.confidence_score ?? 0,
+    confidenceScore: row.confidence_score ?? null,
     modelUsed: row.model_used,
     subSignals,
   } satisfies JobAnalysis;
 
-  return validateJobAnalysis(analysis) ? analysis : getDefaultAnalysis(descriptionText);
+  return validateJobAnalysis(analysis) ? analysis : null;
 }
 
 function mapOutreach(row: OutreachRow): OutreachDraft {
@@ -194,7 +195,7 @@ function mapJob(row: JobRow, analysisRow?: JobAnalysisRow, outreachRows: Outreac
     notes: row.notes ?? undefined,
     nextAction: row.next_action ?? 'Review the job and decide on the next step.',
     nextActionDue: toIsoString(row.next_action_due),
-    analysis: mapAnalysis(analysisRow, row.description_text),
+    analysis: mapAnalysis(analysisRow),
     outreach: outreachRows.map(mapOutreach),
     salaryMin: row.salary_min ?? null,
     salaryMax: row.salary_max ?? null,
@@ -442,56 +443,6 @@ export async function createJob(userId: string, body: CreateJobBody): Promise<Jo
     if (!insertedJob) {
       throw new Error('Failed to create job');
     }
-
-    const defaultAnalysis = getDefaultAnalysis(body.descriptionText);
-    await client.query(
-      `
-        insert into job_analysis (
-          id,
-          job_id,
-          required_skills,
-          preferred_skills,
-          matched_skills,
-          missing_skills,
-          ats_keywords,
-          fit_summary,
-          recommended_resume_angle,
-          apply_recommendation,
-          confidence_score,
-          model_used,
-          created_at
-        ) values (
-          $1, $2, $3::jsonb, $4::jsonb, $5::jsonb, $6::jsonb, $7::jsonb, $8, $9, $10, $11, $12, $13
-        )
-      on conflict (job_id) do update set
-        required_skills = excluded.required_skills,
-        preferred_skills = excluded.preferred_skills,
-        matched_skills = excluded.matched_skills,
-        missing_skills = excluded.missing_skills,
-        ats_keywords = excluded.ats_keywords,
-        fit_summary = excluded.fit_summary,
-        recommended_resume_angle = excluded.recommended_resume_angle,
-        apply_recommendation = excluded.apply_recommendation,
-        confidence_score = excluded.confidence_score,
-        model_used = excluded.model_used,
-        created_at = excluded.created_at
-      `,
-      [
-        randomUUID(),
-        insertedJob.id,
-        JSON.stringify(defaultAnalysis.requiredSkills),
-        JSON.stringify(defaultAnalysis.preferredSkills),
-        JSON.stringify(defaultAnalysis.matchedSkills),
-        JSON.stringify(defaultAnalysis.missingSkills),
-        JSON.stringify(defaultAnalysis.atsKeywords),
-        defaultAnalysis.fitSummary,
-        defaultAnalysis.recommendedResumeAngle,
-        defaultAnalysis.applyRecommendation,
-        defaultAnalysis.confidenceScore,
-        defaultAnalysis.modelUsed,
-        timestamp,
-      ],
-    );
 
     await client.query('commit');
     const created = await getJobById(userId, insertedJob.id);
@@ -1001,28 +952,30 @@ export async function seedDemoData(userId: string): Promise<void> {
         ],
       );
 
-      await client.query(
-        `insert into job_analysis (
-          id, job_id, required_skills, preferred_skills, matched_skills, missing_skills,
-          ats_keywords, fit_summary, recommended_resume_angle, apply_recommendation,
-          confidence_score, model_used, created_at
-        ) values ($1,$2,$3::jsonb,$4::jsonb,$5::jsonb,$6::jsonb,$7::jsonb,$8,$9,$10,$11,$12,$13)`,
-        [
-          randomUUID(),
-          jobId,
-          JSON.stringify(job.analysis.requiredSkills),
-          JSON.stringify(job.analysis.preferredSkills),
-          JSON.stringify(job.analysis.matchedSkills),
-          JSON.stringify(job.analysis.missingSkills),
-          JSON.stringify(job.analysis.atsKeywords),
-          job.analysis.fitSummary,
-          job.analysis.recommendedResumeAngle,
-          job.analysis.applyRecommendation,
-          job.analysis.confidenceScore,
-          job.analysis.modelUsed,
-          job.createdAt,
-        ],
-      );
+      if (job.analysis) {
+        await client.query(
+          `insert into job_analysis (
+            id, job_id, required_skills, preferred_skills, matched_skills, missing_skills,
+            ats_keywords, fit_summary, recommended_resume_angle, apply_recommendation,
+            confidence_score, model_used, created_at
+          ) values ($1,$2,$3::jsonb,$4::jsonb,$5::jsonb,$6::jsonb,$7::jsonb,$8,$9,$10,$11,$12,$13)`,
+          [
+            randomUUID(),
+            jobId,
+            JSON.stringify(job.analysis.requiredSkills),
+            JSON.stringify(job.analysis.preferredSkills),
+            JSON.stringify(job.analysis.matchedSkills),
+            JSON.stringify(job.analysis.missingSkills),
+            JSON.stringify(job.analysis.atsKeywords),
+            job.analysis.fitSummary,
+            job.analysis.recommendedResumeAngle,
+            job.analysis.applyRecommendation,
+            job.analysis.confidenceScore,
+            job.analysis.modelUsed,
+            job.createdAt,
+          ],
+        );
+      }
 
       for (const draft of job.outreach) {
         await client.query(

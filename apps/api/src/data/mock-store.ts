@@ -451,8 +451,8 @@ export function parseJobBody(payload: ParseJobBody) {
 export function scoreFitBody(payload: ScoreFitBody) {
   const job = payload.job_id ? getJobById(payload.job_id) : undefined;
   const text = `${payload.resume_text} ${payload.profile_text}`.toLowerCase();
-  const matchedSkills = job ? job.analysis.requiredSkills.filter((skill) => text.includes(skill.toLowerCase())) : [];
-  const missingSkills = job
+  const matchedSkills = job?.analysis ? job.analysis.requiredSkills.filter((skill) => text.includes(skill.toLowerCase())) : [];
+  const missingSkills = job?.analysis
     ? job.analysis.requiredSkills.filter((skill) => !matchedSkills.includes(skill))
     : [];
 
@@ -462,12 +462,12 @@ export function scoreFitBody(payload: ScoreFitBody) {
     fit_score: job?.fitScore ?? score,
     matched_skills: matchedSkills,
     missing_skills: missingSkills,
-    ats_keywords: job?.analysis.atsKeywords ?? extractKeywords(text),
+    ats_keywords: job?.analysis?.atsKeywords ?? extractKeywords(text),
     fit_summary:
-      job?.analysis.fitSummary ??
+      job?.analysis?.fitSummary ??
       'Mock fit summary generated without a live LLM. The future version will explain the score in plain language.',
     recommended_resume_angle:
-      job?.analysis.recommendedResumeAngle ??
+      job?.analysis?.recommendedResumeAngle ??
       'Focus on truthful phrasing, keyword alignment, and the highest-signal experience from the resume.',
     apply_recommendation:
       score >= 80 ? 'apply' : score >= 65 ? 'review' : 'pass',

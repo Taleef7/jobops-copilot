@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { requireUser } from '@/lib/auth';
-import { AgentDisabledError, streamAssistantUpstream } from '@/lib/agent-client';
+import { AI_NO_ANSWER, AgentDisabledError, streamAssistantUpstream } from '@/lib/agent-client';
 import { getUserProfile } from '@/data/profile-store';
 
 const AGENT_DISABLED_MESSAGE =
@@ -70,8 +70,10 @@ export function createAssistantStreamRouter(
       return;
     }
 
+    // A failed or empty upstream is the AI being unavailable: 503, retryable (#349).
     if (!upstream.ok || !upstream.body) {
-      response.status(upstream.status || 502).json({ error: 'Assistant stream unavailable' });
+      await upstream.body?.cancel().catch(() => undefined);
+      response.status(503).json({ error: AI_NO_ANSWER, retryable: true });
       return;
     }
 

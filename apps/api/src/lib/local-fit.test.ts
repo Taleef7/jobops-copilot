@@ -104,3 +104,15 @@ test('realistic 1500-char JD mentioning Python, PostgreSQL, Docker, Kubernetes, 
   assert.equal(score, 60); // 3 of 5 (Python, PostgreSQL, Docker, Kubernetes, Terraform) = 60%
   assert.deepEqual(matchedSkills.sort(), ['Docker', 'Kubernetes', 'Terraform']);
 });
+
+// #349: the pre-rank is a labelled keyword estimate, so it claims no confidence (it used to
+// carry a hardcoded 48 from the fake-analysis builder) and is never labelled as a mock.
+test('prerankAnalysis carries no invented confidence and no mock label', () => {
+  const { analysis } = prerankAnalysis(
+    'We need Python, PostgreSQL, Docker and Kubernetes experience for our backend platform.',
+    'Python and PostgreSQL engineer.',
+  );
+  assert.equal(analysis.confidenceScore, null);
+  assert.equal(analysis.modelUsed, 'local-prerank');
+  assert.ok(!JSON.stringify(analysis).includes('mock-analysis'));
+});

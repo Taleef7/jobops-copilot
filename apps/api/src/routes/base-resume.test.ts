@@ -9,6 +9,8 @@ import { baseResumeRouter } from './base-resume';
 import { demoRouter } from './demo';
 import { resetResumeVersionStore } from '@/data/resume-version-store';
 import type { StructuredResume } from '@/types';
+import { apiErrorHandler } from '@/lib/api-error-handler';
+import { fakeAgentAnswer } from '@/test-support/fake-agent';
 
 async function withServer(
   mount: (app: express.Express) => void,
@@ -22,6 +24,7 @@ async function withServer(
     next();
   });
   mount(app);
+  app.use(apiErrorHandler);
   const server = http.createServer(app);
   await new Promise<void>((resolve) => server.listen(0, resolve));
   const address = server.address();
@@ -158,7 +161,9 @@ test('PUT /api/profile/base-resume rejects payload without basics.name', async (
   }
 });
 
-test('POST /api/profile/base-resume/parse-resume returns structured resume (mock fallback)', async () => {
+// #349: a résumé import is the AI's reading of the résumé, or an error to retry. It used to
+// return a keyword guess labelled as a parse.
+test('POST /api/profile/base-resume/parse-resume answers 503 retryable when the AI is unavailable', async () => {
   const originalCwd = process.cwd();
   delete process.env.DATABASE_URL;
   delete process.env.AGENT_SERVICE_URL;
@@ -174,24 +179,58 @@ test('POST /api/profile/base-resume/parse-resume returns structured resume (mock
         const res = await fetch(`${baseUrl}/api/profile/base-resume/parse-resume`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', 'X-User-Id': 'user-br-4' },
-          body: JSON.stringify({
-            resume_text:
-              'Jane Doe\nSenior Software Engineer\njane.doe@example.com\n+1-555-0100\n\n' +
-              'Experience:\n- Led team of 5 at Acme Corp building distributed systems\n' +
-              '- Reduced API latency by 40%\n\nSkills: TypeScript, Python, Go, AWS',
-          }),
+          body: JSON.stringify({ resume_text: 'Jane Doe\nSenior Software Engineer\njane.doe@example.com' }),
         });
-        assert.equal(res.status, 200);
-        const data = (await res.json()) as { structuredResume: StructuredResume };
-        assert.ok(data.structuredResume);
-        assert.ok(data.structuredResume.basics);
-        // Mock parser extracts first line as name, email from text
-        assert.equal(data.structuredResume.basics.name, 'Jane Doe');
-        assert.ok(data.structuredResume.basics.email.includes('example.com'));
+        assert.equal(res.status, 503);
+        const data = (await res.json()) as { error: string; retryable: boolean };
+        assert.equal(data.retryable, true);
+        assert.ok(data.error.length > 0);
       },
     );
   } finally {
     process.chdir(originalCwd);
+  }
+});
+
+test('POST /api/profile/base-resume/parse-resume returns the AI reading of the résumé', async () => {
+  const originalCwd = process.cwd();
+  const savedAgent = process.env.AGENT_SERVICE_URL;
+  delete process.env.DATABASE_URL;
+  const tempDir = await mkdtemp(join(tmpdir(), 'jobops-base-resume-parse-ai-'));
+  const agent = http.createServer((request, response) => {
+    request.resume();
+    response.writeHead(200, { 'Content-Type': 'application/json' }).end(JSON.stringify(fakeAgentAnswer(request.url)));
+  });
+  await new Promise<void>((resolve) => agent.listen(0, resolve));
+  const agentAddress = agent.address();
+  if (!agentAddress || typeof agentAddress === 'string') throw new Error('no agent address');
+  process.env.AGENT_SERVICE_URL = `http://127.0.0.1:${agentAddress.port}`;
+
+  try {
+    process.chdir(tempDir);
+    await resetResumeVersionStore();
+
+    await withServer(
+      (app) => app.use('/api/profile/base-resume', baseResumeRouter),
+      async (baseUrl) => {
+        const res = await fetch(`${baseUrl}/api/profile/base-resume/parse-resume`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'X-User-Id': 'user-br-5' },
+          body: JSON.stringify({ resume_text: 'Ada Lovelace. Backend engineer at Globex.' }),
+        });
+        assert.equal(res.status, 200);
+        const data = (await res.json()) as { structuredResume: StructuredResume };
+        assert.equal(data.structuredResume.basics.name, 'Ada Lovelace');
+        assert.equal(data.structuredResume.work[0]?.company, 'Globex');
+        assert.deepEqual(data.structuredResume.skills[0]?.skills, ['Go', 'Python']);
+      },
+    );
+  } finally {
+    process.chdir(originalCwd);
+    if (savedAgent === undefined) delete process.env.AGENT_SERVICE_URL;
+    else process.env.AGENT_SERVICE_URL = savedAgent;
+    agent.closeAllConnections();
+    await new Promise<void>((resolve) => agent.close(() => resolve()));
   }
 });
 

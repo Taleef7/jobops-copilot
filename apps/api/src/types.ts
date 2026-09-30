@@ -56,7 +56,8 @@ export interface JobAnalysis {
   fitSummary: string;
   recommendedResumeAngle: string;
   applyRecommendation: string;
-  confidenceScore: number;
+  /** Null for the discovery pre-rank, which is a keyword estimate, not a model reading. */
+  confidenceScore: number | null;
   modelUsed: string;
   subSignals?: JobAnalysisSubSignals;
 }
@@ -131,7 +132,8 @@ export interface JobRecord {
   notes?: string;
   nextAction?: string;
   nextActionDue?: string;
-  analysis: JobAnalysis;
+  /** Null until a real fit score succeeds (#349). */
+  analysis: JobAnalysis | null;
   outreach: OutreachDraft[];
   salaryMin?: number | null;
   salaryMax?: number | null;

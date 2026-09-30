@@ -18,6 +18,7 @@ import {
 import { ANALYZED_NEXT_ACTION, UNSCORED_NEXT_ACTION } from '@/lib/analysis-workflow';
 import { PRERANK_MODEL } from '@/lib/local-fit';
 import type { OutreachDraft } from '@/types';
+import { sampleAnalysis } from '@/test-support/analysis';
 
 function draft(text: string): OutreachDraft {
   return {
@@ -148,7 +149,7 @@ test('saveJobAnalysis advances the next action only for a real scoring run', asy
     });
     assert.equal(scoredJob.nextAction, UNSCORED_NEXT_ACTION, 'a new job asks to be scored');
 
-    await saveJobAnalysis('user-1', scoredJob.id, { ...scoredJob.analysis, modelUsed: 'gpt-4o' }, 77);
+    await saveJobAnalysis('user-1', scoredJob.id, sampleAnalysis({ modelUsed: 'gpt-4o' }), 77);
     assert.equal(
       (await getJobById('user-1', scoredJob.id))?.nextAction,
       ANALYZED_NEXT_ACTION,
@@ -166,7 +167,7 @@ test('saveJobAnalysis advances the next action only for a real scoring run', asy
     await saveJobAnalysis(
       'user-1',
       estimatedJob.id,
-      { ...estimatedJob.analysis, modelUsed: PRERANK_MODEL },
+      sampleAnalysis({ modelUsed: PRERANK_MODEL }),
       100,
     );
     assert.equal(
@@ -183,10 +184,7 @@ test('saveJobAnalysis advances the next action only for a real scoring run', asy
       descriptionText: 'Kubernetes and Go.',
     });
 
-    await saveJobAnalysis('user-1', parsedJob.id, {
-      ...parsedJob.analysis,
-      modelUsed: 'mock-analysis-v1',
-    });
+    await saveJobAnalysis('user-1', parsedJob.id, sampleAnalysis());
     assert.equal(
       (await getJobById('user-1', parsedJob.id))?.nextAction,
       UNSCORED_NEXT_ACTION,

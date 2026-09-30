@@ -12,7 +12,8 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { OptionSelect } from '@/components/ui/option-select';
 import { CoverLetterDownloadButton } from '@/components/cover-letter-download-button';
-import { ApiRequestError, draftOutreach } from '@/lib/api';
+import { ErrorState } from '@/components/error-state';
+import { draftOutreach } from '@/lib/api';
 import type { OutreachMessageType } from '@/types/job';
 
 const messageTypeOptions: { label: string; value: OutreachMessageType }[] = [
@@ -43,11 +44,9 @@ type Result = {
 export function JobOutreachActions({
   jobId,
   jobContext,
-  disabled = false,
 }: {
   jobId: string;
   jobContext: string;
-  disabled?: boolean;
 }) {
   const router = useRouter();
   const [form, setForm] = useState<FormState>({
@@ -57,6 +56,8 @@ export function JobOutreachActions({
     contactEmail: '',
   });
   const [result, setResult] = useState<Result | null>(null);
+  // Why the last draft failed, shown inline with a retry; the form keeps what was typed (#349).
+  const [draftError, setDraftError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   function updateField<K extends keyof FormState>(field: K, value: FormState[K]) {
@@ -65,8 +66,12 @@ export function JobOutreachActions({
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (disabled) return;
+    await generate();
+  }
+
+  async function generate() {
     setResult(null);
+    setDraftError(null);
     setIsSubmitting(true);
     try {
       const draft = await draftOutreach({
@@ -89,13 +94,13 @@ export function JobOutreachActions({
       toast.success('Draft created — review it in the inbox before sending.');
       router.refresh();
     } catch (error) {
-      toast.error(error instanceof ApiRequestError ? error.message : 'Failed to draft outreach.');
+      setDraftError(error instanceof Error ? error.message : 'Failed to draft outreach.');
     } finally {
       setIsSubmitting(false);
     }
   }
 
-  const busy = disabled || isSubmitting;
+  const busy = isSubmitting;
 
   async function copy(text: string, label: string) {
     try {
@@ -112,15 +117,6 @@ export function JobOutreachActions({
         The AI drafts from the job description and your resume snapshot, then stores a
         <span className="text-foreground font-medium"> human-reviewed draft</span> — nothing is sent.
       </p>
-
-      {disabled ? (
-        <Card className="border-amber-500/30 bg-amber-500/5 gap-1 p-3">
-          <p className="text-sm font-medium text-amber-700 dark:text-amber-400">API unavailable</p>
-          <p className="text-muted-foreground text-sm">
-            Draft generation is disabled while showing seed data.
-          </p>
-        </Card>
-      ) : null}
 
       <div className="grid gap-3 sm:grid-cols-2">
         <div className="space-y-1.5">
@@ -169,6 +165,10 @@ export function JobOutreachActions({
       <Button type="submit" disabled={busy} className="gap-1.5">
         {isSubmitting ? 'Drafting…' : 'Generate outreach'}
       </Button>
+
+      {draftError ? (
+        <ErrorState title="Couldn't draft outreach" message={draftError} onRetry={() => void generate()} />
+      ) : null}
 
       {result ? (
         <Card className="gap-2 p-4">

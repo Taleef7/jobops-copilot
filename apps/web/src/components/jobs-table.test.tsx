@@ -154,3 +154,12 @@ it('labels the status and priority values for screen readers in card mode', () =
     expect(node).toHaveClass('lg:hidden');
   }
 });
+
+// #349: a job has no analysis until a real score; the row says so instead of showing a
+// made-up one (every new job used to get a keyword "analysis" at creation).
+it('says a job is not analysed yet when it has no analysis', () => {
+  render(<JobsTable jobs={[makeJob({ id: 'fresh', title: 'Fresh role', company: 'Newco', analysis: null })]} initialQuery="" />);
+
+  expect(screen.getByText('Fresh role')).toBeInTheDocument();
+  expect(screen.getByText('Not analysed yet')).toBeInTheDocument();
+});
