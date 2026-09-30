@@ -5,10 +5,13 @@ const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', '
 /** "2026-05-01" or "2026-05" → "May 2026", "2024" → "2024"; anything else as written. */
 export function formatResumeDate(value: string | undefined | null): string {
   const text = (value ?? '').trim();
-  const match = /^(\d{4})(?:-(\d{2}))?(?:-\d{2})?$/.exec(text);
+  const match = /^(\d{4})(?:-(\d{2}))?(?:-(\d{2}))?$/.exec(text);
   if (!match) return text;
-  const month = match[2] ? MONTHS[Number(match[2]) - 1] : undefined;
-  return month ? `${month} ${match[1]}` : match[1]!;
+  if (!match[2]) return match[1]!;
+  // A month or day out of range is shown as typed, so the mistake stays visible.
+  const month = MONTHS[Number(match[2]) - 1];
+  if (!month || (match[3] !== undefined && (Number(match[3]) < 1 || Number(match[3]) > 31))) return text;
+  return `${month} ${match[1]}`;
 }
 
 const isOpenEnded = (end: string) => !end || /^(present|current|now)$/i.test(end);

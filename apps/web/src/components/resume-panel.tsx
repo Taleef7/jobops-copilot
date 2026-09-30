@@ -11,7 +11,15 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
-import { errorMessage, fetchResumeText, parseResume, saveBaseResume, uploadResumeFile, type ResumeFlag } from '@/lib/api';
+import {
+  errorMessage,
+  fetchResumeText,
+  parseResume,
+  saveBaseResume,
+  saveResumeText,
+  uploadResumeFile,
+  type ResumeFlag,
+} from '@/lib/api';
 import { formatDate } from '@/lib/format';
 import { formatResumeDate, formatResumeRange, withEndDate } from '@/lib/resume-display';
 import type {
@@ -83,7 +91,15 @@ type ImportState =
   | { kind: 'idle' }
   | { kind: 'reading' }
   | { kind: 'error'; title: string; message: string; retry?: () => void }
-  | { kind: 'confirming'; parsed: StructuredResume; flags: ResumeFlag[]; saving: boolean; error: string | null };
+  | {
+      kind: 'confirming';
+      parsed: StructuredResume;
+      flags: ResumeFlag[];
+      saving: boolean;
+      error: string | null;
+      /** A new file's text, stored only on "Looks right". */
+      staged: { text: string; fileName: string | null } | null;
+    };
 
 type Pending = { kind: 'switch'; key: SectionKey } | { kind: 'replace' } | { kind: 'read' };
 
@@ -244,29 +260,30 @@ export function ResumePanel({ initial, updatedAt, resumeFileName, hasStoredText,
     if (id !== undefined) undoToasts.current.push(id);
   }
 
-  async function read(text?: string) {
+  async function read(text?: string, staged: { text: string; fileName: string | null } | null = null) {
+    // An open section would be replaced by the import: close it (a changed one was asked about).
+    close();
     setImportState({ kind: 'reading' });
     try {
       const { structuredResume, flags } = await parseResume(text);
-      setImportState({ kind: 'confirming', parsed: structuredResume, flags, saving: false, error: null });
+      setImportState({ kind: 'confirming', parsed: structuredResume, flags, saving: false, error: null, staged });
     } catch (error) {
       setImportState({
         kind: 'error',
         title: "Couldn't read your résumé",
         message: errorMessage(error, 'The AI could not read it. Try again in a moment.'),
-        retry: () => void read(text),
+        retry: () => void read(text, staged),
       });
     }
   }
 
   async function onFile(file: File) {
+    close();
     setImportState({ kind: 'reading' });
     try {
-      const { resumeText } = await uploadResumeFile(file);
-      setFileName(file.name);
-      setTextOnFile(true);
-      setReadText(resumeText);
-      await read(resumeText ?? undefined);
+      // Only read: the file replaces the stored one when the user confirms (#350).
+      const { resumeText, resumeFileName: name } = await uploadResumeFile(file, { preview: true });
+      await read(resumeText ?? undefined, { text: resumeText ?? '', fileName: name ?? file.name });
     } catch (error) {
       setImportState({
         kind: 'error',
@@ -280,6 +297,13 @@ export function ResumePanel({ initial, updatedAt, resumeFileName, hasStoredText,
     if (importState.kind !== 'confirming') return;
     setImportState({ ...importState, saving: true, error: null });
     try {
+      const { staged } = importState;
+      if (staged) {
+        await saveResumeText(staged.text, staged.fileName);
+        setFileName(staged.fileName);
+        setTextOnFile(true);
+        setReadText(staged.text);
+      }
       const result = await saveBaseResume(resume);
       // An editor left open holds the old section; its Save would undo the import.
       close();

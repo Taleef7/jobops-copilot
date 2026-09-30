@@ -406,19 +406,25 @@ export async function updateProfile(payload: {
 }
 
 export interface ResumeUploadResult {
+  /** Null for a preview, which stores nothing. */
   profile: UserProfile | null;
   /** The text read from the PDF (#350), shown so a misread is visible before it spreads. */
   resumeText: string | null;
+  resumeFileName: string | null;
 }
 
-/** Uploads a resume PDF (client-only; routed through the proxy for auth). */
-export async function uploadResumeFile(file: File): Promise<ResumeUploadResult> {
+/**
+ * Uploads a resume PDF (client-only; routed through the proxy for auth). With `preview`,
+ * the API only reads it and stores nothing: Settings stores the text once the user
+ * confirms what was read (#350), with saveResumeText.
+ */
+export async function uploadResumeFile(file: File, options: { preview?: boolean } = {}): Promise<ResumeUploadResult> {
   const form = new FormData();
   form.append('file', file);
   let response: Response;
   try {
     // The upload can parse the resume with the AI, so it gets the AI limit (#349).
-    response = await fetch('/api/proxy/api/profile/resume', {
+    response = await fetch(`/api/proxy/api/profile/resume${options.preview ? '?preview=1' : ''}`, {
       method: 'POST',
       body: form,
       signal: AbortSignal.timeout(AI_REQUEST_TIMEOUT_MS),
@@ -437,14 +443,15 @@ export async function uploadResumeFile(file: File): Promise<ResumeUploadResult> 
     }
     throw new ApiRequestError(message, response.status);
   }
-  const data = (await response.json()) as { profile: UserProfile | null; resumeText?: string };
-  return { profile: data.profile, resumeText: data.resumeText ?? null };
+  const data = (await response.json()) as { profile?: UserProfile | null; resumeText?: string; resumeFileName?: string | null };
+  return { profile: data.profile ?? null, resumeText: data.resumeText ?? null, resumeFileName: data.resumeFileName ?? null };
 }
 
-export async function saveResumeText(resumeText: string): Promise<UserProfile | null> {
+/** Stores résumé text; `fileName` names the PDF it was read from, when there was one. */
+export async function saveResumeText(resumeText: string, fileName?: string | null): Promise<UserProfile | null> {
   const response = await requestJson<{ profile: UserProfile | null }>('/api/profile/resume', {
     method: 'POST',
-    body: JSON.stringify({ resume_text: resumeText }),
+    body: JSON.stringify(fileName ? { resume_text: resumeText, resume_file_name: fileName } : { resume_text: resumeText }),
   });
   return response.profile;
 }

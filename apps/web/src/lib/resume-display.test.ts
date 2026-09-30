@@ -10,6 +10,8 @@ describe('résumé display (#350)', () => {
 
   it('shows anything else as written, and nothing for nothing', () => {
     expect(formatResumeDate('Summer 2023')).toBe('Summer 2023');
+    expect(formatResumeDate('2024-13')).toBe('2024-13');
+    expect(formatResumeDate('2024-00-10')).toBe('2024-00-10');
     expect(formatResumeDate('')).toBe('');
     expect(formatResumeDate(undefined)).toBe('');
   });

@@ -4,13 +4,14 @@ import userEvent from '@testing-library/user-event';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { StructuredResume } from '@/types/job';
 
-const { saveBaseResume, uploadResumeFile, parseResume, fetchResumeText, toastFn } = vi.hoisted(() => {
+const { saveBaseResume, uploadResumeFile, parseResume, fetchResumeText, saveResumeText, toastFn } = vi.hoisted(() => {
   const toastFn = Object.assign(vi.fn(), { success: vi.fn(), error: vi.fn(), dismiss: vi.fn() });
   return {
     saveBaseResume: vi.fn(async (resume: unknown) => resume),
     uploadResumeFile: vi.fn(),
     parseResume: vi.fn(),
     fetchResumeText: vi.fn(),
+    saveResumeText: vi.fn(async () => null),
     toastFn,
   };
 });
@@ -21,6 +22,7 @@ vi.mock('@/lib/api', () => ({
   uploadResumeFile,
   parseResume,
   fetchResumeText,
+  saveResumeText,
   errorMessage: (error: unknown, fallback: string) => (error instanceof Error ? error.message : fallback),
 }));
 
@@ -139,7 +141,7 @@ describe('ResumePanel (#350)', () => {
   });
 
   it('replaces from file through the confirmation, and saves only on "Looks right"', async () => {
-    uploadResumeFile.mockResolvedValue({ profile: null, resumeText: 'NEW TEXT' });
+    uploadResumeFile.mockResolvedValue({ profile: null, resumeText: 'NEW TEXT', resumeFileName: 'new.pdf' });
     parseResume.mockResolvedValue({ structuredResume: { ...resume, work: [resume.work[0]!] }, flags: [] });
     const user = userEvent.setup();
     render(<ResumePanel initial={resume} updatedAt={null} resumeFileName="cv.pdf" hasStoredText />);
@@ -148,9 +150,42 @@ describe('ResumePanel (#350)', () => {
 
     expect(await screen.findByText('Check what we read')).toBeInTheDocument();
     expect(parseResume).toHaveBeenCalledWith('NEW TEXT');
+    // The file is only read: nothing is stored until "Looks right".
+    expect(uploadResumeFile).toHaveBeenCalledWith(expect.any(File), { preview: true });
+    expect(saveResumeText).not.toHaveBeenCalled();
     expect(saveBaseResume).not.toHaveBeenCalled();
     await user.click(screen.getByRole('button', { name: /looks right/i }));
+    expect(saveResumeText).toHaveBeenCalledWith('NEW TEXT', 'new.pdf');
     expect(saveBaseResume).toHaveBeenCalledWith({ ...resume, work: [resume.work[0]] });
+    expect(screen.getByText('new.pdf')).toBeInTheDocument();
+  });
+
+  it('cancelling a replacement stores nothing, and the old file stays', async () => {
+    uploadResumeFile.mockResolvedValue({ profile: null, resumeText: 'NEW TEXT', resumeFileName: 'new.pdf' });
+    parseResume.mockResolvedValue({ structuredResume: resume, flags: [] });
+    const user = userEvent.setup();
+    render(<ResumePanel initial={resume} updatedAt={null} resumeFileName="cv.pdf" hasStoredText />);
+
+    await user.upload(screen.getByLabelText('Résumé PDF'), new File(['%PDF'], 'new.pdf', { type: 'application/pdf' }));
+    await user.click(await screen.findByRole('button', { name: /cancel/i }));
+
+    expect(saveResumeText).not.toHaveBeenCalled();
+    expect(saveBaseResume).not.toHaveBeenCalled();
+    expect(screen.getByText('cv.pdf')).toBeInTheDocument();
+  });
+
+  it('closes an open, unchanged section when an import starts', async () => {
+    uploadResumeFile.mockResolvedValue({ profile: null, resumeText: 'NEW TEXT', resumeFileName: 'new.pdf' });
+    parseResume.mockResolvedValue({ structuredResume: resume, flags: [] });
+    const user = userEvent.setup();
+    render(<ResumePanel initial={resume} updatedAt={null} resumeFileName="cv.pdf" hasStoredText />);
+
+    await user.click(within(section('Experience')).getByRole('button', { name: /edit/i }));
+    await user.click(screen.getByRole('button', { name: /replace from file/i }));
+    await user.upload(screen.getByLabelText('Résumé PDF'), new File(['%PDF'], 'new.pdf', { type: 'application/pdf' }));
+    await screen.findByText('Check what we read');
+
+    expect(screen.queryByLabelText('Company', { selector: '#resume-work-0-company' })).not.toBeInTheDocument();
   });
 
   it('shows what was read from the PDF', async () => {

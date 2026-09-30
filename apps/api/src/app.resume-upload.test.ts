@@ -162,3 +162,37 @@ test('the upload answers with the text it read, and only the owner can read it b
     assert.deepEqual(await other.json(), { resumeText: null, resumeFileName: null, updatedAt: null });
   });
 });
+
+// #350: replacing a résumé from Settings reads the file without storing it, so cancelling the
+// check leaves the old résumé in place (discovery scores against the stored text).
+test('a preview upload reads the PDF without replacing the stored résumé', async () => {
+  await withApi(async (base) => {
+    await upload(base, [pdf(buildPdf(['Old resume: Go, Postgres.']))]);
+
+    const form = new FormData();
+    form.append('file', new Blob([buildPdf(['New resume: Rust, Kafka.'])], { type: 'application/pdf' }), 'new.pdf');
+    const preview = await fetch(`${base}/api/profile/resume?preview=1`, { method: 'POST', headers: { 'X-User-Id': USER }, body: form });
+    assert.equal(preview.status, 200);
+    const body = (await preview.json()) as { resumeText: string; resumeFileName: string };
+    assert.match(body.resumeText, /New resume: Rust, Kafka\./);
+    assert.equal(body.resumeFileName, 'new.pdf');
+
+    const stored = await getUserProfile(USER);
+    assert.match(stored?.resumeText ?? '', /Old resume/);
+    assert.equal(stored?.resumeFileName, 'resume.pdf');
+  });
+});
+
+test('confirmed text is stored with the name of the file it came from', async () => {
+  await withApi(async (base) => {
+    const response = await fetch(`${base}/api/profile/resume`, {
+      method: 'POST',
+      headers: { 'X-User-Id': USER, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ resume_text: 'New résumé: Rust, Kafka.', resume_file_name: 'new.pdf' }),
+    });
+    assert.equal(response.status, 200);
+    const stored = await getUserProfile(USER);
+    assert.equal(stored?.resumeText, 'New résumé: Rust, Kafka.');
+    assert.equal(stored?.resumeFileName, 'new.pdf');
+  });
+});
