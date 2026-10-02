@@ -24,7 +24,7 @@ langchain-mcp-adapters>=0.3,<1
 httpx>=0.28.1,<1
 
 # Time-series telemetry intelligence (Phase 11)
-pandas>=2.2,<3
+pandas>=3.0.5,<4
 numpy>=1.26,<3
 
 # Observability (App Insights via OpenTelemetry)
