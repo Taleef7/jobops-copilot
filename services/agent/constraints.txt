@@ -161,7 +161,7 @@ uuid_utils==0.17.0
 uvicorn==0.39.0
 uvloop==0.22.1
 watchfiles==1.2.0
-websockets==15.0.1
+websockets==17.1
 wrapt==2.2.2
 xxhash==3.8.1
 zstandard==0.25.0
