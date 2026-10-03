@@ -100,21 +100,19 @@ profileRouter.put('/', async (request, response, next) => {
 
 // Accept either a PDF upload (field "file") or pasted text in the JSON body.
 // `?preview=1` reads a PDF and answers with its text without storing anything: Settings
-// stores it only once the user confirms what was read (#350). Pasted text can name the
-// file it came from (`resume_file_name`), so the confirmed upload keeps its name.
+// stores it with the résumé read from it, once the user confirms that (#350).
 profileRouter.post('/resume', requireSignedIn, receiveResumeFile, async (request, response, next) => {
   try {
     const userId = requireUser(request, response);
     if (!userId) return;
 
-    const body = request.body as { resume_text?: string; resume_file_name?: string };
+    const body = request.body as { resume_text?: string };
     const preview = request.query.preview === '1';
     if (isTooLong(body.resume_text, STORED_TEXT_MAX)) {
       return response.status(413).json({ error: TOO_LONG_MESSAGE });
     }
     let resumeText = body.resume_text?.trim();
-    let resumeFileName: string | undefined =
-      typeof body.resume_file_name === 'string' ? body.resume_file_name.trim().slice(0, 200) || undefined : undefined;
+    let resumeFileName: string | undefined;
 
     if (request.file) {
       if (request.file.buffer.subarray(0, 5).toString('latin1') !== '%PDF-') {

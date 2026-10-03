@@ -1,5 +1,5 @@
 import '@testing-library/jest-dom/vitest';
-import { render, screen, within } from '@testing-library/react';
+import { act, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { StructuredResume } from '@/types/job';
@@ -155,9 +155,11 @@ describe('ResumePanel (#350)', () => {
     expect(saveResumeText).not.toHaveBeenCalled();
     expect(saveBaseResume).not.toHaveBeenCalled();
     await user.click(screen.getByRole('button', { name: /looks right/i }));
-    expect(saveResumeText).toHaveBeenCalledWith('NEW TEXT', 'new.pdf');
-    expect(saveBaseResume).toHaveBeenCalledWith({ ...resume, work: [resume.work[0]] });
-    expect(screen.getByText('new.pdf')).toBeInTheDocument();
+    // The file's text and the résumé read from it are saved together, in one request.
+    expect(saveBaseResume).toHaveBeenCalledOnce();
+    expect(saveBaseResume).toHaveBeenCalledWith({ ...resume, work: [resume.work[0]] }, { text: 'NEW TEXT', fileName: 'new.pdf' });
+    expect(saveResumeText).not.toHaveBeenCalled();
+    expect(await screen.findByText('new.pdf')).toBeInTheDocument();
   });
 
   it('cancelling a replacement stores nothing, and the old file stays', async () => {
@@ -316,5 +318,166 @@ describe('ResumePanel Codex fixes (#350)', () => {
       />,
     );
     expect(within(section('Certificates')).getByText(/Microsoft · Sep 2024$/)).toBeInTheDocument();
+  });
+
+  it('keeps the old file when a replacement fails to save', async () => {
+    uploadResumeFile.mockResolvedValue({ profile: null, resumeText: 'NEW TEXT', resumeFileName: 'new.pdf' });
+    parseResume.mockResolvedValue({ structuredResume: resume, flags: [] });
+    saveBaseResume.mockRejectedValueOnce(new Error('The API took too long to answer.'));
+    const user = userEvent.setup();
+    render(<ResumePanel initial={resume} updatedAt={null} resumeFileName="cv.pdf" hasStoredText />);
+
+    await user.upload(screen.getByLabelText('Résumé PDF'), new File(['%PDF'], 'new.pdf', { type: 'application/pdf' }));
+    await user.click(await screen.findByRole('button', { name: /looks right/i }));
+    expect(await screen.findByText('The API took too long to answer.')).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: /^cancel$/i }));
+
+    expect(saveResumeText).not.toHaveBeenCalled();
+    expect(screen.getByText('cv.pdf')).toBeInTheDocument();
+    expect(screen.queryByText('new.pdf')).not.toBeInTheDocument();
+  });
+
+  it('freezes the section while it saves, so nothing done meanwhile is lost', async () => {
+    let finish!: (value: StructuredResume) => void;
+    saveBaseResume.mockImplementationOnce(() => new Promise<StructuredResume>((resolve) => (finish = resolve)));
+    const user = userEvent.setup();
+    render(<ResumePanel initial={resume} updatedAt={null} resumeFileName="cv.pdf" hasStoredText />);
+
+    const experience = section('Experience');
+    await user.click(within(experience).getByRole('button', { name: /edit/i }));
+    toastFn.mockReturnValueOnce('toast-1');
+    await user.click(within(experience).getByRole('button', { name: /remove riccle/i }));
+    const [, options] = toastFn.mock.calls.at(-1)! as [string, { action: { onClick: (event: { preventDefault: () => void }) => void } }];
+    await user.click(within(experience).getByRole('button', { name: /^save$/i }));
+
+    expect(screen.getByLabelText('Company', { selector: '#resume-work-0-company' })).toBeDisabled();
+    expect(within(experience).getByRole('button', { name: /add a role/i })).toBeDisabled();
+    expect(within(experience).getByRole('button', { name: /remove medical/i })).toBeDisabled();
+    expect(within(section('Skills')).getByRole('button', { name: /edit/i })).toBeDisabled();
+    expect(screen.getByRole('button', { name: /replace from file/i })).toBeDisabled();
+    // Undo waits too: a click now changes nothing, and its toast stays for after the save.
+    const click = { preventDefault: vi.fn() };
+    act(() => options.action.onClick(click));
+    expect(click.preventDefault).toHaveBeenCalled();
+    expect(screen.queryByDisplayValue('Riccle')).not.toBeInTheDocument();
+
+    await act(async () => finish({ ...resume, work: [resume.work[0]!] }));
+    expect(within(experience).queryByRole('button', { name: /^save$/i })).not.toBeInTheDocument();
+    expect(within(experience).queryByText(/Riccle/)).not.toBeInTheDocument();
+    expect(toastFn.dismiss).toHaveBeenCalledWith('toast-1');
+  });
+
+  it('keeps Undo working when a save fails', async () => {
+    saveBaseResume.mockRejectedValueOnce(new Error("The API couldn't be reached."));
+    const user = userEvent.setup();
+    render(<ResumePanel initial={resume} updatedAt={null} resumeFileName="cv.pdf" hasStoredText />);
+
+    const experience = section('Experience');
+    await user.click(within(experience).getByRole('button', { name: /edit/i }));
+    toastFn.mockReturnValueOnce('toast-1');
+    await user.click(within(experience).getByRole('button', { name: /remove riccle/i }));
+    const [, options] = toastFn.mock.calls.at(-1)! as [string, { action: { onClick: (event: { preventDefault: () => void }) => void } }];
+    await user.click(within(experience).getByRole('button', { name: /^save$/i }));
+
+    expect(await within(experience).findByRole('alert')).toHaveTextContent("The API couldn't be reached.");
+    expect(toastFn.dismiss).not.toHaveBeenCalledWith('toast-1');
+    act(() => options.action.onClick({ preventDefault: vi.fn() }));
+    expect(await screen.findByDisplayValue('Riccle')).toBeInTheDocument();
+  });
+
+  it('holds a failed import\'s "Try again" while a section saves', async () => {
+    uploadResumeFile.mockResolvedValue({ profile: null, resumeText: 'NEW TEXT', resumeFileName: 'new.pdf' });
+    parseResume.mockRejectedValueOnce(new Error('The AI is unavailable.'));
+    saveBaseResume.mockImplementationOnce(() => new Promise<StructuredResume>(() => {}));
+    const user = userEvent.setup();
+    render(<ResumePanel initial={resume} updatedAt={null} resumeFileName="cv.pdf" hasStoredText />);
+
+    await user.upload(screen.getByLabelText('Résumé PDF'), new File(['%PDF'], 'new.pdf', { type: 'application/pdf' }));
+    expect(await screen.findByText('The AI is unavailable.')).toBeInTheDocument();
+    const experience = section('Experience');
+    await user.click(within(experience).getByRole('button', { name: /edit/i }));
+    await user.type(screen.getByLabelText('Title', { selector: '#resume-work-1-position' }), ' II');
+    await user.click(within(experience).getByRole('button', { name: /^save$/i }));
+
+    // Either would read a file and close the section while its save is on its way.
+    expect(screen.getByRole('button', { name: /try again/i })).toBeDisabled();
+    expect(screen.getByLabelText('Résumé PDF')).toBeDisabled();
+  });
+
+  it('asks before a failed import\'s "Try again" drops unsaved changes', async () => {
+    uploadResumeFile.mockResolvedValue({ profile: null, resumeText: 'NEW TEXT', resumeFileName: 'new.pdf' });
+    parseResume
+      .mockRejectedValueOnce(new Error('The AI is unavailable.'))
+      .mockResolvedValueOnce({ structuredResume: resume, flags: [] });
+    const user = userEvent.setup();
+    render(<ResumePanel initial={resume} updatedAt={null} resumeFileName="cv.pdf" hasStoredText />);
+
+    await user.upload(screen.getByLabelText('Résumé PDF'), new File(['%PDF'], 'new.pdf', { type: 'application/pdf' }));
+    await screen.findByText('The AI is unavailable.');
+    await user.click(within(section('Experience')).getByRole('button', { name: /edit/i }));
+    await user.type(screen.getByLabelText('Company', { selector: '#resume-work-1-company' }), ' Inc');
+    await user.click(screen.getByRole('button', { name: /try again/i }));
+
+    expect(screen.getByText(/trying again will discard your changes to experience/i)).toBeInTheDocument();
+    expect(parseResume).toHaveBeenCalledOnce();
+    await user.click(screen.getByRole('button', { name: /keep editing/i }));
+    expect(screen.getByLabelText('Company', { selector: '#resume-work-1-company' })).toHaveValue('Riccle Inc');
+
+    await user.click(screen.getByRole('button', { name: /try again/i }));
+    await user.click(screen.getByRole('button', { name: /discard and try again/i }));
+    expect(await screen.findByText('Check what we read')).toBeInTheDocument();
+    expect(parseResume).toHaveBeenLastCalledWith('NEW TEXT');
+  });
+
+  it("keeps a saved replacement's text over a slow load of the old one", async () => {
+    let answer!: (value: { resumeText: string; resumeFileName: string; updatedAt: null }) => void;
+    fetchResumeText.mockImplementationOnce(() => new Promise((resolve) => (answer = resolve)));
+    uploadResumeFile.mockResolvedValue({ profile: null, resumeText: 'NEW TEXT', resumeFileName: 'new.pdf' });
+    parseResume.mockResolvedValue({ structuredResume: resume, flags: [] });
+    const user = userEvent.setup();
+    render(<ResumePanel initial={resume} updatedAt={null} resumeFileName="cv.pdf" hasStoredText />);
+
+    await user.click(screen.getByText(/what we read from your pdf/i));
+    await waitFor(() => expect(fetchResumeText).toHaveBeenCalled());
+    await user.upload(screen.getByLabelText('Résumé PDF'), new File(['%PDF'], 'new.pdf', { type: 'application/pdf' }));
+    await user.click(await screen.findByRole('button', { name: /looks right/i }));
+    expect(await screen.findByText('NEW TEXT')).toBeInTheDocument();
+
+    await act(async () => answer({ resumeText: 'OLD TEXT', resumeFileName: 'cv.pdf', updatedAt: null }));
+    expect(screen.getByText('NEW TEXT')).toBeInTheDocument();
+    expect(screen.queryByText('OLD TEXT')).not.toBeInTheDocument();
+  });
+
+  it('shows the PDF text when a failed load is tried again', async () => {
+    fetchResumeText
+      .mockRejectedValueOnce(new Error("The API couldn't be reached."))
+      .mockResolvedValueOnce({ resumeText: 'Encoded 9 regulatory measures', resumeFileName: 'cv.pdf', updatedAt: null });
+    const user = userEvent.setup();
+    render(<ResumePanel initial={resume} updatedAt={null} resumeFileName="cv.pdf" hasStoredText />);
+
+    const summary = screen.getByText(/what we read from your pdf/i);
+    await user.click(summary);
+    expect(await screen.findByText("The API couldn't be reached.")).toBeInTheDocument();
+    await user.click(summary);
+    await user.click(summary);
+
+    expect(await screen.findByText('Encoded 9 regulatory measures')).toBeInTheDocument();
+    expect(screen.queryByText("The API couldn't be reached.")).not.toBeInTheDocument();
+  });
+
+  it('shows a saved replacement\'s text, even after a failed load', async () => {
+    fetchResumeText.mockRejectedValueOnce(new Error("The API couldn't be reached."));
+    uploadResumeFile.mockResolvedValue({ profile: null, resumeText: 'NEW TEXT', resumeFileName: 'new.pdf' });
+    parseResume.mockResolvedValue({ structuredResume: resume, flags: [] });
+    const user = userEvent.setup();
+    render(<ResumePanel initial={resume} updatedAt={null} resumeFileName="cv.pdf" hasStoredText />);
+
+    await user.click(screen.getByText(/what we read from your pdf/i));
+    await screen.findByText("The API couldn't be reached.");
+    await user.upload(screen.getByLabelText('Résumé PDF'), new File(['%PDF'], 'new.pdf', { type: 'application/pdf' }));
+    await user.click(await screen.findByRole('button', { name: /looks right/i }));
+
+    expect(await screen.findByText('NEW TEXT')).toBeInTheDocument();
+    expect(screen.queryByText("The API couldn't be reached.")).not.toBeInTheDocument();
   });
 });

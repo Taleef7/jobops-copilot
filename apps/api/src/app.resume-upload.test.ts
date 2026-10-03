@@ -182,17 +182,3 @@ test('a preview upload reads the PDF without replacing the stored résumé', asy
     assert.equal(stored?.resumeFileName, 'resume.pdf');
   });
 });
-
-test('confirmed text is stored with the name of the file it came from', async () => {
-  await withApi(async (base) => {
-    const response = await fetch(`${base}/api/profile/resume`, {
-      method: 'POST',
-      headers: { 'X-User-Id': USER, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ resume_text: 'New résumé: Rust, Kafka.', resume_file_name: 'new.pdf' }),
-    });
-    assert.equal(response.status, 200);
-    const stored = await getUserProfile(USER);
-    assert.equal(stored?.resumeText, 'New résumé: Rust, Kafka.');
-    assert.equal(stored?.resumeFileName, 'new.pdf');
-  });
-});

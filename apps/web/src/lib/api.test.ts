@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { ApiRequestError, createJob, draftOutreach, fetchJobs, parseJob, scoreFit, uploadResumeFile } from './api';
+import { ApiRequestError, createJob, draftOutreach, fetchJobs, parseJob, saveBaseResume, scoreFit, uploadResumeFile } from './api';
 
 // Under jsdom `window` is defined, so apiFetch routes through the same-origin
 // Next proxy (`/api/proxy/*`). We mock global fetch and inspect the call.
@@ -125,6 +125,24 @@ describe('uploadResumeFile', () => {
     mockFetch({ ok: false, status: 502, json: async () => { throw new Error('not json'); } });
     const error = await uploadResumeFile(new File(['x'], 'r.pdf')).catch((caught: unknown) => caught);
     expect((error as ApiRequestError).message).toBe('Failed to upload resume');
+  });
+});
+
+// #350: a replacement file's text goes in the same request as the résumé read from it.
+describe('saveBaseResume', () => {
+  const resume = { basics: { name: 'Jane', email: '', summary: '' }, work: [], education: [], skills: [] };
+
+  it('sends the résumé alone for a section save', async () => {
+    const fetchMock = mockFetch({ json: async () => ({ baseResume: resume }) });
+    await saveBaseResume(resume);
+    expect(fetchMock.mock.calls[0]![0]).toBe('/api/proxy/api/profile/base-resume');
+    expect(lastBody(fetchMock)).toEqual({ baseResume: resume });
+  });
+
+  it("sends a replacement file's text and name with it", async () => {
+    const fetchMock = mockFetch({ json: async () => ({ baseResume: resume }) });
+    await saveBaseResume(resume, { text: 'NEW TEXT', fileName: 'new.pdf' });
+    expect(lastBody(fetchMock)).toEqual({ baseResume: resume, resumeText: 'NEW TEXT', resumeFileName: 'new.pdf' });
   });
 });
 

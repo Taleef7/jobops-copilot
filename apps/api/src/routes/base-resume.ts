@@ -8,6 +8,7 @@ import {
 import { resolveResumeParse } from '@/lib/agent-client';
 import { flagResume } from '@/lib/resume-flags';
 import { requireUser } from '@/lib/auth';
+import { isTooLong, STORED_TEXT_MAX, TOO_LONG_MESSAGE } from '@/lib/input-caps';
 import type { ResumeVersionRecord, StructuredResume } from '@/types';
 
 export const baseResumeRouter = Router();
@@ -45,13 +46,17 @@ baseResumeRouter.get('/', async (request, response, next) => {
  * Accepts a full `StructuredResume` in the request body.
  * Persists to both `user_profiles.base_resume` (denormalized) and
  * creates/updates a `resume_versions` row with `is_base = true`.
+ *
+ * A résumé read from a replacement file comes with that file's text (`resumeText`, and
+ * `resumeFileName`), stored in the same statement as the profile's résumé: the text
+ * discovery scores against can't change without the résumé (#350).
  */
 baseResumeRouter.put('/', async (request, response, next) => {
   try {
     const userId = requireUser(request, response);
     if (!userId) return;
 
-    const body = request.body as { baseResume?: StructuredResume };
+    const body = request.body as { baseResume?: StructuredResume; resumeText?: unknown; resumeFileName?: unknown };
 
     if (!body.baseResume || !body.baseResume.basics || !body.baseResume.basics.name) {
       return response.status(400).json({
@@ -59,10 +64,22 @@ baseResumeRouter.put('/', async (request, response, next) => {
       });
     }
 
+    let source: { resumeText: string; resumeFileName: string } | null = null;
+    if (body.resumeText !== undefined) {
+      if (typeof body.resumeText !== 'string' || !body.resumeText.trim()) {
+        return response.status(400).json({ error: 'resumeText must be the text of the résumé.' });
+      }
+      if (isTooLong(body.resumeText, STORED_TEXT_MAX)) {
+        return response.status(413).json({ error: TOO_LONG_MESSAGE });
+      }
+      const fileName = typeof body.resumeFileName === 'string' ? body.resumeFileName.trim().slice(0, 200) : '';
+      source = { resumeText: body.resumeText.trim(), resumeFileName: fileName || 'resume.txt' };
+    }
+
     const baseResume = body.baseResume;
 
-    // Persist to the denormalized profile column.
-    await upsertUserProfile(userId, { baseResume });
+    // Persist to the denormalized profile column, with the file's text when there is one.
+    await upsertUserProfile(userId, { baseResume, ...source });
 
     // Also create/update the base resume version row.
     const existingBase = await getBaseResumeVersion(userId);

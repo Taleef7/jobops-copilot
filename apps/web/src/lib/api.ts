@@ -416,7 +416,7 @@ export interface ResumeUploadResult {
 /**
  * Uploads a resume PDF (client-only; routed through the proxy for auth). With `preview`,
  * the API only reads it and stores nothing: Settings stores the text once the user
- * confirms what was read (#350), with saveResumeText.
+ * confirms what was read (#350), with saveBaseResume, in the same write as the résumé.
  */
 export async function uploadResumeFile(file: File, options: { preview?: boolean } = {}): Promise<ResumeUploadResult> {
   const form = new FormData();
@@ -447,11 +447,10 @@ export async function uploadResumeFile(file: File, options: { preview?: boolean 
   return { profile: data.profile ?? null, resumeText: data.resumeText ?? null, resumeFileName: data.resumeFileName ?? null };
 }
 
-/** Stores résumé text; `fileName` names the PDF it was read from, when there was one. */
-export async function saveResumeText(resumeText: string, fileName?: string | null): Promise<UserProfile | null> {
+export async function saveResumeText(resumeText: string): Promise<UserProfile | null> {
   const response = await requestJson<{ profile: UserProfile | null }>('/api/profile/resume', {
     method: 'POST',
-    body: JSON.stringify(fileName ? { resume_text: resumeText, resume_file_name: fileName } : { resume_text: resumeText }),
+    body: JSON.stringify({ resume_text: resumeText }),
   });
   return response.profile;
 }
@@ -482,13 +481,24 @@ export async function fetchResumeText(): Promise<ResumeText> {
   return requestJson<ResumeText>('/api/profile/resume-text', { cache: 'no-store' });
 }
 
-/** Save or update the user's canonical structured base resume. */
-export async function saveBaseResume(baseResume: StructuredResume): Promise<StructuredResume> {
+/** The text of the file a résumé was read from, and the file's name. */
+export interface ResumeSource {
+  text: string;
+  fileName: string | null;
+}
+
+/**
+ * Save or update the user's canonical structured base resume. A résumé read from a new
+ * file is saved with that file's text (`source`), in one write (#350).
+ */
+export async function saveBaseResume(baseResume: StructuredResume, source?: ResumeSource | null): Promise<StructuredResume> {
   const response = await requestJson<{ baseResume: StructuredResume }>(
     '/api/profile/base-resume',
     {
       method: 'PUT',
-      body: JSON.stringify({ baseResume }),
+      body: JSON.stringify(
+        source ? { baseResume, resumeText: source.text, resumeFileName: source.fileName } : { baseResume },
+      ),
     },
   );
   return response.baseResume;

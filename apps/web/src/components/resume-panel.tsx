@@ -16,9 +16,9 @@ import {
   fetchResumeText,
   parseResume,
   saveBaseResume,
-  saveResumeText,
   uploadResumeFile,
   type ResumeFlag,
+  type ResumeSource,
 } from '@/lib/api';
 import { formatDate } from '@/lib/format';
 import { formatResumeDate, formatResumeRange, withEndDate } from '@/lib/resume-display';
@@ -97,11 +97,15 @@ type ImportState =
       flags: ResumeFlag[];
       saving: boolean;
       error: string | null;
-      /** A new file's text, stored only on "Looks right". */
-      staged: { text: string; fileName: string | null } | null;
+      /** A new file's text, stored with the résumé on "Looks right". */
+      staged: ResumeSource | null;
     };
 
-type Pending = { kind: 'switch'; key: SectionKey } | { kind: 'replace' } | { kind: 'read' };
+type Pending =
+  | { kind: 'switch'; key: SectionKey }
+  | { kind: 'replace' }
+  | { kind: 'read' }
+  | { kind: 'retry'; run: () => void };
 
 interface ResumePanelProps {
   initial: StructuredResume | null;
@@ -140,6 +144,8 @@ export function ResumePanel({ initial, updatedAt, resumeFileName, hasStoredText,
   const session = useRef(0);
   // The Undo toasts of the open section, dismissed when it closes.
   const undoToasts = useRef<Array<string | number>>([]);
+  // A section save is on its way: an Undo now would change a draft that was already sent.
+  const savingRef = useRef(false);
   const keepEditingRef = useRef<HTMLButtonElement>(null);
 
   const dirty =
@@ -164,14 +170,15 @@ export function ResumePanel({ initial, updatedAt, resumeFileName, hasStoredText,
     return () => window.removeEventListener('beforeunload', warn);
   }, [dirty]);
 
+  /** End the open section's Undos: dismiss their toasts, and make a late click change nothing. */
   function dismissUndos() {
     for (const id of undoToasts.current) toast.dismiss(id);
     undoToasts.current = [];
+    session.current += 1;
   }
 
   function open(key: SectionKey) {
     dismissUndos();
-    session.current += 1;
     setEditing(key);
     setDraft(copy(sectionOf(saved, key)));
     setPending(null);
@@ -180,7 +187,6 @@ export function ResumePanel({ initial, updatedAt, resumeFileName, hasStoredText,
 
   function close() {
     dismissUndos();
-    session.current += 1;
     setEditing(null);
     setDraft(null);
     setPending(null);
@@ -202,14 +208,22 @@ export function ResumePanel({ initial, updatedAt, resumeFileName, hasStoredText,
     else void read();
   }
 
+  /** "Try again" on a failed import: read again, or pick a file again when it had none. */
+  function requestRetry(run?: () => void) {
+    if (!run) requestReplace();
+    else if (dirty) setPending({ kind: 'retry', run });
+    else run();
+  }
+
   function discardAndContinue() {
     if (pending?.kind === 'switch') {
       open(pending.key);
       return;
     }
-    const next = pending?.kind;
+    const next = pending;
     close();
-    if (next === 'read') void read();
+    if (next?.kind === 'read') void read();
+    else if (next?.kind === 'retry') next.run();
     else fileRef.current?.click();
   }
 
@@ -220,6 +234,9 @@ export function ResumePanel({ initial, updatedAt, resumeFileName, hasStoredText,
       setSectionError(editing === 'basics' ? 'Add your name.' : 'Add your name in Basics first. The résumé is saved as a whole.');
       return;
     }
+    // The section is frozen until the save answers (and Undo waits): a change made meanwhile
+    // would be lost when it closes.
+    savingRef.current = true;
     setSaving(true);
     setSectionError(null);
     try {
@@ -233,6 +250,7 @@ export function ResumePanel({ initial, updatedAt, resumeFileName, hasStoredText,
     } catch (error) {
       setSectionError(errorMessage(error, 'Could not save. Try again.'));
     } finally {
+      savingRef.current = false;
       setSaving(false);
     }
   }
@@ -247,8 +265,13 @@ export function ResumePanel({ initial, updatedAt, resumeFileName, hasStoredText,
       duration: 5000,
       action: {
         label: 'Undo',
-        onClick: () => {
+        onClick: (event) => {
           if (session.current !== at) return;
+          // Kept for after the save: it closes the section if it works, and leaves it open if not.
+          if (savingRef.current) {
+            event.preventDefault();
+            return;
+          }
           setDraft((current) => {
             const items = [...((current as unknown[]) ?? [])];
             items.splice(Math.min(index, items.length), 0, item);
@@ -260,7 +283,7 @@ export function ResumePanel({ initial, updatedAt, resumeFileName, hasStoredText,
     if (id !== undefined) undoToasts.current.push(id);
   }
 
-  async function read(text?: string, staged: { text: string; fileName: string | null } | null = null) {
+  async function read(text?: string, staged: ResumeSource | null = null) {
     // An open section would be replaced by the import: close it (a changed one was asked about).
     close();
     setImportState({ kind: 'reading' });
@@ -297,14 +320,15 @@ export function ResumePanel({ initial, updatedAt, resumeFileName, hasStoredText,
     if (importState.kind !== 'confirming') return;
     setImportState({ ...importState, saving: true, error: null });
     try {
+      // A new file's text is saved with the résumé read from it, in one request, so the stored
+      // text can't change without the résumé.
       const { staged } = importState;
+      const result = await saveBaseResume(resume, staged);
       if (staged) {
-        await saveResumeText(staged.text, staged.fileName);
         setFileName(staged.fileName);
         setTextOnFile(true);
         setReadText(staged.text);
       }
-      const result = await saveBaseResume(resume);
       // An editor left open holds the old section; its Save would undo the import.
       close();
       setSaved(result ?? resume);
@@ -320,14 +344,17 @@ export function ResumePanel({ initial, updatedAt, resumeFileName, hasStoredText,
 
   async function loadReadText() {
     if (readText !== null) return;
+    setReadTextError(null);
     try {
-      setReadText((await fetchResumeText()).resumeText ?? '');
+      const { resumeText } = await fetchResumeText();
+      // A replacement saved while this was loading has the newer text.
+      setReadText((current) => current ?? resumeText ?? '');
     } catch (error) {
       setReadTextError(errorMessage(error, "Couldn't load the text."));
     }
   }
 
-  const busy = importState.kind === 'reading' || (importState.kind === 'confirming' && importState.saving);
+  const busy = saving || importState.kind === 'reading' || (importState.kind === 'confirming' && importState.saving);
 
   if (loadError) {
     return <ErrorState title="Couldn't load your résumé" message={loadError} />;
@@ -355,6 +382,8 @@ export function ResumePanel({ initial, updatedAt, resumeFileName, hasStoredText,
           accept="application/pdf"
           aria-label="Résumé PDF"
           className="sr-only"
+          // It can still be reached by keyboard: a file read now would close a section being saved.
+          disabled={busy}
           onChange={(event) => {
             const file = event.target.files?.[0];
             event.target.value = '';
@@ -373,14 +402,14 @@ export function ResumePanel({ initial, updatedAt, resumeFileName, hasStoredText,
           <summary className="text-muted-foreground cursor-pointer select-none text-xs">
             What we read from your PDF
           </summary>
-          {readTextError ? (
-            <p className="text-destructive mt-2 text-xs">{readTextError}</p>
-          ) : readText === null ? (
-            <p className="text-muted-foreground mt-2 text-xs">Loading…</p>
-          ) : (
+          {readText !== null ? (
             <pre className="bg-muted/40 mt-2 max-h-80 overflow-auto whitespace-pre-wrap rounded-md p-3 font-sans text-xs">
               {readText || 'No text was read.'}
             </pre>
+          ) : readTextError ? (
+            <p className="text-destructive mt-2 text-xs">{readTextError}</p>
+          ) : (
+            <p className="text-muted-foreground mt-2 text-xs">Loading…</p>
           )}
         </details>
       ) : null}
@@ -394,7 +423,8 @@ export function ResumePanel({ initial, updatedAt, resumeFileName, hasStoredText,
         <ErrorState
           title={importState.title}
           message={importState.message}
-          onRetry={importState.retry ?? (() => fileRef.current?.click())}
+          onRetry={() => requestRetry(importState.retry)}
+          retryDisabled={busy}
         />
       ) : null}
       {importState.kind === 'confirming' ? (
@@ -427,8 +457,9 @@ export function ResumePanel({ initial, updatedAt, resumeFileName, hasStoredText,
                     size="sm"
                     onClick={() => startEdit(key)}
                     aria-label={`Edit ${title}`}
-                    // An import being read or checked would replace the section and drop the edit.
-                    disabled={importState.kind === 'reading' || importState.kind === 'confirming'}
+                    // An import being read or checked would replace the section and drop the edit;
+                    // a section being saved closes when it's done.
+                    disabled={saving || importState.kind === 'reading' || importState.kind === 'confirming'}
                   >
                     Edit
                   </Button>
@@ -436,7 +467,8 @@ export function ResumePanel({ initial, updatedAt, resumeFileName, hasStoredText,
               </div>
 
               {isEditing ? (
-                <div className="space-y-4">
+                // Disabled while it saves, so nothing changes after the snapshot that was sent.
+                <fieldset disabled={saving} aria-busy={saving} className="min-w-0 space-y-4">
                   <SectionEditor
                     sectionKey={key}
                     value={draft}
@@ -450,14 +482,22 @@ export function ResumePanel({ initial, updatedAt, resumeFileName, hasStoredText,
                           ? `Replacing from file will discard your changes to ${title}.`
                           : pending.kind === 'read'
                             ? `Reading your résumé will discard your changes to ${title}.`
-                            : `Discard your changes to ${title}?`}
+                            : pending.kind === 'retry'
+                              ? `Trying again will discard your changes to ${title}.`
+                              : `Discard your changes to ${title}?`}
                       </p>
                       <div className="flex gap-2">
                         <Button ref={keepEditingRef} size="sm" variant="outline" onClick={() => setPending(null)}>
                           Keep editing
                         </Button>
                         <Button size="sm" variant="ghost" onClick={discardAndContinue}>
-                          {pending.kind === 'replace' ? 'Discard and replace' : pending.kind === 'read' ? 'Discard and read' : 'Discard'}
+                          {pending.kind === 'replace'
+                            ? 'Discard and replace'
+                            : pending.kind === 'read'
+                              ? 'Discard and read'
+                              : pending.kind === 'retry'
+                                ? 'Discard and try again'
+                                : 'Discard'}
                         </Button>
                       </div>
                     </div>
@@ -475,7 +515,7 @@ export function ResumePanel({ initial, updatedAt, resumeFileName, hasStoredText,
                       {saving ? 'Saving…' : 'Save'}
                     </Button>
                   </div>
-                </div>
+                </fieldset>
               ) : (
                 <SectionView sectionKey={key} resume={saved} />
               )}

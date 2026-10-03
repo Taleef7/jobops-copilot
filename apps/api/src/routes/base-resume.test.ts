@@ -7,6 +7,7 @@ import { join } from 'node:path';
 import express from 'express';
 import { baseResumeRouter } from './base-resume';
 import { demoRouter } from './demo';
+import { getUserProfile, upsertUserProfile } from '@/data/profile-store';
 import { resetResumeVersionStore } from '@/data/resume-version-store';
 import type { StructuredResume } from '@/types';
 import { apiErrorHandler } from '@/lib/api-error-handler';
@@ -158,6 +159,75 @@ test('PUT /api/profile/base-resume rejects payload without basics.name', async (
         assert.equal(res.status, 400);
         const data = (await res.json()) as { error: string };
         assert.ok(data.error.includes('basics.name'));
+      },
+    );
+  } finally {
+    process.chdir(originalCwd);
+  }
+});
+
+// #350: a replacement file's text is stored with the résumé read from it, in one write, so a
+// failed save can't leave the new text beside the old résumé.
+test('PUT /api/profile/base-resume stores a replacement file\'s text with the résumé', async () => {
+  const originalCwd = process.cwd();
+  delete process.env.DATABASE_URL;
+  const tempDir = await mkdtemp(join(tmpdir(), 'jobops-base-resume-text-'));
+
+  try {
+    process.chdir(tempDir);
+    await resetResumeVersionStore();
+    await upsertUserProfile('user-br-text', { resumeText: 'Old text', resumeFileName: 'old.pdf' });
+
+    await withServer(
+      (app) => app.use('/api/profile/base-resume', baseResumeRouter),
+      async (baseUrl) => {
+        const res = await fetch(`${baseUrl}/api/profile/base-resume`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json', 'X-User-Id': 'user-br-text' },
+          body: JSON.stringify({ baseResume: sampleResume, resumeText: ' New text ', resumeFileName: 'new.pdf' }),
+        });
+        assert.equal(res.status, 200);
+
+        const profile = await getUserProfile('user-br-text');
+        assert.equal(profile?.resumeText, 'New text');
+        assert.equal(profile?.resumeFileName, 'new.pdf');
+        assert.equal(profile?.baseResume?.basics.name, 'Jane Doe');
+      },
+    );
+  } finally {
+    process.chdir(originalCwd);
+  }
+});
+
+test('PUT /api/profile/base-resume that is refused stores neither the text nor the résumé', async () => {
+  const originalCwd = process.cwd();
+  delete process.env.DATABASE_URL;
+  const tempDir = await mkdtemp(join(tmpdir(), 'jobops-base-resume-text-bad-'));
+
+  try {
+    process.chdir(tempDir);
+    await resetResumeVersionStore();
+    await upsertUserProfile('user-br-text-bad', { resumeText: 'Old text', resumeFileName: 'old.pdf' });
+
+    await withServer(
+      (app) => app.use('/api/profile/base-resume', baseResumeRouter),
+      async (baseUrl) => {
+        const put = (body: unknown) =>
+          fetch(`${baseUrl}/api/profile/base-resume`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json', 'X-User-Id': 'user-br-text-bad' },
+            body: JSON.stringify(body),
+          });
+
+        assert.equal((await put({ baseResume: { basics: {} }, resumeText: 'New text' })).status, 400);
+        assert.equal((await put({ baseResume: sampleResume, resumeText: '   ' })).status, 400);
+        assert.equal((await put({ baseResume: sampleResume, resumeText: 42 })).status, 400);
+        assert.equal((await put({ baseResume: sampleResume, resumeText: 'r'.repeat(100_001) })).status, 413);
+
+        const profile = await getUserProfile('user-br-text-bad');
+        assert.equal(profile?.resumeText, 'Old text');
+        assert.equal(profile?.resumeFileName, 'old.pdf');
+        assert.equal(profile?.baseResume ?? null, null);
       },
     );
   } finally {
