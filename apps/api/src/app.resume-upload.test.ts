@@ -142,3 +142,43 @@ test('extraction stops when the process grows past the memory budget', async () 
     (error: unknown) => error instanceof PdfUnreadableError && /memory/i.test(error.message),
   );
 });
+
+// #350: Settings shows what was read from the PDF, so a misread is visible before it spreads.
+test('the upload answers with the text it read, and only the owner can read it back', async () => {
+  await withApi(async (base) => {
+    const response = await upload(base, [pdf(buildPdf(['Backend engineer. Go, Postgres, Kafka.']))]);
+    const body = (await response.json()) as { profile: Record<string, unknown>; resumeText?: string };
+    assert.equal(response.status, 200);
+    assert.match(body.resumeText ?? '', /Backend engineer\. Go, Postgres, Kafka\./);
+    assert.equal(body.profile.resumeText, undefined, 'the profile itself still never carries the text');
+
+    const mine = await fetch(`${base}/api/profile/resume-text`, { headers: { 'X-User-Id': USER } });
+    assert.equal(mine.status, 200);
+    const read = (await mine.json()) as { resumeText: string | null; resumeFileName: string | null };
+    assert.match(read.resumeText ?? '', /Backend engineer/);
+    assert.equal(read.resumeFileName, 'resume.pdf');
+
+    const other = await fetch(`${base}/api/profile/resume-text`, { headers: { 'X-User-Id': 'u_someone_else' } });
+    assert.deepEqual(await other.json(), { resumeText: null, resumeFileName: null, updatedAt: null });
+  });
+});
+
+// #350: replacing a résumé from Settings reads the file without storing it, so cancelling the
+// check leaves the old résumé in place (discovery scores against the stored text).
+test('a preview upload reads the PDF without replacing the stored résumé', async () => {
+  await withApi(async (base) => {
+    await upload(base, [pdf(buildPdf(['Old resume: Go, Postgres.']))]);
+
+    const form = new FormData();
+    form.append('file', new Blob([buildPdf(['New resume: Rust, Kafka.'])], { type: 'application/pdf' }), 'new.pdf');
+    const preview = await fetch(`${base}/api/profile/resume?preview=1`, { method: 'POST', headers: { 'X-User-Id': USER }, body: form });
+    assert.equal(preview.status, 200);
+    const body = (await preview.json()) as { resumeText: string; resumeFileName: string };
+    assert.match(body.resumeText, /New resume: Rust, Kafka\./);
+    assert.equal(body.resumeFileName, 'new.pdf');
+
+    const stored = await getUserProfile(USER);
+    assert.match(stored?.resumeText ?? '', /Old resume/);
+    assert.equal(stored?.resumeFileName, 'resume.pdf');
+  });
+});

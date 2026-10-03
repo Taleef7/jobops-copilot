@@ -44,10 +44,47 @@ export interface PdfTextOptions {
 // tests and from the compiled build. pdf-parse is loaded by absolute path: its index.js
 // has a debug block that reads a test file when it isn't required as a dependency.
 // The text is cut in the worker, so an oversized result is never copied to the main thread.
+//
+// Pages are read with our own renderer (#350). pdf-parse's default one joins text items on
+// the same line with nothing between them, so a bold run like "Encoded" + "9" +
+// "regulatory" came out as "Encoded9regulatory". Here a gap wider than a fraction of the
+// font size is a space, and a baseline that moves is a new line. pdf-parse's own renderer
+// is the fallback if ours fails on some PDF.
 const WORKER_SOURCE = `
 const { parentPort, workerData } = require('node:worker_threads');
 const pdfParse = require(workerData.modulePath);
-pdfParse(Buffer.from(workerData.data), { max: workerData.maxPages })
+
+// A gap wider than this share of the font size is a space between words.
+const SPACE_GAP = 0.15;
+// A baseline that moves more than this share of the font size starts a new line.
+const LINE_SHIFT = 0.4;
+
+function renderPage(pageData) {
+  return pageData
+    .getTextContent({ normalizeWhitespace: false, disableCombineTextItems: false })
+    .then((content) => {
+      let text = '';
+      let last = null;
+      for (const item of content.items) {
+        const [a, b, , d, x, y] = item.transform;
+        const size = Math.hypot(a, b) || Math.abs(d) || 10;
+        if (last) {
+          if (Math.abs(y - last.y) > size * LINE_SHIFT) {
+            text += '\\n';
+          } else if (x - last.end > size * SPACE_GAP && !/\\s$/.test(text) && !/^\\s/.test(item.str)) {
+            text += ' ';
+          }
+        }
+        text += item.str;
+        last = { y, end: x + (item.width || 0) };
+      }
+      return text;
+    });
+}
+
+const data = Buffer.from(workerData.data);
+pdfParse(data, { max: workerData.maxPages, pagerender: renderPage })
+  .catch(() => pdfParse(data, { max: workerData.maxPages }))
   .then((result) => {
     const text = (result.text || '').trim();
     parentPort.postMessage({

@@ -24,17 +24,17 @@ async function run() {
   });
 
   try {
-    // 2. Visit /settings to verify Base Resume Editor
+    // 2. Visit /settings to verify the résumé panel (#350: read view, Edit per section)
     console.log('  Navigating to http://localhost:3000/settings...');
     await page.goto('http://localhost:3000/settings', { waitUntil: 'networkidle', timeout: 30000 });
 
-    const baseResumeHeader = page.locator('text=Base resume (Structured)');
-    await baseResumeHeader.waitFor({ state: 'visible', timeout: 10000 });
-    console.log('  ✓ Base resume editor card visible');
+    await page.getByTestId('resume-panel').waitFor({ state: 'visible', timeout: 10000 });
+    console.log('  ✓ Résumé panel visible');
 
-    const nameInput = page.locator('input#basics-name, input[value*="Jane"]');
-    await nameInput.waitFor({ state: 'visible', timeout: 5000 });
-    console.log('  ✓ Base resume basics fields rendered');
+    await page.getByRole('button', { name: 'Edit Basics' }).click();
+    await page.locator('input#resume-basics-name').waitFor({ state: 'visible', timeout: 5000 });
+    await page.getByRole('button', { name: 'Cancel' }).first().click();
+    console.log('  ✓ Basics opens for editing and closes');
 
     // 3. Visit /jobs/[jobId] to test Tailored Resume Studio
     const jobUrl = `http://localhost:3000/jobs/${job.id}`;

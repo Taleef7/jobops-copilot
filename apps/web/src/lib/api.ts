@@ -405,14 +405,26 @@ export async function updateProfile(payload: {
   return response.profile;
 }
 
-/** Uploads a resume PDF (client-only; routed through the proxy for auth). */
-export async function uploadResumeFile(file: File): Promise<UserProfile | null> {
+export interface ResumeUploadResult {
+  /** Null for a preview, which stores nothing. */
+  profile: UserProfile | null;
+  /** The text read from the PDF (#350), shown so a misread is visible before it spreads. */
+  resumeText: string | null;
+  resumeFileName: string | null;
+}
+
+/**
+ * Uploads a resume PDF (client-only; routed through the proxy for auth). With `preview`,
+ * the API only reads it and stores nothing: Settings stores the text once the user
+ * confirms what was read (#350), with saveBaseResume, in the same write as the résumé.
+ */
+export async function uploadResumeFile(file: File, options: { preview?: boolean } = {}): Promise<ResumeUploadResult> {
   const form = new FormData();
   form.append('file', file);
   let response: Response;
   try {
     // The upload can parse the resume with the AI, so it gets the AI limit (#349).
-    response = await fetch('/api/proxy/api/profile/resume', {
+    response = await fetch(`/api/proxy/api/profile/resume${options.preview ? '?preview=1' : ''}`, {
       method: 'POST',
       body: form,
       signal: AbortSignal.timeout(AI_REQUEST_TIMEOUT_MS),
@@ -431,8 +443,8 @@ export async function uploadResumeFile(file: File): Promise<UserProfile | null> 
     }
     throw new ApiRequestError(message, response.status);
   }
-  const data = (await response.json()) as { profile: UserProfile | null };
-  return data.profile;
+  const data = (await response.json()) as { profile?: UserProfile | null; resumeText?: string; resumeFileName?: string | null };
+  return { profile: data.profile ?? null, resumeText: data.resumeText ?? null, resumeFileName: data.resumeFileName ?? null };
 }
 
 export async function saveResumeText(resumeText: string): Promise<UserProfile | null> {
@@ -443,32 +455,74 @@ export async function saveResumeText(resumeText: string): Promise<UserProfile | 
   return response.profile;
 }
 
-/** Fetch the user's canonical structured base resume. */
-export async function fetchBaseResume(): Promise<StructuredResume | null> {
-  const response = await requestJson<{ baseResume: StructuredResume | null }>(
+export interface BaseResumeResult {
+  baseResume: StructuredResume | null;
+  /** When it was last saved; null when there is none. */
+  updatedAt: string | null;
+}
+
+/** Fetch the user's canonical structured base resume, and when it was last saved. */
+export async function fetchBaseResume(): Promise<BaseResumeResult> {
+  const response = await requestJson<{ baseResume: StructuredResume | null; updatedAt?: string | null }>(
     '/api/profile/base-resume',
     { cache: 'no-store' },
   );
-  return response.baseResume;
+  return { baseResume: response.baseResume, updatedAt: response.updatedAt ?? null };
 }
 
-/** Save or update the user's canonical structured base resume. */
-export async function saveBaseResume(baseResume: StructuredResume): Promise<StructuredResume> {
+export interface ResumeText {
+  resumeText: string | null;
+  resumeFileName: string | null;
+  updatedAt: string | null;
+}
+
+/** The text read from the user's résumé, for "What we read from your PDF" (#350). */
+export async function fetchResumeText(): Promise<ResumeText> {
+  return requestJson<ResumeText>('/api/profile/resume-text', { cache: 'no-store' });
+}
+
+/** The text of the file a résumé was read from, and the file's name. */
+export interface ResumeSource {
+  text: string;
+  fileName: string | null;
+}
+
+/**
+ * Save or update the user's canonical structured base resume. A résumé read from a new
+ * file is saved with that file's text (`source`), in one write (#350).
+ */
+export async function saveBaseResume(baseResume: StructuredResume, source?: ResumeSource | null): Promise<StructuredResume> {
   const response = await requestJson<{ baseResume: StructuredResume }>(
     '/api/profile/base-resume',
     {
       method: 'PUT',
-      body: JSON.stringify({ baseResume }),
+      body: JSON.stringify(
+        source ? { baseResume, resumeText: source.text, resumeFileName: source.fileName } : { baseResume },
+      ),
     },
   );
   return response.baseResume;
 }
 
-/** Parse raw resume text into a StructuredResume via the AI agent. */
-export async function parseResumeToStructured(
-  resumeText?: string,
-): Promise<StructuredResume> {
-  const response = await requestJson<{ structuredResume: StructuredResume }>(
+/** A parsed field that looks misread (#350), held on the confirmation screen. */
+export interface ResumeFlag {
+  /** Where it is, e.g. `work[0].company`. */
+  path: string;
+  value: string;
+  reason: string;
+}
+
+export interface ResumeParseResult {
+  structuredResume: StructuredResume;
+  flags: ResumeFlag[];
+}
+
+/**
+ * Read résumé text into a StructuredResume with the AI: the stored text, or `resumeText`.
+ * Nothing is saved; the confirmation screen saves it with saveBaseResume.
+ */
+export async function parseResume(resumeText?: string): Promise<ResumeParseResult> {
+  const response = await requestJson<{ structuredResume: StructuredResume; flags?: ResumeFlag[] }>(
     '/api/profile/base-resume/parse-resume',
     {
       timeoutMs: AI_REQUEST_TIMEOUT_MS,
@@ -476,7 +530,7 @@ export async function parseResumeToStructured(
       body: JSON.stringify(resumeText ? { resume_text: resumeText } : {}),
     },
   );
-  return response.structuredResume;
+  return { structuredResume: response.structuredResume, flags: response.flags ?? [] };
 }
 
 /** Fetch all tailored resume versions for a specific job. */

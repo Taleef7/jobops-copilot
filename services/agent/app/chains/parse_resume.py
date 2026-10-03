@@ -26,17 +26,24 @@ Rules
 -----
 1. Extract EXACTLY what the candidate wrote — never invent skills, employers,
    titles, dates, metrics, or credentials that are absent from the input.
-2. For work experience highlights, convert prose paragraphs into concise bullet
-   points where possible.
-3. If a field is genuinely absent from the text, omit it (set it to null /
+2. A role's company and position come from its header line: the line that
+   names the employer, usually with the dates on the same line, and the title
+   on that line or the next. Never from a bullet. A word at the start of a
+   bullet ("Encoded", "Built", "Led") is never a company, even when a number is
+   stuck to it ("Encoded9"). Text extracted from a PDF can lose spaces between
+   words; read "EngineeringMay 2026" as "Engineering" followed by the date, and
+   "Riccle(early-stage startup)" as the company "Riccle" with a description.
+3. Keep each bullet as the candidate wrote it, one highlight per bullet. Don't
+   shorten, merge or reword them.
+4. If a field is genuinely absent from the text, omit it (set it to null /
    empty array / empty string as appropriate for the schema).
-4. Normalize dates to ISO 8601 (YYYY-MM-DD) when recognizable; use the first
+5. Normalize dates to ISO 8601 (YYYY-MM-DD) when recognizable; use the first
    of the month when only month+year are given (e.g. "Jan 2024" → "2024-01-01").
-5. Group skills into meaningful categories (e.g. "Programming Languages",
+6. Group skills into meaningful categories (e.g. "Programming Languages",
    "Frameworks", "Cloud", "DevOps", "Soft Skills").
-6. If the resume contains a professional summary or objective, put it in
-   basics.summary.  If none exists, synthesize a one-sentence factual summary
-   from the content (state only facts present in the resume).
+7. If the resume has a professional summary or objective, put it in
+   basics.summary as written. If it has none, leave basics.summary empty; don't
+   write one.
 """
 
 

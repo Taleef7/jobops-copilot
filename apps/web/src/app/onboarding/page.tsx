@@ -13,7 +13,20 @@ import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Textarea } from '@/components/ui/textarea';
-import { ApiRequestError, saveResumeText, uploadResumeFile, createSavedSearch, runDiscovery } from '@/lib/api';
+import {
+  ApiRequestError,
+  createSavedSearch,
+  errorMessage,
+  parseResume,
+  runDiscovery,
+  saveBaseResume,
+  saveResumeText,
+  uploadResumeFile,
+  type ResumeFlag,
+} from '@/lib/api';
+import { ErrorState } from '@/components/error-state';
+import { ResumeImportConfirm } from '@/components/resume-import-confirm';
+import type { StructuredResume } from '@/types/job';
 import { cn } from '@/lib/utils';
 
 // Mirrors the Adzuna source: these "locations" aren't geographic, so they're
@@ -24,6 +37,13 @@ const NON_GEOGRAPHIC_LOCATIONS = new Set(['remote', 'anywhere', 'worldwide', 'gl
 const MAX_RESUME_BYTES = 5 * 1024 * 1024;
 
 const TOTAL_STEPS = 2;
+
+/** After the résumé is saved, what was read from it is checked before it's used (#350). */
+type Check =
+  | { kind: 'idle' }
+  | { kind: 'reading' }
+  | { kind: 'error'; message: string; text: string }
+  | { kind: 'confirming'; text: string; parsed: StructuredResume; flags: ResumeFlag[]; saving: boolean; error: string | null };
 
 function isPdf(file: File) {
   return file.type === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf');
@@ -45,6 +65,7 @@ export default function OnboardingPage() {
   const [inputMode, setInputMode] = useState<'upload' | 'paste'>('upload');
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [check, setCheck] = useState<Check>({ kind: 'idle' });
 
   // Step 2 state
   const [query, setQuery] = useState('');
@@ -99,11 +120,13 @@ export default function OnboardingPage() {
     // Submit whichever input the user is looking at, so a previously-chosen
     // file can't silently override text typed on the other tab.
     const usingFile = inputMode === 'upload' && pendingFile !== null;
+    let readText: string;
     try {
       if (usingFile) {
-        await uploadResumeFile(pendingFile);
+        readText = (await uploadResumeFile(pendingFile)).resumeText ?? '';
       } else if (inputMode === 'paste' && resumeText.trim()) {
         await saveResumeText(resumeText.trim());
+        readText = resumeText.trim();
       } else {
         const message =
           inputMode === 'upload'
@@ -111,9 +134,9 @@ export default function OnboardingPage() {
             : 'Add your resume to continue — paste the text, or switch to “Upload PDF”.';
         setError(message);
         toast.error(message);
+        setSaving(false);
         return;
       }
-      setStep(2);
     } catch (error) {
       // A refused upload says why (not a PDF, too large, unreadable). Otherwise name the
       // fallback explicitly, so the user has a way forward.
@@ -123,9 +146,43 @@ export default function OnboardingPage() {
         : (reason ?? 'Could not save your resume. Please try again.');
       setError(message);
       toast.error(message);
-    } finally {
       setSaving(false);
+      return;
     }
+    setSaving(false);
+    await readResume(readText);
+  }
+
+  /** Read the saved résumé into its structured form, for the user to check (#350). */
+  async function readResume(text: string) {
+    setCheck({ kind: 'reading' });
+    try {
+      const { structuredResume, flags } = await parseResume(text || undefined);
+      setCheck({ kind: 'confirming', text, parsed: structuredResume, flags, saving: false, error: null });
+    } catch (readError) {
+      setCheck({
+        kind: 'error',
+        text,
+        message: errorMessage(readError, 'The AI could not read it. Try again in a moment.'),
+      });
+    }
+  }
+
+  async function confirmResume(resume: StructuredResume) {
+    if (check.kind !== 'confirming') return;
+    setCheck({ ...check, saving: true, error: null });
+    try {
+      await saveBaseResume(resume);
+      setCheck({ kind: 'idle' });
+      setStep(2);
+    } catch (saveError) {
+      setCheck({ ...check, saving: false, error: errorMessage(saveError, 'Could not save. Try again.') });
+    }
+  }
+
+  function skipCheck() {
+    setCheck({ kind: 'idle' });
+    setStep(2);
   }
 
   async function discover() {
@@ -218,7 +275,40 @@ export default function OnboardingPage() {
           )}
         </CardHeader>
 
-        {step === 1 ? (
+        {step === 1 && check.kind !== 'idle' ? (
+          <CardContent className="space-y-4">
+            {check.kind === 'reading' ? (
+              <p className="text-muted-foreground flex items-center gap-2 text-sm" role="status">
+                <Loader2 className="size-4 animate-spin" aria-hidden="true" /> Reading your résumé…
+              </p>
+            ) : null}
+            {check.kind === 'error' ? (
+              <>
+                <ErrorState
+                  title="Couldn't read your résumé"
+                  message={check.message}
+                  onRetry={() => void readResume(check.text)}
+                />
+                <div className="flex items-center justify-between gap-3">
+                  <p className="text-muted-foreground text-xs">Your file is saved. You can check it later in Settings.</p>
+                  <Button variant="ghost" onClick={skipCheck}>
+                    Skip for now
+                  </Button>
+                </div>
+              </>
+            ) : null}
+            {check.kind === 'confirming' ? (
+              <ResumeImportConfirm
+                parsed={check.parsed}
+                flags={check.flags}
+                saving={check.saving}
+                error={check.error}
+                onConfirm={(resume) => void confirmResume(resume)}
+                onCancel={() => setCheck({ kind: 'idle' })}
+              />
+            ) : null}
+          </CardContent>
+        ) : step === 1 ? (
           <CardContent className="space-y-5">
             <Tabs
               value={inputMode}

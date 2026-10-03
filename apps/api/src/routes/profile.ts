@@ -99,12 +99,15 @@ profileRouter.put('/', async (request, response, next) => {
 });
 
 // Accept either a PDF upload (field "file") or pasted text in the JSON body.
+// `?preview=1` reads a PDF and answers with its text without storing anything: Settings
+// stores it with the résumé read from it, once the user confirms that (#350).
 profileRouter.post('/resume', requireSignedIn, receiveResumeFile, async (request, response, next) => {
   try {
     const userId = requireUser(request, response);
     if (!userId) return;
 
     const body = request.body as { resume_text?: string };
+    const preview = request.query.preview === '1';
     if (isTooLong(body.resume_text, STORED_TEXT_MAX)) {
       return response.status(413).json({ error: TOO_LONG_MESSAGE });
     }
@@ -141,12 +144,36 @@ profileRouter.post('/resume', requireSignedIn, receiveResumeFile, async (request
       return response.status(413).json({ error: TOO_LONG_MESSAGE });
     }
 
+    if (preview) {
+      return response.json({ resumeText, resumeFileName: resumeFileName ?? null });
+    }
+
     const updated = await upsertUserProfile(userId, {
       resumeText,
       resumeFileName: resumeFileName ?? 'resume.txt',
     });
 
-    response.json({ profile: publicProfile(updated) });
+    // The text that was read, so Settings can show it right away (#350).
+    response.json({ profile: publicProfile(updated), resumeText });
+  } catch (error) {
+    next(error);
+  }
+});
+
+/**
+ * GET /api/profile/resume-text: the text read from the user's résumé, for "What we read
+ * from your PDF" in Settings (#350). Kept off GET /api/profile, which every page loads.
+ */
+profileRouter.get('/resume-text', async (request, response, next) => {
+  try {
+    const userId = requireUser(request, response);
+    if (!userId) return;
+    const profile = await getUserProfile(userId);
+    response.json({
+      resumeText: profile?.resumeText ?? null,
+      resumeFileName: profile?.resumeFileName ?? null,
+      updatedAt: profile?.updatedAt ?? null,
+    });
   } catch (error) {
     next(error);
   }

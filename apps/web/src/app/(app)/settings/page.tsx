@@ -3,14 +3,14 @@ import Image from 'next/image';
 import { currentUser } from '@clerk/nextjs/server';
 import { Database, FileText, Webhook } from 'lucide-react';
 import { SectionCard } from '@/components/section-card';
-import { DemoDataActions, ExportDataButton, ResumeReupload } from '@/components/settings-actions';
-import { BaseResumeEditor } from '@/components/base-resume-editor';
+import { DemoDataActions, ExportDataButton } from '@/components/settings-actions';
+import { ResumePanel } from '@/components/resume-panel';
 import { SavedSearchesManager } from '@/components/saved-searches';
 import { TargetCompaniesManager } from '@/components/target-companies';
 import { NotificationSettingsManager } from '@/components/notification-settings-manager';
 import { Badge } from '@/components/ui/badge';
 import { Card } from '@/components/ui/card';
-import { fetchBaseResume, fetchNotificationSettings, fetchProfile, fetchStatus } from '@/lib/api';
+import { errorMessage, fetchBaseResume, fetchNotificationSettings, fetchProfile, fetchStatus } from '@/lib/api';
 import { describeLlmCheck } from '@/lib/llm-check';
 import { cn } from '@/lib/utils';
 
@@ -34,7 +34,12 @@ export default async function SettingsPage() {
     currentUser().catch(() => null),
     fetchProfile().catch(() => null),
     fetchStatus().catch(() => null),
-    fetchBaseResume().catch(() => null),
+    // A failed load must not look like an empty résumé: a save would overwrite the real one (#350).
+    fetchBaseResume().catch((error: unknown) => ({
+      baseResume: null,
+      updatedAt: null,
+      error: errorMessage(error, "The API couldn't be reached. Try again in a moment."),
+    })),
     fetchNotificationSettings().catch(() => null),
   ]);
   const fullName = user?.fullName ?? user?.firstName ?? null;
@@ -57,7 +62,7 @@ export default async function SettingsPage() {
     ? String(status.agent.model)
     : agentEnabled
       ? 'Idle — the agent scales to zero and wakes on the first request'
-      : 'Deterministic mock (no LLM provider attached)';
+      : 'The AI service is not set up on this server.';
   const llmCheck = describeLlmCheck(status?.llmCanary);
   const initial = (fullName ?? 'You').slice(0, 1).toUpperCase();
 
@@ -114,7 +119,6 @@ export default async function SettingsPage() {
                 {profile?.hasResume ? (profile.resumeFileName ?? 'Resume on file') : 'No resume uploaded yet'}
               </p>
             </div>
-            <ResumeReupload />
           </div>
           <p className="text-muted-foreground text-xs">
             Manage your name, email &amp; avatar from the account menu (top-right).
@@ -123,12 +127,15 @@ export default async function SettingsPage() {
       </SectionCard>
 
       <SectionCard
-        title="Base resume (Structured)"
-        description="The canonical structured resume that powers grounded tailoring for specific jobs. Import from your uploaded resume or edit fields directly."
+        title="Résumé"
+        description="What tailoring, the apply pack and your PDF are built from. Check it reads like your résumé."
       >
-        <BaseResumeEditor
-          initial={baseResume}
-          hasStoredResume={Boolean(profile?.hasResume)}
+        <ResumePanel
+          initial={baseResume.baseResume}
+          updatedAt={baseResume.updatedAt}
+          resumeFileName={profile?.resumeFileName ?? null}
+          hasStoredText={Boolean(profile?.hasResume)}
+          loadError={'error' in baseResume ? baseResume.error : null}
         />
       </SectionCard>
 
@@ -138,7 +145,7 @@ export default async function SettingsPage() {
             <p className="text-sm font-medium">{providerLabel}</p>
             <Badge variant="secondary" className="gap-1">
               <StatusDot on={agentConnected} />
-              {agentConnected ? 'Connected' : agentEnabled ? 'Idle' : 'Mock fallback'}
+              {agentConnected ? 'Connected' : agentEnabled ? 'Idle' : 'Not set up'}
             </Badge>
           </div>
           <p className="text-muted-foreground text-xs">{providerDetail}</p>

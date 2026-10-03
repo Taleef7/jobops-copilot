@@ -12,6 +12,8 @@ type ErrorStateProps = {
   message?: string | null;
   /** Try the action again. Without it, "Try again" reloads the page's data. */
   onRetry?: () => void;
+  /** Hold "Try again" while something it would undo is still on its way. */
+  retryDisabled?: boolean;
   className?: string;
 };
 
@@ -19,7 +21,7 @@ type ErrorStateProps = {
  * A failure shown where it happened, with the reason and a way to try again (#349). It
  * replaces transient toasts, and the sample data pages used to show when the API failed.
  */
-export function ErrorState({ title, message, onRetry, className }: ErrorStateProps) {
+export function ErrorState({ title, message, onRetry, retryDisabled = false, className }: ErrorStateProps) {
   const router = useRouter();
 
   return (
@@ -33,7 +35,13 @@ export function ErrorState({ title, message, onRetry, className }: ErrorStatePro
           <p className="text-sm font-medium">{title}</p>
           {message ? <p className="text-muted-foreground text-sm">{message}</p> : null}
         </div>
-        <Button size="sm" variant="outline" className="gap-1.5" onClick={() => (onRetry ? onRetry() : router.refresh())}>
+        <Button
+          size="sm"
+          variant="outline"
+          className="gap-1.5"
+          disabled={retryDisabled}
+          onClick={() => (onRetry ? onRetry() : router.refresh())}
+        >
           <RotateCw className="size-3.5" aria-hidden="true" />
           Try again
         </Button>

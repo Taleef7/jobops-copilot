@@ -7,10 +7,11 @@ import { join } from 'node:path';
 import express from 'express';
 import { baseResumeRouter } from './base-resume';
 import { demoRouter } from './demo';
+import { getUserProfile, upsertUserProfile } from '@/data/profile-store';
 import { resetResumeVersionStore } from '@/data/resume-version-store';
 import type { StructuredResume } from '@/types';
 import { apiErrorHandler } from '@/lib/api-error-handler';
-import { fakeAgentAnswer } from '@/test-support/fake-agent';
+import { FAKE_STRUCTURED_RESUME, fakeAgentAnswer } from '@/test-support/fake-agent';
 
 async function withServer(
   mount: (app: express.Express) => void,
@@ -85,8 +86,9 @@ test('GET /api/profile/base-resume returns null when no base resume exists', asy
           headers: { 'X-User-Id': 'user-br-1' },
         });
         assert.equal(res.status, 200);
-        const data = (await res.json()) as { baseResume: StructuredResume | null };
+        const data = (await res.json()) as { baseResume: StructuredResume | null; updatedAt: string | null };
         assert.equal(data.baseResume, null);
+        assert.equal(data.updatedAt, null);
       },
     );
   } finally {
@@ -126,6 +128,9 @@ test('PUT /api/profile/base-resume saves and GET retrieves the structured resume
         assert.equal(getData.baseResume.basics.name, 'Jane Doe');
         assert.equal(getData.baseResume.basics.email, 'jane@example.com');
         assert.deepEqual(getData.baseResume.skills?.[0]?.skills, ['TypeScript', 'Python', 'Go']);
+        // #350: Settings shows when the résumé was last saved.
+        const { updatedAt } = getData as unknown as { updatedAt: string | null };
+        assert.ok(updatedAt && !Number.isNaN(Date.parse(updatedAt)), `updatedAt: ${updatedAt}`);
       },
     );
   } finally {
@@ -154,6 +159,75 @@ test('PUT /api/profile/base-resume rejects payload without basics.name', async (
         assert.equal(res.status, 400);
         const data = (await res.json()) as { error: string };
         assert.ok(data.error.includes('basics.name'));
+      },
+    );
+  } finally {
+    process.chdir(originalCwd);
+  }
+});
+
+// #350: a replacement file's text is stored with the résumé read from it, in one write, so a
+// failed save can't leave the new text beside the old résumé.
+test('PUT /api/profile/base-resume stores a replacement file\'s text with the résumé', async () => {
+  const originalCwd = process.cwd();
+  delete process.env.DATABASE_URL;
+  const tempDir = await mkdtemp(join(tmpdir(), 'jobops-base-resume-text-'));
+
+  try {
+    process.chdir(tempDir);
+    await resetResumeVersionStore();
+    await upsertUserProfile('user-br-text', { resumeText: 'Old text', resumeFileName: 'old.pdf' });
+
+    await withServer(
+      (app) => app.use('/api/profile/base-resume', baseResumeRouter),
+      async (baseUrl) => {
+        const res = await fetch(`${baseUrl}/api/profile/base-resume`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json', 'X-User-Id': 'user-br-text' },
+          body: JSON.stringify({ baseResume: sampleResume, resumeText: ' New text ', resumeFileName: 'new.pdf' }),
+        });
+        assert.equal(res.status, 200);
+
+        const profile = await getUserProfile('user-br-text');
+        assert.equal(profile?.resumeText, 'New text');
+        assert.equal(profile?.resumeFileName, 'new.pdf');
+        assert.equal(profile?.baseResume?.basics.name, 'Jane Doe');
+      },
+    );
+  } finally {
+    process.chdir(originalCwd);
+  }
+});
+
+test('PUT /api/profile/base-resume that is refused stores neither the text nor the résumé', async () => {
+  const originalCwd = process.cwd();
+  delete process.env.DATABASE_URL;
+  const tempDir = await mkdtemp(join(tmpdir(), 'jobops-base-resume-text-bad-'));
+
+  try {
+    process.chdir(tempDir);
+    await resetResumeVersionStore();
+    await upsertUserProfile('user-br-text-bad', { resumeText: 'Old text', resumeFileName: 'old.pdf' });
+
+    await withServer(
+      (app) => app.use('/api/profile/base-resume', baseResumeRouter),
+      async (baseUrl) => {
+        const put = (body: unknown) =>
+          fetch(`${baseUrl}/api/profile/base-resume`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json', 'X-User-Id': 'user-br-text-bad' },
+            body: JSON.stringify(body),
+          });
+
+        assert.equal((await put({ baseResume: { basics: {} }, resumeText: 'New text' })).status, 400);
+        assert.equal((await put({ baseResume: sampleResume, resumeText: '   ' })).status, 400);
+        assert.equal((await put({ baseResume: sampleResume, resumeText: 42 })).status, 400);
+        assert.equal((await put({ baseResume: sampleResume, resumeText: 'r'.repeat(100_001) })).status, 413);
+
+        const profile = await getUserProfile('user-br-text-bad');
+        assert.equal(profile?.resumeText, 'Old text');
+        assert.equal(profile?.resumeFileName, 'old.pdf');
+        assert.equal(profile?.baseResume ?? null, null);
       },
     );
   } finally {
@@ -223,6 +297,62 @@ test('POST /api/profile/base-resume/parse-resume returns the AI reading of the r
         assert.equal(data.structuredResume.basics.name, 'Ada Lovelace');
         assert.equal(data.structuredResume.work[0]?.company, 'Globex');
         assert.deepEqual(data.structuredResume.skills[0]?.skills, ['Go', 'Python']);
+        assert.deepEqual((data as unknown as { flags: unknown[] }).flags, []);
+      },
+    );
+  } finally {
+    process.chdir(originalCwd);
+    if (savedAgent === undefined) delete process.env.AGENT_SERVICE_URL;
+    else process.env.AGENT_SERVICE_URL = savedAgent;
+    agent.closeAllConnections();
+    await new Promise<void>((resolve) => agent.close(() => resolve()));
+  }
+});
+
+// #350: fields that look misread come back flagged, for the confirmation screen to hold.
+test('POST /api/profile/base-resume/parse-resume flags a bullet word read as an employer', async () => {
+  const originalCwd = process.cwd();
+  const savedAgent = process.env.AGENT_SERVICE_URL;
+  delete process.env.DATABASE_URL;
+  const tempDir = await mkdtemp(join(tmpdir(), 'jobops-base-resume-parse-flags-'));
+  const agent = http.createServer((request, response) => {
+    request.resume();
+    response.writeHead(200, { 'Content-Type': 'application/json' }).end(
+      JSON.stringify({
+        ...FAKE_STRUCTURED_RESUME,
+        work: [
+          {
+            company: 'Encoded9',
+            position: 'Software Developer',
+            start_date: '2026-05',
+            highlights: ['Encoded 9 regulatory measures as documented business rules'],
+          },
+        ],
+      }),
+    );
+  });
+  await new Promise<void>((resolve) => agent.listen(0, resolve));
+  const agentAddress = agent.address();
+  if (!agentAddress || typeof agentAddress === 'string') throw new Error('no agent address');
+  process.env.AGENT_SERVICE_URL = `http://127.0.0.1:${agentAddress.port}`;
+
+  try {
+    process.chdir(tempDir);
+    await resetResumeVersionStore();
+    await withServer(
+      (app) => app.use('/api/profile/base-resume', baseResumeRouter),
+      async (baseUrl) => {
+        const res = await fetch(`${baseUrl}/api/profile/base-resume/parse-resume`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'X-User-Id': 'user-br-flags' },
+          body: JSON.stringify({ resume_text: 'Medical Informatics EngineeringMay 2026 Encoded9 regulatory measures' }),
+        });
+        assert.equal(res.status, 200);
+        const data = (await res.json()) as { flags: Array<{ path: string; value: string; reason: string }> };
+        assert.deepEqual(
+          data.flags.map((flag) => [flag.path, flag.value]),
+          [['work[0].company', 'Encoded9']],
+        );
       },
     );
   } finally {

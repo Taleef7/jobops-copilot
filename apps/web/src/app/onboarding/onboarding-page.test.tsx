@@ -5,11 +5,19 @@ import { fireEvent } from '@testing-library/react';
 import { afterEach, expect, it, vi } from 'vitest';
 
 const { push, refresh } = vi.hoisted(() => ({ push: vi.fn(), refresh: vi.fn() }));
-const { saveResumeText, uploadResumeFile, createSavedSearch, runDiscovery } = vi.hoisted(() => ({
+const PARSED = {
+  basics: { name: 'Ava Tester', email: 'ava@example.com', summary: '' },
+  work: [{ company: 'Medical Informatics Engineering', position: 'Software Developer', startDate: '2026-05-01', highlights: [] }],
+  education: [],
+  skills: [],
+};
+const { saveResumeText, uploadResumeFile, createSavedSearch, runDiscovery, parseResume, saveBaseResume } = vi.hoisted(() => ({
   saveResumeText: vi.fn(() => Promise.resolve(null)),
-  uploadResumeFile: vi.fn(() => Promise.resolve(null)),
+  uploadResumeFile: vi.fn((): Promise<unknown> => Promise.resolve({ profile: null, resumeText: 'TEXT READ FROM PDF' })),
   createSavedSearch: vi.fn(() => Promise.resolve({ id: 's1' })),
   runDiscovery: vi.fn(() => Promise.resolve({ inserted: 3, skipped: 0, source: 'adzuna' })),
+  parseResume: vi.fn((): Promise<unknown> => Promise.resolve({ structuredResume: PARSED, flags: [] })),
+  saveBaseResume: vi.fn((resume: unknown) => Promise.resolve(resume)),
 }));
 vi.mock('sonner', () => ({ toast: { error: vi.fn(), success: vi.fn() } }));
 vi.mock('next/navigation', () => ({ useRouter: () => ({ push, refresh }) }));
@@ -20,7 +28,16 @@ const { ApiRequestError } = vi.hoisted(() => ({
     }
   },
 }));
-vi.mock('@/lib/api', () => ({ ApiRequestError, saveResumeText, uploadResumeFile, createSavedSearch, runDiscovery }));
+vi.mock('@/lib/api', () => ({
+  ApiRequestError,
+  saveResumeText,
+  uploadResumeFile,
+  createSavedSearch,
+  runDiscovery,
+  parseResume,
+  saveBaseResume,
+  errorMessage: (error: unknown, fallback: string) => (error instanceof Error ? error.message : fallback),
+}));
 // The step-1 escape hatch renders a real Clerk button, which needs a provider.
 vi.mock('@clerk/nextjs', () => ({
   SignOutButton: ({ children }: { children: React.ReactNode }) => children,
@@ -32,6 +49,12 @@ afterEach(() => {
   vi.clearAllMocks();
 });
 
+/** Step 1 now checks what was read (#350): Continue, then "Looks right". */
+async function continueWithResume(user: ReturnType<typeof userEvent.setup>) {
+  await user.click(screen.getByRole('button', { name: /continue/i }));
+  await user.click(await screen.findByRole('button', { name: /looks right/i }));
+}
+
 it('shows an inline alert (in addition to the toast) when continuing with no resume', async () => {
   const user = userEvent.setup();
   render(<OnboardingPage />);
@@ -41,6 +64,8 @@ it('shows an inline alert (in addition to the toast) when continuing with no res
 
   const alert = await screen.findByRole('alert');
   expect(alert).toHaveTextContent(/add your resume to continue/i);
+  // and Continue works again once there's something to send
+  expect(screen.getByRole('button', { name: /continue/i })).toBeEnabled();
 });
 
 it('advances to the target-roles step after a resume is saved, then discovers and routes to jobs', async () => {
@@ -49,7 +74,7 @@ it('advances to the target-roles step after a resume is saved, then discovers an
 
   await user.click(screen.getByRole('tab', { name: /paste text/i }));
   await user.type(screen.getByPlaceholderText(/paste your resume text/i), 'Senior TypeScript engineer.');
-  await user.click(screen.getByRole('button', { name: /continue/i }));
+  await continueWithResume(user);
 
   const roleInput = await screen.findByLabelText(/role or keywords/i);
   await user.type(roleInput, 'AI Engineer');
@@ -70,7 +95,7 @@ it('requires a role/keyword before discovering on step 2', async () => {
 
   await user.click(screen.getByRole('tab', { name: /paste text/i }));
   await user.type(screen.getByPlaceholderText(/paste your resume text/i), 'Engineer.');
-  await user.click(screen.getByRole('button', { name: /continue/i }));
+  await continueWithResume(user);
 
   await screen.findByLabelText(/role or keywords/i);
   await user.click(screen.getByRole('button', { name: /find matching jobs/i }));
@@ -85,7 +110,7 @@ it('treats a "Remote" location as remote-only (the source ignores it as a place)
 
   await user.click(screen.getByRole('tab', { name: /paste text/i }));
   await user.type(screen.getByPlaceholderText(/paste your resume text/i), 'Engineer.');
-  await user.click(screen.getByRole('button', { name: /continue/i }));
+  await continueWithResume(user);
 
   await user.type(await screen.findByLabelText(/role or keywords/i), 'AI Engineer');
   await user.type(screen.getByLabelText(/^location$/i), 'Remote');
@@ -106,7 +131,7 @@ it('lets the user skip discovery and go to the dashboard', async () => {
 
   await user.click(screen.getByRole('tab', { name: /paste text/i }));
   await user.type(screen.getByPlaceholderText(/paste your resume text/i), 'Engineer.');
-  await user.click(screen.getByRole('button', { name: /continue/i }));
+  await continueWithResume(user);
 
   await screen.findByLabelText(/role or keywords/i);
   await user.click(screen.getByRole('button', { name: /skip for now/i }));
@@ -200,4 +225,64 @@ it('lets a user recover by pasting after a PDF upload fails', async () => {
   await waitFor(() => expect(saveResumeText).toHaveBeenCalledWith('Ava Tester — AI engineer'));
   // and crucially: the broken file was not retried
   expect(uploadResumeFile).toHaveBeenCalledTimes(1);
+});
+
+// --- step 1: check what was read (#350) ---------------------------------------
+
+it('shows what was read from the PDF and saves the résumé only on "Looks right"', async () => {
+  const user = userEvent.setup();
+  render(<OnboardingPage />);
+
+  dropFile(pdfFile('cv.pdf'));
+  await user.click(screen.getByRole('button', { name: /continue/i }));
+
+  expect(await screen.findByText('Check what we read')).toBeInTheDocument();
+  expect(screen.getByText('Software Developer at Medical Informatics Engineering · May 2026 – Present')).toBeInTheDocument();
+  expect(parseResume).toHaveBeenCalledWith('TEXT READ FROM PDF');
+  expect(saveBaseResume).not.toHaveBeenCalled();
+
+  await user.click(screen.getByRole('button', { name: /looks right/i }));
+  expect(saveBaseResume).toHaveBeenCalledWith(PARSED);
+  expect(await screen.findByLabelText(/role or keywords/i)).toBeInTheDocument();
+});
+
+it('reads pasted text as typed', async () => {
+  const user = userEvent.setup();
+  render(<OnboardingPage />);
+
+  await user.click(screen.getByRole('tab', { name: /paste text/i }));
+  await user.type(screen.getByPlaceholderText(/paste your resume text/i), 'Ava Tester, engineer.');
+  await user.click(screen.getByRole('button', { name: /continue/i }));
+
+  await screen.findByText('Check what we read');
+  expect(parseResume).toHaveBeenCalledWith('Ava Tester, engineer.');
+});
+
+it('when the résumé can\'t be read, says why and lets the user retry or skip', async () => {
+  parseResume.mockRejectedValueOnce(new Error("The AI couldn't be reached. Try again in a moment."));
+  const user = userEvent.setup();
+  render(<OnboardingPage />);
+
+  dropFile(pdfFile('cv.pdf'));
+  await user.click(screen.getByRole('button', { name: /continue/i }));
+
+  const alert = await screen.findByRole('alert');
+  expect(alert).toHaveTextContent("Couldn't read your résumé");
+  expect(alert).toHaveTextContent("The AI couldn't be reached.");
+
+  await user.click(screen.getByRole('button', { name: /skip for now/i }));
+  expect(await screen.findByLabelText(/role or keywords/i)).toBeInTheDocument();
+  expect(saveBaseResume).not.toHaveBeenCalled();
+});
+
+it('cancelling the check goes back to the résumé step without saving it', async () => {
+  const user = userEvent.setup();
+  render(<OnboardingPage />);
+
+  dropFile(pdfFile('cv.pdf'));
+  await user.click(screen.getByRole('button', { name: /continue/i }));
+  await user.click(await screen.findByRole('button', { name: /cancel/i }));
+
+  expect(screen.getByRole('tab', { name: /upload pdf/i })).toBeInTheDocument();
+  expect(saveBaseResume).not.toHaveBeenCalled();
 });
