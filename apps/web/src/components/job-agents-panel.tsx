@@ -1,12 +1,13 @@
 'use client';
 
 import { Bot, GraduationCap, Loader2, Search } from 'lucide-react';
-import { useState, useSyncExternalStore } from 'react';
+import { useState } from 'react';
 import { ErrorState } from '@/components/error-state';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { useHydrated } from '@/hooks/use-hydrated';
 import { formatCompactDateTime } from '@/lib/format';
 import {
   runInterviewPrep,
@@ -81,17 +82,6 @@ function RunPrompt({
         {running ? 'Running…' : hasResult ? 'Regenerate' : 'Run agent'}
       </Button>
     </div>
-  );
-}
-
-// `false` during SSR + the initial client render, `true` once hydrated — the
-// React-recommended, mismatch-free way to gate client-only rendering.
-const noopSubscribe = () => () => {};
-function useHydrated() {
-  return useSyncExternalStore(
-    noopSubscribe,
-    () => true,
-    () => false,
   );
 }
 

@@ -28,11 +28,12 @@ Rules
    titles, dates, metrics, or credentials that are absent from the input.
 2. A role's company and position come from its header line: the line that
    names the employer, usually with the dates on the same line, and the title
-   on that line or the next. Never from a bullet. A word at the start of a
-   bullet ("Encoded", "Built", "Led") is never a company, even when a number is
-   stuck to it ("Encoded9"). Text extracted from a PDF can lose spaces between
-   words; read "EngineeringMay 2026" as "Engineering" followed by the date, and
-   "Riccle(early-stage startup)" as the company "Riccle" with a description.
+   on that line or the next. Never from a bullet. The first word of a bullet
+   (a verb such as "Led", "Reduced" or "Shipped") is never a company, even when
+   a number is stuck to it ("Reduced40%"). Text extracted from a PDF can lose
+   spaces between words; read "Globex CorpMar 2021" as "Globex Corp" followed
+   by the date, and "Initech(seed-stage startup)" as the company "Initech" with
+   a description.
 3. Keep each bullet as the candidate wrote it, one highlight per bullet. Don't
    shorten, merge or reword them.
 4. If a field is genuinely absent from the text, omit it (set it to null /
