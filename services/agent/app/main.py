@@ -33,7 +33,13 @@ from app.graph.budget import TokenBudgetExceeded
 from app.graph.memory import open_durable_backends, prune_checkpoints
 from app.graph.registry import AGENT_IDS, build_registry, make_thread_id
 from app.llm.canary import run_llm_canary
-from app.llm.provider import LLMNotConfigured, get_model, llm_available, resolve_provider
+from app.llm.provider import (
+    LLMNotConfigured,
+    get_model,
+    llm_available,
+    openai_call_kwargs,
+    resolve_provider,
+)
 from app.obs import traced_config, traced_span
 from app.obs.agent_tags import tags_for
 from app.prompts import CHAT_ASSISTANT_SYSTEM
@@ -233,6 +239,17 @@ def _active_model(provider: str | None) -> str | None:
     }.get(provider or "")
 
 
+def _call_shape(provider: str | None) -> dict:
+    """How the env model is called (#410): its reasoning effort, and which OpenAI API."""
+    if provider != "openai":
+        return {"reasoning_effort": None, "api": None}
+    kwargs = openai_call_kwargs(settings.openai_model)
+    return {
+        "reasoning_effort": kwargs.get("reasoning_effort"),
+        "api": "responses" if kwargs.get("use_responses_api") else "chat",
+    }
+
+
 @app.get("/health")
 def health() -> dict:
     """Public liveness: says only that the process is up (#348). No model, provider or SHA."""
@@ -249,6 +266,7 @@ def health_details() -> dict:
         "llm_configured": llm_available(),
         "provider": provider,
         "model": _active_model(provider),
+        **_call_shape(provider),
         "rag_enabled": rag_available(),
         "tavily_configured": bool(settings.tavily_api_key),
         # The git SHA baked into the image at build time (Dockerfile ARG GIT_SHA).
@@ -265,11 +283,19 @@ def health_llm():
     with the provider's error text when it doesn't. Called on a schedule by the API's
     /internal/llm-canary, never on a user's request.
     """
-    model = _active_model(resolve_provider())
+    provider = resolve_provider()
+    model = _active_model(provider)
+    # The effort and API too, so a model switch that didn't apply can't look green (#410).
+    shape = _call_shape(provider)
     if not llm_available():
         return JSONResponse(
             status_code=503,
-            content={"ok": False, "model": model, "error": "No LLM provider is configured."},
+            content={
+                "ok": False,
+                "model": model,
+                **shape,
+                "error": "No LLM provider is configured.",
+            },
         )
     started = time.perf_counter()
     try:
@@ -277,9 +303,14 @@ def health_llm():
     except Exception as error:  # noqa: BLE001 - the canary reports any provider failure as it is
         return JSONResponse(
             status_code=503,
-            content={"ok": False, "model": model, "error": str(error)[:500]},
+            content={"ok": False, "model": model, **shape, "error": str(error)[:500]},
         )
-    return {"ok": True, "model": model, "latency_ms": int((time.perf_counter() - started) * 1000)}
+    return {
+        "ok": True,
+        "model": model,
+        **shape,
+        "latency_ms": int((time.perf_counter() - started) * 1000),
+    }
 
 
 @app.post("/parse-job", response_model=ParsedJob)

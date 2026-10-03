@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import type { CreateJobBody, JobRecord, SavedSearch, TargetCompany } from '@/types';
-import { runDiscoveryForUser, type DiscoveryDeps } from './discovery';
+import { discoveryAiScoreLimits, runDiscoveryForUser, type DiscoveryDeps } from './discovery';
 import { BUDGET_SPENT } from '@/lib/budget';
 import type { SourcedJob } from '@/lib/job-sources/normalize';
 import { AiUnavailableError } from '@/lib/agent-client';
@@ -780,4 +780,14 @@ test('an unavailable AI leaves the labelled local pre-rank, not an AI score', as
 
   assert.equal(result.inserted, 1);
   assert.deepEqual(analyses.map((a) => a.modelUsed), ['local-prerank']);
+});
+
+// #410: gpt-6-luna at medium effort takes about 8 s for a fit score (14 s seen). At 10 s per
+// job and 30 s a run, most new jobs fell back to the local pre-rank while the paid call ran on.
+test('discovery waits long enough for a gpt-6-luna fit score', () => {
+  assert.deepEqual(discoveryAiScoreLimits({}), { perJobMs: 20_000, budgetMs: 45_000 });
+  assert.deepEqual(
+    discoveryAiScoreLimits({ DISCOVERY_AI_SCORE_TIMEOUT_MS: '50', DISCOVERY_AI_SCORE_BUDGET_MS: '0' }),
+    { perJobMs: 50, budgetMs: 0 },
+  );
 });

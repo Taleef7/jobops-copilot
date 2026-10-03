@@ -29,6 +29,12 @@ if [ "${1:-}" = "--activate" ]; then
   activate_tag="${2:?Provide a tag, e.g. --activate <git-sha>}"
 fi
 
+# Refuse an image that can't call the live model (#410): roll the model back first. With no
+# --activate tag it checks the working tree, which is what gets built.
+# shellcheck source=scripts/azure/agent-model-guard.sh
+. "$(dirname "$0")/agent-model-guard.sh"
+require_agent_supports_live_model "$RG" "$APP" "$activate_tag"
+
 if [ -z "$activate_tag" ]; then
   TAG="${TAG:-$(date +%Y%m%d%H%M)}"
   GIT_SHA="$(git rev-parse HEAD 2>/dev/null || echo unknown)"
@@ -59,9 +65,10 @@ for _ in 1 2 3 4 5 6 7 8; do
   sleep 5
 done
 stream="$(curl -s -H "X-Agent-Key: $key" "https://$fqdn/openapi.json" --max-time 50 | grep -c '/assistant/stream' || true)"
-# The LLM canary: one tiny real model call, so a model the provider rejects fails the
-# deploy instead of every user's request (#348).
-canary_body="$(curl -s -H "X-Agent-Key: $key" -w '\n%{http_code}' --max-time 90 "https://$fqdn/health/llm" || true)"
+# The LLM canary: two tiny real model calls (structured output and a tool call), so a model
+# the provider rejects fails the deploy instead of every user's request (#348, #410). Each
+# call can take up to the agent's 60 s request timeout.
+canary_body="$(curl -s -H "X-Agent-Key: $key" -w '\n%{http_code}' --max-time 150 "https://$fqdn/health/llm" || true)"
 canary="$(printf '%s' "$canary_body" | tail -n1)"
 
 echo ""

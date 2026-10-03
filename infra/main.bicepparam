@@ -2,8 +2,11 @@ using './main.bicep'
 
 // Non-secret defaults — safe to commit. Match the live topology (RG `projects`,
 // reconciled 2026-07-25). Config params whose main.bicep defaults already match live
-// (adzunaCountry, aiDailyBudgetUsd, timeouts, openAiModel,
+// (adzunaCountry, aiDailyBudgetUsd, timeouts,
 // langfuseHost, langfusePublicKey, acrUsername) are intentionally omitted here.
+// openAiModel and openAiReasoningEffort default to gpt-6-luna and medium (#410). If the
+// live model is rolled back to gpt-5.4-nano, set `param openAiModel = 'gpt-5.4-nano'` here
+// too, or an infra deploy brings luna back.
 param appLocation = 'mexicocentral'
 param platformLocation = 'eastus'
 param namePrefix = 'jobops'

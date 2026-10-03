@@ -70,6 +70,20 @@ function isDuplicateKeyError(error: unknown): boolean {
 }
 
 /**
+ * How long discovery waits for AI fit scores: per job, and per user's run (#410).
+ * gpt-6-luna at medium effort takes about 8 s for a fit score (14 s seen), so 20 s per job
+ * keeps the paid call it started, and 45 s scores about five new jobs a run, well under the
+ * web's 130 s. A sweep runs users one after another, so its total grows with the number of
+ * users that have new postings.
+ */
+export function discoveryAiScoreLimits(env: NodeJS.ProcessEnv = process.env) {
+  return {
+    perJobMs: Number(env.DISCOVERY_AI_SCORE_TIMEOUT_MS ?? 20_000),
+    budgetMs: Number(env.DISCOVERY_AI_SCORE_BUDGET_MS ?? 45_000),
+  };
+}
+
+/**
  * Run every saved search for a user against the active job source and insert the
  * new postings into their CRM, skipping duplicates (of existing jobs and within
  * the run). A single failing search is skipped rather than aborting the run.
@@ -78,8 +92,7 @@ export async function runDiscoveryForUser(userId: string, deps: DiscoveryDeps): 
   const JD_FETCH_CAP = Number(process.env.DISCOVERY_JD_FETCH_CAP ?? 25);
   const JD_UPGRADE_TIME_BUDGET_MS = Number(process.env.DISCOVERY_JD_UPGRADE_BUDGET_MS ?? 15_000);
   const jdUpgradeDeadline = Date.now() + JD_UPGRADE_TIME_BUDGET_MS;
-  const AI_SCORE_TIME_BUDGET_MS = Number(process.env.DISCOVERY_AI_SCORE_BUDGET_MS ?? 30_000);
-  const AI_SCORE_PER_JOB_TIMEOUT_MS = Number(process.env.DISCOVERY_AI_SCORE_TIMEOUT_MS ?? 10_000);
+  const { perJobMs: AI_SCORE_PER_JOB_TIMEOUT_MS, budgetMs: AI_SCORE_TIME_BUDGET_MS } = discoveryAiScoreLimits();
   const aiScoreDeadline = Date.now() + AI_SCORE_TIME_BUDGET_MS;
   const searches = await deps.listSavedSearches(userId);
   const existingJobs = await deps.listJobs(userId);

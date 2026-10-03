@@ -182,6 +182,23 @@ Deploy workflows (canonical):
   `scripts/azure/deploy-agent.sh --activate <sha>` (skips the slow local rebuild). The
   `azure-app-service.yml` agent target is a code-deploy fallback for a no-RAG agent only.
 
+> **Switching the agent's model (#410).** The model is the Container App's env, not the
+> image: `OPENAI_MODEL`, and `OPENAI_REASONING_EFFORT` for gpt-6* models, set with
+> `az containerapp update -g projects -n jobops-agent --set-env-vars ...`. Activating an
+> image doesn't change it. (An admin-set `agent_configs` row names its own model; a gpt-6
+> row needs an image from #410 on as well, and the guard below checks only the env.)
+>
+> - **Switch** only once an image that supports the model is active. Then check that
+>   `/health/llm` (or the canary in `deploy-agent.sh`) names the new `model`,
+>   `reasoning_effort` and `api`, not just that it answers 200.
+> - **Roll back in the reverse order:** the model first
+>   (`--set-env-vars OPENAI_MODEL=gpt-5.4-nano`), then any older image. An image from before
+>   #410 can't call gpt-6-luna: it sends a temperature and calls tools through Chat
+>   Completions, which is what broke every call in #329. `deploy-agent.sh` refuses to
+>   activate one while the env runs a gpt-6 model.
+> - **Infra.** After a rollback to nano, also set `openAiModel = 'gpt-5.4-nano'` in
+>   `infra/main.bicepparam`, or the next infra deploy brings luna back.
+
 > **Reproducible agent image (#168).** `services/agent/Dockerfile` pins the base image by
 > digest, pins `torch==2.13.0+cpu` (CPU wheel), and applies `services/agent/constraints.txt`
 > — a full `pip freeze` of the resolved graph — so any historical SHA rebuilds byte-for-byte

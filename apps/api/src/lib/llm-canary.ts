@@ -18,8 +18,12 @@ export interface LlmCanaryResult {
   checkedAt: string;
 }
 
-/** A cold agent (scale-to-zero) can take a while to start before it answers. */
-const CANARY_TIMEOUT_MS = 90_000;
+/**
+ * The agent's canary makes two model calls (structured output, then a tool call, #410), each
+ * up to its 60 s request timeout, and a cold agent (scale-to-zero) can take a while to start.
+ * The workflows that call /internal/llm-canary give the whole request 150 s.
+ */
+export const LLM_CANARY_TIMEOUT_MS = 140_000;
 const CACHE_KEY = 'llm-canary:last';
 /** Long enough to show the last result between daily runs. */
 const KEEP_MS = 30 * 24 * 60 * 60 * 1000;
@@ -41,7 +45,7 @@ export async function runLlmCanary(): Promise<LlmCanaryResult> {
   try {
     response = await fetch(`${baseUrl}/health/llm`, {
       headers: agentHeaders(),
-      signal: AbortSignal.timeout(CANARY_TIMEOUT_MS),
+      signal: AbortSignal.timeout(LLM_CANARY_TIMEOUT_MS),
     });
   } catch (error) {
     const reason = error instanceof Error && error.name === 'TimeoutError' ? 'timed out' : 'could not be reached';

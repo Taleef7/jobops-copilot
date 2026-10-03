@@ -197,3 +197,138 @@ def test_no_database_url_short_circuits_before_connecting(monkeypatch):
     monkeypatch.setattr(provider, "_connect", explode)
 
     assert provider._fetch_active_config("feed-curator") is None
+
+
+# --- #410: gpt-6-luna's call shape ----------------------------------------------------
+#
+# #329 switched to gpt-6-luna by changing only the model id, and every call failed for 6
+# days: luna rejects temperature (and top_p), and with reasoning effort it takes function
+# tools only through the Responses API. The call shape follows the model name, so setting
+# OPENAI_MODEL alone can't bring that back, and every other model is sent what it was before.
+
+
+def _capture(monkeypatch):
+    captured = {}
+
+    def fake_init(model, **kwargs):
+        captured.clear()
+        captured.update(kwargs)
+        captured["model"] = model
+        return object()
+
+    monkeypatch.setattr(provider, "init_chat_model", fake_init)
+    return captured
+
+
+@pytest.fixture()
+def openai_env(monkeypatch):
+    monkeypatch.setattr(provider.settings, "llm_provider", "openai")
+    monkeypatch.setattr(provider.settings, "openai_api_key", "sk-test-oa")
+    provider.get_model.cache_clear()
+    yield
+    provider.get_model.cache_clear()
+
+
+def test_luna_goes_through_the_responses_api_with_its_effort_and_no_sampling(
+    monkeypatch, openai_env
+):
+    captured = _capture(monkeypatch)
+    monkeypatch.setattr(provider.settings, "openai_model", "gpt-6-luna")
+    monkeypatch.setattr(provider.settings, "openai_reasoning_effort", "medium")
+
+    _, label = provider.get_model()
+
+    assert label == "openai:gpt-6-luna"
+    assert captured["model"] == "openai:gpt-6-luna"
+    assert captured["use_responses_api"] is True
+    # Chat Completions doesn't keep requests; the Responses API would by default.
+    assert captured["store"] is False
+    assert captured["reasoning_effort"] == "medium"
+    assert "temperature" not in captured
+    assert "top_p" not in captured
+    assert captured["timeout"] == provider.settings.request_timeout
+
+
+def test_luna_never_gets_a_temperature_even_without_an_effort(monkeypatch, openai_env):
+    captured = _capture(monkeypatch)
+    monkeypatch.setattr(provider.settings, "openai_model", "gpt-6-luna")
+    monkeypatch.setattr(provider.settings, "openai_reasoning_effort", "")
+
+    provider.get_model()
+
+    assert "temperature" not in captured
+    assert captured["use_responses_api"] is True
+    assert "reasoning_effort" not in captured, "an empty effort leaves the provider's default"
+
+
+@pytest.mark.parametrize("model", ["gpt-5.4-nano", "gpt-4o-mini"])
+def test_other_openai_models_are_sent_what_they_were_before(monkeypatch, openai_env, model):
+    # Rolling back to nano, and the evals on gpt-4o-mini, must not change by a single key.
+    captured = _capture(monkeypatch)
+    monkeypatch.setattr(provider.settings, "openai_model", model)
+    monkeypatch.setattr(provider.settings, "openai_reasoning_effort", "medium")
+
+    provider.get_model()
+
+    assert captured == {
+        "model": f"openai:{model}",
+        "api_key": "sk-test-oa",
+        "temperature": provider.settings.llm_temperature,
+        "timeout": provider.settings.request_timeout,
+    }
+
+
+def test_a_luna_row_drops_sampling_params_and_keeps_the_rest(monkeypatch):
+    captured = _capture(monkeypatch)
+    monkeypatch.setattr(provider.settings, "openai_api_key", "sk-test-oa")
+    monkeypatch.setattr(provider.settings, "openai_reasoning_effort", "medium")
+    monkeypatch.setattr(
+        provider,
+        "_fetch_active_config",
+        lambda a: _cfg(
+            model="openai:gpt-6-luna",
+            params={"temperature": 0.2, "top_p": 0.9, "max_tokens": 8192},
+        ),
+    )
+
+    _, label, cfg = get_model_for_agent("feed-curator")
+
+    assert label == "openai:gpt-6-luna"
+    assert cfg is not None
+    assert "temperature" not in captured
+    assert "top_p" not in captured
+    assert captured["max_tokens"] == 8192
+    assert captured["use_responses_api"] is True
+    assert captured["store"] is False
+    assert captured["reasoning_effort"] == "medium"
+
+
+def test_a_luna_row_can_set_its_own_effort(monkeypatch):
+    captured = _capture(monkeypatch)
+    monkeypatch.setattr(provider.settings, "openai_api_key", "sk-test-oa")
+    monkeypatch.setattr(provider.settings, "openai_reasoning_effort", "medium")
+    monkeypatch.setattr(
+        provider,
+        "_fetch_active_config",
+        lambda a: _cfg(model="openai:gpt-6-luna", params={"reasoning_effort": "low"}),
+    )
+
+    get_model_for_agent("feed-curator")
+
+    assert captured["reasoning_effort"] == "low"
+
+
+def test_an_openai_row_for_another_model_keeps_its_temperature(monkeypatch):
+    captured = _capture(monkeypatch)
+    monkeypatch.setattr(provider.settings, "openai_api_key", "sk-test-oa")
+    monkeypatch.setattr(
+        provider,
+        "_fetch_active_config",
+        lambda a: _cfg(model="openai:gpt-5.6-luna", params={"top_p": 0.9}),
+    )
+
+    get_model_for_agent("feed-curator")
+
+    assert captured["temperature"] == provider.settings.llm_temperature
+    assert captured["top_p"] == 0.9
+    assert "use_responses_api" not in captured
