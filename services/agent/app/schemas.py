@@ -390,7 +390,9 @@ class TailorResumeRequest(BaseModel):
     lines: list[TailorBaseLine] = Field(description="Every line the model may edit")
     skills: list[str] = Field(default_factory=list, description="Every skill, in order")
     skill_categories: list[str] = Field(
-        default_factory=list, description="The skill categories, for placing an added skill"
+        default_factory=list,
+        description='The skill categories, for placing an added skill. With none, an added '
+        'skill goes under "Skills", and the API creates that group.',
     )
     keywords: list[str] = Field(default_factory=list, description="Keywords from the posting")
     confirmed_keywords: list[str] = Field(

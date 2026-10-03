@@ -171,7 +171,7 @@ Each edit has:
 - new_text: the replacement line.
 - rationale: one sentence naming the posting requirement the edit serves.
 
-Edit the summary and the 3 to 6 bullets most relevant to the posting, so a reader sees the posting's priorities first: lead with the part of the line the posting cares about, and use the posting's word for something the line already says. Leave every other line unchanged.
+Edit the summary, if it is listed, and the 3 to 6 bullets most relevant to the posting (every bullet when fewer than 3 are listed), so a reader sees the posting's priorities first: lead with the part of the line the posting cares about, and use the posting's word for something the line already says. Leave every other line unchanged.
 
 highlight_orders: for each role whose bullets you reorder, its work_index and the new order as the bullets' current positions (0-based), each position exactly once.
 

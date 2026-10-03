@@ -13,9 +13,16 @@ from __future__ import annotations
 import json
 import logging
 
-from app.llm.provider import get_model
+from app.llm.provider import get_model_for_agent
 from app.prompts import TAILOR_RESUME_SYSTEM
-from app.safety.injection import annotate_trace, guard_job_description, injection_refused
+from app.safety.injection import (
+    InjectionVerdict,
+    annotate_trace,
+    injection_refused,
+    scan_for_injection,
+    wrap_untrusted,
+)
+from app.safety.pii import maybe_redact
 from app.schemas import TailorResumeOutput, TailorResumeRequest, TailorResumeResponse
 
 logger = logging.getLogger("jobops.agent.tailor_resume")
@@ -32,18 +39,32 @@ def _json_text(text: str) -> str:
     return rendered
 
 
-def _human_message(req: TailorResumeRequest, jd_block: str) -> str:
-    parts = [f"Target job: {req.job_title} at {req.company}", jd_block]
+def _guarded_posting(req: TailorResumeRequest) -> tuple[str, InjectionVerdict]:
+    """The posting and everything taken from it (title, company, keywords) as one delimited
+    block: an instruction in a scraped title is data like one in the text.
+
+    All of it, and the confirmed keywords, is scanned for injection. Only the description is
+    PII-redacted: the redactor reads keywords such as "ASP.NET/C#" as URLs.
+    """
+    header = f"Title: {req.job_title}\nCompany: {req.company}\n"
     if req.keywords:
-        parts.append(
-            "Keywords from the posting (use one only where the rules allow it): "
-            + ", ".join(req.keywords)
-        )
+        header += "Keywords from the posting: " + ", ".join(req.keywords) + "\n"
+    verdict = scan_for_injection("\n".join([header, req.description_text, *req.confirmed_keywords]))
+    if verdict.flagged:
+        logger.warning("Possible prompt injection in the posting; patterns=%s", verdict.patterns)
+    description = maybe_redact(req.description_text) or ""
+    return wrap_untrusted(header + "\n" + description, "JOB DESCRIPTION"), verdict
+
+
+def _human_message(req: TailorResumeRequest, jd_block: str) -> str:
+    parts = [jd_block]
+    if req.keywords:
+        parts.append("Use a keyword from the posting only where the rules allow it.")
     parts.append("BASE RÉSUMÉ FACTS (read-only):\n" + req.facts)
     if req.skills:
         parts.append("SKILLS (reorder only):\n" + ", ".join(req.skills))
-    if req.skill_categories:
-        parts.append("SKILL CATEGORIES:\n" + ", ".join(req.skill_categories))
+    # A résumé with no skill groups still has somewhere for a confirmed keyword to go.
+    parts.append("SKILL CATEGORIES:\n" + ", ".join(req.skill_categories or ["Skills"]))
     parts.append(
         "CONFIRMED KEYWORDS (the candidate has these):\n"
         + (", ".join(req.confirmed_keywords) or "none")
@@ -58,13 +79,14 @@ def _human_message(req: TailorResumeRequest, jd_block: str) -> str:
 
 
 def tailor_resume(req: TailorResumeRequest, config: dict | None = None) -> TailorResumeResponse:
-    model, label = get_model()
+    # An operator's agent_configs row for resume-tailor applies, as it did to the old graph.
+    model, label, _config_row = get_model_for_agent("resume-tailor")
 
-    jd_block, verdict = guard_job_description(req.description_text)
+    jd_block, verdict = _guarded_posting(req)
     annotate_trace(config, verdict)
     if injection_refused(verdict):
         return TailorResumeResponse(
-            change_summary="Not tailored: suspected prompt injection in the job description.",
+            change_summary="Not tailored: suspected prompt injection in the posting.",
             edits=[],
             highlight_orders=[],
             skills_order=list(req.skills),
