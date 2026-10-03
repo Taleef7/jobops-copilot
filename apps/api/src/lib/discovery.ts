@@ -70,10 +70,11 @@ function isDuplicateKeyError(error: unknown): boolean {
 }
 
 /**
- * How long discovery waits for AI fit scores: per job, and for the whole run (#410).
+ * How long discovery waits for AI fit scores: per job, and per user's run (#410).
  * gpt-6-luna at medium effort takes about 8 s for a fit score (14 s seen), so 20 s per job
- * keeps the paid call it started, and 45 s scores about five new jobs a run. Both stay well
- * under the scheduled run's 120 s and the web's 130 s.
+ * keeps the paid call it started, and 45 s scores about five new jobs a run, well under the
+ * web's 130 s. A sweep runs users one after another, so its total grows with the number of
+ * users that have new postings.
  */
 export function discoveryAiScoreLimits(env: NodeJS.ProcessEnv = process.env) {
   return {

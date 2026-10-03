@@ -185,7 +185,8 @@ Deploy workflows (canonical):
 > **Switching the agent's model (#410).** The model is the Container App's env, not the
 > image: `OPENAI_MODEL`, and `OPENAI_REASONING_EFFORT` for gpt-6* models, set with
 > `az containerapp update -g projects -n jobops-agent --set-env-vars ...`. Activating an
-> image doesn't change it.
+> image doesn't change it. (An admin-set `agent_configs` row names its own model; a gpt-6
+> row needs an image from #410 on as well, and the guard below checks only the env.)
 >
 > - **Switch** only once an image that supports the model is active. Then check that
 >   `/health/llm` (or the canary in `deploy-agent.sh`) names the new `model`,

@@ -29,10 +29,11 @@ if [ "${1:-}" = "--activate" ]; then
   activate_tag="${2:?Provide a tag, e.g. --activate <git-sha>}"
 fi
 
-# Refuse an image that can't call the live model (#410): roll the model back first.
+# Refuse an image that can't call the live model (#410): roll the model back first. With no
+# --activate tag it checks the working tree, which is what gets built.
 # shellcheck source=scripts/azure/agent-model-guard.sh
 . "$(dirname "$0")/agent-model-guard.sh"
-require_agent_supports_live_model "$RG" "$APP" "${activate_tag:-HEAD}"
+require_agent_supports_live_model "$RG" "$APP" "$activate_tag"
 
 if [ -z "$activate_tag" ]; then
   TAG="${TAG:-$(date +%Y%m%d%H%M)}"
