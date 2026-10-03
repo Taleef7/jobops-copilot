@@ -368,6 +368,76 @@ class TailoredResumeOutput(BaseModel):
     structured_resume: StructuredResume = Field(description="The tailored structured resume")
 
 
+# --- POST /tailor-resume (#351): edits to lines of the base résumé ----------------------
+
+
+class TailorBaseLine(BaseModel):
+    path: str = Field(
+        description='Where the line is in the base résumé, e.g. "basics.summary" or '
+        '"work[i].highlights[j]"'
+    )
+    text: str
+
+
+class TailorResumeRequest(BaseModel):
+    job_title: str
+    company: str
+    description_text: str
+    facts: str = Field(
+        description="The base résumé's read-only facts as plain text: roles with company and "
+        "dates, education, and anything else that must not change"
+    )
+    lines: list[TailorBaseLine] = Field(description="Every line the model may edit")
+    skills: list[str] = Field(default_factory=list, description="Every skill, in order")
+    skill_categories: list[str] = Field(
+        default_factory=list,
+        description='The skill categories, for placing an added skill. With none, an added '
+        'skill goes under "Skills", and the API creates that group.',
+    )
+    keywords: list[str] = Field(default_factory=list, description="Keywords from the posting")
+    confirmed_keywords: list[str] = Field(
+        default_factory=list,
+        description="Keywords the candidate picked or typed in the tailor window, confirming "
+        "they have them: the only terms beyond the base résumé the edits may use",
+    )
+
+
+# Every field of the answer is required and there are no free-form objects: the Responses
+# API (gpt-6-luna, #410) takes a strict schema.
+class TailorEdit(BaseModel):
+    source_path: str = Field(description="The label of the line replaced, as given")
+    old_text: str = Field(
+        description="The line's text, the value of its JSON string, copied exactly"
+    )
+    new_text: str = Field(description="The replacement line")
+    rationale: str = Field(description="The posting requirement the edit serves")
+
+
+class TailorAddedSkill(BaseModel):
+    skill: str = Field(description="A confirmed keyword, spelled as given")
+    category: str = Field(description="One of the skill categories given, exactly")
+
+
+class TailorRoleOrder(BaseModel):
+    work_index: int
+    highlight_order: list[int] = Field(description="The bullets' current positions, new order")
+
+
+class TailorResumeOutput(BaseModel):
+    change_summary: str = Field(description="One or two sentences on what changed and why")
+    edits: list[TailorEdit]
+    highlight_orders: list[TailorRoleOrder]
+    skills_order: list[str]
+    added_skills: list[TailorAddedSkill] = Field(
+        description="Confirmed keywords added to the skills, each under an existing category"
+    )
+    gaps: list[str] = Field(description="Posting requirements the base résumé doesn't support")
+
+
+class TailorResumeResponse(TailorResumeOutput):
+    model_used: str
+
+
 class ParseResumeRequest(BaseModel):
     resume_text: str = Field(description="Raw resume text to parse into a structured model")
 
