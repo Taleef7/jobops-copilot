@@ -11,6 +11,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
+import { useHydrated } from '@/hooks/use-hydrated';
 import {
   errorMessage,
   fetchResumeText,
@@ -438,9 +439,7 @@ export function ResumePanel({ initial, updatedAt, resumeFileName, hasStoredText,
         />
       ) : null}
 
-      {lastUpdated ? (
-        <p className="text-muted-foreground text-xs">Last updated {formatDate(lastUpdated)}</p>
-      ) : null}
+      {lastUpdated ? <LastUpdated at={lastUpdated} /> : null}
 
       <div className="divide-y border-t">
         {SECTIONS.map(({ key, title }) => {
@@ -525,6 +524,12 @@ export function ResumePanel({ initial, updatedAt, resumeFileName, hasStoredText,
       </div>
     </div>
   );
+}
+
+/** The date is in the browser's time zone, after hydration: the server's can put a save on another day. */
+function LastUpdated({ at }: { at: string }) {
+  const hydrated = useHydrated();
+  return <p className="text-muted-foreground text-xs">Last updated {hydrated ? formatDate(at) : '…'}</p>;
 }
 
 const NotSet = () => <p className="text-muted-foreground text-sm">Not set</p>;

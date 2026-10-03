@@ -351,3 +351,38 @@ def test_parse_resume_prompt_keeps_the_candidates_words():
     # Bullets are kept as written, and no summary is made up.
     assert "concise bullet points" not in prompt
     assert "synthesize" not in prompt
+
+
+def test_parse_resume_prompt_examples_are_not_taken_from_the_gold_set():
+    """#350: rule 2's examples were words from the résumé the prompt was tuned on ("Encoded").
+    Live, gpt-5.4-nano then read the real résumé's first employer as "Encoded"; locally it did in
+    14 of 14 runs with newer libraries and 1 of 3 with the image's pinned ones, and the prompts
+    without those words read it right every time. An example quoted in the prompt must not use a
+    company's words or a bullet's first word from the eval data."""
+    import json
+    import re
+
+    from app.chains.parse_resume import PARSE_RESUME_SYSTEM
+    from evals import run
+
+    rows = [
+        json.loads(line)
+        for line in (run._DATA_DIR / "parse_resume.jsonl").read_text(encoding="utf-8").splitlines()
+        if line.strip()
+    ]
+    borrowed = set()
+    for row in rows:
+        for role in row["expected"]["work"]:
+            borrowed |= {word.lower() for word in re.findall(r"[A-Z][a-z]+", role["company"])}
+        for line in row["resume_text"].splitlines():
+            bullet = re.match(r"\s*[•●▪◦*-]\s*([A-Za-z]+)", line)
+            if bullet:
+                borrowed.add(bullet.group(1).lower())
+    # Split on case and digits as well, so a glued example ("RiccleSep 2025") shows its words.
+    examples = {
+        word.lower()
+        for quoted in re.findall(r'"([^"]+)"', PARSE_RESUME_SYSTEM)
+        for word in re.findall(r"[A-Z]?[a-z]+", quoted)
+    }
+    assert {"encoded", "riccle", "medical"} <= borrowed
+    assert not borrowed & examples, sorted(borrowed & examples)
