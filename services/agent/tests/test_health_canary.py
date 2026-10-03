@@ -34,6 +34,9 @@ def test_health_details_needs_the_key(monkeypatch):
     body = client.get("/health/details", headers=AUTH).json()
     assert body["provider"] == "openai"
     assert body["model"] == settings.openai_model
+    # #410: what is sent, so a model switch that didn't apply can't look green.
+    assert body["reasoning_effort"] == "medium"
+    assert body["api"] == "responses"
     assert body["llm_configured"] is True
     # The drift-check workflow compares this to the latest agent commit.
     assert "build_sha" in body
@@ -65,6 +68,8 @@ def test_llm_canary_reports_a_working_model(monkeypatch):
     body = res.json()
     assert body["ok"] is True
     assert body["model"] == settings.openai_model
+    assert body["reasoning_effort"] == "medium"
+    assert body["api"] == "responses"
     assert isinstance(body["latency_ms"], int)
 
 
@@ -104,3 +109,34 @@ def test_default_model_matches_the_bicep_default():
     match = re.search(r"param\s+openAiModel\s+string\s*=\s*'([^']+)'", bicep)
     assert match, "openAiModel param not found in infra/main.bicep"
     assert Settings(_env_file=None).openai_model == match.group(1)
+
+
+def test_health_reports_the_old_call_for_a_rollback_model(monkeypatch):
+    monkeypatch.setattr(settings, "agent_api_key", KEY)
+    monkeypatch.setattr(main, "llm_available", lambda: True)
+    monkeypatch.setattr(main, "resolve_provider", lambda: "openai")
+    monkeypatch.setattr(settings, "openai_model", "gpt-5.4-nano")
+
+    body = client.get("/health/details", headers=AUTH).json()
+
+    assert body["model"] == "gpt-5.4-nano"
+    assert body["reasoning_effort"] is None
+    assert body["api"] == "chat"
+
+
+def test_default_effort_matches_the_bicep_default_and_the_env_example():
+    # #410: the model and its effort are set in config.py, infra/main.bicep (which writes
+    # them into the container's env) and .env.example; all three must agree.
+    repo = Path(__file__).resolve().parents[3]
+    bicep = (repo / "infra" / "main.bicep").read_text(encoding="utf-8")
+    defaults = Settings(_env_file=None)
+    match = re.search(r"param\s+openAiReasoningEffort\s+string\s*=\s*'([^']*)'", bicep)
+    assert match, "openAiReasoningEffort param not found in infra/main.bicep"
+    assert defaults.openai_reasoning_effort == match.group(1)
+    assert re.search(
+        r"name:\s*'OPENAI_REASONING_EFFORT'\s*value:\s*openAiReasoningEffort", bicep
+    ), "OPENAI_REASONING_EFFORT is not written into the container's env"
+
+    example = (repo / "services" / "agent" / ".env.example").read_text(encoding="utf-8")
+    assert f"OPENAI_MODEL={defaults.openai_model}\n" in example
+    assert f"OPENAI_REASONING_EFFORT={defaults.openai_reasoning_effort}\n" in example

@@ -5,7 +5,7 @@
     "_generator": {
       "name": "bicep",
       "version": "0.43.8.12551",
-      "templateHash": "12167641241156707609"
+      "templateHash": "13532919727458346450"
     }
   },
   "parameters": {
@@ -105,9 +105,16 @@
     },
     "openAiModel": {
       "type": "string",
-      "defaultValue": "gpt-5.4-nano",
+      "defaultValue": "gpt-6-luna",
       "metadata": {
         "description": "Agent OpenAI model id."
+      }
+    },
+    "openAiReasoningEffort": {
+      "type": "string",
+      "defaultValue": "medium",
+      "metadata": {
+        "description": "Reasoning effort for the OpenAI models that take the Responses API (gpt-6*); others ignore it. Empty leaves the provider default."
       }
     },
     "langfusePublicKey": {
@@ -409,6 +416,18 @@
               "value": "[parameters('aiDailyBudgetUsd')]"
             },
             {
+              "name": "NODE_ENV",
+              "value": "production"
+            },
+            {
+              "name": "RATE_LIMIT_MAX",
+              "value": "120"
+            },
+            {
+              "name": "RATE_LIMIT_AI_MAX",
+              "value": "20"
+            },
+            {
               "name": "ADZUNA_APP_ID",
               "value": "[parameters('adzunaAppId')]"
             },
@@ -592,6 +611,10 @@
                 {
                   "name": "OPENAI_MODEL",
                   "value": "[parameters('openAiModel')]"
+                },
+                {
+                  "name": "OPENAI_REASONING_EFFORT",
+                  "value": "[parameters('openAiReasoningEffort')]"
                 },
                 {
                   "name": "OPENAI_API_KEY",

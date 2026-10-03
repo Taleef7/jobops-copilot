@@ -45,6 +45,34 @@ def llm_available() -> bool:
     return resolve_provider() is not None
 
 
+# Models that must go through the Responses API with no sampling params (#410). gpt-6-luna
+# rejects temperature and top_p, and with reasoning effort it takes function tools only on
+# /v1/responses: #329 switched to it by changing only the model id, and every call failed
+# for 6 days. The pinned langchain-openai (1.4.1) doesn't route gpt-6 there by itself.
+RESPONSES_ONLY_PREFIXES: tuple[str, ...] = ("gpt-6",)
+
+
+def openai_call_kwargs(model_id: str, params: dict | None = None) -> dict:
+    """What an OpenAI model is sent, for the env model and agent_configs rows alike.
+
+    The shape follows the model name, so setting OPENAI_MODEL alone is enough. Any other
+    model gets what it got before: the temperature, unless the row sets one.
+    """
+    params = dict(params or {})
+    if not model_id.startswith(RESPONSES_ONLY_PREFIXES):
+        params.setdefault("temperature", settings.llm_temperature)
+        return params
+    params.pop("temperature", None)
+    params.pop("top_p", None)
+    default_effort = (settings.openai_reasoning_effort or "").strip()
+    effort = params.pop("reasoning_effort", None) or default_effort
+    # store=False: Chat Completions doesn't keep requests, and the Responses API would.
+    kwargs = {"use_responses_api": True, "store": False, **params}
+    if effort:
+        kwargs["reasoning_effort"] = effort
+    return kwargs
+
+
 @lru_cache(maxsize=1)
 def get_model():
     """Return ``(chat_model, model_label)`` for the active provider.
@@ -65,7 +93,12 @@ def get_model():
         chat = init_chat_model(f"anthropic:{model}", api_key=settings.anthropic_api_key, **common)
     elif provider == "openai":
         model = settings.openai_model
-        chat = init_chat_model(f"openai:{model}", api_key=settings.openai_api_key, **common)
+        chat = init_chat_model(
+            f"openai:{model}",
+            api_key=settings.openai_api_key,
+            timeout=settings.request_timeout,
+            **openai_call_kwargs(model),
+        )
     elif provider == "azure_openai":
         model = settings.azure_openai_deployment or "gpt-4o-mini"
         chat = init_chat_model(
@@ -229,11 +262,12 @@ def _build_model(config: AgentConfig):
         )
         return None
 
-    kwargs = {"timeout": settings.request_timeout, **credentials}
-    for name in FORWARDED_PARAMS:
-        if name in config.params:
-            kwargs[name] = config.params[name]
-    kwargs.setdefault("temperature", settings.llm_temperature)
+    row = {name: config.params[name] for name in FORWARDED_PARAMS if name in config.params}
+    if provider == "openai":
+        row = openai_call_kwargs(model_id, row)
+    else:
+        row.setdefault("temperature", settings.llm_temperature)
+    kwargs = {"timeout": settings.request_timeout, **credentials, **row}
 
     try:
         if provider == "azure_openai":

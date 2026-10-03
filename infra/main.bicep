@@ -76,7 +76,10 @@ credentials aren't wired would boot the agent unconfigured.''')
 param llmProvider string = 'openai'
 
 @description('Agent OpenAI model id.')
-param openAiModel string = 'gpt-5.4-nano'
+param openAiModel string = 'gpt-6-luna'
+
+@description('Reasoning effort for the OpenAI models that take the Responses API (gpt-6*); others ignore it. Empty leaves the provider default.')
+param openAiReasoningEffort string = 'medium'
 
 @description('Langfuse public key — non-secret (paired with the secret key).')
 param langfusePublicKey string = ''
@@ -512,6 +515,10 @@ resource agentApp 'Microsoft.App/containerApps@2024-03-01' = {
             {
               name: 'OPENAI_MODEL'
               value: openAiModel
+            }
+            {
+              name: 'OPENAI_REASONING_EFFORT'
+              value: openAiReasoningEffort
             }
             {
               name: 'OPENAI_API_KEY'

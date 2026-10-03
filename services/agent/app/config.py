@@ -25,7 +25,10 @@ class Settings(BaseSettings):
 
     # OpenAI
     openai_api_key: str | None = None
-    openai_model: str = "gpt-5.4-nano"
+    openai_model: str = "gpt-6-luna"
+    # Reasoning effort for the models that take the Responses API (gpt-6*, #410); other
+    # models never get it. Empty leaves the provider's default.
+    openai_reasoning_effort: str | None = "medium"
 
     # Azure OpenAI
     azure_openai_endpoint: str | None = None
