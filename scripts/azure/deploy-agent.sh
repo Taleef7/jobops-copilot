@@ -65,9 +65,10 @@ for _ in 1 2 3 4 5 6 7 8; do
   sleep 5
 done
 stream="$(curl -s -H "X-Agent-Key: $key" "https://$fqdn/openapi.json" --max-time 50 | grep -c '/assistant/stream' || true)"
-# The LLM canary: one tiny real model call, so a model the provider rejects fails the
-# deploy instead of every user's request (#348).
-canary_body="$(curl -s -H "X-Agent-Key: $key" -w '\n%{http_code}' --max-time 90 "https://$fqdn/health/llm" || true)"
+# The LLM canary: two tiny real model calls (structured output and a tool call), so a model
+# the provider rejects fails the deploy instead of every user's request (#348, #410). Each
+# call can take up to the agent's 60 s request timeout.
+canary_body="$(curl -s -H "X-Agent-Key: $key" -w '\n%{http_code}' --max-time 150 "https://$fqdn/health/llm" || true)"
 canary="$(printf '%s' "$canary_body" | tail -n1)"
 
 echo ""

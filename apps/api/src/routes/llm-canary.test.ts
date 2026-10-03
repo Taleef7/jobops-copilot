@@ -1,10 +1,12 @@
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import http from 'node:http';
 import test from 'node:test';
 import express from 'express';
 import { healthRouter, resetStatusCacheForTests } from './health';
 import { createInternalRouter } from './internal';
-import { resetLlmCanaryStoreForTests } from '@/lib/llm-canary';
+import { LLM_CANARY_TIMEOUT_MS, resetLlmCanaryStoreForTests } from '@/lib/llm-canary';
 
 /**
  * #348: a model that fails every call went unnoticed for 6 days. The canary makes one tiny
@@ -153,4 +155,26 @@ test('an unreachable agent fails the canary with a plain reason', async () => {
     assert.equal(result.ok, false);
     assert.match(result.error, /agent/i);
   });
+});
+
+// #410: the agent's canary makes two model calls (structured output, then a tool call), each
+// up to its 60 s request timeout, and the agent may be starting from zero. The API has to wait
+// for that, and still answer before the workflows that call it give up; deploy-agent.sh, which
+// calls the agent directly, has to wait as long.
+test('the canary waits for both model calls and a cold start, inside its callers\' limits', () => {
+  const repo = join(__dirname, '..', '..', '..', '..');
+  const maxTime = (file: string, near: RegExp) => {
+    const text = readFileSync(join(repo, file), 'utf8');
+    const line = text.split('\n').find((l) => near.test(l) && /--max-time \d+/.test(l));
+    assert.ok(line, `no --max-time next to ${near} in ${file}`);
+    return Number(/--max-time (\d+)/.exec(line)![1]) * 1000;
+  };
+
+  assert.ok(LLM_CANARY_TIMEOUT_MS >= 2 * 60_000 + 15_000, `${LLM_CANARY_TIMEOUT_MS} ms`);
+  for (const file of ['.github/workflows/llm-canary.yml', '.github/workflows/deploy-api.yml']) {
+    const text = readFileSync(join(repo, file), 'utf8');
+    const seconds = [...text.matchAll(/--max-time (\d+)/g)].map((m) => Number(m[1]));
+    assert.ok(LLM_CANARY_TIMEOUT_MS < Math.max(...seconds) * 1000, `${file}: ${Math.max(...seconds)} s`);
+  }
+  assert.ok(maxTime('scripts/azure/deploy-agent.sh', /health\/llm/) >= LLM_CANARY_TIMEOUT_MS);
 });
