@@ -66,6 +66,10 @@ async function runExclusive<T>(operation: () => Promise<T>): Promise<T> {
 }
 
 export async function insertResumeVersion(record: ResumeVersionRecord): Promise<ResumeVersionRecord> {
+  // Every query filters on the owner, so a version without one could never be shown (#351).
+  if (!record.userId?.trim()) {
+    throw new Error('A résumé version needs an owner (userId).');
+  }
   if (hasPostgresConnection()) {
     return postgresStore.insertResumeVersion(record);
   }
