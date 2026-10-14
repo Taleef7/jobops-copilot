@@ -100,11 +100,12 @@ const leadingPoint = (text: string) => text.replace(/(?<![\p{N}])\.(\d)/gu, '0.$
 export function extractNumbers(text: string): FoundNumber[] {
   const source = leadingPoint(plain(text));
   const found: Array<FoundNumber & { at: number }> = [];
-  const taken: Array<[number, number]> = [];
-  const isTaken = (at: number) => taken.some(([start, end]) => at >= start && at < end);
+  // Characters already read as part of a number, so a word isn't read twice ("two" in "two thousand").
+  const taken = new Uint8Array(source.length + 1);
+  const isTaken = (at: number) => taken[at] === 1;
   const add = (number: FoundNumber, at: number, length: number) => {
     found.push({ ...number, at });
-    taken.push([at, at + length]);
+    taken.fill(1, at, at + length);
   };
   /** A number word's unit, if one follows it ("ten hours", "four times", "forty percent"). */
   const unitAfter = (end: number) => {

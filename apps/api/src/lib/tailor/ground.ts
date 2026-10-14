@@ -126,9 +126,13 @@ const SELF_TITLE =
   /(?:^|[.!?;]\s+)(?:[\p{L}-]+\s+){0,5}?(lead|leader|manager|supervisor|director|head|architect|principal)(?![\p{L}])(?=\s*(?:$|[,.;:!?(]|(?:who|with|at|in|for|and|focused|specializing|that|on|of|to)\b))/gu;
 const PROMOTED =
   /\bpromoted to (?:a |an |the )?((?:[\p{L}-]+\s+){0,2}?(?:lead|leader|manager|supervisor|director|head|architect|engineer|developer|analyst|nurse|specialist|consultant|staff|senior|principal))(?![\p{L}])/gu;
-/** Holding a title in a line: "As billing lead, built…", "…as manager of the billing team". */
+/**
+ * Holding a title in a line: "As billing lead, built…", "…as manager of the billing team". The
+ * title word ends the phrase ("as a lead generation channel" isn't one), and "such as" / "as
+ * well as" introduce other things.
+ */
 const AS_TITLE =
-  /\bas (?:the |a |an |our )?(?:[\p{L}-]+\s+){0,3}?(lead|leader|manager|supervisor|director|head|ceo|cto|cfo|coo|vp|founder|owner)(?![\p{L}])/gu;
+  /(?<!\b(?:such|well)\s)\bas (?:the |a |an |our )?(?:[\p{L}-]+\s+){0,3}?(lead|leader|manager|supervisor|director|head|ceo|cto|cfo|coo|vp|founder|owner)(?![\p{L}])(?=\s*(?:$|[,.;:!?(]|(?:who|with|at|in|for|and|of|on|to|from|during|until)\b))/gu;
 
 function titleClaims(text: string, isSummary: boolean): string[] {
   const claims = new Set<string>();
@@ -250,7 +254,16 @@ export function prepareEvidence(base: StructuredResume, vocab: Vocab, confirmedK
     knownWords: new Set([...wordStems(everything), ...confirmedWords, ...compounds]),
     allTools: new Set(termsIn(everything, vocab, { evidence: true })),
     degrees: new Set(degreesIn(everything)),
-    titles: titleText([...base.work.map((role) => role.position), base.basics.label, base.basics.summary].join('\n')),
+    // The job titles, headline and summary, and any title a bullet says the person held
+    // ("Served as team lead").
+    titles: titleText(
+      [
+        ...base.work.map((role) => role.position),
+        base.basics.label,
+        base.basics.summary,
+        ...base.work.flatMap((role) => role.highlights.flatMap((line) => [...titleText(line).matchAll(AS_TITLE)].map((m) => m[0]))),
+      ].join('\n'),
+    ),
     roles,
     confirmedText,
     confirmedTools: new Set(termsIn(confirmedText, vocab, { evidence: true })),

@@ -382,3 +382,29 @@ test('a title taken in a bullet, or more phrasings of years, are claims', () => 
     dropped('basics.summary', text);
   }
 });
+
+// Final count (#351): honest lines the third pass dropped.
+test('"as" before a title word is not always holding the title', () => {
+  const webinar = withBullet(0, 3, 'Partnered with sales on the go-to-market launch, a lead generation channel');
+  kept('work[0].highlights[3]', 'Partnered with sales on the go-to-market launch as a lead generation channel', { base: webinar });
+  const pm = withBullet(0, 4, 'Presented the migration plan to leadership and the product manager');
+  kept('work[0].highlights[4]', 'Presented the migration plan to leadership as well as the product manager', { base: pm });
+});
+
+test('a title the résumé says the person held in a bullet is evidence for the summary', () => {
+  const lead = withBullet(0, 4, 'Served as team lead for the payments services');
+  kept('basics.summary', 'Backend engineer and team lead who builds payment APIs in Go.', { base: lead });
+});
+
+test('number words are read in linear time', () => {
+  const started = performance.now();
+  dropped('work[0].highlights[2]', `Mentored two interns ${'and ten '.repeat(60)}`);
+  const line = `Mentored two interns ${'ten '.repeat(10_000)}`;
+  const t0 = performance.now();
+  tailorFromAnswer(withBullet(0, 2, line), emptyAnswer({ edits: [edit('work[0].highlights[2]', line.replace('Mentored', 'Coached'), line)] }), {
+    ...TAILOR_JOB,
+    confirmedKeywords: [],
+  });
+  assert.ok(performance.now() - t0 < 1000, `10,000 number words took ${Math.round(performance.now() - t0)} ms`);
+  assert.ok(performance.now() - started < 1500);
+});
