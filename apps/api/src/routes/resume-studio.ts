@@ -14,7 +14,6 @@ import { renderAtsResumePdf } from '@/lib/ats-resume-pdf';
 import { requireUser } from '@/lib/auth';
 import { storeResumePdf } from '@/lib/resume-storage';
 import { GROUNDING_VERSION, isGrounded, tailorFromAnswer } from '@/lib/tailor/apply';
-import { editableLines } from '@/lib/tailor/lines';
 import { isInjectionRefusal } from '@/lib/tailor/answer';
 import { attachmentDisposition } from '@/lib/content-disposition';
 import { buildTailorRequest, parseConfirmedKeywords, postingKeywords } from '@/lib/tailor/request';
@@ -58,10 +57,13 @@ resumeStudioRouter.post('/jobs/:id/tailor', async (request, response, next) => {
     // The base résumé as Settings shows it: the profile's copy, else the base version.
     const [profile, baseVersion] = await Promise.all([getUserProfile(userId), getBaseResumeVersion(userId)]);
     const base = normalizeStructuredResume(profile?.baseResume ?? baseVersion?.structuredResume ?? null);
-    if (!base || editableLines(base).length === 0) {
+    // Tailoring rewords the summary and work bullets (project bullets follow with the layout
+    // work, #415): with none of either there is nothing to tailor.
+    const tailorRequest = base ? buildTailorRequest(base, job, confirmedKeywords) : null;
+    if (!base || !tailorRequest || tailorRequest.lines.length === 0) {
       return response.status(409).json({
         code: 'BASE_RESUME_EMPTY',
-        error: 'Add your work experience in Settings → Résumé before tailoring.',
+        error: 'Add a summary or work experience with bullet points in Settings → Résumé before tailoring.',
       });
     }
     if (!job.descriptionText?.trim()) {
@@ -71,7 +73,7 @@ resumeStudioRouter.post('/jobs/:id/tailor', async (request, response, next) => {
       });
     }
 
-    const answer = await resolveTailorResume(buildTailorRequest(base, job, confirmedKeywords));
+    const answer = await resolveTailorResume(tailorRequest);
     // The agent refuses a posting that looks like a prompt injection (INJECTION_ACTION=refuse).
     // Trying again can't help, and each try is a paid call.
     if (isInjectionRefusal(answer)) {

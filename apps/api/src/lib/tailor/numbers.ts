@@ -239,10 +239,43 @@ export function findUnsupportedNumbers(text: string, evidence: string): FoundNum
   const evidenceLower = plain(evidence).toLowerCase();
   // A hyphenated number the evidence has as written ("Tier-1") is checked as that token.
   const hyphenated = hyphenatedNumbers(text).filter((number) => !evidenceLower.includes(number.raw.toLowerCase()));
+
+  // The evidence's numbers by value, so each lookup is quick however many numbers there are.
+  const key = (value: number) => Math.round(value * 1e6) / 1e6;
+  const byValue = new Map<number, number[]>();
+  known.forEach((k, i) => {
+    const list = byValue.get(key(k.value));
+    if (list) list.push(i);
+    else byValue.set(key(k.value), [i]);
+  });
   const used = new Set<number>();
+  const firstUnused = new Map<number, number>();
+  /** The first unused evidence number with this value that supports `number`, or -1. */
+  const take = (value: number, number: FoundNumber): number => {
+    const list = byValue.get(key(value));
+    if (!list) return -1;
+    let start = firstUnused.get(key(value)) ?? 0;
+    while (start < list.length && used.has(list[start]!)) start += 1;
+    firstUnused.set(key(value), start);
+    for (let j = start; j < list.length; j += 1) {
+      if (!used.has(list[j]!) && supports(known[list[j]!]!, number)) return list[j]!;
+    }
+    return -1;
+  };
+  const find = (number: FoundNumber): number => {
+    // A rough count ("thousands of") is supported by any number in its range.
+    if (number.unit === '~') return known.findIndex((k, i) => !used.has(i) && supports(k, number));
+    const exact = take(number.value, number);
+    if (exact !== -1) return exact;
+    // "2x" against "100%", and the other way round.
+    if (number.unit === 'x') return take((number.value - 1) * 100, number);
+    if (number.unit === '%') return take(number.value / 100 + 1, number);
+    return -1;
+  };
+
   const unsupported: FoundNumber[] = [];
   for (const number of [...extractNumbers(text), ...hyphenated]) {
-    const index = known.findIndex((k, i) => !used.has(i) && supports(k, number));
+    const index = find(number);
     if (index !== -1) used.add(index);
     else if (!(number.ordinal && identifiers.some((k) => same(k.value, number.value)))) unsupported.push(number);
   }

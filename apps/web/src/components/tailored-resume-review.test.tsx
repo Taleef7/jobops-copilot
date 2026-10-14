@@ -219,6 +219,44 @@ describe('TailoredResumeReview', () => {
     expect(screen.queryByText('Tailored (Role-Optimized)')).not.toBeInTheDocument();
   });
 
+  it('marks a kept change that needs a look, and a keyword the user added', () => {
+    const withReview: ResumeVersionRecord = {
+      ...sampleVersion,
+      changeDetails: [
+        {
+          section: 'Experience · Stripe',
+          oldText: 'Worked on frontend performance.',
+          newText: 'Led frontend performance work.',
+          rationale: 'The posting asks for ownership.',
+          dropped: false,
+          needsReview: true,
+          issues: [{ code: 'LEADERSHIP_CLAIM', term: 'led', message: 'says "led", which the original line doesn\'t' }],
+        },
+        {
+          section: 'Experience · Stripe',
+          oldText: 'Built the checkout service.',
+          newText: 'Built the checkout service with Kafka.',
+          rationale: 'The posting asks for Kafka.',
+          dropped: false,
+          needsReview: true,
+          issues: [],
+          confirmedTerms: ['Kafka'],
+        },
+      ],
+    };
+    render(
+      <TailoredResumeReview
+        jobId="job-1"
+        jobTitle="Staff Frontend Engineer"
+        jobCompany="Acme Corp"
+        initialVersions={[withReview]}
+      />,
+    );
+
+    expect(screen.getByText('Check this line: says "led", which the original line doesn\'t')).toBeInTheDocument();
+    expect(screen.getByText('Uses Kafka, which you added')).toBeInTheDocument();
+  });
+
   it('approves draft version and unlocks ATS PDF download', async () => {
     const user = userEvent.setup();
     approveResumeVersion.mockResolvedValueOnce({

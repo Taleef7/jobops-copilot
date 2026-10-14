@@ -452,6 +452,18 @@ export function TailoredResumeReview({
                   </p>
                 )}
 
+                {/* Kept, but worth a look before downloading (#351). */}
+                {!detail.dropped && (detail.issues?.length || detail.confirmedTerms?.length) ? (
+                  <div className="space-y-1 rounded-lg border border-amber-500/40 bg-amber-500/5 p-3 text-xs text-foreground">
+                    {(detail.issues ?? []).map((issue, i) => (
+                      <p key={i}>{`Check this line: ${issue.message}`}</p>
+                    ))}
+                    {detail.confirmedTerms?.length ? (
+                      <p>{`Uses ${detail.confirmedTerms.join(', ')}, which you added`}</p>
+                    ) : null}
+                  </div>
+                ) : null}
+
                 {/* Strategic Rationale ("Why") */}
                 {detail.rationale && (
                   <div className="flex items-start gap-2.5 rounded-lg border border-primary/20 bg-primary/5 p-3 text-xs">

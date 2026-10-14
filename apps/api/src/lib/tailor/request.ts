@@ -1,3 +1,4 @@
+import { LLM_PROFILE_TEXT_MAX } from '@/lib/input-caps';
 import type { JobRecord, StructuredResume } from '@/types';
 import type { TailorAgentRequest } from './answer';
 import { editableLines, factsText, flatSkills } from './lines';
@@ -7,6 +8,18 @@ import { norm } from './text';
 export const MAX_CONFIRMED_KEYWORDS = 25;
 export const MAX_KEYWORD_LENGTH = 60;
 const MAX_POSTING_KEYWORDS = 30;
+
+/**
+ * How much of the résumé the agent is sent (the same limit as any résumé text, #345). Lines go
+ * whole or not at all, since an edit's old text must match the résumé: the summary first,
+ * then bullets in order until the limit, leaving out any one line longer than a bullet can be.
+ */
+export const MAX_LINE_LENGTH = 1_000;
+const MAX_SUMMARY_LENGTH = 3_000;
+export const MAX_LINES_LENGTH = LLM_PROFILE_TEXT_MAX;
+export const MAX_FACTS_LENGTH = LLM_PROFILE_TEXT_MAX;
+const MAX_SKILLS = 200;
+const MAX_SKILL_CATEGORIES = 50;
 
 function unique(values: string[]): string[] {
   const seen = new Set<string>();
@@ -51,14 +64,26 @@ export function parseConfirmedKeywords(value: unknown): string[] | null {
 
 /** What the agent is sent: the posting, and the base résumé as read-only facts and lines. */
 export function buildTailorRequest(base: StructuredResume, job: JobRecord, confirmedKeywords: string[]): TailorAgentRequest {
+  const lines: Array<{ path: string; text: string }> = [];
+  let length = 0;
+  for (const { path, text } of editableLines(base)) {
+    if (text.length > (path === 'basics.summary' ? MAX_SUMMARY_LENGTH : MAX_LINE_LENGTH)) continue;
+    if (length + text.length > MAX_LINES_LENGTH) break;
+    lines.push({ path, text });
+    length += text.length;
+  }
+  const facts = factsText(base);
   return {
     job_title: job.title,
     company: job.company,
     description_text: job.descriptionText,
-    facts: factsText(base),
-    lines: editableLines(base).map(({ path, text }) => ({ path, text })),
-    skills: flatSkills(base),
-    skill_categories: base.skills.map((group) => group.category).filter((category) => category.trim()),
+    facts: facts.length > MAX_FACTS_LENGTH ? `${facts.slice(0, MAX_FACTS_LENGTH - 30)}\n(the rest is not shown)` : facts,
+    lines,
+    skills: flatSkills(base).slice(0, MAX_SKILLS),
+    skill_categories: base.skills
+      .map((group) => group.category)
+      .filter((category) => category.trim())
+      .slice(0, MAX_SKILL_CATEGORIES),
     keywords: postingKeywords(job),
     confirmed_keywords: confirmedKeywords,
   };

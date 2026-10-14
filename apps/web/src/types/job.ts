@@ -244,6 +244,12 @@ export interface ResumeChangeDetail {
   dropped?: boolean;
   /** Why, e.g. "adds Kafka, which this role doesn't mention". */
   dropReason?: string;
+  /** Kept, but worth a look: a leadership verb, a name the résumé lacks, a keyword the user added. */
+  needsReview?: boolean;
+  /** What the check found; for a kept line, the review notes. */
+  issues?: Array<{ code: string; term?: string; message: string }>;
+  /** Confirmed keywords the line uses that the base résumé doesn't. */
+  confirmedTerms?: string[];
 }
 
 export interface ResumeVersionRecord {
