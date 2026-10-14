@@ -403,3 +403,15 @@ test('a draft for a name outside Latin-1 downloads, with the name kept in the fi
     assert.ok(decodeURIComponent(disposition.split("UTF-8''")[1]!).startsWith('Łukasz_Żółć_李_'));
   });
 });
+
+test('a résumé whose lines are all too long to send gets its own 409', async () => {
+  await withStudio(answerWith({}), async ({ agent, send }) => {
+    const job = await setUp({ ...TAILOR_BASE, basics: { ...TAILOR_BASE.basics, summary: 'x '.repeat(2_000) }, work: [] });
+    const response = await send('POST', `/api/jobs/${job.id}/tailor`, {});
+    assert.equal(response.status, 409);
+    const body = (await response.json()) as { code: string; error: string };
+    assert.equal(body.code, 'RESUME_LINES_TOO_LONG');
+    assert.match(body.error, /too long/);
+    assert.equal(agent.calls.length, 0);
+  });
+});

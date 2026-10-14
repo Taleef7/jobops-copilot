@@ -242,6 +242,26 @@ describe('TailoredResumeReview', () => {
           issues: [],
           confirmedTerms: ['Kafka'],
         },
+        {
+          section: 'Skills · Data',
+          oldText: null,
+          newText: 'Snowflake',
+          rationale: 'You confirmed you have Snowflake.',
+          dropped: false,
+          needsReview: false,
+          issues: [],
+          confirmedTerms: ['Snowflake'],
+        },
+        {
+          section: 'Experience · Stripe',
+          oldText: 'Built the checkout service.',
+          newText: 'Built the checkout service with Redis.',
+          rationale: 'The posting asks for Redis.',
+          dropped: true,
+          dropReason: "adds Redis, which this role doesn't mention",
+          issues: [{ code: 'NEW_SKILL', term: 'Redis', message: "adds Redis, which this role doesn't mention" }],
+          confirmedTerms: ['Redis'],
+        },
       ],
     };
     render(
@@ -255,6 +275,10 @@ describe('TailoredResumeReview', () => {
 
     expect(screen.getByText('Check this line: says "led", which the original line doesn\'t')).toBeInTheDocument();
     expect(screen.getByText('Uses Kafka, which you added')).toBeInTheDocument();
+    // A skill the user confirmed says so in its own rationale; a dropped line has no review note.
+    expect(screen.queryByText('Uses Snowflake, which you added')).not.toBeInTheDocument();
+    expect(screen.queryByText(/Check this line: adds Redis/)).not.toBeInTheDocument();
+    expect(screen.queryByText('Uses Redis, which you added')).not.toBeInTheDocument();
   });
 
   it('approves draft version and unlocks ATS PDF download', async () => {

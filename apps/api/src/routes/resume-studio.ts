@@ -15,6 +15,7 @@ import { requireUser } from '@/lib/auth';
 import { storeResumePdf } from '@/lib/resume-storage';
 import { GROUNDING_VERSION, isGrounded, tailorFromAnswer } from '@/lib/tailor/apply';
 import { isInjectionRefusal } from '@/lib/tailor/answer';
+import { editableLines } from '@/lib/tailor/lines';
 import { attachmentDisposition } from '@/lib/content-disposition';
 import { buildTailorRequest, parseConfirmedKeywords, postingKeywords } from '@/lib/tailor/request';
 import type { ResumeVersionRecord } from '@/types';
@@ -60,10 +61,17 @@ resumeStudioRouter.post('/jobs/:id/tailor', async (request, response, next) => {
     // Tailoring rewords the summary and work bullets (project bullets follow with the layout
     // work, #415): with none of either there is nothing to tailor.
     const tailorRequest = base ? buildTailorRequest(base, job, confirmedKeywords) : null;
-    if (!base || !tailorRequest || tailorRequest.lines.length === 0) {
+    if (!base || !tailorRequest || editableLines(base).length === 0) {
       return response.status(409).json({
         code: 'BASE_RESUME_EMPTY',
         error: 'Add a summary or work experience with bullet points in Settings → Résumé before tailoring.',
+      });
+    }
+    if (tailorRequest.lines.length === 0) {
+      return response.status(409).json({
+        code: 'RESUME_LINES_TOO_LONG',
+        error:
+          'Your summary and bullet points are too long to tailor (a bullet over 1,000 characters, a summary over 3,000). Shorten them in Settings → Résumé.',
       });
     }
     if (!job.descriptionText?.trim()) {
@@ -86,6 +94,7 @@ resumeStudioRouter.post('/jobs/:id/tailor', async (request, response, next) => {
       company: job.company,
       jobTerms: postingKeywords(job),
       confirmedKeywords,
+      sentPaths: tailorRequest.lines.map((line) => line.path),
     });
     // Nothing from the AI (the API's own additions of confirmed keywords don't count).
     if (result.suggested === 0) {

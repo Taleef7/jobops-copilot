@@ -27,6 +27,8 @@ export interface TailorContext {
   jobTerms: string[];
   /** Keywords the user confirmed having in the tailor window. */
   confirmedKeywords: string[];
+  /** The lines the model was sent; an edit to any other line is invalid. Default: every line. */
+  sentPaths?: string[];
 }
 
 export interface TailorResult {
@@ -158,7 +160,8 @@ export function assertFactsUnchanged(base: StructuredResume, tailored: Structure
 
 export function tailorFromAnswer(base: StructuredResume, answer: TailorAnswer, ctx: TailorContext): TailorResult {
   const resume = structuredClone(base);
-  const lines = editableLines(base);
+  const sent = ctx.sentPaths ? new Set(ctx.sentPaths) : null;
+  const lines = editableLines(base).filter((line) => !sent || sent.has(line.path));
   const confirmed = ctx.confirmedKeywords;
   const vocab = buildVocab([
     ...flatSkills(base),

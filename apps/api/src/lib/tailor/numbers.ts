@@ -241,7 +241,8 @@ export function findUnsupportedNumbers(text: string, evidence: string): FoundNum
   const hyphenated = hyphenatedNumbers(text).filter((number) => !evidenceLower.includes(number.raw.toLowerCase()));
 
   // The evidence's numbers by value, so each lookup is quick however many numbers there are.
-  const key = (value: number) => Math.round(value * 1e6) / 1e6;
+  // Twelve significant digits: "$4.03B" and "$4,030,000,000" share a key.
+  const key = (value: number) => Number(value.toPrecision(12));
   const byValue = new Map<number, number[]>();
   known.forEach((k, i) => {
     const list = byValue.get(key(k.value));
@@ -265,12 +266,13 @@ export function findUnsupportedNumbers(text: string, evidence: string): FoundNum
   const find = (number: FoundNumber): number => {
     // A rough count ("thousands of") is supported by any number in its range.
     if (number.unit === '~') return known.findIndex((k, i) => !used.has(i) && supports(k, number));
-    const exact = take(number.value, number);
-    if (exact !== -1) return exact;
-    // "2x" against "100%", and the other way round.
-    if (number.unit === 'x') return take((number.value - 1) * 100, number);
-    if (number.unit === '%') return take(number.value / 100 + 1, number);
-    return -1;
+    // The same value, or "2x" against "100%" and the other way round: the earliest evidence
+    // number that supports it, as a scan of the evidence in order would find.
+    const candidates = [take(number.value, number)];
+    if (number.unit === 'x') candidates.push(take((number.value - 1) * 100, number));
+    if (number.unit === '%') candidates.push(take(number.value / 100 + 1, number));
+    const found = candidates.filter((index) => index !== -1);
+    return found.length > 0 ? Math.min(...found) : -1;
   };
 
   const unsupported: FoundNumber[] = [];

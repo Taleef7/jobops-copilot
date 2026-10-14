@@ -35,3 +35,22 @@ test('a very large résumé is cut to the LLM input limits before it reaches the
   // Lines are sent whole or not at all: an edit's old text must match the résumé.
   for (const line of request.lines) assert.ok(!line.text.endsWith('…'));
 });
+
+test('cutting the facts never splits a character in two', () => {
+  const emoji: StructuredResume = {
+    ...TAILOR_BASE,
+    work: [{ ...TAILOR_BASE.work[0]!, summary: '\u{1F600}'.repeat(20_000) }],
+  };
+  const { facts } = buildTailorRequest(emoji, job, []);
+  assert.doesNotMatch(facts, /\p{Cs}/u);
+});
+
+test('the number of lines and the length of each skill are bounded too', () => {
+  const many: StructuredResume = {
+    ...TAILOR_BASE,
+    work: Array.from({ length: 1_000 }, (_v, i) => ({ ...TAILOR_BASE.work[0]!, company: `C${i}`, highlights: Array.from({ length: 15 }, () => 'x') })),
+    skills: [{ category: 'Long', skills: Array.from({ length: 300 }, () => 'y'.repeat(10_000)) }],
+  };
+  const request = buildTailorRequest(many, job, []);
+  assert.ok(JSON.stringify(request).length < 120_000, `request ${JSON.stringify(request).length}`);
+});

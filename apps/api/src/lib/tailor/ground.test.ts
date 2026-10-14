@@ -408,3 +408,13 @@ test('number words are read in linear time', () => {
   assert.ok(performance.now() - t0 < 1000, `10,000 number words took ${Math.round(performance.now() - t0)} ms`);
   assert.ok(performance.now() - started < 1500);
 });
+
+test('an edit to a line that was not sent to the model is not applied', () => {
+  const result = tailorFromAnswer(
+    TAILOR_BASE,
+    emptyAnswer({ edits: [edit('work[0].highlights[2]', 'Mentored 2 interns')] }),
+    { ...TAILOR_JOB, confirmedKeywords: [], sentPaths: ['basics.summary'] },
+  );
+  assert.equal(result.details[0]?.dropped, true);
+  assert.equal(result.resume.work[0]!.highlights[2], TAILOR_BASE.work[0]!.highlights[2]);
+});

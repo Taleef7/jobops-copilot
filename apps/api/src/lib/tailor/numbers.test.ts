@@ -57,3 +57,8 @@ test('a number is supported by the same value, with the same unit or none', () =
   assert.deepEqual(unsupportedNumbers('Cut latency 40x', evidence), ['40x']);
   assert.deepEqual(unsupportedNumbers('Mentored three interns', evidence), ['three']);
 });
+
+test('large decimal amounts match however they are written', () => {
+  assert.deepEqual(unsupportedNumbers('Managed a $4.03B portfolio', 'Managed a $4,030,000,000 portfolio'), []);
+  assert.deepEqual(unsupportedNumbers('a 8.05 billion budget', 'a 8,050,000,000 budget'), []);
+});

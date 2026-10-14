@@ -18,8 +18,17 @@ export const MAX_LINE_LENGTH = 1_000;
 const MAX_SUMMARY_LENGTH = 3_000;
 export const MAX_LINES_LENGTH = LLM_PROFILE_TEXT_MAX;
 export const MAX_FACTS_LENGTH = LLM_PROFILE_TEXT_MAX;
+const MAX_LINES = 150;
 const MAX_SKILLS = 200;
+const MAX_SKILL_LENGTH = 100;
+const MAX_SKILLS_LENGTH = 5_000;
 const MAX_SKILL_CATEGORIES = 50;
+
+/** `text` cut to at most `max` characters, never between the two halves of an emoji. */
+function cutAt(text: string, max: number): string {
+  const end = /[\uD800-\uDBFF]/.test(text[max - 1] ?? '') ? max - 1 : max;
+  return text.slice(0, end);
+}
 
 function unique(values: string[]): string[] {
   const seen = new Set<string>();
@@ -68,18 +77,24 @@ export function buildTailorRequest(base: StructuredResume, job: JobRecord, confi
   let length = 0;
   for (const { path, text } of editableLines(base)) {
     if (text.length > (path === 'basics.summary' ? MAX_SUMMARY_LENGTH : MAX_LINE_LENGTH)) continue;
-    if (length + text.length > MAX_LINES_LENGTH) break;
+    // A line's label is sent too, so it counts toward the limit.
+    if (lines.length === MAX_LINES || length + text.length + path.length > MAX_LINES_LENGTH) break;
     lines.push({ path, text });
-    length += text.length;
+    length += text.length + path.length;
   }
   const facts = factsText(base);
+  let skillsLength = 0;
+  const skills = flatSkills(base)
+    .filter((skill) => skill.length <= MAX_SKILL_LENGTH)
+    .filter((skill) => (skillsLength += skill.length) <= MAX_SKILLS_LENGTH)
+    .slice(0, MAX_SKILLS);
   return {
     job_title: job.title,
     company: job.company,
     description_text: job.descriptionText,
-    facts: facts.length > MAX_FACTS_LENGTH ? `${facts.slice(0, MAX_FACTS_LENGTH - 30)}\n(the rest is not shown)` : facts,
+    facts: facts.length > MAX_FACTS_LENGTH ? `${cutAt(facts, MAX_FACTS_LENGTH - 30)}\n(the rest is not shown)` : facts,
     lines,
-    skills: flatSkills(base).slice(0, MAX_SKILLS),
+    skills,
     skill_categories: base.skills
       .map((group) => group.category)
       .filter((category) => category.trim())

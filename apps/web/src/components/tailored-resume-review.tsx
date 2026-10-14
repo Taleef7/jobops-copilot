@@ -453,7 +453,7 @@ export function TailoredResumeReview({
                 )}
 
                 {/* Kept, but worth a look before downloading (#351). */}
-                {!detail.dropped && (detail.issues?.length || detail.confirmedTerms?.length) ? (
+                {!detail.dropped && detail.needsReview && (detail.issues?.length || detail.confirmedTerms?.length) ? (
                   <div className="space-y-1 rounded-lg border border-amber-500/40 bg-amber-500/5 p-3 text-xs text-foreground">
                     {(detail.issues ?? []).map((issue, i) => (
                       <p key={i}>{`Check this line: ${issue.message}`}</p>
