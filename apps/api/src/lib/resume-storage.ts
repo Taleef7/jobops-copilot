@@ -29,8 +29,12 @@ export function buildLocalResumePdfPath(version: ResumeVersionRecord): string {
   return join(exportDir, buildResumePdfFileName(version));
 }
 
+/** The API route that serves this version's PDF: base versions and tailored drafts have their own (#351). */
 export function buildResumeDownloadApiUrl(version: ResumeVersionRecord, publicBaseUrl: string): string {
-  return new URL(`/api/profile/base-resume/versions/${version.id}/download`, normalizeBaseUrl(publicBaseUrl)).href;
+  const path = version.isBase
+    ? `/api/profile/base-resume/versions/${version.id}/download`
+    : `/api/resume-versions/${version.id}/download`;
+  return new URL(path, normalizeBaseUrl(publicBaseUrl)).href;
 }
 
 /**

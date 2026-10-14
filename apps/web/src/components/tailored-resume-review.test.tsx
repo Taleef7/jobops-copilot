@@ -123,8 +123,12 @@ describe('TailoredResumeReview', () => {
 
   it('renders error banner with link to settings if base resume is missing', async () => {
     const user = userEvent.setup();
+    // The API's 409 (#351), as requestJson throws it: the code says what's missing.
     tailorResumeForJob.mockRejectedValueOnce(
-      new Error('No structured base resume configured. Please set up your base resume in Settings first.'),
+      Object.assign(new Error('Add your work experience in Settings → Résumé before tailoring.'), {
+        status: 409,
+        code: 'BASE_RESUME_EMPTY',
+      }),
     );
 
     render(
@@ -139,8 +143,11 @@ describe('TailoredResumeReview', () => {
     await user.click(screen.getByRole('button', { name: /tailor resume for acme corp/i }));
 
     await waitFor(() => {
-      expect(screen.getByText(/no structured base resume configured/i)).toBeInTheDocument();
-      expect(screen.getByText(/open settings to set up your base resume/i)).toBeInTheDocument();
+      expect(screen.getByText(/add your work experience in settings/i)).toBeInTheDocument();
+      expect(screen.getByRole('link', { name: /open settings to set up your base resume/i })).toHaveAttribute(
+        'href',
+        '/settings',
+      );
     });
   });
 
@@ -182,6 +189,96 @@ describe('TailoredResumeReview', () => {
     // Download button is gated (disabled) when unapproved
     const downloadBtn = screen.getByRole('button', { name: /download pdf locked until approved/i });
     expect(downloadBtn).toBeDisabled();
+  });
+
+  it('shows a dropped suggestion as dropped, with the reason, not as a change', () => {
+    const withDropped: ResumeVersionRecord = {
+      ...sampleVersion,
+      changeDetails: [
+        {
+          section: 'Experience · Stripe',
+          oldText: 'Worked on frontend performance.',
+          newText: 'Worked on frontend performance with Kafka.',
+          rationale: 'The posting asks for Kafka.',
+          dropped: true,
+          dropReason: "adds Kafka, which this role doesn't mention",
+        },
+      ],
+    };
+    render(
+      <TailoredResumeReview
+        jobId="job-1"
+        jobTitle="Staff Frontend Engineer"
+        jobCompany="Acme Corp"
+        initialVersions={[withDropped]}
+      />,
+    );
+
+    expect(screen.getByText("Suggestion dropped: adds Kafka, which this role doesn't mention")).toBeInTheDocument();
+    expect(screen.getByText('Suggested, not used')).toBeInTheDocument();
+    expect(screen.queryByText('Tailored (Role-Optimized)')).not.toBeInTheDocument();
+  });
+
+  it('marks a kept change that needs a look, and a keyword the user added', () => {
+    const withReview: ResumeVersionRecord = {
+      ...sampleVersion,
+      changeDetails: [
+        {
+          section: 'Experience · Stripe',
+          oldText: 'Worked on frontend performance.',
+          newText: 'Led frontend performance work.',
+          rationale: 'The posting asks for ownership.',
+          dropped: false,
+          needsReview: true,
+          issues: [{ code: 'LEADERSHIP_CLAIM', term: 'led', message: 'says "led", which the original line doesn\'t' }],
+        },
+        {
+          section: 'Experience · Stripe',
+          oldText: 'Built the checkout service.',
+          newText: 'Built the checkout service with Kafka.',
+          rationale: 'The posting asks for Kafka.',
+          dropped: false,
+          needsReview: true,
+          issues: [],
+          confirmedTerms: ['Kafka'],
+        },
+        {
+          section: 'Skills · Data',
+          oldText: null,
+          newText: 'Snowflake',
+          rationale: 'You confirmed you have Snowflake.',
+          dropped: false,
+          needsReview: false,
+          issues: [],
+          confirmedTerms: ['Snowflake'],
+        },
+        {
+          section: 'Experience · Stripe',
+          oldText: 'Built the checkout service.',
+          newText: 'Built the checkout service with Redis.',
+          rationale: 'The posting asks for Redis.',
+          dropped: true,
+          dropReason: "adds Redis, which this role doesn't mention",
+          issues: [{ code: 'NEW_SKILL', term: 'Redis', message: "adds Redis, which this role doesn't mention" }],
+          confirmedTerms: ['Redis'],
+        },
+      ],
+    };
+    render(
+      <TailoredResumeReview
+        jobId="job-1"
+        jobTitle="Staff Frontend Engineer"
+        jobCompany="Acme Corp"
+        initialVersions={[withReview]}
+      />,
+    );
+
+    expect(screen.getByText('Check this line: says "led", which the original line doesn\'t')).toBeInTheDocument();
+    expect(screen.getByText('Uses Kafka, which you added')).toBeInTheDocument();
+    // A skill the user confirmed says so in its own rationale; a dropped line has no review note.
+    expect(screen.queryByText('Uses Snowflake, which you added')).not.toBeInTheDocument();
+    expect(screen.queryByText(/Check this line: adds Redis/)).not.toBeInTheDocument();
+    expect(screen.queryByText('Uses Redis, which you added')).not.toBeInTheDocument();
   });
 
   it('approves draft version and unlocks ATS PDF download', async () => {

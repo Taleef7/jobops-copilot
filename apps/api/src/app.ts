@@ -98,6 +98,8 @@ export function createApp(dependencies: AppDependencies = {}) {
   // The extract endpoint makes an outbound fetch per call, so it gets the strict
   // limiter (like AI/discovery) — scoped to /extract only, not the jobs CRUD.
   app.use('/api/jobs/extract', runLimiter, jobExtractRouter);
+  // Tailoring a résumé calls the LLM (#351); the route is in resumeStudioRouter below.
+  app.post('/api/jobs/:id/tailor', runLimiter, runBudget);
   app.use('/api/jobs', agentOutputsRouter);
   app.use('/api/jobs', jobsRouter);
   app.use('/api/feed', feedRouter);

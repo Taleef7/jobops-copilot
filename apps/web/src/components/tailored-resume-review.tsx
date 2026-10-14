@@ -58,6 +58,8 @@ export function TailoredResumeReview({
   const [rejectFeedback, setRejectFeedback] = useState('');
   const [showFullResume, setShowFullResume] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // The API says there is no base résumé to tailor (409 BASE_RESUME_EMPTY, #351).
+  const [needsBaseResume, setNeedsBaseResume] = useState(false);
 
   const currentVersion =
     versions.find((v) => v.id === selectedVersionId) ?? (versions.length > 0 ? versions[0] : null);
@@ -65,6 +67,7 @@ export function TailoredResumeReview({
   async function handleTailor() {
     setIsTailoring(true);
     setError(null);
+    setNeedsBaseResume(false);
     try {
       const newVersion = await tailorResumeForJob(jobId);
       setVersions((prev) => [newVersion, ...prev]);
@@ -73,6 +76,7 @@ export function TailoredResumeReview({
       toast.success('Tailored resume draft generated successfully!');
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : 'Failed to tailor resume.';
+      setNeedsBaseResume((err as { code?: unknown } | null)?.code === 'BASE_RESUME_EMPTY');
       setError(msg);
       toast.error(msg);
     } finally {
@@ -192,7 +196,7 @@ export function TailoredResumeReview({
           <div className="w-full max-w-md rounded-lg border border-destructive/30 bg-destructive/10 p-3 text-left text-xs text-destructive">
             <p className="font-medium">Error tailoring resume:</p>
             <p className="mt-0.5">{error}</p>
-            {error.toLowerCase().includes('base resume') ? (
+            {needsBaseResume ? (
               <p className="mt-2">
                 <Link href="/settings" className="font-semibold underline underline-offset-2 hover:opacity-80">
                   Open Settings to set up your Base Resume &rarr;
@@ -441,6 +445,25 @@ export function TailoredResumeReview({
                   </div>
                 </div>
 
+                {/* The API's check dropped it: the résumé keeps the base line (#351). */}
+                {detail.dropped && (
+                  <p className="rounded-lg border bg-muted/40 p-3 text-xs font-medium text-foreground">
+                    {`Suggestion dropped: ${detail.dropReason ?? "it isn't supported by your base résumé"}`}
+                  </p>
+                )}
+
+                {/* Kept, but worth a look before downloading (#351). */}
+                {!detail.dropped && detail.needsReview && (detail.issues?.length || detail.confirmedTerms?.length) ? (
+                  <div className="space-y-1 rounded-lg border border-amber-500/40 bg-amber-500/5 p-3 text-xs text-foreground">
+                    {(detail.issues ?? []).map((issue, i) => (
+                      <p key={i}>{`Check this line: ${issue.message}`}</p>
+                    ))}
+                    {detail.confirmedTerms?.length ? (
+                      <p>{`Uses ${detail.confirmedTerms.join(', ')}, which you added`}</p>
+                    ) : null}
+                  </div>
+                ) : null}
+
                 {/* Strategic Rationale ("Why") */}
                 {detail.rationale && (
                   <div className="flex items-start gap-2.5 rounded-lg border border-primary/20 bg-primary/5 p-3 text-xs">
@@ -465,16 +488,27 @@ export function TailoredResumeReview({
                     </p>
                   </div>
 
-                  {/* Tailored / New */}
-                  <div className="space-y-1.5 rounded-lg border border-emerald-500/20 bg-emerald-500/5 p-3">
-                    <div className="flex items-center gap-1.5 font-medium text-emerald-700 dark:text-emerald-400">
-                      <PlusCircle className="size-3.5" />
-                      <span>Tailored (Role-Optimized)</span>
+                  {/* Tailored / New, or the dropped suggestion */}
+                  {detail.dropped ? (
+                    <div className="space-y-1.5 rounded-lg border border-dashed p-3">
+                      <div className="flex items-center gap-1.5 font-medium text-muted-foreground">
+                        <span>Suggested, not used</span>
+                      </div>
+                      <p className="text-muted-foreground leading-relaxed whitespace-pre-wrap font-sans line-through">
+                        {detail.newText}
+                      </p>
                     </div>
-                    <p className="text-foreground leading-relaxed whitespace-pre-wrap font-sans">
-                      {detail.newText}
-                    </p>
-                  </div>
+                  ) : (
+                    <div className="space-y-1.5 rounded-lg border border-emerald-500/20 bg-emerald-500/5 p-3">
+                      <div className="flex items-center gap-1.5 font-medium text-emerald-700 dark:text-emerald-400">
+                        <PlusCircle className="size-3.5" />
+                        <span>Tailored (Role-Optimized)</span>
+                      </div>
+                      <p className="text-foreground leading-relaxed whitespace-pre-wrap font-sans">
+                        {detail.newText}
+                      </p>
+                    </div>
+                  )}
                 </div>
               </Card>
             ))}

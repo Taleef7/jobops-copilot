@@ -63,10 +63,13 @@ Supporting features, kept but secondary:
    The app drafts; the user sends and then logs it.
 6. **Tailoring only rephrases and reorders.** A tailored résumé may reword,
    reorder, trim or emphasise facts that are in the base résumé. It may not add
-   employers, titles, dates, degrees, skills, metrics or tools. Every tailored
-   bullet maps to a source bullet, and any line without a source is flagged and
-   blocked from export. Tailoring is disabled, with a clear message, while the
-   base résumé is empty or unconfirmed.
+   employers, titles, dates, degrees, skills, metrics or tools. The one
+   exception is a keyword the user confirms having when they tailor: that is
+   their own statement, and it is marked as theirs wherever it is used. Every
+   tailored line maps to a source line. A suggestion that adds anything else,
+   or has no source, is dropped automatically: the base line stays, and the
+   review shows what was dropped and why. Tailoring is disabled, with a clear
+   message, while the base résumé is empty.
 7. **Legal and money answers come only from the user.** Work authorization
    (per country), visa sponsorship, salary expectation (desired, never
    "current" unless entered as such), relocation, and demographic or EEO
@@ -122,7 +125,8 @@ horizontally. Tab content keeps its state when switching tabs.
 
 - **Purpose:** produce the materials to apply with.
 - **On it:**
-  - tailored résumé (diff view against base, approve, download PDF);
+  - tailored résumé (diff view against base, with dropped suggestions shown;
+    downloading the PDF is the approval);
   - cover letter (editable draft, PDF);
   - application answers (question, draft answer, "needs review" flag until the user edits or confirms it).
 

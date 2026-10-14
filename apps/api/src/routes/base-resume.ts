@@ -6,6 +6,7 @@ import {
   insertResumeVersion,
 } from '@/data/resume-version-store';
 import { resolveResumeParse } from '@/lib/agent-client';
+import { attachmentDisposition } from '@/lib/content-disposition';
 import { flagResume } from '@/lib/resume-flags';
 import { requireUser } from '@/lib/auth';
 import { isTooLong, STORED_TEXT_MAX, TOO_LONG_MESSAGE } from '@/lib/input-caps';
@@ -177,7 +178,11 @@ baseResumeRouter.post('/render-pdf', async (request, response, next) => {
     if (body.versionId) {
       const { getResumeVersion } = await import('@/data/resume-version-store');
       versionRecord = await getResumeVersion(userId, body.versionId);
-      if (versionRecord && !resumeToRender) {
+      // Base versions only: a tailored draft is exported through its own approval (#351).
+      if (!versionRecord?.isBase) {
+        return response.status(404).json({ error: 'Base résumé version not found.' });
+      }
+      if (!resumeToRender) {
         resumeToRender = versionRecord.structuredResume;
       }
     }
@@ -253,7 +258,8 @@ baseResumeRouter.get('/versions/:id/download', async (request, response, next) =
     const { getResumeVersion } = await import('@/data/resume-version-store');
     const version = await getResumeVersion(userId, id!);
 
-    if (!version) {
+    // Base versions only: a tailored draft is downloaded once approved, from resume-studio (#351).
+    if (!version?.isBase) {
       return response.status(404).json({ error: 'Resume version not found.' });
     }
 
@@ -263,7 +269,7 @@ baseResumeRouter.get('/versions/:id/download', async (request, response, next) =
     response.setHeader('Content-Type', 'application/pdf');
     response.setHeader(
       'Content-Disposition',
-      `attachment; filename="resume_${version.structuredResume.basics?.name || 'document'}_${version.id}.pdf"`,
+      attachmentDisposition(`resume_${version.structuredResume.basics?.name || 'document'}_${version.id}.pdf`),
     );
     return response.send(pdfBuffer);
   } catch (error) {

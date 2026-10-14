@@ -373,11 +373,54 @@ export interface StructuredResume {
   certificates?: ResumeCertificate[];
 }
 
+/**
+ * Why a tailored line was dropped or needs a look (#351). Every code but NEW_NAME and
+ * LEADERSHIP_CLAIM drops the suggestion: the résumé keeps the base line. Those two keep it,
+ * marked for review.
+ */
+export type GroundingCode =
+  | 'INVALID_PATH'
+  | 'EMPTY_LINE'
+  | 'NOT_A_REWRITE'
+  | 'NEW_NUMBER'
+  | 'NEW_DATE'
+  | 'NEW_SKILL'
+  | 'NEW_TERM'
+  | 'NEW_ENTITY'
+  | 'NEW_SENIORITY'
+  | 'ODD_CHARACTERS'
+  | 'NEW_NAME'
+  | 'LEADERSHIP_CLAIM';
+
+export interface GroundingIssue {
+  code: GroundingCode;
+  /** The word or number at issue ("Kafka", "60%"). */
+  term?: string;
+  /** For the user, after "Suggestion dropped: …": "adds Kafka, which this role doesn't mention". */
+  message: string;
+}
+
 export interface ResumeChangeDetail {
+  /** "Summary", "Experience · Globex", "Skills · Data". */
   section: string;
+  /** The base résumé's text, never the model's. */
   oldText?: string | null;
   newText: string;
   rationale: string;
+  // Set by the tailoring check (#351); older rows don't have these.
+  id?: string;
+  kind?: 'rewrite' | 'reorder' | 'skills-reorder' | 'skill-added';
+  /** Where the line is in the base résumé, e.g. "work[0].highlights[2]". */
+  sourcePath?: string | null;
+  /** The suggestion failed the check and isn't in the résumé. */
+  dropped?: boolean;
+  /** Why it was dropped (the first blocking issue's message). */
+  dropReason?: string;
+  issues?: GroundingIssue[];
+  /** Kept, but worth a look: a leadership verb, or a keyword the user added. */
+  needsReview?: boolean;
+  /** Confirmed keywords the line uses that the base résumé doesn't ("uses Kafka, which you added"). */
+  confirmedTerms?: string[];
 }
 
 /**
@@ -389,11 +432,18 @@ export interface ResumeVersionBasis {
   baseVersionId: string | null;
   baseUpdatedAt: string | null;
   jobId: string;
-  /** SHA-256 of the posting text the version was tailored to. */
+  /**
+   * SHA-256 of the job's whole posting text when it was tailored, to tell when the posting
+   * changed since. (The model is sent at most its first 20,000 characters.)
+   */
   postingSha256: string;
   model: string;
   createdAt: string;
   grounding: { version: number };
+  /** Keywords the user confirmed having in the tailor window. */
+  confirmedKeywords?: string[];
+  /** Posting requirements the base résumé doesn't support; shown, never put in the résumé. */
+  gaps?: string[];
 }
 
 export interface ResumeVersionRecord {

@@ -33,12 +33,16 @@ export class ApiRequestError extends Error {
   /** On a 409, the job the request duplicates (#346). */
   existingJobId?: string;
 
-  constructor(message: string, status: number, fields?: ApiErrorFields, existingJobId?: string) {
+  /** The API's reason, when it gives one, e.g. 'BASE_RESUME_EMPTY' (#351). */
+  code?: string;
+
+  constructor(message: string, status: number, fields?: ApiErrorFields, existingJobId?: string, code?: string) {
     super(message);
     this.name = 'ApiRequestError';
     this.status = status;
     this.fields = fields;
     this.existingJobId = existingJobId;
+    this.code = code;
   }
 }
 
@@ -1004,18 +1008,25 @@ async function requestJson<T>(path: string, options: RequestOptions = {}): Promi
   if (!response.ok) {
     let fields: ApiErrorFields | undefined;
     let existingJobId: string | undefined;
+    let code: string | undefined;
     let message = `Request failed with status ${response.status}`;
 
     try {
-      const payload = (await response.json()) as { error?: string; fields?: ApiErrorFields; existingJobId?: unknown };
+      const payload = (await response.json()) as {
+        error?: string;
+        fields?: ApiErrorFields;
+        existingJobId?: unknown;
+        code?: unknown;
+      };
       message = payload.error ?? message;
       fields = payload.fields;
       existingJobId = typeof payload.existingJobId === 'string' ? payload.existingJobId : undefined;
+      code = typeof payload.code === 'string' ? payload.code : undefined;
     } catch {
       // Ignore non-JSON error bodies and keep the generic message.
     }
 
-    throw new ApiRequestError(message, response.status, fields, existingJobId);
+    throw new ApiRequestError(message, response.status, fields, existingJobId, code);
   }
 
   return (await response.json()) as T;

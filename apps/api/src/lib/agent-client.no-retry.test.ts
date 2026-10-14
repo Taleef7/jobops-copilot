@@ -37,6 +37,21 @@ test('a timeout on any paid agent call produces exactly one POST and one /health
       ['POST /parse-job', () => client.resolveParsedJob('A job')],
       ['POST /score-fit', () => client.resolveFitScore({ descriptionText: 'A job', resumeText: 'Me', profileText: 'Me' })],
       ['POST /parse-resume', () => client.resolveResumeParse('My résumé')],
+      [
+        'POST /tailor-resume',
+        () =>
+          client.resolveTailorResume({
+            job_title: 'Engineer',
+            company: 'Acme',
+            description_text: 'A job',
+            facts: 'Name: Me',
+            lines: [{ path: 'basics.summary', text: 'Engineer.' }],
+            skills: [],
+            skill_categories: [],
+            keywords: [],
+            confirmed_keywords: [],
+          }),
+      ],
       ['POST /assistant/stream', () => client.streamAssistantUpstream({})],
       ['POST /assistant/chat', () => client.streamAssistantChatUpstream({})],
       ['POST /agents/feed-curator/stream', () => client.streamAgentUpstream('feed-curator', {})],
