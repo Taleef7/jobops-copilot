@@ -26,6 +26,7 @@ from app.chains.draft_outreach import draft_outreach
 from app.chains.parse_job import parse_job
 from app.chains.parse_resume import parse_resume_text
 from app.chains.score_fit import score_fit
+from app.chains.tailor_resume import tailor_resume
 from app.chains.weekly import weekly_recommendations
 from app.config import settings
 from app.graph.assistant import build_assistant_graph
@@ -66,6 +67,8 @@ from app.schemas import (
     SkillGapPlan,
     SkillGapRequest,
     StructuredResume,
+    TailorResumeRequest,
+    TailorResumeResponse,
     TelemetryInsights,
     TelemetryRequest,
     WeeklyRecommendationsLLM,
@@ -323,6 +326,13 @@ def parse_job_endpoint(req: ParseJobRequest) -> ParsedJob:
 def parse_resume_endpoint(req: ParseResumeRequest) -> StructuredResume:
     _require_llm()
     return _run(parse_resume_text, req.resume_text, traced_config("parse-resume"))
+
+
+@app.post("/tailor-resume", response_model=TailorResumeResponse)
+def tailor_resume_endpoint(req: TailorResumeRequest) -> TailorResumeResponse:
+    """Edits to the base résumé's lines for one posting (#351). The API applies and checks them."""
+    _require_llm()
+    return _run(tailor_resume, req, traced_config("tailor-resume"))
 
 
 @app.post("/score-fit", response_model=FitScoreResponse)
