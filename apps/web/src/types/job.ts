@@ -240,6 +240,10 @@ export interface ResumeChangeDetail {
   oldText?: string | null;
   newText: string;
   rationale: string;
+  /** The API's check dropped this suggestion: the résumé keeps the base line (#351). */
+  dropped?: boolean;
+  /** Why, e.g. "adds Kafka, which this role doesn't mention". */
+  dropReason?: string;
 }
 
 export interface ResumeVersionRecord {

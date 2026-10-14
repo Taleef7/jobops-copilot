@@ -191,6 +191,34 @@ describe('TailoredResumeReview', () => {
     expect(downloadBtn).toBeDisabled();
   });
 
+  it('shows a dropped suggestion as dropped, with the reason, not as a change', () => {
+    const withDropped: ResumeVersionRecord = {
+      ...sampleVersion,
+      changeDetails: [
+        {
+          section: 'Experience · Stripe',
+          oldText: 'Worked on frontend performance.',
+          newText: 'Worked on frontend performance with Kafka.',
+          rationale: 'The posting asks for Kafka.',
+          dropped: true,
+          dropReason: "adds Kafka, which this role doesn't mention",
+        },
+      ],
+    };
+    render(
+      <TailoredResumeReview
+        jobId="job-1"
+        jobTitle="Staff Frontend Engineer"
+        jobCompany="Acme Corp"
+        initialVersions={[withDropped]}
+      />,
+    );
+
+    expect(screen.getByText("Suggestion dropped: adds Kafka, which this role doesn't mention")).toBeInTheDocument();
+    expect(screen.getByText('Suggested, not used')).toBeInTheDocument();
+    expect(screen.queryByText('Tailored (Role-Optimized)')).not.toBeInTheDocument();
+  });
+
   it('approves draft version and unlocks ATS PDF download', async () => {
     const user = userEvent.setup();
     approveResumeVersion.mockResolvedValueOnce({

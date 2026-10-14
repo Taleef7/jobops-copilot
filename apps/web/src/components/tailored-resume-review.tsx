@@ -445,6 +445,13 @@ export function TailoredResumeReview({
                   </div>
                 </div>
 
+                {/* The API's check dropped it: the résumé keeps the base line (#351). */}
+                {detail.dropped && (
+                  <p className="rounded-lg border bg-muted/40 p-3 text-xs font-medium text-foreground">
+                    {`Suggestion dropped: ${detail.dropReason ?? "it isn't supported by your base résumé"}`}
+                  </p>
+                )}
+
                 {/* Strategic Rationale ("Why") */}
                 {detail.rationale && (
                   <div className="flex items-start gap-2.5 rounded-lg border border-primary/20 bg-primary/5 p-3 text-xs">
@@ -469,16 +476,27 @@ export function TailoredResumeReview({
                     </p>
                   </div>
 
-                  {/* Tailored / New */}
-                  <div className="space-y-1.5 rounded-lg border border-emerald-500/20 bg-emerald-500/5 p-3">
-                    <div className="flex items-center gap-1.5 font-medium text-emerald-700 dark:text-emerald-400">
-                      <PlusCircle className="size-3.5" />
-                      <span>Tailored (Role-Optimized)</span>
+                  {/* Tailored / New, or the dropped suggestion */}
+                  {detail.dropped ? (
+                    <div className="space-y-1.5 rounded-lg border border-dashed p-3">
+                      <div className="flex items-center gap-1.5 font-medium text-muted-foreground">
+                        <span>Suggested, not used</span>
+                      </div>
+                      <p className="text-muted-foreground leading-relaxed whitespace-pre-wrap font-sans line-through">
+                        {detail.newText}
+                      </p>
                     </div>
-                    <p className="text-foreground leading-relaxed whitespace-pre-wrap font-sans">
-                      {detail.newText}
-                    </p>
-                  </div>
+                  ) : (
+                    <div className="space-y-1.5 rounded-lg border border-emerald-500/20 bg-emerald-500/5 p-3">
+                      <div className="flex items-center gap-1.5 font-medium text-emerald-700 dark:text-emerald-400">
+                        <PlusCircle className="size-3.5" />
+                        <span>Tailored (Role-Optimized)</span>
+                      </div>
+                      <p className="text-foreground leading-relaxed whitespace-pre-wrap font-sans">
+                        {detail.newText}
+                      </p>
+                    </div>
+                  )}
                 </div>
               </Card>
             ))}
