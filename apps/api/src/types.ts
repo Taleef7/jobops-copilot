@@ -421,6 +421,14 @@ export interface ResumeChangeDetail {
   needsReview?: boolean;
   /** Confirmed keywords the line uses that the base résumé doesn't ("uses Kafka, which you added"). */
   confirmedTerms?: string[];
+  /** Where the line is in the tailored résumé, after any reorder ("work[0].highlights[0]"). */
+  targetPath?: string | null;
+  /**
+   * What the user chose in the review (#351): keep the suggestion, restore the base line, or
+   * their own words (`userText`), which are theirs and not checked.
+   */
+  resolution?: 'kept' | 'restored' | 'edited';
+  userText?: string;
 }
 
 /**
@@ -444,6 +452,8 @@ export interface ResumeVersionBasis {
   confirmedKeywords?: string[];
   /** Posting requirements the base résumé doesn't support; shown, never put in the résumé. */
   gaps?: string[];
+  /** Posting keywords (from the fit read) found in the base résumé and in the draft. */
+  coverage?: { total: number; before: number; after: number };
 }
 
 export interface ResumeVersionRecord {

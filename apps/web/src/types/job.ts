@@ -250,14 +250,36 @@ export interface ResumeChangeDetail {
   issues?: Array<{ code: string; term?: string; message: string }>;
   /** Confirmed keywords the line uses that the base résumé doesn't. */
   confirmedTerms?: string[];
+  // Set by the API since #351; older rows don't have these.
+  id?: string;
+  kind?: 'rewrite' | 'reorder' | 'skills-reorder' | 'skill-added';
+  sourcePath?: string | null;
+  targetPath?: string | null;
+  /** The user's choice in the review; `userText` is their own wording. */
+  resolution?: 'kept' | 'restored' | 'edited';
+  userText?: string;
+}
+
+/** What a tailored version was based on (#351). */
+export interface ResumeVersionBasis {
+  baseVersionId: string | null;
+  baseUpdatedAt: string | null;
+  jobId: string;
+  postingSha256: string;
+  model: string;
+  createdAt: string;
+  grounding: { version: number };
+  confirmedKeywords?: string[];
+  /** Posting requirements the base résumé doesn't support. */
+  gaps?: string[];
+  /** Posting keywords in the base résumé and in the draft. */
+  coverage?: { total: number; before: number; after: number };
 }
 
 export interface ResumeVersionRecord {
   id: string;
   userId: string;
   jobId?: string | null;
-  versionNumber?: number;
-  groundednessScore?: number;
   baseResumeFileUrl?: string | null;
   tailoredResumeFileUrl?: string | null;
   changeSummary: string;
@@ -266,6 +288,7 @@ export interface ResumeVersionRecord {
   sourceConfigVersion?: number | null;
   approved: boolean;
   isBase: boolean;
+  basedOn?: ResumeVersionBasis | null;
   createdAt: string;
   updatedAt: string;
 }

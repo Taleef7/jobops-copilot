@@ -6,9 +6,10 @@ import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import express from 'express';
-import { createJob, resetJobStoreForTests } from '@/data/job-store';
+import { createJob, resetJobStoreForTests, saveJobAnalysis } from '@/data/job-store';
 import { insertResumeVersion, resetResumeVersionStore } from '@/data/resume-version-store';
-import { upsertUserProfile } from '@/data/profile-store';
+import { getUserProfile, upsertUserProfile } from '@/data/profile-store';
+import { sampleAnalysis } from '@/test-support/analysis';
 import { apiErrorHandler } from '@/lib/api-error-handler';
 import { resumeStudioRouter } from './resume-studio';
 import { TAILOR_BASE, edit, emptyAnswer } from '@/test-support/tailor-fixtures';
@@ -326,15 +327,121 @@ test("approve and download need the API's check; download needs approval; base v
   });
 });
 
-test('reject records the feedback on the draft', async () => {
+// #351 step 4: the review keeps, restores or edits each line, and Download is the approval.
+// Reject (with feedback) is gone.
+test('there is no reject any more', async () => {
   await withStudio(answerWith({ edits: [edit('work[0].highlights[2]', 'Mentored 2 interns')] }), async ({ send }) => {
     const job = await setUp();
     const version = await tailor(send, job.id);
-    const response = await send('POST', `/api/resume-versions/${version.id}/reject`, { feedback: 'Lead with Go.' });
+    assert.equal((await send('POST', `/api/resume-versions/${version.id}/reject`, { feedback: 'x' })).status, 404);
+  });
+});
+
+test('the tailor window lists the posting keywords and which are on the résumé', async () => {
+  await withStudio(answerWith({}), async ({ send }) => {
+    const job = await setUp();
+    const before = (await (await send('GET', `/api/jobs/${job.id}/tailor/keywords`)).json()) as {
+      fitRead: boolean;
+      keywords: unknown[];
+    };
+    assert.deepEqual(before, { fitRead: false, keywords: [] });
+
+    await saveJobAnalysis('user-studio', job.id, sampleAnalysis(), 70);
+    const response = await send('GET', `/api/jobs/${job.id}/tailor/keywords`);
     assert.equal(response.status, 200);
-    const body = (await response.json()) as { approved: boolean; version: ResumeVersionRecord };
-    assert.equal(body.approved, false);
-    assert.match(body.version.changeSummary, /Lead with Go\./);
+    assert.deepEqual(await response.json(), {
+      fitRead: true,
+      keywords: [
+        { term: 'Go', onResume: true },
+        { term: 'Postgres', onResume: true },
+        { term: 'Kafka', onResume: false },
+      ],
+    });
+    assert.equal((await send('GET', `/api/jobs/${job.id}/tailor/keywords`, undefined, 'someone-else')).status, 404);
+
+    // Requirements written as phrases aren't keywords to confirm: they'd land in the skills.
+    await saveJobAnalysis(
+      'user-studio',
+      job.id,
+      sampleAnalysis({ requiredSkills: ['Go', '3+ years of backend development experience', 'Kafka or another streaming platform'] }),
+      70,
+    );
+    const filtered = (await (await send('GET', `/api/jobs/${job.id}/tailor/keywords`)).json()) as { keywords: Array<{ term: string }> };
+    assert.deepEqual(filtered.keywords.map((k) => k.term), ['Go', 'Kafka', 'Postgres']);
+  });
+});
+
+test('a draft records how many posting keywords the résumé has, before and after', async () => {
+  const answer = answerWith({ added_skills: [{ skill: 'Kafka', category: 'Infrastructure' }], edits: [edit('work[0].highlights[2]', 'Mentored 2 interns')] });
+  await withStudio(answer, async ({ send }) => {
+    const job = await setUp();
+    await saveJobAnalysis('user-studio', job.id, sampleAnalysis(), 70);
+    const version = await tailor(send, job.id, { confirmedKeywords: ['Kafka'] });
+    assert.deepEqual(version.basedOn!.coverage, { total: 3, before: 2, after: 3 });
+  });
+});
+
+test('confirmed keywords can be added to the base résumé too', async () => {
+  const answer = answerWith({ edits: [edit('work[0].highlights[2]', 'Mentored 2 interns')] });
+  await withStudio(answer, async ({ send }) => {
+    const job = await setUp();
+    await tailor(send, job.id, { confirmedKeywords: ['Kafka', 'Go'], addToBase: true });
+    const profile = await getUserProfile('user-studio');
+    assert.deepEqual(profile?.baseResume?.skills, [
+      { category: 'Languages', skills: ['Go', 'Python', 'SQL'] },
+      { category: 'Infrastructure', skills: ['PostgreSQL', 'Docker'] },
+      { category: 'Other', skills: ['Kafka'] },
+    ]);
+    assert.equal((await send('POST', `/api/jobs/${job.id}/tailor`, { addToBase: 'yes' })).status, 400);
+  });
+});
+
+test('each line of a draft can be kept, restored or edited until it is downloaded', async () => {
+  const answer = answerWith({
+    edits: [
+      edit('work[0].highlights[1]', 'Cut p95 latency 40% with Redis caching'),
+      edit('work[0].highlights[0]', 'Built the billing API in Go and Kafka serving 2,000 merchants'),
+    ],
+  });
+  await withStudio(answer, async ({ send }) => {
+    const job = await setUp();
+    const version = await tailor(send, job.id, { confirmedKeywords: ['Snowflake'] });
+    const [reworded, dropped] = version.changeDetails!;
+    const added = version.changeDetails!.find((d) => d.kind === 'skill-added')!;
+    const act = (changeId: string, body: unknown, user?: string) =>
+      send('PATCH', `/api/resume-versions/${version.id}/changes/${changeId}`, body, user);
+    const read = async (response: Response) => ((await response.json()) as { version: ResumeVersionRecord }).version;
+
+    // Restore: the base line comes back.
+    let updated = await read(await act(reworded!.id!, { action: 'restore' }));
+    assert.equal(updated.structuredResume.work[0]!.highlights[1], TAILOR_BASE.work[0]!.highlights[1]);
+    assert.equal(updated.changeDetails![0]!.resolution, 'restored');
+    // Keep: back to the suggestion.
+    updated = await read(await act(reworded!.id!, { action: 'keep' }));
+    assert.equal(updated.structuredResume.work[0]!.highlights[1], 'Cut p95 latency 40% with Redis caching');
+    assert.equal(updated.changeDetails![0]!.resolution, 'kept');
+    // Edit: the user's own words, even for a dropped suggestion; marked as theirs.
+    updated = await read(await act(dropped!.id!, { action: 'edit', text: '  Built the billing API in Go for 2,000 merchants ' }));
+    assert.equal(updated.structuredResume.work[0]!.highlights[0], 'Built the billing API in Go for 2,000 merchants');
+    assert.equal(updated.changeDetails![1]!.resolution, 'edited');
+    assert.equal(updated.changeDetails![1]!.userText, 'Built the billing API in Go for 2,000 merchants');
+    // Restore an added skill: it comes off the list.
+    updated = await read(await act(added.id!, { action: 'restore' }));
+    assert.ok(!updated.structuredResume.skills.some((group) => group.skills.includes('Snowflake')));
+    // The facts never move.
+    assert.equal(updated.structuredResume.work[0]!.company, 'Globex');
+
+    for (const body of [{ action: 'delete' }, { action: 'edit' }, { action: 'edit', text: ' ' }, { action: 'edit', text: 'x'.repeat(1_001) }]) {
+      assert.equal((await act(reworded!.id!, body)).status, 400, JSON.stringify(body).slice(0, 40));
+    }
+    assert.equal((await act('c99', { action: 'keep' })).status, 404);
+    assert.equal((await act(reworded!.id!, { action: 'keep' }, 'someone-else')).status, 404);
+
+    // Downloaded (approved): the version is final.
+    assert.equal((await send('POST', `/api/resume-versions/${version.id}/approve`, {})).status, 200);
+    const late = await act(reworded!.id!, { action: 'restore' });
+    assert.equal(late.status, 409);
+    assert.equal(((await late.json()) as { code: string }).code, 'VERSION_FINAL');
   });
 });
 
