@@ -92,8 +92,9 @@ const DEGREES: Array<[string, RegExp]> = [
   ['MBA', /(?<![\p{L}])m\.?b\.?a\.?(?![\p{L}])/u],
   [
     "master's degree",
-    /(?<![\p{L}])(master'?s?|m\.?\s?sc\.?|m\.s\.?|m\.a\.|m\.?eng|m\.?tech|graduate degree|postgraduate)(?![\p{L}])|(?<![\p{L}])(ms|ma)\s+in(?![\p{L}])/u,
+    /(?<![\p{L}])(master'?s?|m\.?\s?sc\.?|m\.s\.?|m\.a\.|m\.?eng|m\.?tech|graduate degree|postgraduate)(?![\p{L}])|(?<![\p{L}])(ms|ma)\s+(?:in|degree)(?![\p{L}])/u,
   ],
+  ["associate degree", /(?<![\p{L}])(associate'?s?\s+degree|associate of (?:arts|science|applied))(?![\p{L}])/u],
   [
     "bachelor's degree",
     /(?<![\p{L}])(bachelor'?s?|b\.?\s?sc\.?|b\.s\.?|b\.a\.|b\.?eng|b\.?tech)(?![\p{L}])|(?<![\p{L}])(bs|ba)\s+in(?![\p{L}])/u,
@@ -116,10 +117,18 @@ const LEVEL = /(?<![\p{L}])(senior|staff|principal)-level(?![\p{L}])/gu;
 /** Titles without a seniority word. */
 const TITLE =
   /(?<![\p{L}])((?:tech|team|technical|engineering|product|project|program|delivery|development)\s+(?:lead|manager|director)|head of [\p{L}]+|director|vp|cto|ceo|cfo|coo|co-founder|founder|architect|(?:engineer|developer)\s+(?:i{1,3}|iv|[1-5]))(?![\p{L}])/gu;
-/** The summary describing the person: "Backend lead who…", "Backend engineer and payments manager…". */
-const SELF_TITLE = /(?:^|[.!?;]\s+)(?:[\p{L}-]+\s+){0,5}?(lead|leader|manager|supervisor|director|head|architect|principal)(?![\p{L}])/gu;
+/**
+ * The summary describing the person: "Backend lead who…", "Backend engineer and payments
+ * manager…". The title word ends the phrase, so "Lead generation marketer" and "principal
+ * focus" aren't titles.
+ */
+const SELF_TITLE =
+  /(?:^|[.!?;]\s+)(?:[\p{L}-]+\s+){0,5}?(lead|leader|manager|supervisor|director|head|architect|principal)(?![\p{L}])(?=\s*(?:$|[,.;:!?(]|(?:who|with|at|in|for|and|focused|specializing|that|on|of|to)\b))/gu;
 const PROMOTED =
-  /\bpromoted to (?:a |an |the )?((?:[\p{L}-]+\s+){0,2}?(?:lead|leader|manager|supervisor|director|head|architect|engineer|developer|analyst|nurse|specialist|consultant))(?![\p{L}])/gu;
+  /\bpromoted to (?:a |an |the )?((?:[\p{L}-]+\s+){0,2}?(?:lead|leader|manager|supervisor|director|head|architect|engineer|developer|analyst|nurse|specialist|consultant|staff|senior|principal))(?![\p{L}])/gu;
+/** Holding a title in a line: "As billing lead, built…", "…as manager of the billing team". */
+const AS_TITLE =
+  /\bas (?:the |a |an |our )?(?:[\p{L}-]+\s+){0,3}?(lead|leader|manager|supervisor|director|head|ceo|cto|cfo|coo|vp|founder|owner)(?![\p{L}])/gu;
 
 function titleClaims(text: string, isSummary: boolean): string[] {
   const claims = new Set<string>();
@@ -129,6 +138,13 @@ function titleClaims(text: string, isSummary: boolean): string[] {
   for (const match of text.matchAll(PROMOTED)) claims.add(match[1]!.trim());
   if (isSummary) for (const match of text.matchAll(SELF_TITLE)) claims.add(match[1]!);
   return [...claims];
+}
+
+/** Titles the line says the person held ("as billing lead"), with how often. */
+function heldTitles(text: string): Map<string, number> {
+  const held = new Map<string, number>();
+  for (const match of text.matchAll(AS_TITLE)) held.set(match[1]!, (held.get(match[1]!) ?? 0) + 1);
+  return held;
 }
 
 /** Verbs that claim leading or owning work, by family. Kept, but marked for review. */
@@ -161,6 +177,19 @@ function atSentenceStart(text: string, index: number): boolean {
   return i < 0 || '.!?:;\n'.includes(text[i]!);
 }
 
+/** Whether a token is a known tool or a degree, remembered per vocabulary: a line can repeat words. */
+const toolOrDegree = new WeakMap<Vocab, Map<string, boolean>>();
+function isToolOrDegree(token: string, vocab: Vocab): boolean {
+  let cache = toolOrDegree.get(vocab);
+  if (!cache) toolOrDegree.set(vocab, (cache = new Map()));
+  let found = cache.get(token);
+  if (found === undefined) {
+    found = termsIn(token, vocab).length > 0 || degreesIn(token).length > 0;
+    cache.set(token, found);
+  }
+  return found;
+}
+
 /**
  * Names in the line that the base résumé never mentions. Strong signs of a name, dropped:
  * CamelCase ("ClickHouse"), letters with digits ("p99"), and all capitals of five letters or
@@ -182,7 +211,7 @@ function newNames(text: string, known: Set<string>, vocab: Vocab): { strong: str
     if (!isStrong && !isAcronym && !isCapitalised) continue;
     const lower = token.toLowerCase();
     if (GENERIC.has(lower) || GENERIC.has(stem(lower)) || known.has(stem(lower))) continue;
-    if (termsIn(token, vocab).length > 0 || degreesIn(token).length > 0) continue;
+    if (isToolOrDegree(token, vocab)) continue;
     const list = isStrong ? strong : weak;
     if (!list.includes(token)) list.push(token);
   }
@@ -208,11 +237,17 @@ export function prepareEvidence(base: StructuredResume, vocab: Vocab, confirmedK
       tools: new Set(termsIn(text, vocab, { evidence: true })),
     });
   });
+  // A hyphenated compound also stands for its one-word form and its initials:
+  // "e-commerce" for "eCommerce", "software-as-a-service" for "SaaS".
+  const compounds = [...plain(everything).matchAll(/\p{L}+(?:-\p{L}+)+/gu)].flatMap((match) => {
+    const parts = match[0].toLowerCase().split('-');
+    return [stem(parts.join('')), stem(parts.map((part) => part[0]).join(''))];
+  });
   return {
     everything,
     everythingPlain: plain(everything),
     everythingLower: norm(everything),
-    knownWords: new Set([...wordStems(everything), ...confirmedWords]),
+    knownWords: new Set([...wordStems(everything), ...confirmedWords, ...compounds]),
     allTools: new Set(termsIn(everything, vocab, { evidence: true })),
     degrees: new Set(degreesIn(everything)),
     titles: titleText([...base.work.map((role) => role.position), base.basics.label, base.basics.summary].join('\n')),
@@ -311,9 +346,11 @@ export function checkLine(line: TailorLine, newText: string, ctx: CheckContext):
   if (company.length >= 2) {
     const words = company.split(/[\s-]+/).filter(Boolean);
     const asWritten = plain(newText);
+    // A one-word name counts only as written ("Target", not "target"), but the résumé having
+    // the word in any case ("hit the target") is evidence enough.
     const named =
       words.length === 1
-        ? has(asWritten, words[0]!) && !has(evidence.everythingPlain, words[0]!)
+        ? has(asWritten, words[0]!) && !has(evidence.everythingLower, norm(words[0]!))
         : (new RegExp(`(?<![\\p{L}\\p{N}])${words.map((w) => escapeRegex(norm(w))).join('[\\s-]*')}(?![\\p{L}\\p{N}])`, 'u').test(
             lowerNew,
           ) ||
@@ -331,10 +368,18 @@ export function checkLine(line: TailorLine, newText: string, ctx: CheckContext):
   // Titles: the résumé's own titles, headline and summary, and what the line already says.
   const newTitles = titleText(newText);
   const sourceTitles = titleText(line.text);
+  const claimed = new Set<string>();
   for (const claim of titleClaims(newTitles, isSummary)) {
-    if (countOf(newTitles, claim) > countOf(evidence.titles, claim) + countOf(sourceTitles, claim)) {
-      issues.push({ code: 'NEW_SENIORITY', term: claim, message: `claims "${claim}", a title your base résumé doesn't have` });
-    }
+    if (countOf(newTitles, claim) > countOf(evidence.titles, claim) + countOf(sourceTitles, claim)) claimed.add(claim);
+  }
+  // Holding a title: only the résumé's titles, or the same claim in the line, are evidence.
+  // "to the director" doesn't make "served as director" true.
+  const heldBefore = heldTitles(sourceTitles);
+  for (const [title, count] of heldTitles(newTitles)) {
+    if (count > (heldBefore.get(title) ?? 0) && !has(evidence.titles, title)) claimed.add(title);
+  }
+  for (const claim of claimed) {
+    issues.push({ code: 'NEW_SENIORITY', term: claim, message: `claims "${claim}", a title your base résumé doesn't have` });
   }
 
   const lowerSource = norm(line.text);

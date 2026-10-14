@@ -32,13 +32,16 @@ const TIME: Array<[RegExp, string]> = [
   [/^(ms|milliseconds?)$/i, 'ms'],
 ];
 const TIME_WORDS = 'decades?|years?|yrs?|months?|mos?|weeks?|wks?|days?|hours?|hrs?|minutes?|mins?|seconds?|secs?|milliseconds?|ms';
-/** "15-plus years", "10 or more years", "10 full years": the unit still belongs to the number. */
-const TIME_AFTER = new RegExp(String.raw`^(?:[\s-]+(?:plus|or more|full|solid|long))?[\s-]*(${TIME_WORDS})\b`, 'i');
+/** "15-plus years", "10 or more years", "ten-odd years": the unit still belongs to the number. */
+const HEDGE = 'plus|or more|or so|odd|full|solid|long';
+const TIME_AFTER = new RegExp(String.raw`^(?:[\s-]+(?:${HEDGE}))?[\s-]*(${TIME_WORDS})\b`, 'i');
 const timeUnit = (word: string) => `t:${TIME.find(([pattern]) => pattern.test(word))![1]}`;
+/** A number word's other units: "four times a year" is 4x, "forty percent" is 40%. */
+const OTHER_UNIT_AFTER = /^(?:\s*(percent\b|%)|[\s-]*(times|fold)\b)/i;
 
 const NUMBER = new RegExp(
   String.raw`(?<![\p{L}\p{N}.])(?<!\p{L}-)([$€£¥])?\s?(\d{1,3}(?:,\d{3})+|\d+)(?:\.(\d+))?\+?` +
-    String.raw`(?:(?:[\s-]+(?:plus|or more|full|solid|long))?[\s-]?(${TIME_WORDS})\b` +
+    String.raw`(?:(?:[\s-]+(?:${HEDGE}))?[\s-]?(${TIME_WORDS})\b` +
     String.raw`|[\s-]?(%|percent\b|times\b|fold\b|k\b|mm?\b|bn?\b|million\b|billion\b|thousand\b|x\b|×))?`,
   'giu',
 );
@@ -65,7 +68,7 @@ const WORD_TIMES_MAGNITUDE = new RegExp(
   String.raw`\b(a|an|one|${Object.keys(SMALL).join('|')})\s+(hundred|thousand|million|billion)\b`,
   'gi',
 );
-const DECADES = /\b(a|one|two|three|four)\s+decades?\b|\bdecades\b/gi;
+const DECADES = /\b(a|one|two|three|four)\s+decades?\b|\b(past|last)\s+decade\b|\bdecades\b/gi;
 const SMALL_WORD = new RegExp(String.raw`\b(${Object.keys(SMALL).join('|')})\b`, 'gi');
 // Rough counts, supported by a number of that size.
 const ROUGH: Record<string, [number, number]> = {
@@ -78,7 +81,7 @@ const ROUGH: Record<string, [number, number]> = {
 const ROUGH_PHRASE = /\b(tens|hundreds)\s+of\s+(thousands|millions|billions)\b/gi;
 const ROUGH_WORD = /\b(dozens|hundreds|thousands|millions|billions)\b/gi;
 // "doubled", "tripling", "halved", "twice", "by half".
-const MULTIPLIER = /\b(?:(doubl|tripl|quadrupl|halv)(?:e|ed|es|ing)|(twice)|by (half))\b/gi;
+const MULTIPLIER = /\b(?:(doubl|tripl|quadrupl|halv)(?:e|ed|es|ing)|(twice)|(?:by|in) (half))\b/gi;
 const MULTIPLIED: Record<string, [number, string]> = {
   doubl: [2, 'x'], tripl: [3, 'x'], quadrupl: [4, 'x'], halv: [50, '%'], twice: [2, 'x'], half: [50, '%'],
 };
@@ -103,10 +106,14 @@ export function extractNumbers(text: string): FoundNumber[] {
     found.push({ ...number, at });
     taken.push([at, at + length]);
   };
-  /** A number word's unit of time, if one follows it ("ten hours", "eight years"). */
+  /** A number word's unit, if one follows it ("ten hours", "four times", "forty percent"). */
   const unitAfter = (end: number) => {
-    const time = TIME_AFTER.exec(source.slice(end));
-    return time ? timeUnit(time[1]!) : '';
+    const rest = source.slice(end);
+    const time = TIME_AFTER.exec(rest);
+    if (time) return timeUnit(time[1]!);
+    const other = OTHER_UNIT_AFTER.exec(rest);
+    if (other) return other[1] ? '%' : 'x';
+    return '';
   };
 
   for (const match of source.matchAll(NUMBER)) {
@@ -137,12 +144,14 @@ export function extractNumbers(text: string): FoundNumber[] {
     add({ value: Number(match[1]), unit: 'x', year: false, raw: match[0] }, match.index ?? 0, match[0].length);
   }
   for (const match of source.matchAll(DECADES)) {
-    const count = match[1] ? (ONE_TO_NINE[match[1].toLowerCase()] ?? 1) : 2;
+    // "a decade", "two decades", "the past decade"; "decades" alone is at least two.
+    const count = match[1] ? (ONE_TO_NINE[match[1].toLowerCase()] ?? 1) : match[2] ? 1 : 2;
     add({ value: 10 * count, unit: 't:year', year: false, raw: match[0] }, match.index ?? 0, match[0].length);
   }
   for (const match of source.matchAll(ROUGH_PHRASE)) {
     const scale = MAGNITUDE[match[2]!.toLowerCase().replace(/s$/, '')]! * (match[1]!.toLowerCase() === 'tens' ? 10 : 100);
-    add({ value: scale, unit: '~', year: false, raw: match[0], range: [2 * scale, 10 * scale] }, match.index ?? 0, match[0].length);
+    // "tens of thousands" is 10,000 to 99,999.
+    add({ value: scale, unit: '~', year: false, raw: match[0], range: [scale, 10 * scale] }, match.index ?? 0, match[0].length);
   }
   for (const match of source.matchAll(WORD_TIMES_MAGNITUDE)) {
     const word = match[1]!.toLowerCase();
@@ -192,14 +201,31 @@ function supports(known: FoundNumber, number: FoundNumber): boolean {
     if (known.unit === '~') return same(known.value, number.value);
     return !known.unit.startsWith('t:') && known.value >= low && known.value < high;
   }
-  // A year needs a year: "2,000 merchants" says nothing about "since 2000".
-  if (number.year && !known.year) return false;
-  // "2x" is "up 100%", and the other way round.
-  if (number.unit === 'x' && known.unit === '%') return same(known.value, (number.value - 1) * 100);
-  if (number.unit === '%' && known.unit === 'x') return same(number.value, (known.value - 1) * 100);
+  // A year needs a year ("the 2023 launch" is one): "2,000 merchants" says nothing about "since 2000".
+  if (number.year && !known.year && !/^\d{4}$/.test(known.raw)) return false;
+  // A whole multiple is an increase: "2x" is "up 100%", and the other way round. ("40% lower"
+  // is not "1.4x faster".)
+  const whole = (value: number) => Number.isInteger(value) && value >= 2;
+  if (number.unit === 'x' && known.unit === '%') return whole(number.value) && same(known.value, (number.value - 1) * 100);
+  if (number.unit === '%' && known.unit === 'x') return whole(known.value) && same(number.value, (known.value - 1) * 100);
   if (!same(known.value, number.value)) return false;
   // Dropping a unit claims no more ("40" from "40%"); a new or changed unit does.
   return number.unit === '' || known.unit === number.unit;
+}
+
+// "mid-2015", "Tier-3", "top-10": a number after a word and a hyphen. An all-caps name with a
+// number ("COVID-19", "ISO-27001") is a name.
+const HYPHENATED = /(?<![\p{L}\p{N}])(\p{L}+)-(\d+(?:\.\d+)?)(?![\p{N}])/gu;
+
+function hyphenatedNumbers(text: string): FoundNumber[] {
+  return [...plain(text).matchAll(HYPHENATED)]
+    .filter((match) => !/^\p{Lu}{2,}$/u.test(match[1]!))
+    .map((match) => ({
+      value: Number(match[2]),
+      unit: '',
+      year: /^(19|20)\d\d$/.test(match[2]!),
+      raw: match[0],
+    }));
 }
 
 /**
@@ -207,11 +233,14 @@ function supports(known: FoundNumber, number: FoundNumber): boolean {
  * one number in the text: "2,000 requests for 2,000 merchants" needs two.
  */
 export function findUnsupportedNumbers(text: string, evidence: string): FoundNumber[] {
-  const known = extractNumbers(evidence);
+  const known = [...extractNumbers(evidence), ...hyphenatedNumbers(evidence)];
   const identifiers = identifierDigits(evidence);
+  const evidenceLower = plain(evidence).toLowerCase();
+  // A hyphenated number the evidence has as written ("Tier-1") is checked as that token.
+  const hyphenated = hyphenatedNumbers(text).filter((number) => !evidenceLower.includes(number.raw.toLowerCase()));
   const used = new Set<number>();
   const unsupported: FoundNumber[] = [];
-  for (const number of extractNumbers(text)) {
+  for (const number of [...extractNumbers(text), ...hyphenated]) {
     const index = known.findIndex((k, i) => !used.has(i) && supports(k, number));
     if (index !== -1) used.add(index);
     else if (!(number.ordinal && identifiers.some((k) => same(k.value, number.value)))) unsupported.push(number);

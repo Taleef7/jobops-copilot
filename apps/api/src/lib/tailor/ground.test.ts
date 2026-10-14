@@ -322,3 +322,63 @@ test('lowercase gaps that name something the résumé lacks are kept', () => {
   );
   assert.deepEqual(result.gaps, ['docker swarm orchestration', 'Experience with postgres replication']);
 });
+
+// Third pass (#351).
+test('a hyphenated number is checked unless the résumé has it or it names something', () => {
+  dropped('basics.summary', 'Backend engineer since mid-2015 who builds payment APIs in Go.');
+  const tier = withBullet(0, 0, 'Built the Tier-1 billing API in Go serving 2,000 merchants');
+  dropped('work[0].highlights[0]', 'Built the Tier-3 billing API in Go serving 2,000 merchants', { base: tier });
+  kept('work[0].highlights[0]', 'Built the billing API (Tier-1) in Go serving 2,000 merchants', { base: tier });
+  const top = withBullet(0, 0, 'Built the billing API in Go for 2,000 merchants, a top 5 product');
+  dropped('work[0].highlights[0]', 'Built the billing API in Go for 2,000 merchants, a top-10 product', { base: top });
+  // An all-caps name with a number is a name: "COVID-19" (kept in the earlier test).
+});
+
+test('everyday words that contain a title word are not titles', () => {
+  const marketer = {
+    ...TAILOR_BASE,
+    basics: { ...TAILOR_BASE.basics, summary: 'Demand and lead generation marketer for payment APIs in Go.' },
+  };
+  kept('basics.summary', 'Lead generation and demand marketer for payment APIs in Go.', { base: marketer });
+  kept('basics.summary', 'Backend engineer whose principal focus is building payment APIs in Go.');
+});
+
+test('more honest number forms are kept', () => {
+  const campaign = withBullet(0, 3, 'Partnered with sales on the 2023 go-to-market launch');
+  kept('work[0].highlights[3]', 'Partnered with sales on the go-to-market launch in 2023', { base: campaign });
+  const often = withBullet(0, 4, 'Presented the migration plan to leadership four times a year');
+  kept('work[0].highlights[4]', 'Presented the migration plan to leadership 4 times a year', { base: often });
+  const pct = withBullet(0, 1, 'Reduced p95 latency by forty percent with Redis caching');
+  kept('work[0].highlights[1]', 'Reduced p95 latency by 40% with Redis caching', { base: pct });
+  const half = withBullet(0, 1, 'Cut p95 latency in half with Redis caching');
+  kept('work[0].highlights[1]', 'Halved p95 latency with Redis caching', { base: half });
+  const many = withBullet(0, 0, 'Built the billing API in Go serving 15,000 merchants');
+  kept('work[0].highlights[0]', 'Built the billing API in Go serving tens of thousands of merchants', { base: many });
+  // A reduction is not a multiple: "40% lower" is not "1.4x faster".
+  dropped('work[0].highlights[1]', 'Made p95 latency 1.4x faster with Redis caching');
+});
+
+test('a compound or its initials in the résumé covers its one-word form', () => {
+  const commerce = withBullet(0, 0, 'Built the e-commerce billing API in Go serving 2,000 merchants');
+  kept('work[0].highlights[0]', 'Built the eCommerce billing API in Go serving 2,000 merchants', { base: commerce });
+  const saas = withBullet(0, 0, 'Built the software-as-a-service billing API in Go serving 2,000 merchants');
+  kept('work[0].highlights[0]', 'Built the SaaS billing API in Go serving 2,000 merchants', { base: saas });
+  const target = withBullet(0, 3, 'Partnered with sales to hit the quarterly target on the launch');
+  kept('work[0].highlights[3]', 'Target hit: partnered with sales on the quarterly launch', { base: target, company: 'Target' });
+});
+
+test('a title taken in a bullet, or more phrasings of years, are claims', () => {
+  dropped('work[0].highlights[0]', 'As billing lead, built the billing API in Go serving 2,000 merchants');
+  dropped('work[0].highlights[0]', 'Built the billing API in Go serving 2,000 merchants as manager of the billing team');
+  const director = withBullet(0, 4, 'Presented the migration plan to the director');
+  dropped('work[0].highlights[4]', 'Served as director and presented the migration plan', { base: director });
+  dropped('work[0].highlights[0]', 'Promoted to staff; built the billing API in Go serving 2,000 merchants');
+  for (const text of [
+    'Backend engineer with 10 or so years of experience building payment APIs in Go.',
+    'Backend engineer with ten-odd years of experience building payment APIs in Go.',
+    'Backend engineer building payment APIs in Go over the past decade.',
+    'Backend engineer with an associate degree who builds payment APIs in Go.',
+  ]) {
+    dropped('basics.summary', text);
+  }
+});
