@@ -4,11 +4,11 @@
  * full-width signs) never decides whether a line is supported.
  */
 
-/** Unicode-normalised text: NFKC, plain dashes and quotes, no zero-width characters. */
+/** Unicode-normalised text: NFKC, plain dashes and quotes, no invisible format characters. */
 export function plain(text: string): string {
   return text
     .normalize('NFKC')
-    .replace(/[\u200B-\u200D\uFEFF]/g, '')
+    .replace(/\p{Cf}/gu, '')
     .replace(/[\u2010-\u2015\u2212\uFE58\uFE63\uFF0D]/g, '-')
     .replace(/[\u2018\u2019\u201B\u2032]/g, "'")
     .replace(/[\u201C\u201D\u201F\u2033]/g, '"');
@@ -77,4 +77,17 @@ export function contentTokens(text: string): string[] {
 
 export function escapeRegex(text: string): string {
   return text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+const LATIN = /\p{Script=Latin}/u;
+const LOOKALIKE = /[\p{Script=Cyrillic}\p{Script=Greek}]/u;
+
+/** Words that mix Latin letters with Cyrillic or Greek look-alikes ("Kаfka" with a Cyrillic а). */
+export function mixedScriptWords(text: string): string[] {
+  return (plain(text).match(/[\p{L}\p{M}]+/gu) ?? []).filter((word) => LATIN.test(word) && LOOKALIKE.test(word));
+}
+
+/** The stems of every word in the text, stopwords included: what a name is checked against. */
+export function wordStems(text: string): Set<string> {
+  return new Set((norm(text).match(TOKEN) ?? []).map(stem));
 }

@@ -384,8 +384,10 @@ export type GroundingCode =
   | 'NEW_NUMBER'
   | 'NEW_DATE'
   | 'NEW_SKILL'
+  | 'NEW_TERM'
   | 'NEW_ENTITY'
   | 'NEW_SENIORITY'
+  | 'ODD_CHARACTERS'
   | 'LEADERSHIP_CLAIM';
 
 export interface GroundingIssue {
@@ -428,7 +430,10 @@ export interface ResumeVersionBasis {
   baseVersionId: string | null;
   baseUpdatedAt: string | null;
   jobId: string;
-  /** SHA-256 of the posting text the version was tailored to. */
+  /**
+   * SHA-256 of the job's whole posting text when it was tailored, to tell when the posting
+   * changed since. (The model is sent at most its first 20,000 characters.)
+   */
   postingSha256: string;
   model: string;
   createdAt: string;

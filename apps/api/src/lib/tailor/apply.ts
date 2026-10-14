@@ -4,7 +4,7 @@ import type { TailorAnswer } from './answer';
 import { BLOCKING, checkLine } from './ground';
 import { editableLines, flatSkills, roleLabel, sectionLabel, setLine, wholeText, type TailorLine } from './lines';
 import { buildVocab, termsIn, type Vocab } from './terms';
-import { escapeRegex, norm } from './text';
+import { escapeRegex, norm, plain, stem, wordStems } from './text';
 
 /**
  * Apply the model's edits to the base résumé, checking each one (#351). The model never
@@ -36,17 +36,26 @@ export interface TailorResult {
   gaps: string[];
   /** Written from what was applied; the model's own summary is not used. */
   changeSummary: string;
-  /** Anything was applied. */
-  changed: boolean;
+  /**
+   * How many of the model's suggestions produced a detail, applied or dropped. The API's own
+   * additions of confirmed keywords don't count: zero means the AI suggested nothing.
+   */
+  suggested: number;
 }
 
 const MAX_GAPS = 15;
 const MAX_GAP_LENGTH = 160;
+/** More edits than any résumé needs; the rest of a runaway answer is ignored. */
+const MAX_EDITS = 50;
 
-/** A bullet is one line: no line breaks or leading bullet glyph. The summary keeps its breaks. */
+/**
+ * A bullet is one line: no line breaks or leading bullet glyph. The summary keeps its line
+ * breaks only if the base summary has some, so a suggestion can't add a fake section.
+ */
 function cleanText(text: string, line: TailorLine): string {
   const trimmed = text.trim();
-  return line.role === null ? trimmed : trimmed.replace(/^[•·▪●◦*-]\s*/, '').replace(/\s+/g, ' ');
+  if (line.role === null && line.text.includes('\n')) return trimmed;
+  return trimmed.replace(/^[•·▪●◦*-]\s*/, '').replace(/\s+/g, ' ');
 }
 
 /** The line an edit is for: its path, unless its old text is exactly one other line (an index slip). */
@@ -92,11 +101,18 @@ function wordIn(text: string, phrase: string): boolean {
   return needle.length > 0 && new RegExp(`(?<![\\p{L}\\p{N}])${escapeRegex(needle)}(?![\\p{L}\\p{N}])`, 'u').test(norm(text));
 }
 
-/** Gaps the base résumé or the user's confirmed keywords already cover are left out. */
+/** A requirement the résumé can't show by naming the tool: years, seniority, leading people. */
+const QUALIFIER = /\d|\byears?\b|\bsenior|\blead(ing|s)?\b|\bmanag(e|es|ed|ing)\b/i;
+
+/**
+ * Gaps the base résumé or the user's confirmed keywords already cover are left out ("Advanced
+ * SQL" when SQL is a skill). A gap stays when it asks for a qualifier, or names something the
+ * résumé doesn't ("Docker Swarm").
+ */
 function openGaps(gaps: string[], base: StructuredResume, confirmed: string[], vocab: Vocab): string[] {
   const baseText = wholeText(base);
-  const covered = new Set([...termsIn(baseText, vocab), ...termsIn(confirmed.join('\n'), vocab)]);
-  const named = [...flatSkills(base), ...confirmed];
+  const covered = new Set([...termsIn(baseText, vocab, { evidence: true }), ...termsIn(confirmed.join('\n'), vocab, { evidence: true })]);
+  const baseWords = wordStems(`${baseText}\n${confirmed.join('\n')}`);
   const seen = new Set<string>();
   const open: string[] = [];
   for (const raw of gaps) {
@@ -104,7 +120,12 @@ function openGaps(gaps: string[], base: StructuredResume, confirmed: string[], v
     if (!gap || seen.has(norm(gap))) continue;
     seen.add(norm(gap));
     const terms = termsIn(gap, vocab);
-    const isCovered = terms.length > 0 ? terms.every((key) => covered.has(key)) : named.some((name) => wordIn(gap, name));
+    // Capitalised words after the first: names the gap asks for ("Swarm").
+    const names = (plain(gap).match(/(?<=\s)\p{Lu}[\p{L}\p{N}]*/gu) ?? []).filter((name) => !baseWords.has(stem(name.toLowerCase())));
+    const isCovered =
+      !QUALIFIER.test(gap) &&
+      names.length === 0 &&
+      (terms.length > 0 ? terms.every((key) => covered.has(key)) : confirmed.some((keyword) => wordIn(gap, keyword)));
     if (!isCovered) open.push(gap);
     if (open.length === MAX_GAPS) break;
   }
@@ -127,10 +148,13 @@ export function assertFactsUnchanged(base: StructuredResume, tailored: Structure
   for (const key of ['education', 'projects', 'certificates'] as const) {
     if (!isDeepStrictEqual(base[key], tailored[key])) problems.push(key);
   }
-  for (const group of base.skills) {
-    const other = tailored.skills.find((g) => g.category === group.category);
-    if (!other || group.skills.some((skill) => !other.skills.includes(skill))) problems.push(`skills ${group.category}`);
-  }
+  // By position: two groups may share a name. Added keywords may extend a group or add one.
+  base.skills.forEach((group, i) => {
+    const other = tailored.skills[i];
+    if (!other || other.category !== group.category || group.skills.some((skill) => !other.skills.includes(skill))) {
+      problems.push(`skills[${i}]`);
+    }
+  });
   if (problems.length > 0) throw new Error(`Tailoring changed a fact of the base résumé: ${problems.join(', ')}`);
 }
 
@@ -150,7 +174,7 @@ export function tailorFromAnswer(base: StructuredResume, answer: TailorAnswer, c
 
   // Rewordings.
   const done = new Set<string>();
-  for (const edit of answer.edits) {
+  for (const edit of answer.edits.slice(0, MAX_EDITS)) {
     const line = lineFor(edit, lines);
     if (!line) {
       details.push({
@@ -205,14 +229,15 @@ export function tailorFromAnswer(base: StructuredResume, answer: TailorAnswer, c
     const n = role.highlights.length;
     const isPermutation = order.length === n && new Set(order).size === n && order.every((i) => i >= 0 && i < n);
     if (!isPermutation || order.every((i, position) => i === position)) continue;
-    const before = [...role.highlights];
-    role.highlights = order.map((i) => before[i]!);
+    const current = [...role.highlights];
+    role.highlights = order.map((i) => current[i]!);
     counts.roles += 1;
     details.push({
       kind: 'reorder',
       section: roleLabel(base, index),
       sourcePath: `work[${index}].highlights`,
-      oldText: before.join('\n'),
+      // The base résumé's bullets in their order; the new order shows any rewording.
+      oldText: base.work[index]!.highlights.join('\n'),
       newText: role.highlights.join('\n'),
       rationale: 'The bullets most relevant to the posting come first.',
       dropped: false,
@@ -253,7 +278,14 @@ export function tailorFromAnswer(base: StructuredResume, answer: TailorAnswer, c
   }
 
   // Confirmed keywords join the skills, under the group the model chose when the résumé has it.
-  const isSkill = (term: string) => flatSkills(resume).some((skill) => norm(skill) === norm(term));
+  // A skill by another name ("Postgres" for PostgreSQL) is already there.
+  const isSkill = (term: string) => {
+    const current = flatSkills(resume);
+    if (current.some((skill) => norm(skill) === norm(term))) return true;
+    const keys = termsIn(term, vocab, { evidence: true });
+    const skillKeys = new Set(termsIn(current.join('\n'), vocab, { evidence: true }));
+    return keys.length > 0 && keys.every((key) => skillKeys.has(key));
+  };
   const seen = new Set<string>();
   for (const keyword of confirmed) {
     if (seen.has(norm(keyword)) || isSkill(keyword)) continue;
@@ -312,6 +344,6 @@ export function tailorFromAnswer(base: StructuredResume, answer: TailorAnswer, c
     details: details.map((detail, i) => ({ id: `c${i}`, ...detail })),
     gaps: openGaps(answer.gaps, base, confirmed, vocab),
     changeSummary,
-    changed: applied.length > 0,
+    suggested: details.filter((detail) => !(detail.kind === 'skill-added' && !detail.dropped)).length,
   };
 }

@@ -53,6 +53,14 @@ const isOrder = (value: unknown): value is TailorAnswer['highlight_orders'][numb
 const isAddedSkill = (value: unknown): value is TailorAnswer['added_skills'][number] =>
   isRecord(value) && isText(value.skill) && isText(value.category);
 
+/**
+ * The agent's answer when it refused the posting as a prompt injection (INJECTION_ACTION=refuse;
+ * services/agent/app/chains/tailor_resume.py): no edits, and this summary.
+ */
+export function isInjectionRefusal(answer: TailorAnswer): boolean {
+  return answer.edits.length === 0 && answer.change_summary.startsWith('Not tailored: suspected prompt injection');
+}
+
 /** An answer the API can apply. Anything else is an unusable answer (503, nothing saved). */
 export function isTailorAnswer(value: unknown): value is TailorAnswer & { model_used: string } {
   return (

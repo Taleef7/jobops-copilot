@@ -6,6 +6,7 @@ import {
   insertResumeVersion,
 } from '@/data/resume-version-store';
 import { resolveResumeParse } from '@/lib/agent-client';
+import { attachmentDisposition } from '@/lib/content-disposition';
 import { flagResume } from '@/lib/resume-flags';
 import { requireUser } from '@/lib/auth';
 import { isTooLong, STORED_TEXT_MAX, TOO_LONG_MESSAGE } from '@/lib/input-caps';
@@ -268,7 +269,7 @@ baseResumeRouter.get('/versions/:id/download', async (request, response, next) =
     response.setHeader('Content-Type', 'application/pdf');
     response.setHeader(
       'Content-Disposition',
-      `attachment; filename="resume_${version.structuredResume.basics?.name || 'document'}_${version.id}.pdf"`,
+      attachmentDisposition(`resume_${version.structuredResume.basics?.name || 'document'}_${version.id}.pdf`),
     );
     return response.send(pdfBuffer);
   } catch (error) {

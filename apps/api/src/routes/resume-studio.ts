@@ -15,6 +15,8 @@ import { requireUser } from '@/lib/auth';
 import { storeResumePdf } from '@/lib/resume-storage';
 import { GROUNDING_VERSION, isGrounded, tailorFromAnswer } from '@/lib/tailor/apply';
 import { editableLines } from '@/lib/tailor/lines';
+import { isInjectionRefusal } from '@/lib/tailor/answer';
+import { attachmentDisposition } from '@/lib/content-disposition';
 import { buildTailorRequest, parseConfirmedKeywords, postingKeywords } from '@/lib/tailor/request';
 import type { ResumeVersionRecord } from '@/types';
 
@@ -70,12 +72,21 @@ resumeStudioRouter.post('/jobs/:id/tailor', async (request, response, next) => {
     }
 
     const answer = await resolveTailorResume(buildTailorRequest(base, job, confirmedKeywords));
+    // The agent refuses a posting that looks like a prompt injection (INJECTION_ACTION=refuse).
+    // Trying again can't help, and each try is a paid call.
+    if (isInjectionRefusal(answer)) {
+      return response.status(422).json({
+        code: 'POSTING_REFUSED',
+        error: "This posting seems to contain instructions to the AI, so it wasn't tailored. Check the job description.",
+      });
+    }
     const result = tailorFromAnswer(base, answer, {
       company: job.company,
       jobTerms: postingKeywords(job),
       confirmedKeywords,
     });
-    if (result.details.length === 0) {
+    // Nothing from the AI (the API's own additions of confirmed keywords don't count).
+    if (result.suggested === 0) {
       throw new AiUnavailableError("The AI didn't suggest any changes. Try again.");
     }
 
@@ -239,7 +250,7 @@ resumeStudioRouter.get('/resume-versions/:id/download', async (request, response
     response.setHeader('Content-Type', 'application/pdf');
     response.setHeader(
       'Content-Disposition',
-      `attachment; filename="${candidateName.replace(/\s+/g, '_')}_${version.id}.pdf"`,
+      attachmentDisposition(`${candidateName.replace(/\s+/g, '_')}_${version.id}.pdf`),
     );
     return response.send(pdfBuffer);
   } catch (error) {

@@ -67,7 +67,7 @@ test('numbers: the same value in another form passes; a new or changed one is dr
   dropped('work[0].highlights[1]', 'Reduced p95 latency 40x with Redis caching', 'NEW_NUMBER', '40x');
   dropped('work[0].highlights[2]', 'Mentored three interns', 'NEW_NUMBER', 'three');
   dropped('work[1].highlights[0]', 'Since 2018, automated nightly reports with Python, saving 10 hours a week', 'NEW_DATE', '2018');
-  dropped('basics.summary', 'Backend engineer with 6 years of experience building payment APIs in Go', 'NEW_NUMBER', '6');
+  dropped('basics.summary', 'Backend engineer with 6 years of experience building payment APIs in Go', 'NEW_NUMBER', '6 years');
 });
 
 test('a tool the role never names is dropped, even one from the skills list', () => {
@@ -88,7 +88,7 @@ test('names that look like tools but are not, and aliases of tools the line has,
 
 test('a new employer name, degree or seniority is dropped', () => {
   dropped('basics.summary', 'Backend engineer who builds payment APIs in Go, ready to help Acme Pay grow', 'NEW_ENTITY', 'Acme Pay');
-  dropped('basics.summary', 'Backend engineer with an MSc who builds payment APIs in Go', 'NEW_ENTITY', 'msc');
+  dropped('basics.summary', 'Backend engineer with an MSc who builds payment APIs in Go', 'NEW_ENTITY', "master's degree");
   dropped('basics.summary', 'Senior backend engineer who builds payment APIs in Go', 'NEW_SENIORITY', 'senior');
 });
 
@@ -135,7 +135,7 @@ test('a second suggestion for one line is ignored, and an unchanged line is not 
 
   const same = run({ edits: [edit('work[0].highlights[2]', '  mentored two Interns ')] });
   assert.deepEqual(same.details, []);
-  assert.equal(same.changed, false);
+  assert.equal(same.suggested, 0);
 });
 
 test('only known fields of the answer are read', () => {
@@ -171,6 +171,10 @@ test('a rewritten bullet moves with its new text when its role is reordered', ()
     highlight_orders: [{ work_index: 0, highlight_order: [1, 0, 2, 3, 4] }],
   });
   assert.equal(result.resume.work[0]!.highlights[0], 'Cut p95 latency 40% with Redis caching');
+  // The reorder's old text is the base résumé's, never the model's.
+  const reorder = result.details.find((d) => d.kind === 'reorder')!;
+  assert.equal(reorder.oldText, TAILOR_BASE.work[0]!.highlights.join('\n'));
+  assert.ok(reorder.newText.startsWith('Cut p95 latency 40% with Redis caching'));
 });
 
 test('skills are reordered within their groups, and only by an exact reordering', () => {
@@ -247,7 +251,7 @@ test('the change summary is written from what was applied, not from the model', 
     highlight_orders: [{ work_index: 0, highlight_order: [1, 0, 2, 3, 4] }],
   });
   assert.equal(result.changeSummary, 'Reworded 1 line and reordered bullets in 1 role. 1 suggestion was dropped.');
-  assert.equal(result.changed, true);
+  assert.equal(result.suggested, 3);
   assert.deepEqual(
     result.details.map((d) => d.id),
     result.details.map((_d, i) => `c${i}`),

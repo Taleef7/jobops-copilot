@@ -337,3 +337,69 @@ test('reject records the feedback on the draft', async () => {
     assert.match(body.version.changeSummary, /Lead with Go\./);
   });
 });
+
+test('the approved PDF link points at the draft download, which works', async () => {
+  const savedStorage = process.env.AZURE_STORAGE_CONNECTION_STRING;
+  delete process.env.AZURE_STORAGE_CONNECTION_STRING;
+  try {
+    await withStudio(answerWith({ edits: [edit('work[0].highlights[2]', 'Mentored 2 interns')] }), async ({ send }) => {
+      const job = await setUp();
+      const version = await tailor(send, job.id);
+      const approved = (await (await send('POST', `/api/resume-versions/${version.id}/approve`, {})).json()) as {
+        fileUrl: string;
+      };
+      const path = new URL(approved.fileUrl).pathname;
+      assert.equal(path, `/api/resume-versions/${version.id}/download`);
+      assert.equal((await send('GET', path)).status, 200);
+    });
+  } finally {
+    if (savedStorage !== undefined) process.env.AZURE_STORAGE_CONNECTION_STRING = savedStorage;
+  }
+});
+
+test('an answer with nothing from the AI is a 503 even with confirmed keywords, and saves nothing', async () => {
+  await withStudio(answerWith({}), async ({ send }) => {
+    const job = await setUp();
+    const response = await send('POST', `/api/jobs/${job.id}/tailor`, { confirmedKeywords: ['Kafka'] });
+    assert.equal(response.status, 503);
+    assert.deepEqual(await versionsOf(send, job.id), []);
+  });
+});
+
+test('a posting the agent refused as a prompt injection is a 422 to fix the posting, not a retry', async () => {
+  // The agent's answer when INJECTION_ACTION=refuse (services/agent/app/chains/tailor_resume.py).
+  const refused = answerWith({ change_summary: 'Not tailored: suspected prompt injection in the posting.' });
+  await withStudio(refused, async ({ send }) => {
+    const job = await setUp();
+    const response = await send('POST', `/api/jobs/${job.id}/tailor`, { confirmedKeywords: ['Kafka'] });
+    assert.equal(response.status, 422);
+    const body = (await response.json()) as { code: string; error: string };
+    assert.equal(body.code, 'POSTING_REFUSED');
+    assert.match(body.error, /instructions/);
+    assert.deepEqual(await versionsOf(send, job.id), []);
+  });
+});
+
+test('confirmed keywords with control characters are refused before the AI is called', async () => {
+  await withStudio(answerWith({}), async ({ agent, send }) => {
+    const job = await setUp();
+    for (const keyword of ['Kafka\u0000', 'Kafka\nJava', 'Ka\u0007fka']) {
+      const response = await send('POST', `/api/jobs/${job.id}/tailor`, { confirmedKeywords: [keyword] });
+      assert.equal(response.status, 400, JSON.stringify(keyword));
+    }
+    assert.equal(agent.calls.length, 0);
+  });
+});
+
+test('a draft for a name outside Latin-1 downloads, with the name kept in the file name', async () => {
+  await withStudio(answerWith({ edits: [edit('work[0].highlights[2]', 'Mentored 2 interns')] }), async ({ send }) => {
+    const job = await setUp({ ...TAILOR_BASE, basics: { ...TAILOR_BASE.basics, name: 'Łukasz Żółć 李' } });
+    const version = await tailor(send, job.id);
+    assert.equal((await send('POST', `/api/resume-versions/${version.id}/approve`, {})).status, 200);
+    const download = await send('GET', `/api/resume-versions/${version.id}/download`);
+    assert.equal(download.status, 200);
+    const disposition = download.headers.get('content-disposition') ?? '';
+    assert.match(disposition, /^attachment; filename="[\x20-\x7e]+\.pdf"; filename\*=UTF-8''/);
+    assert.ok(decodeURIComponent(disposition.split("UTF-8''")[1]!).startsWith('Łukasz_Żółć_李_'));
+  });
+});

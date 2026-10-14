@@ -1,5 +1,5 @@
 import { keywordCatalog } from '@/lib/analysis-core';
-import { escapeRegex, norm, plain } from './text';
+import { contentTokens, escapeRegex, norm, plain, wordStems } from './text';
 
 /**
  * Skill and tool names, so a tailored line can't add one (#351, SPEC rule 6). The list is the
@@ -46,36 +46,65 @@ const ALIASES: Record<string, string> = {
 };
 
 /** Aliases that are ordinary words in lower case: matched only as written. */
-const CASED_ALIASES: Record<string, string> = { Node: 'Node.js', TS: 'TypeScript', ML: 'Machine Learning' };
+const CASED_ALIASES: Record<string, string> = { Node: 'Node.js', ML: 'Machine Learning' };
+
+/** A cloud's own services name the cloud too: "EC2 and S3" is evidence for AWS. */
+const PART_OF: Record<string, string> = Object.fromEntries([
+  ...['ec2', 's3', 'lambda', 'dynamodb', 'redshift', 'athena', 'glue', 'kinesis', 'sqs', 'sns', 'sagemaker',
+    'cloudformation', 'ecs', 'eks'].map((key) => [key, 'amazon web services']),
+  ...['bigquery', 'gke', 'vertex ai', 'pub/sub', 'dataflow'].map((key) => [key, 'google cloud']),
+  ...['aks', 'azure functions', 'azure blob storage', 'azure devops', 'data factory', 'synapse', 'azure openai'].map(
+    (key) => [key, 'azure'],
+  ),
+]);
 
 /**
- * Names that are also English words or letters. They count only as written (capitalised) and
- * not before a hyphen, so "go-to-market" and "ready to go" aren't the Go language.
+ * Names that are also English words or letters. In a suggested line they count only when
+ * capitalised ("Go", "RUST"), so "ready to go" and "go-to-market" aren't the Go language.
  */
 const AMBIGUOUS = new Set(
   ['go', 'r', 'c', 'swift', 'rust', 'spark', 'ruby', 'excel', 'chef', 'puppet', 'express', 'spring', 'lambda',
     'glue', 'unity', 'flutter', 'helm', 'hive', 'rag', 'sass', 'oracle', 'stripe', 'sentry'],
 );
 
+/** Posting keywords this short ("IT", "US") are ordinary words more often than skills. */
+const MIN_KEYWORD_LENGTH = 3;
+
 interface Term {
   key: string;
   display: string;
-  pattern: RegExp;
-  /** Matched against the text as written (case-sensitive) rather than lower-cased. */
-  cased: boolean;
+  /** For a suggested line: ambiguous names only as written. */
+  strict: RegExp;
+  /** For evidence: any case, so a base line's "spark" still counts. */
+  loose: RegExp;
+  /**
+   * A posting phrase that isn't a tool ("Payment APIs"): as evidence, its words count
+   * wherever they are ("payment and billing APIs").
+   */
+  words?: string[];
 }
 
 export type Vocab = Term[];
 
 const WORD = '\\p{L}\\p{N}+#';
 
-function pattern(form: string, cased: boolean): RegExp {
-  const body = escapeRegex(form);
-  // "R&D" and "Q&A" aren't the R language.
-  if (cased) return new RegExp(`(?<![${WORD}.&'-])${body}(?![${WORD}&'-])`, 'u');
-  // A trailing "s" is allowed on a word ("LLMs"), not on a symbol ("C++").
-  const plural = /\p{L}$/u.test(form) ? 's?' : '';
-  return new RegExp(`(?<![${WORD}.])${body}${plural}(?![${WORD}])`, 'u');
+/** A word's plural or singular: "payments" and "payment", "APIs" and "API". */
+function body(form: string): string {
+  if (!/^[\p{L} ]+$/u.test(form)) return escapeRegex(form); // "C++", "Node.js", "CI/CD"
+  const singular = form.length > 3 && /[^s]s$/.test(form) ? form.slice(0, -1) : form;
+  return `${escapeRegex(singular)}(?:s|es)?`;
+}
+
+function patterns(form: string, ambiguous: boolean): Pick<Term, 'strict' | 'loose'> {
+  // Never "R&D", "Q&A", or the "go" of "go-to-market"; "Rust-based" and "Rust's" are Rust.
+  const before = `(?<![${WORD}.&'])`;
+  const after = `(?![${WORD}&]|'(?!s(?![\\p{L}]))|-to-)`;
+  const loose = new RegExp(`${before}${body(norm(form))}${after}`, 'u');
+  if (!ambiguous) return { strict: loose, loose };
+  const asWritten = plain(form);
+  const variants = [asWritten, ...(asWritten.length >= 3 ? [asWritten.toUpperCase()] : [])].map(escapeRegex);
+  const strict = new RegExp(`${before}(?:${variants.join('|')})${after}`, 'u');
+  return { strict, loose };
 }
 
 /** The forms a résumé skill can be written in: "Amazon Web Services (AWS)" gives both. */
@@ -97,14 +126,15 @@ function formsOf(term: string): string[] {
 export function buildVocab(extra: string[]): Vocab {
   const byForm = new Map<string, Term>();
   const keyOf = new Map<string, { key: string; display: string }>();
+  const phrases: Array<{ key: string; words: string[] }> = [];
 
   const add = (form: string, key: string, display: string, casedForm?: boolean) => {
     const lower = norm(form);
     if (!lower) return;
-    const cased = casedForm ?? AMBIGUOUS.has(lower);
-    const id = cased ? `C:${plain(form)}` : `L:${lower}`;
+    const ambiguous = casedForm ?? AMBIGUOUS.has(lower);
+    const id = ambiguous ? `C:${plain(form)}` : `L:${lower}`;
     if (byForm.has(id)) return;
-    byForm.set(id, { key, display, pattern: pattern(cased ? plain(form) : lower, cased), cased });
+    byForm.set(id, { key, display, ...patterns(form, ambiguous) });
   };
 
   for (const tool of COMMON_TOOLS) {
@@ -126,24 +156,41 @@ export function buildVocab(extra: string[]): Vocab {
     // A known tool by any of its forms keeps the tool's key, so "AWS" and "Amazon Web
     // Services" are one term.
     const known = forms.map((form) => keyOf.get(norm(form))).find(Boolean);
+    if (!known && norm(forms[0]!).length < MIN_KEYWORD_LENGTH) continue;
     const key = known?.key ?? norm(forms[0]!);
     const display = known?.display ?? forms[0]!;
     for (const form of forms) {
       add(form, key, display);
       if (!keyOf.has(norm(form))) keyOf.set(norm(form), { key, display });
     }
+    const words = contentTokens(forms[0]!);
+    if (!known && words.length > 1) phrases.push({ key, words });
+  }
+  // Each phrase's words go on its first term (any form will do: they share the key).
+  for (const { key, words } of phrases) {
+    const term = [...byForm.values()].find((candidate) => candidate.key === key);
+    if (term && !term.words) term.words = words;
   }
   return [...byForm.values()];
 }
 
-/** The terms in `text`, by key, in vocabulary order. */
-export function termsIn(text: string, vocab: Vocab): string[] {
+/**
+ * The terms in `text`, by key, in vocabulary order. `evidence` reads leniently (any case, and a
+ * cloud's own services count as the cloud), so a base résumé's wording never blocks an honest
+ * rewrite; a suggested line is read strictly.
+ */
+export function termsIn(text: string, vocab: Vocab, options: { evidence?: boolean } = {}): string[] {
   const asWritten = plain(text);
   const lower = norm(text);
   const keys = new Set<string>();
+  const stems = options.evidence ? wordStems(text) : null;
   for (const term of vocab) {
-    if (term.pattern.test(term.cased ? asWritten : lower)) keys.add(term.key);
+    const found = stems
+      ? term.loose.test(lower) || Boolean(term.words?.every((word) => stems.has(word)))
+      : term.strict.test(term.strict === term.loose ? lower : asWritten);
+    if (found) keys.add(term.key);
   }
+  if (options.evidence) for (const key of [...keys]) if (PART_OF[key]) keys.add(PART_OF[key]);
   return [...keys];
 }
 
