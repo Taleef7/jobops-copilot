@@ -560,16 +560,13 @@ export async function getTailorKeywords(
 export async function tailorResumeForJob(
   jobId: string,
   options?: { confirmedKeywords?: string[]; addToBase?: boolean },
-): Promise<ResumeVersionRecord> {
-  const response = await requestJson<{ version: ResumeVersionRecord }>(
-    `/api/jobs/${jobId}/tailor`,
-    {
-      timeoutMs: AI_REQUEST_TIMEOUT_MS,
-      method: 'POST',
-      body: JSON.stringify(options ?? {}),
-    },
-  );
-  return response.version;
+): Promise<{ version: ResumeVersionRecord; addedToBase?: boolean }> {
+  // addedToBase: false when the draft was saved but the keywords couldn't go into the base résumé.
+  return requestJson<{ version: ResumeVersionRecord; addedToBase?: boolean }>(`/api/jobs/${jobId}/tailor`, {
+    timeoutMs: AI_REQUEST_TIMEOUT_MS,
+    method: 'POST',
+    body: JSON.stringify(options ?? {}),
+  });
 }
 
 /** Approve a tailored resume draft version. */

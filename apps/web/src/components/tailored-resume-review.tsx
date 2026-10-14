@@ -1,7 +1,7 @@
 'use client';
 
 import Link from 'next/link';
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useSyncExternalStore } from 'react';
 import { Loader2, Plus, X } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
@@ -36,15 +36,6 @@ interface TailorOptions {
   addToBase: boolean;
 }
 
-// A tailoring run takes 20 to 40 seconds. It's kept here, not in component state, so it
-// carries on when the user switches to another tab of the job page and back.
-const pendingTailors = new Map<string, { promise: Promise<ResumeVersionRecord>; startedAt: number }>();
-
-/** For tests: forget runs left over from an earlier test. */
-export function resetPendingTailorsForTests() {
-  pendingTailors.clear();
-}
-
 const MAX_KEYWORDS = 25;
 const MAX_KEYWORD_LENGTH = 60;
 
@@ -57,49 +48,85 @@ interface TailorError {
   retry?: TailorOptions;
 }
 
-export function TailoredResumeReview({ jobId, jobCompany, initialVersions = [] }: TailoredResumeReviewProps) {
-  const [version, setVersion] = useState<ResumeVersionRecord | null>(initialVersions[0] ?? null);
-  const [windowOpen, setWindowOpen] = useState(false);
-  const [startedAt, setStartedAt] = useState<number | null>(pendingTailors.get(jobId)?.startedAt ?? null);
-  const [error, setError] = useState<TailorError | null>(null);
+interface TailorState {
+  /** The draft this session last saw: a new one, or one changed in the review. */
+  version: ResumeVersionRecord | null;
+  run: { startedAt: number; options: TailorOptions } | null;
+  error: TailorError | null;
+}
 
-  // State changes only in the promise's callbacks, never synchronously.
-  function follow(promise: Promise<ResumeVersionRecord>, options: TailorOptions) {
-    return promise
-      .then((created) => {
-        setVersion(created);
-        toast.success('Your tailored résumé is ready to review.');
-      })
-      .catch((err: unknown) => {
-        const message = err instanceof Error ? err.message : "Your résumé couldn't be tailored.";
-        const { code, status } = (err ?? {}) as { code?: unknown; status?: unknown };
-        setError({
-          message,
+// A tailoring run takes 20 to 40 seconds. Its state is kept here, per job, not in the
+// component, so it carries on when the user switches to another tab of the job page and back,
+// and that tab shows the draft it made rather than the page's older list of versions.
+const EMPTY: TailorState = { version: null, run: null, error: null };
+const tailorStates = new Map<string, TailorState>();
+const listeners = new Set<() => void>();
+
+function setTailorState(jobId: string, patch: Partial<TailorState>) {
+  tailorStates.set(jobId, { ...(tailorStates.get(jobId) ?? EMPTY), ...patch });
+  listeners.forEach((listener) => listener());
+}
+
+function subscribe(listener: () => void) {
+  listeners.add(listener);
+  return () => {
+    listeners.delete(listener);
+  };
+}
+
+/** For tests: forget runs and drafts left over from an earlier test. */
+export function resetTailorStoreForTests() {
+  tailorStates.clear();
+}
+
+function startTailoring(jobId: string, options: TailorOptions) {
+  if (tailorStates.get(jobId)?.run) return;
+  setTailorState(jobId, { run: { startedAt: Date.now(), options }, error: null });
+  // One handler per run, whichever tab is showing: one toast.
+  tailorResumeForJob(jobId, options).then(
+    ({ version, addedToBase }) => {
+      setTailorState(jobId, { version, run: null });
+      toast.success('Your tailored résumé is ready to review.');
+      if (addedToBase === false) {
+        toast.warning("Your draft is ready, but the keywords couldn't be added to your base résumé. Add them in Settings → Résumé.");
+      }
+    },
+    (err: unknown) => {
+      const { code, status } = (err ?? {}) as { code?: unknown; status?: unknown };
+      setTailorState(jobId, {
+        run: null,
+        error: {
+          message: err instanceof Error ? err.message : "Your résumé couldn't be tailored.",
           code: typeof code === 'string' ? code : undefined,
           retry: typeof status === 'number' && status >= 500 ? options : undefined,
-        });
-      })
-      .finally(() => {
-        pendingTailors.delete(jobId);
-        setStartedAt(null);
+        },
       });
-  }
+    },
+  );
+}
 
-  function startTailoring(options: TailorOptions) {
+/** The newer of two drafts: the page's list can be older than what this session saw. */
+function newest(seen: ResumeVersionRecord | null, page: ResumeVersionRecord | null) {
+  if (!seen || !page) return seen ?? page;
+  return page.updatedAt > seen.updatedAt ? page : seen;
+}
+
+export function TailoredResumeReview({ jobId, jobCompany, initialVersions = [] }: TailoredResumeReviewProps) {
+  const state = useSyncExternalStore(
+    subscribe,
+    () => tailorStates.get(jobId) ?? EMPTY,
+    () => EMPTY,
+  );
+  const version = newest(state.version, initialVersions[0] ?? null);
+  const startedAt = state.run?.startedAt ?? null;
+  const error = state.error;
+  const [windowOpen, setWindowOpen] = useState(false);
+  const setVersion = (next: ResumeVersionRecord) => setTailorState(jobId, { version: next });
+
+  function tailor(options: TailorOptions) {
     setWindowOpen(false);
-    setError(null);
-    const run = { promise: tailorResumeForJob(jobId, options), startedAt: Date.now() };
-    pendingTailors.set(jobId, run);
-    setStartedAt(run.startedAt);
-    void follow(run.promise, options);
+    startTailoring(jobId, options);
   }
-
-  // Back on this tab while a run is still going: wait for it here.
-  useEffect(() => {
-    const run = pendingTailors.get(jobId);
-    if (run) void follow(run.promise, { confirmedKeywords: [], addToBase: false });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [jobId]);
 
   return (
     <div className="space-y-4">
@@ -131,7 +158,7 @@ export function TailoredResumeReview({ jobId, jobCompany, initialVersions = [] }
           ) : null}
           {error.retry ? (
             <div>
-              <Button size="sm" variant="outline" onClick={() => startTailoring(error.retry!)}>
+              <Button size="sm" variant="outline" onClick={() => tailor(error.retry!)}>
                 Try again
               </Button>
             </div>
@@ -139,7 +166,7 @@ export function TailoredResumeReview({ jobId, jobCompany, initialVersions = [] }
         </Card>
       ) : null}
 
-      <TailorWindow jobId={jobId} open={windowOpen} onOpenChange={setWindowOpen} onTailor={startTailoring} />
+      <TailorWindow jobId={jobId} open={windowOpen} onOpenChange={setWindowOpen} onTailor={tailor} />
     </div>
   );
 }
@@ -200,10 +227,12 @@ function TailorWindow({
   const missing = keywords.filter((keyword) => !keyword.onResume);
   const present = keywords.filter((keyword) => keyword.onResume);
   const confirmed = [...missing.map((k) => k.term).filter((term) => picked.includes(term)), ...custom];
+  // The API takes up to 25.
+  const full = confirmed.length >= MAX_KEYWORDS;
 
   function addCustom() {
     const keyword = draft.trim();
-    if (!keyword || keyword.length > MAX_KEYWORD_LENGTH || confirmed.length >= MAX_KEYWORDS) return;
+    if (!keyword || keyword.length > MAX_KEYWORD_LENGTH || full) return;
     if (![...custom, ...picked].some((existing) => existing.toLowerCase() === keyword.toLowerCase())) {
       setCustom((current) => [...current, keyword]);
     }
@@ -211,7 +240,7 @@ function TailorWindow({
   }
 
   const toggle = (term: string) =>
-    setPicked((current) => (current.includes(term) ? current.filter((t) => t !== term) : [...current, term]));
+    setPicked((current) => (current.includes(term) ? current.filter((t) => t !== term) : full ? current : [...current, term]));
 
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
@@ -258,6 +287,7 @@ function TailorWindow({
                         size="sm"
                         variant={picked.includes(keyword.term) ? 'default' : 'outline'}
                         aria-pressed={picked.includes(keyword.term)}
+                        disabled={full && !picked.includes(keyword.term)}
                         onClick={() => toggle(keyword.term)}
                       >
                         {keyword.term}
@@ -286,7 +316,7 @@ function TailorWindow({
                   }
                 }}
               />
-              <Button type="button" variant="outline" onClick={addCustom}>
+              <Button type="button" variant="outline" onClick={addCustom} disabled={full}>
                 <Plus className="size-4" aria-hidden />
                 Add
               </Button>
@@ -308,6 +338,8 @@ function TailorWindow({
               </div>
             ) : null}
           </div>
+
+          {full ? <p className="text-muted-foreground text-xs">Up to {MAX_KEYWORDS} keywords.</p> : null}
 
           {confirmed.length > 0 ? (
             <label className="flex items-center gap-2 text-sm">
@@ -339,6 +371,8 @@ function VersionReview({
   onTailorAgain: () => void;
 }) {
   const [downloading, setDownloading] = useState(false);
+  // One line at a time: each save changes the whole draft, and Download waits for it.
+  const [saving, setSaving] = useState(false);
   const basis = version.basedOn ?? null;
   const editable = Boolean(basis) && !version.approved;
   const changes = version.changeDetails ?? [];
@@ -361,6 +395,19 @@ function VersionReview({
     }
   }
 
+  async function review(detail: ResumeChangeDetail, action: ReviewAction, text?: string): Promise<boolean> {
+    setSaving(true);
+    try {
+      onChange(await reviewResumeChange(version.id, detail.id!, action, text));
+      return true;
+    } catch (err: unknown) {
+      toast.error(err instanceof Error ? err.message : "That change couldn't be saved.");
+      return false;
+    } finally {
+      setSaving(false);
+    }
+  }
+
   return (
     <div className="space-y-4">
       <Card className="space-y-3 p-5">
@@ -378,7 +425,7 @@ function VersionReview({
             <Button variant="outline" onClick={onTailorAgain}>
               Tailor again
             </Button>
-            <Button onClick={download} disabled={downloading}>
+            <Button onClick={download} disabled={downloading || saving}>
               {downloading ? <Loader2 className="size-4 animate-spin" aria-hidden /> : null}
               Download PDF
             </Button>
@@ -410,11 +457,11 @@ function VersionReview({
       ) : (
         changes.map((detail, index) => (
           <ChangeCard
-            key={detail.id ?? index}
-            versionId={version.id}
+            key={`${version.id}-${detail.id ?? index}`}
             detail={detail}
             editable={editable && Boolean(detail.id)}
-            onChange={onChange}
+            busy={saving || downloading}
+            onReview={review}
           />
         ))
       )}
@@ -428,33 +475,27 @@ const RESOLUTION_LABEL: Record<NonNullable<ResumeChangeDetail['resolution']>, st
   edited: 'Your words',
 };
 
+type ReviewAction = 'keep' | 'restore' | 'edit';
+
 function ChangeCard({
-  versionId,
   detail,
   editable,
-  onChange,
+  busy,
+  onReview,
 }: {
-  versionId: string;
   detail: ResumeChangeDetail;
   editable: boolean;
-  onChange: (version: ResumeVersionRecord) => void;
+  busy: boolean;
+  onReview: (detail: ResumeChangeDetail, action: ReviewAction, text?: string) => Promise<boolean>;
 }) {
   const [editing, setEditing] = useState(false);
   const [text, setText] = useState(detail.userText ?? detail.newText);
-  const [busy, setBusy] = useState(false);
-  const isLine = detail.kind === 'rewrite';
+  // A line of the base résumé; a suggestion that matched none has nothing to change.
+  const isLine = detail.kind === 'rewrite' && Boolean(detail.sourcePath);
   const isAddedSkill = detail.kind === 'skill-added' && !detail.dropped;
 
-  async function act(action: 'keep' | 'restore' | 'edit', value?: string) {
-    setBusy(true);
-    try {
-      onChange(await reviewResumeChange(versionId, detail.id!, action, value));
-      setEditing(false);
-    } catch (err: unknown) {
-      toast.error(err instanceof Error ? err.message : "That change couldn't be saved.");
-    } finally {
-      setBusy(false);
-    }
+  async function act(action: ReviewAction, value?: string) {
+    if (await onReview(detail, action, value)) setEditing(false);
   }
 
   const shown =
@@ -464,7 +505,11 @@ function ChangeCard({
     <Card className="space-y-3 p-5" data-testid={detail.id ? `change-${detail.id}` : undefined}>
       <div className="flex items-center justify-between gap-2">
         <span className="text-muted-foreground text-xs font-medium uppercase tracking-wide">{detail.section}</span>
-        {detail.resolution ? <span className="text-xs font-medium">{RESOLUTION_LABEL[detail.resolution]}</span> : null}
+        {detail.resolution ? (
+          <span className="text-xs font-medium">
+            {isAddedSkill && detail.resolution === 'restored' ? 'Removed' : RESOLUTION_LABEL[detail.resolution]}
+          </span>
+        ) : null}
       </div>
 
       {detail.dropped ? (
@@ -489,7 +534,12 @@ function ChangeCard({
         <div className="space-y-1">
           <p className="text-muted-foreground text-xs">{detail.dropped && detail.resolution !== 'edited' ? 'Suggested, not used' : 'Tailored'}</p>
           {editing ? (
-            <Textarea value={text} onChange={(event) => setText(event.target.value)} rows={3} />
+            <Textarea
+              aria-label="Your words for this line"
+              value={text}
+              onChange={(event) => setText(event.target.value)}
+              rows={3}
+            />
           ) : (
             <p className={`whitespace-pre-wrap ${detail.dropped && detail.resolution !== 'edited' ? 'text-muted-foreground line-through' : ''}`}>
               {detail.dropped && detail.resolution !== 'edited' ? detail.newText : shown}
@@ -518,7 +568,7 @@ function ChangeCard({
                   Keep
                 </Button>
               ) : null}
-              {isLine && !detail.dropped ? (
+              {isLine && (!detail.dropped || detail.resolution === 'edited') ? (
                 <Button size="sm" variant="outline" disabled={busy} onClick={() => act('restore')}>
                   Restore original
                 </Button>

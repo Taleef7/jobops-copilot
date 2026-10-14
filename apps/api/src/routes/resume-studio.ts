@@ -15,10 +15,11 @@ import { requireUser } from '@/lib/auth';
 import { storeResumePdf } from '@/lib/resume-storage';
 import { addSkills, GROUNDING_VERSION, isGrounded, skillGroup, tailorFromAnswer } from '@/lib/tailor/apply';
 import { isInjectionRefusal } from '@/lib/tailor/answer';
-import { keywordCoverage, keywordsOnResume, keywordTerms } from '@/lib/tailor/keywords';
+import { keywordCount, keywordCoverage, keywordsOnResume, keywordTerms } from '@/lib/tailor/keywords';
 import { editableLines, setLine } from '@/lib/tailor/lines';
 import { attachmentDisposition } from '@/lib/content-disposition';
 import { buildTailorRequest, parseConfirmedKeywords, postingKeywords } from '@/lib/tailor/request';
+import { norm } from '@/lib/tailor/text';
 import type { ResumeVersionRecord } from '@/types';
 
 export const resumeStudioRouter = Router();
@@ -137,15 +138,27 @@ resumeStudioRouter.post('/jobs/:id/tailor', async (request, response, next) => {
 
     // "Also add them to my base résumé" in the tailor window: after the draft is saved, so a
     // failed tailoring changes nothing.
+    // The draft is saved either way: a failure here mustn't send the user to tailor again (a
+    // paid call), so it's reported, not thrown.
+    let addedToBase = false;
     if (body.addToBase === true && confirmedKeywords.length > 0) {
-      const updatedBase = structuredClone(base);
-      if (addSkills(updatedBase, confirmedKeywords).length > 0) {
-        await upsertUserProfile(userId, { baseResume: updatedBase });
-        if (baseVersion) await updateResumeVersion(userId, baseVersion.id, { structuredResume: updatedBase });
+      try {
+        const updatedBase = structuredClone(base);
+        if (addSkills(updatedBase, confirmedKeywords).length > 0) {
+          await upsertUserProfile(userId, { baseResume: updatedBase });
+          if (baseVersion) await updateResumeVersion(userId, baseVersion.id, { structuredResume: updatedBase });
+        }
+        addedToBase = true;
+      } catch (error) {
+        console.error('[resume-studio] adding confirmed keywords to the base résumé failed', error);
       }
     }
 
-    return response.status(201).json({ status: 'awaiting_approval', version });
+    return response.status(201).json({
+      status: 'awaiting_approval',
+      version,
+      ...(body.addToBase === true && confirmedKeywords.length > 0 ? { addedToBase } : {}),
+    });
   } catch (error) {
     next(error);
   }
@@ -280,6 +293,23 @@ resumeStudioRouter.patch('/resume-versions/:id/changes/:changeId', async (reques
     }
     const resume = structuredClone(version.structuredResume);
     const path = detail.targetPath ?? detail.sourcePath ?? null;
+    if (detail.dropped && action === 'keep') {
+      return response.status(400).json({ error: 'A dropped suggestion adds something your résumé lacks. Edit it into your own words instead.' });
+    }
+    // A draft saved before lines knew where they moved (#423): its bullet may have moved with
+    // the role's new order, so changing the line at sourcePath could change another bullet.
+    const role = /^work\[(\d+)\]\.highlights\[\d+\]$/.exec(path ?? '')?.[1];
+    if (
+      detail.kind === 'rewrite' &&
+      detail.targetPath === undefined &&
+      role !== undefined &&
+      details.some((d) => d.kind === 'reorder' && d.sourcePath === `work[${role}].highlights`)
+    ) {
+      return response.status(409).json({
+        code: 'TAILOR_AGAIN',
+        error: 'This draft was made before lines could be changed one by one. Tailor again to review it.',
+      });
+    }
 
     if (detail.kind === 'rewrite' && path) {
       if (action === 'edit') {
@@ -291,9 +321,6 @@ resumeStudioRouter.patch('/resume-versions/:id/changes/:changeId', async (reques
         setLine(resume, path, text);
         detail.userText = text;
       } else if (action === 'keep') {
-        if (detail.dropped) {
-          return response.status(400).json({ error: 'A dropped suggestion adds something your résumé lacks. Edit it into your own words instead.' });
-        }
         setLine(resume, path, detail.newText);
         delete detail.userText;
       } else {
@@ -309,12 +336,28 @@ resumeStudioRouter.patch('/resume-versions/:id/changes/:changeId', async (reques
       } else if (action === 'keep' && !listed) {
         skillGroup(resume, detail.section.replace(/^Skills · /, '')).skills.push(detail.newText);
       }
+    } else if (detail.kind === 'rewrite' || detail.dropped) {
+      // A dropped suggestion that matched no line, or a dropped skill: nothing to change.
+      return response.status(400).json({ error: 'This suggestion was dropped, so there is nothing to change.' });
     } else if (action !== 'keep') {
       return response.status(400).json({ error: 'This change can only be kept.' });
     }
 
     detail.resolution = action === 'keep' ? 'kept' : action === 'restore' ? 'restored' : 'edited';
-    const updated = await updateResumeVersion(userId, id!, { structuredResume: resume, changeDetails: details });
+    // "Posting keywords in your résumé: X of N → Y of N" follows the review, while the posting's
+    // keywords are still the ones it was counted against.
+    let basedOn = version.basedOn;
+    const coverage = basedOn?.coverage;
+    const job = coverage && version.jobId ? await getJobById(userId, version.jobId) : null;
+    const terms = job ? keywordTerms(postingKeywords(job)) : [];
+    if (basedOn && coverage && new Set(terms.map(norm)).size === coverage.total) {
+      basedOn = { ...basedOn, coverage: { ...coverage, after: keywordCount(terms, resume) } };
+    }
+    const updated = await updateResumeVersion(userId, id!, {
+      structuredResume: resume,
+      changeDetails: details,
+      ...(basedOn !== version.basedOn ? { basedOn } : {}),
+    });
     return response.json({ version: updated });
   } catch (error) {
     next(error);

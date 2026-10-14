@@ -12,7 +12,8 @@ const { tailorResumeForJob, getTailorKeywords, approveResumeVersion, reviewResum
   downloadResumeVersion: vi.fn(),
 }));
 
-vi.mock('sonner', () => ({ toast: { success: vi.fn(), error: vi.fn() } }));
+const { toast } = vi.hoisted(() => ({ toast: { success: vi.fn(), error: vi.fn(), warning: vi.fn() } }));
+vi.mock('sonner', () => ({ toast }));
 vi.mock('@/lib/api', () => ({
   tailorResumeForJob,
   getTailorKeywords,
@@ -21,11 +22,11 @@ vi.mock('@/lib/api', () => ({
   downloadResumeVersion,
 }));
 
-import { TailoredResumeReview, resetPendingTailorsForTests } from './tailored-resume-review';
+import { TailoredResumeReview, resetTailorStoreForTests } from './tailored-resume-review';
 
 afterEach(() => {
   vi.clearAllMocks();
-  resetPendingTailorsForTests();
+  resetTailorStoreForTests();
 });
 
 const draft: ResumeVersionRecord = {
@@ -120,7 +121,7 @@ describe('TailoredResumeReview', () => {
         { term: 'Kubernetes', onResume: false },
       ],
     });
-    let finish: (version: ResumeVersionRecord) => void = () => undefined;
+    let finish: (result: { version: ResumeVersionRecord }) => void = () => undefined;
     tailorResumeForJob.mockReturnValueOnce(new Promise((resolve) => (finish = resolve)));
     renderReview();
 
@@ -136,7 +137,7 @@ describe('TailoredResumeReview', () => {
 
     expect(tailorResumeForJob).toHaveBeenCalledWith('job-1', { confirmedKeywords: ['Kafka', 'Snowflake'], addToBase: true });
     expect(await screen.findByText(/Tailoring your résumé/)).toBeInTheDocument();
-    finish(draft);
+    finish({ version: draft });
     expect(await screen.findByText('Reworded 2 lines. 1 suggestion was dropped.')).toBeInTheDocument();
   });
 
@@ -166,7 +167,7 @@ describe('TailoredResumeReview', () => {
     expect(screen.getByRole('link', { name: 'Open Settings → Résumé' })).toHaveAttribute('href', '/settings');
 
     tailorResumeForJob.mockRejectedValueOnce(Object.assign(new Error("The AI couldn't answer this time."), { status: 503 }));
-    tailorResumeForJob.mockResolvedValueOnce(draft);
+    tailorResumeForJob.mockResolvedValueOnce({ version: draft });
     await user.click(screen.getByRole('button', { name: 'Tailor résumé' }));
     await user.click(within(await screen.findByRole('dialog')).getByRole('button', { name: 'Tailor résumé' }));
     expect(await screen.findByText("The AI couldn't answer this time.")).toBeInTheDocument();
@@ -240,5 +241,142 @@ describe('TailoredResumeReview', () => {
     ]);
     expect(screen.getByText('New.')).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Restore original' })).not.toBeInTheDocument();
+  });
+
+  it('a run carries on across a tab switch: the new draft shows on return, with one toast', async () => {
+    const user = userEvent.setup();
+    getTailorKeywords.mockResolvedValue({ fitRead: true, keywords: [{ term: 'Kafka', onResume: false }] });
+    let finish: (result: { version: ResumeVersionRecord }) => void = () => undefined;
+    tailorResumeForJob.mockReturnValueOnce(new Promise((resolve) => (finish = resolve)));
+    const older = { ...draft, id: 'ver-0', changeSummary: 'An older draft.', updatedAt: '2026-10-13T12:00:00.000Z' };
+    const first = renderReview([older]);
+    await user.click(screen.getByRole('button', { name: 'Tailor again' }));
+    await user.click(within(await screen.findByRole('dialog')).getByRole('button', { name: 'Tailor résumé' }));
+    first.unmount();
+
+    // Back on the tab, with the page's (older) versions, while the run is still going.
+    const second = renderReview([older]);
+    expect(screen.getByText(/Tailoring your résumé/)).toBeInTheDocument();
+    finish({ version: draft });
+    expect(await screen.findByText('Reworded 2 lines. 1 suggestion was dropped.')).toBeInTheDocument();
+    second.unmount();
+
+    renderReview([older]);
+    expect(screen.getByText('Reworded 2 lines. 1 suggestion was dropped.')).toBeInTheDocument();
+    expect(toast.success).toHaveBeenCalledTimes(1);
+  });
+
+  it('Try again tailors with the same keywords', async () => {
+    const user = userEvent.setup();
+    getTailorKeywords.mockResolvedValue({ fitRead: true, keywords: [{ term: 'Kafka', onResume: false }] });
+    tailorResumeForJob.mockRejectedValueOnce(Object.assign(new Error("The AI couldn't answer this time."), { status: 503 }));
+    tailorResumeForJob.mockResolvedValueOnce({ version: draft });
+    renderReview();
+    await user.click(screen.getByRole('button', { name: 'Tailor résumé' }));
+    const window = await screen.findByRole('dialog');
+    await user.click(await within(window).findByRole('button', { name: 'Kafka' }));
+    await user.click(within(window).getByRole('button', { name: 'Tailor with 1 keyword' }));
+    await user.click(await screen.findByRole('button', { name: 'Try again' }));
+    await screen.findByText('Reworded 2 lines. 1 suggestion was dropped.');
+    expect(tailorResumeForJob).toHaveBeenNthCalledWith(2, 'job-1', { confirmedKeywords: ['Kafka'], addToBase: false });
+  });
+
+  it('takes up to 25 keywords', async () => {
+    const user = userEvent.setup();
+    const terms = Array.from({ length: 26 }, (_, i) => `Tool${String.fromCharCode(65 + i)}`);
+    getTailorKeywords.mockResolvedValueOnce({ fitRead: true, keywords: terms.map((term) => ({ term, onResume: false })) });
+    renderReview();
+    await user.click(screen.getByRole('button', { name: 'Tailor résumé' }));
+    const window = await screen.findByRole('dialog');
+    await within(window).findByRole('button', { name: 'ToolA' });
+    for (const term of terms.slice(0, 25)) await user.click(within(window).getByRole('button', { name: term }));
+    expect(within(window).getByRole('button', { name: 'ToolZ' })).toBeDisabled();
+    expect(within(window).getByRole('button', { name: 'Tailor with 25 keywords' })).toBeInTheDocument();
+    expect(within(window).getByText('Up to 25 keywords.')).toBeInTheDocument();
+  });
+
+  it("says when the keywords couldn't be added to the base résumé", async () => {
+    const user = userEvent.setup();
+    getTailorKeywords.mockResolvedValueOnce({ fitRead: true, keywords: [{ term: 'Kafka', onResume: false }] });
+    tailorResumeForJob.mockResolvedValueOnce({ version: draft, addedToBase: false });
+    renderReview();
+    await user.click(screen.getByRole('button', { name: 'Tailor résumé' }));
+    const window = await screen.findByRole('dialog');
+    await user.click(await within(window).findByRole('button', { name: 'Kafka' }));
+    await user.click(within(window).getByLabelText('Also add them to my base résumé'));
+    await user.click(within(window).getByRole('button', { name: 'Tailor with 1 keyword' }));
+    await screen.findByText('Reworded 2 lines. 1 suggestion was dropped.');
+    expect(toast.warning).toHaveBeenCalledWith(expect.stringMatching(/couldn't be added to your base résumé/));
+  });
+
+  it('an edited dropped line can be restored; a line that matched nothing has no actions', async () => {
+    const user = userEvent.setup();
+    const edited: ResumeVersionRecord = {
+      ...draft,
+      changeDetails: [
+        { ...draft.changeDetails![1]!, resolution: 'edited', userText: 'Built the billing API in Go for 2,000 merchants' },
+        {
+          id: 'c3',
+          kind: 'rewrite',
+          section: 'Résumé',
+          sourcePath: null,
+          oldText: null,
+          newText: 'Shipped a new mobile app',
+          rationale: 'Mobile.',
+          dropped: true,
+          dropReason: "doesn't match a line of your base résumé",
+          issues: [],
+          needsReview: false,
+        },
+      ],
+    };
+    reviewResumeChange.mockResolvedValueOnce({
+      ...edited,
+      changeDetails: [{ ...edited.changeDetails![0]!, resolution: 'restored' }, edited.changeDetails![1]!],
+    });
+    renderReview([edited]);
+    await user.click(within(screen.getByTestId('change-c1')).getByRole('button', { name: 'Restore original' }));
+    expect(reviewResumeChange).toHaveBeenCalledWith('ver-1', 'c1', 'restore', undefined);
+    expect(within(screen.getByTestId('change-c3')).queryAllByRole('button')).toHaveLength(0);
+  });
+
+  it('the edit box is labelled, and Download waits for a line being saved', async () => {
+    const user = userEvent.setup();
+    let save: (version: ResumeVersionRecord) => void = () => undefined;
+    reviewResumeChange.mockReturnValueOnce(new Promise((resolve) => (save = resolve)));
+    renderReview([draft]);
+    await user.click(within(screen.getByTestId('change-c0')).getByRole('button', { name: 'Edit' }));
+    expect(within(screen.getByTestId('change-c0')).getByLabelText('Your words for this line')).toBeInTheDocument();
+    await user.click(within(screen.getByTestId('change-c0')).getByRole('button', { name: 'Save' }));
+    expect(screen.getByRole('button', { name: 'Download PDF' })).toBeDisabled();
+    expect(within(screen.getByTestId('change-c2')).getByRole('button', { name: 'Keep' })).toBeDisabled();
+    save(draft);
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Download PDF' })).toBeEnabled());
+  });
+
+  it('an added skill can be removed, and says so', async () => {
+    const user = userEvent.setup();
+    const withSkill: ResumeVersionRecord = {
+      ...draft,
+      changeDetails: [
+        {
+          id: 'c5',
+          kind: 'skill-added',
+          section: 'Skills · Other',
+          sourcePath: null,
+          oldText: null,
+          newText: 'Kafka',
+          rationale: 'You confirmed you have Kafka.',
+          dropped: false,
+          issues: [],
+          needsReview: false,
+        },
+      ],
+    };
+    reviewResumeChange.mockResolvedValueOnce({ ...withSkill, changeDetails: [{ ...withSkill.changeDetails![0]!, resolution: 'restored' }] });
+    renderReview([withSkill]);
+    await user.click(within(screen.getByTestId('change-c5')).getByRole('button', { name: 'Remove' }));
+    expect(reviewResumeChange).toHaveBeenCalledWith('ver-1', 'c5', 'restore', undefined);
+    expect(await within(screen.getByTestId('change-c5')).findByText('Removed')).toBeInTheDocument();
   });
 });

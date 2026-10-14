@@ -385,7 +385,9 @@ test('confirmed keywords can be added to the base résumé too', async () => {
   const answer = answerWith({ edits: [edit('work[0].highlights[2]', 'Mentored 2 interns')] });
   await withStudio(answer, async ({ send }) => {
     const job = await setUp();
-    await tailor(send, job.id, { confirmedKeywords: ['Kafka', 'Go'], addToBase: true });
+    const response = await send('POST', `/api/jobs/${job.id}/tailor`, { confirmedKeywords: ['Kafka', 'Go'], addToBase: true });
+    assert.equal(response.status, 201);
+    assert.equal(((await response.json()) as { addedToBase: boolean }).addedToBase, true);
     const profile = await getUserProfile('user-studio');
     assert.deepEqual(profile?.baseResume?.skills, [
       { category: 'Languages', skills: ['Go', 'Python', 'SQL'] },
@@ -520,5 +522,79 @@ test('a résumé whose lines are all too long to send gets its own 409', async (
     assert.equal(body.code, 'RESUME_LINES_TOO_LONG');
     assert.match(body.error, /too long/);
     assert.equal(agent.calls.length, 0);
+  });
+});
+
+// Step 4 review fixes.
+test('a line of an older draft, saved before lines knew where they moved, is not changed blindly', async () => {
+  const answer = answerWith({
+    edits: [edit('work[0].highlights[1]', 'Cut p95 latency 40% with Redis caching')],
+    highlight_orders: [{ work_index: 0, highlight_order: [1, 0, 2, 3, 4] }],
+  });
+  await withStudio(answer, async ({ send }) => {
+    const job = await setUp();
+    const version = await tailor(send, job.id);
+    // A step-3 draft: the same details, without targetPath.
+    const old = {
+      ...version,
+      id: randomUUID(),
+      changeDetails: version.changeDetails!.map((detail) => {
+        const copy = { ...detail };
+        delete copy.targetPath;
+        return copy;
+      }),
+    } as ResumeVersionRecord;
+    await insertResumeVersion(old);
+    const response = await send('PATCH', `/api/resume-versions/${old.id}/changes/c0`, { action: 'restore' });
+    assert.equal(response.status, 409);
+    assert.equal(((await response.json()) as { code: string }).code, 'TAILOR_AGAIN');
+  });
+});
+
+test('the review only offers what can apply, and coverage follows the review', async () => {
+  const answer = answerWith({
+    // 9,000 merchants is a number the base résumé doesn't have: dropped.
+    edits: [edit('work[0].highlights[0]', 'Built the billing API in Go serving 9,000 merchants')],
+  });
+  await withStudio(answer, async ({ send }) => {
+    const job = await setUp();
+    await saveJobAnalysis('user-studio', job.id, sampleAnalysis(), 70);
+    const version = await tailor(send, job.id, { confirmedKeywords: ['Kafka'] });
+    const dropped = version.changeDetails!.find((d) => d.kind === 'rewrite')!;
+    assert.equal(dropped.dropped, true);
+    const added = version.changeDetails!.find((d) => d.kind === 'skill-added')!;
+    assert.equal((await send('PATCH', `/api/resume-versions/${version.id}/changes/${dropped.id}`, { action: 'keep' })).status, 400);
+    assert.deepEqual(version.basedOn!.coverage, { total: 3, before: 2, after: 3 });
+    const removed = (await (await send('PATCH', `/api/resume-versions/${version.id}/changes/${added.id}`, { action: 'restore' })).json()) as {
+      version: ResumeVersionRecord;
+    };
+    assert.deepEqual(removed.version.basedOn!.coverage, { total: 3, before: 2, after: 2 });
+  });
+});
+
+test('the window offers skills with digits and short names, not requirement sentences', async () => {
+  await withStudio(answerWith({}), async ({ send }) => {
+    const base = { ...TAILOR_BASE, skills: [...TAILOR_BASE.skills, { category: 'Other', skills: ['UX', 'S3'] }] };
+    const job = await setUp(base);
+    await saveJobAnalysis(
+      'user-studio',
+      job.id,
+      sampleAnalysis({
+        requiredSkills: ['S3', 'HTML5', 'UX', 'OAuth 2.0'],
+        preferredSkills: ['Excellent written communication skills', "Bachelor's degree in CS", '5+ years of Go'],
+        atsKeywords: [],
+        missingSkills: [],
+      }),
+      70,
+    );
+    const { keywords } = (await (await send('GET', `/api/jobs/${job.id}/tailor/keywords`)).json()) as {
+      keywords: Array<{ term: string; onResume: boolean }>;
+    };
+    assert.deepEqual(keywords, [
+      { term: 'S3', onResume: true },
+      { term: 'HTML5', onResume: false },
+      { term: 'UX', onResume: true },
+      { term: 'OAuth 2.0', onResume: false },
+    ]);
   });
 });
