@@ -186,3 +186,53 @@ test('updateResumeVersion updates approved status and PDF url', async () => {
     assert.equal(reFetched?.approved, true);
   });
 });
+
+// #351: a tailored version records what it was based on (the base résumé version, the
+// posting, the model) and carries the API's grounding marker; approve and download check it.
+test('a tailored version keeps what it was based on', async () => {
+  await withTempStore(async () => {
+    const basedOn = {
+      baseVersionId: 'base-1',
+      baseUpdatedAt: '2026-10-03T00:54:15.096Z',
+      jobId: 'job-1',
+      postingSha256: 'a'.repeat(64),
+      model: 'openai:gpt-6-luna',
+      createdAt: '2026-10-03T05:00:00.000Z',
+      grounding: { version: 1 },
+    };
+    await insertResumeVersion({
+      id: 'rv-basis',
+      userId: 'user-1',
+      jobId: 'job-1',
+      changeSummary: 'Led with the dashboard work.',
+      structuredResume: sampleResume,
+      approved: false,
+      isBase: false,
+      basedOn,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    });
+
+    const fetched = await getResumeVersion('user-1', 'rv-basis');
+    assert.deepEqual(fetched?.basedOn, basedOn);
+  });
+});
+
+test('a version must name its owner', async () => {
+  await withTempStore(async () => {
+    await assert.rejects(
+      insertResumeVersion({
+        id: 'rv-no-owner',
+        userId: '',
+        jobId: 'job-1',
+        changeSummary: 'x',
+        structuredResume: sampleResume,
+        approved: false,
+        isBase: false,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      }),
+      /owner/,
+    );
+  });
+});

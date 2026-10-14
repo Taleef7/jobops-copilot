@@ -380,6 +380,22 @@ export interface ResumeChangeDetail {
   rationale: string;
 }
 
+/**
+ * What a tailored résumé version was based on (#351): the base résumé version it was made
+ * from, the posting, and the model. `grounding` is set only by the API's grounding check;
+ * a version without it can't be downloaded.
+ */
+export interface ResumeVersionBasis {
+  baseVersionId: string | null;
+  baseUpdatedAt: string | null;
+  jobId: string;
+  /** SHA-256 of the posting text the version was tailored to. */
+  postingSha256: string;
+  model: string;
+  createdAt: string;
+  grounding: { version: number };
+}
+
 export interface ResumeVersionRecord {
   id: string;
   userId: string;
@@ -392,6 +408,8 @@ export interface ResumeVersionRecord {
   sourceConfigVersion?: number | null;
   approved: boolean;
   isBase: boolean;
+  /** Tailored versions only (#351). */
+  basedOn?: ResumeVersionBasis | null;
   createdAt: string;
   updatedAt: string;
 }

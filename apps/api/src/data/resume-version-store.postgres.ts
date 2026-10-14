@@ -13,6 +13,7 @@ interface ResumeVersionRow {
   source_config_version: number | null;
   approved: boolean;
   is_base: boolean;
+  based_on: unknown;
   created_at: Date;
   updated_at: Date;
 }
@@ -41,6 +42,10 @@ function mapRow(row: ResumeVersionRow): ResumeVersionRecord {
     sourceConfigVersion: row.source_config_version ?? undefined,
     approved: row.approved,
     isBase: row.is_base,
+    basedOn:
+      typeof row.based_on === 'string'
+        ? JSON.parse(row.based_on)
+        : ((row.based_on as ResumeVersionRecord['basedOn']) ?? null),
     createdAt: row.created_at.toISOString(),
     updatedAt: row.updated_at.toISOString(),
   };
@@ -53,8 +58,8 @@ export async function insertResumeVersion(record: ResumeVersionRecord): Promise<
       INSERT INTO resume_versions (
         id, user_id, job_id, base_resume_file_url, tailored_resume_file_url,
         change_summary, change_details, structured_resume, source_config_version,
-        approved, is_base, created_at, updated_at
-      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, coalesce($12, now()), coalesce($13, now()))
+        approved, is_base, created_at, updated_at, based_on
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, coalesce($12, now()), coalesce($13, now()), $14)
       RETURNING *
     `,
     [
@@ -71,6 +76,7 @@ export async function insertResumeVersion(record: ResumeVersionRecord): Promise<
       record.isBase,
       record.createdAt ?? null,
       record.updatedAt ?? null,
+      record.basedOn ? JSON.stringify(record.basedOn) : null,
     ],
   );
   return mapRow(rows[0]!);
@@ -149,6 +155,10 @@ export async function updateResumeVersion(
   if (patch.isBase !== undefined) {
     sets.push(`is_base = $${paramIdx++}`);
     values.push(patch.isBase);
+  }
+  if (patch.basedOn !== undefined) {
+    sets.push(`based_on = $${paramIdx++}`);
+    values.push(patch.basedOn ? JSON.stringify(patch.basedOn) : null);
   }
 
   const { rows } = await pool.query<ResumeVersionRow>(
