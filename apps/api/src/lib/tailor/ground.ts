@@ -14,8 +14,13 @@ import { ACTION_VERBS, contentTokens, escapeRegex, mixedScriptWords, norm, plain
  * - a bullet: numbers from that bullet; tools from its role (title, company, every bullet);
  * - the summary: anything in the base résumé, except that years of experience must already
  *   be in the summary or headline;
- * - names: anywhere in the base résumé; titles: the résumé's job titles, headline and summary.
+ * - names: anywhere in the base résumé; titles: the résumé's job titles, headline and summary,
+ *   and the line itself.
  * Keywords the user confirmed in the tailor window are theirs: allowed anywhere, and marked.
+ *
+ * Some signals are too often honest to drop on: an ordinary capitalised word or a short
+ * acronym the résumé lacks ("Registered Nurse (RN)", "Microsoft Excel"), a leadership verb.
+ * Those lines are kept and marked for review instead.
  */
 
 export const BLOCKING = new Set<GroundingIssue['code']>([
@@ -31,12 +36,30 @@ export const BLOCKING = new Set<GroundingIssue['code']>([
   'ODD_CHARACTERS',
 ]);
 
+/** What a suggestion is checked against, worked out once per tailoring. */
+export interface Evidence {
+  everything: string;
+  everythingPlain: string;
+  everythingLower: string;
+  /** Word stems of the résumé and the confirmed keywords: what a name is checked against. */
+  knownWords: Set<string>;
+  /** Tools anywhere in the résumé. */
+  allTools: Set<string>;
+  degrees: Set<string>;
+  /** The résumé's job titles, headline and summary, for title claims. */
+  titles: string;
+  roles: Map<number, { text: string; words: Set<string>; tools: Set<string> }>;
+  confirmedText: string;
+  confirmedTools: Set<string>;
+}
+
 export interface CheckContext {
   base: StructuredResume;
   vocab: Vocab;
   /** The posting's company. */
   company: string;
   confirmedKeywords: string[];
+  evidence: Evidence;
 }
 
 export interface LineCheck {
@@ -58,8 +81,10 @@ export function companyName(company: string): string {
   return name;
 }
 
-const has = (haystack: string, needle: string) =>
-  new RegExp(`(?<![\\p{L}\\p{N}])${escapeRegex(needle)}(?![\\p{L}\\p{N}])`, 'u').test(haystack);
+const wordPattern = (needle: string, flags = 'u') =>
+  new RegExp(`(?<![\\p{L}\\p{N}])${escapeRegex(needle)}(?![\\p{L}\\p{N}])`, flags);
+const has = (haystack: string, needle: string) => wordPattern(needle).test(haystack);
+const countOf = (haystack: string, needle: string) => (haystack.match(wordPattern(needle, 'gu')) ?? []).length;
 
 /** Degrees by family, in their usual spellings ("MSc", "M.S.", "Master of Science", "MS in"). */
 const DEGREES: Array<[string, RegExp]> = [
@@ -76,8 +101,13 @@ const DEGREES: Array<[string, RegExp]> = [
 ];
 const degreesIn = (text: string) => DEGREES.filter(([, pattern]) => pattern.test(norm(text))).map(([name]) => name);
 
+/** Text for title matching: "Vice President" is "VP", "head-of" is "head of". */
+const titleText = (text: string) =>
+  norm(text).replace(/\bvice[\s-]president\b/g, 'vp').replace(/\bhead-of\b/g, 'head of');
+
+const ROLE =
+  '(?:engineer|developer|dev|scientist|analyst|designer|architect|manager|consultant|researcher|programmer|sre|lead|leader|supervisor)';
 /** A seniority before a role ("senior backend engineer"); plural roles are other people. */
-const ROLE = '(?:engineer|developer|dev|scientist|analyst|designer|architect|manager|consultant|researcher|programmer|sre|lead)';
 const SENIORITY = new RegExp(
   `(?<![\\p{L}])(senior|sr\\.?|staff|principal|lead|chief|head)(?:-level)?(?![\\p{L}])(?:\\s+[\\p{L}-]+){0,3}?\\s+${ROLE}(?![\\p{L}])`,
   'gu',
@@ -85,7 +115,21 @@ const SENIORITY = new RegExp(
 const LEVEL = /(?<![\p{L}])(senior|staff|principal)-level(?![\p{L}])/gu;
 /** Titles without a seniority word. */
 const TITLE =
-  /(?<![\p{L}])((?:tech|team|technical|engineering|product|project|program|delivery|development)\s+(?:lead|manager|director)|head of [\p{L}]+|director|vice president|vp|cto|ceo|cfo|coo|co-founder|founder|architect|(?:engineer|developer)\s+(?:i{1,3}|iv|[1-5]))(?![\p{L}])/gu;
+  /(?<![\p{L}])((?:tech|team|technical|engineering|product|project|program|delivery|development)\s+(?:lead|manager|director)|head of [\p{L}]+|director|vp|cto|ceo|cfo|coo|co-founder|founder|architect|(?:engineer|developer)\s+(?:i{1,3}|iv|[1-5]))(?![\p{L}])/gu;
+/** The summary describing the person: "Backend lead who…", "Backend engineer and payments manager…". */
+const SELF_TITLE = /(?:^|[.!?;]\s+)(?:[\p{L}-]+\s+){0,5}?(lead|leader|manager|supervisor|director|head|architect|principal)(?![\p{L}])/gu;
+const PROMOTED =
+  /\bpromoted to (?:a |an |the )?((?:[\p{L}-]+\s+){0,2}?(?:lead|leader|manager|supervisor|director|head|architect|engineer|developer|analyst|nurse|specialist|consultant))(?![\p{L}])/gu;
+
+function titleClaims(text: string, isSummary: boolean): string[] {
+  const claims = new Set<string>();
+  for (const match of text.matchAll(SENIORITY)) claims.add(match[1]!.replace(/\.$/, ''));
+  for (const match of text.matchAll(LEVEL)) claims.add(match[1]!);
+  for (const match of text.matchAll(TITLE)) claims.add(match[1]!);
+  for (const match of text.matchAll(PROMOTED)) claims.add(match[1]!.trim());
+  if (isSummary) for (const match of text.matchAll(SELF_TITLE)) claims.add(match[1]!);
+  return [...claims];
+}
 
 /** Verbs that claim leading or owning work, by family. Kept, but marked for review. */
 const LEADERSHIP: RegExp[] = [
@@ -104,58 +148,96 @@ const LEADERSHIP: RegExp[] = [
 /** Acronyms and words that are not names of anything the résumé has to have. */
 const GENERIC = new Set(
   ['api', 'ui', 'ux', 'us', 'u.s', 'usa', 'uk', 'eu', 'ceo', 'cto', 'cfo', 'coo', 'vp', 'hr', 'it', 'kpi', 'sla',
-    'roi', 'b2b', 'b2c', 'id', 'ok', 'faq', 'pr', 'qa', 'i'],
+    'roi', 'b2b', 'b2c', 'id', 'ok', 'faq', 'pr', 'qa'],
 );
 
 const TOKEN = /[\p{L}\p{N}][\p{L}\p{N}+#]*(?:[.'][\p{L}\p{N}+#]+)*/gu;
+const SKIP_BACK = new Set([' ', '\t', '"', "'", '(', '[', '•', '·', '*', '-']);
 
+/** The token at `index` starts a sentence (looking back past spaces, quotes and bullets). */
 function atSentenceStart(text: string, index: number): boolean {
-  const before = text.slice(0, index).replace(/[ \t"'([•·*-]+$/u, '');
-  return before === '' || /[.!?:;\n]$/.test(before);
+  let i = index - 1;
+  while (i >= 0 && SKIP_BACK.has(text[i]!)) i -= 1;
+  return i < 0 || '.!?:;\n'.includes(text[i]!);
 }
 
 /**
- * Names in the line that the base résumé never mentions: acronyms, CamelCase and words with
- * digits anywhere ("ClickHouse", "p99"), and capitalised words mid-sentence ("Memcached",
- * "Hooli"). Tools the vocabulary knows and degrees are checked on their own.
+ * Names in the line that the base résumé never mentions. Strong signs of a name, dropped:
+ * CamelCase ("ClickHouse"), letters with digits ("p99"), and all capitals of five letters or
+ * more ("EXPERIENCE"). Weak signs, kept but marked for review: a short acronym ("RN") or a
+ * capitalised word mid-sentence ("Memcached", "Microsoft"). Numbers, known tools and degrees are
+ * checked on their own.
  */
-function newNames(text: string, known: Set<string>, vocab: Vocab): string[] {
+function newNames(text: string, known: Set<string>, vocab: Vocab): { strong: string[]; weak: string[] } {
   const source = plain(text);
-  const names: string[] = [];
+  const strong: string[] = [];
+  const weak: string[] = [];
   for (const match of source.matchAll(TOKEN)) {
     const token = match[0];
-    const strong = /\p{Lu}.*\p{Lu}/u.test(token) || (/\p{L}/u.test(token) && /\p{N}/u.test(token));
-    if (!strong && !(/^\p{Lu}/u.test(token) && !atSentenceStart(source, match.index ?? 0))) continue;
-    if (/^\d+(st|nd|rd|th|s|k|m|x)?$/i.test(token)) continue;
+    if (token.length < 2 || /^\p{N}/u.test(token)) continue;
+    const isStrong =
+      (token.length >= 4 && /\p{Ll}\p{Lu}/u.test(token)) || /\p{N}/u.test(token) || /^\p{Lu}{5,}s?$/u.test(token);
+    const isAcronym = /^\p{Lu}{2,4}s?$/u.test(token);
+    const isCapitalised = /^\p{Lu}/u.test(token) && !atSentenceStart(source, match.index ?? 0);
+    if (!isStrong && !isAcronym && !isCapitalised) continue;
     const lower = token.toLowerCase();
     if (GENERIC.has(lower) || GENERIC.has(stem(lower)) || known.has(stem(lower))) continue;
     if (termsIn(token, vocab).length > 0 || degreesIn(token).length > 0) continue;
-    if (!names.includes(token)) names.push(token);
+    const list = isStrong ? strong : weak;
+    if (!list.includes(token)) list.push(token);
   }
-  return names;
+  return { strong, weak };
 }
 
 /** The line without the confirmed keywords, so "React 18" lends no 18 to a number check. */
 function withoutKeywords(text: string, keywords: string[]): string {
-  return keywords.reduce(
-    (out, keyword) => out.replace(new RegExp(`(?<![\\p{L}\\p{N}])${escapeRegex(keyword)}(?![\\p{L}\\p{N}])`, 'giu'), ' '),
-    plain(text),
-  );
+  return keywords.reduce((out, keyword) => out.replace(wordPattern(keyword, 'giu'), ' '), plain(text));
+}
+
+/** Everything a suggestion is checked against, worked out once per tailoring. */
+export function prepareEvidence(base: StructuredResume, vocab: Vocab, confirmedKeywords: string[]): Evidence {
+  const everything = wholeText(base);
+  const confirmedText = confirmedKeywords.join('\n');
+  const confirmedWords = wordStems(confirmedText);
+  const roles = new Map<number, { text: string; words: Set<string>; tools: Set<string> }>();
+  base.work.forEach((_role, i) => {
+    const text = roleText(base, i);
+    roles.set(i, {
+      text,
+      words: new Set([...wordStems(text), ...confirmedWords]),
+      tools: new Set(termsIn(text, vocab, { evidence: true })),
+    });
+  });
+  return {
+    everything,
+    everythingPlain: plain(everything),
+    everythingLower: norm(everything),
+    knownWords: new Set([...wordStems(everything), ...confirmedWords]),
+    allTools: new Set(termsIn(everything, vocab, { evidence: true })),
+    degrees: new Set(degreesIn(everything)),
+    titles: titleText([...base.work.map((role) => role.position), base.basics.label, base.basics.summary].join('\n')),
+    roles,
+    confirmedText,
+    confirmedTools: new Set(termsIn(confirmedText, vocab, { evidence: true })),
+  };
 }
 
 export function checkLine(line: TailorLine, newText: string, ctx: CheckContext): LineCheck {
   const issues: GroundingIssue[] = [];
   const confirmedTerms: string[] = [];
   const isSummary = line.role === null;
-  const { base } = ctx;
-  const everything = wholeText(base);
-  const confirmedText = ctx.confirmedKeywords.join('\n');
-  const toolEvidence = isSummary ? everything : roleText(base, line.role!);
+  const { base, evidence } = ctx;
+
+  // A suggestion far longer than its line isn't a rewording; stop before reading all of it.
+  if (newText.length > Math.max(2 * line.text.length, line.text.length + 300)) {
+    return { issues: [{ code: 'NOT_A_REWRITE', message: 'is much longer than the original line' }], confirmedTerms };
+  }
+
+  const role = isSummary ? null : evidence.roles.get(line.role!)!;
   const lowerNew = norm(newText);
-  const lowerEverything = norm(everything);
 
   for (const word of mixedScriptWords(newText)) {
-    if (!everything.includes(word)) {
+    if (!evidence.everythingPlain.includes(word)) {
       issues.push({ code: 'ODD_CHARACTERS', term: word, message: `writes "${word}" with look-alike letters` });
     }
   }
@@ -165,17 +247,18 @@ export function checkLine(line: TailorLine, newText: string, ctx: CheckContext):
   const subject = [...sourceTokens].filter((token) => !ACTION_VERBS.has(token));
   const newTokens = contentTokens(newText);
   const kept = new Set(newTokens.filter((token) => sourceTokens.has(token)));
-  const said = wordStems(`${toolEvidence}\n${confirmedText}`);
-  const novel = new Set(newTokens.filter((token) => !ACTION_VERBS.has(token) && !said.has(token)));
   if (kept.size < (subject.length >= 4 ? 2 : Math.min(1, subject.length))) {
     issues.push({ code: 'NOT_A_REWRITE', message: "isn't a rewording of the original line" });
-  } else if (!isSummary && novel.size > Math.max(3, subject.length)) {
-    issues.push({ code: 'NOT_A_REWRITE', message: 'adds more than the original line says' });
+  } else if (role) {
+    const novel = new Set(newTokens.filter((token) => !ACTION_VERBS.has(token) && !role.words.has(token)));
+    if (novel.size > Math.max(3, subject.length)) {
+      issues.push({ code: 'NOT_A_REWRITE', message: 'adds more than the original line says' });
+    }
   }
 
   // Numbers: a confirmed keyword's digits ("React 18") are not a claim.
   const numberText = withoutKeywords(newText, ctx.confirmedKeywords);
-  const unsupported = findUnsupportedNumbers(numberText, isSummary ? everything : line.text);
+  const unsupported = findUnsupportedNumbers(numberText, isSummary ? evidence.everything : line.text);
   if (isSummary) {
     // "N years of experience" must already be in the summary or headline.
     const stated = `${base.basics.summary ?? ''}\n${base.basics.label ?? ''}`;
@@ -198,12 +281,11 @@ export function checkLine(line: TailorLine, newText: string, ctx: CheckContext):
   }
 
   // Tools: from the line's role (a bullet) or anywhere (the summary), or confirmed.
-  const known = new Set(termsIn(toolEvidence, ctx.vocab, { evidence: true }));
-  const confirmed = new Set(termsIn(confirmedText, ctx.vocab, { evidence: true }));
+  const known = role ? role.tools : evidence.allTools;
   for (const key of termsIn(newText, ctx.vocab)) {
     if (known.has(key)) continue;
     const term = displayOf(key, ctx.vocab);
-    if (confirmed.has(key)) {
+    if (evidence.confirmedTools.has(key)) {
       const asTyped = ctx.confirmedKeywords.find((keyword) => termsIn(keyword, ctx.vocab, { evidence: true }).includes(key));
       confirmedTerms.push(asTyped ?? term);
       continue;
@@ -216,34 +298,41 @@ export function checkLine(line: TailorLine, newText: string, ctx: CheckContext):
   }
 
   // Names the résumé never mentions: another employer, a product, a tool the list lacks.
-  for (const name of newNames(newText, wordStems(`${everything}\n${confirmedText}`), ctx.vocab)) {
+  const names = newNames(newText, evidence.knownWords, ctx.vocab);
+  for (const name of names.strong) {
     issues.push({ code: 'NEW_TERM', term: name, message: `adds "${name}", which isn't in your base résumé` });
   }
-
-  const company = companyName(ctx.company);
-  if (company.length >= 2) {
-    const words = norm(company).split(/[\s-]+/).filter(Boolean).map(escapeRegex);
-    const pattern = new RegExp(`(?<![\\p{L}\\p{N}])${words.join('[\\s-]*')}(?![\\p{L}\\p{N}])`, 'u');
-    if (pattern.test(lowerNew) && !pattern.test(lowerEverything)) {
-      issues.push({ code: 'NEW_ENTITY', term: company, message: `names ${company}, which isn't in your base résumé` });
-    }
+  for (const name of names.weak) {
+    issues.push({ code: 'NEW_NAME', term: name, message: `mentions "${name}", which isn't in your base résumé` });
   }
 
-  const degrees = new Set(degreesIn(everything));
+  // The posting's company: a one-word name only as written ("Target", not "target").
+  const company = companyName(ctx.company);
+  if (company.length >= 2) {
+    const words = company.split(/[\s-]+/).filter(Boolean);
+    const asWritten = plain(newText);
+    const named =
+      words.length === 1
+        ? has(asWritten, words[0]!) && !has(evidence.everythingPlain, words[0]!)
+        : (new RegExp(`(?<![\\p{L}\\p{N}])${words.map((w) => escapeRegex(norm(w))).join('[\\s-]*')}(?![\\p{L}\\p{N}])`, 'u').test(
+            lowerNew,
+          ) ||
+            (words[0]!.length >= 4 && has(asWritten, words[0]!))) &&
+          !has(evidence.everythingLower, norm(words[0]!));
+    if (named) issues.push({ code: 'NEW_ENTITY', term: company, message: `names ${company}, which isn't in your base résumé` });
+  }
+
   for (const degree of degreesIn(newText)) {
-    if (!degrees.has(degree)) {
+    if (!evidence.degrees.has(degree)) {
       issues.push({ code: 'NEW_ENTITY', term: degree, message: `adds a ${degree}, which isn't in your base résumé` });
     }
   }
 
-  // Titles: only the résumé's own job titles, headline and summary are evidence.
-  const titles = norm([...base.work.map((role) => role.position), base.basics.label, base.basics.summary].join('\n'));
-  const claims = new Set<string>();
-  for (const match of lowerNew.matchAll(SENIORITY)) claims.add(match[1]!.replace(/\.$/, ''));
-  for (const match of lowerNew.matchAll(LEVEL)) claims.add(match[1]!);
-  for (const match of lowerNew.matchAll(TITLE)) claims.add(match[1]!);
-  for (const claim of claims) {
-    if (!has(titles, claim)) {
+  // Titles: the résumé's own titles, headline and summary, and what the line already says.
+  const newTitles = titleText(newText);
+  const sourceTitles = titleText(line.text);
+  for (const claim of titleClaims(newTitles, isSummary)) {
+    if (countOf(newTitles, claim) > countOf(evidence.titles, claim) + countOf(sourceTitles, claim)) {
       issues.push({ code: 'NEW_SENIORITY', term: claim, message: `claims "${claim}", a title your base résumé doesn't have` });
     }
   }

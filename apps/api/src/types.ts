@@ -374,8 +374,9 @@ export interface StructuredResume {
 }
 
 /**
- * Why a tailored line was dropped or needs a look (#351). Every code but LEADERSHIP_CLAIM
- * drops the suggestion: the résumé keeps the base line.
+ * Why a tailored line was dropped or needs a look (#351). Every code but NEW_NAME and
+ * LEADERSHIP_CLAIM drops the suggestion: the résumé keeps the base line. Those two keep it,
+ * marked for review.
  */
 export type GroundingCode =
   | 'INVALID_PATH'
@@ -388,6 +389,7 @@ export type GroundingCode =
   | 'NEW_ENTITY'
   | 'NEW_SENIORITY'
   | 'ODD_CHARACTERS'
+  | 'NEW_NAME'
   | 'LEADERSHIP_CLAIM';
 
 export interface GroundingIssue {

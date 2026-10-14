@@ -39,6 +39,14 @@ function dropped(path: string, newText: string, options: Parameters<typeof outco
 function kept(path: string, newText: string, options: Parameters<typeof outcome>[2] = {}) {
   const detail = outcome(path, newText, options);
   assert.equal(detail.dropped, false, `should be kept: ${JSON.stringify(newText)} (${JSON.stringify(detail.issues)})`);
+  return detail;
+}
+
+/** Kept, but marked for the user to look at, with the word that needs a look. */
+function reviewed(path: string, newText: string, term: string, options: Parameters<typeof outcome>[2] = {}) {
+  const detail = kept(path, newText, options);
+  assert.equal(detail.needsReview, true, `should need review: ${newText}`);
+  assert.ok(detail.issues?.some((issue) => issue.term === term), `${term} in ${JSON.stringify(detail.issues)}`);
 }
 
 const withBullet = (role: number, bullet: number, text: string): StructuredResume => {
@@ -86,10 +94,19 @@ test('tools are found however they are written', () => {
     'Built the billing API in Go and Kaf\u00adka serving 2,000 merchants',
     'Built the billing API in Go and K\u0430fka serving 2,000 merchants',
     'Built the billing API in Go and ClickHouse serving 2,000 merchants',
-    'Built the billing API in Go with Memcached serving 2,000 merchants',
   ]) {
     dropped('work[0].highlights[0]', text);
   }
+});
+
+test('a capitalised word or short acronym the résumé lacks is kept but marked for review', () => {
+  // Too often honest ("Registered nurse (RN)", "Microsoft Excel") to drop; the user sees it.
+  reviewed('work[0].highlights[0]', 'Built the billing API in Go with Memcached serving 2,000 merchants', 'Memcached');
+  reviewed('basics.summary', 'Ex-Google backend engineer who builds payment APIs in Go.', 'Google');
+  const nurse = withBullet(1, 0, 'Triaged patients in the emergency department as a registered nurse');
+  reviewed('work[1].highlights[0]', 'Triaged patients in the Emergency Department (ED) as a Registered Nurse (RN)', 'ED', {
+    base: nurse,
+  });
 });
 
 test('a line that adds more than it rewords is dropped', () => {
@@ -102,7 +119,6 @@ test('a line that adds more than it rewords is dropped', () => {
 test('another employer, or a title the résumé never held, is dropped', () => {
   dropped('basics.summary', 'Backend engineer at Acme who builds payment APIs in Go.');
   dropped('basics.summary', 'Backend engineer who builds AcmePay payment APIs in Go.');
-  dropped('basics.summary', 'Ex-Google backend engineer who builds payment APIs in Go.');
   dropped('basics.summary', 'Backend engineer who builds payment APIs in Go.\n\nEXPERIENCE\nHooli, Platform Engineer');
   dropped('basics.summary', 'Backend tech lead who builds payment APIs in Go.');
   dropped('basics.summary', 'Engineering manager who builds payment APIs in Go.');
@@ -169,7 +185,9 @@ test('a confirmed keyword already on the résumé by another name is not added t
 });
 
 test('gaps with a qualifier the résumé lacks are kept', () => {
-  const base = { ...TAILOR_BASE, skills: [...TAILOR_BASE.skills, { category: 'Other', skills: ['R', 'C'] }] };
+  // The skill Go doesn't cover "go-to-market"; this résumé has no go-to-market work.
+  const base = withBullet(0, 3, 'Partnered with sales on the enterprise launch');
+  base.skills = [...TAILOR_BASE.skills, { category: 'Other', skills: ['R', 'C'] }];
   const result = tailorFromAnswer(
     base,
     emptyAnswer({
@@ -198,4 +216,109 @@ test('a flood of suggestions is capped', () => {
   const edits = Array.from({ length: 500 }, (_v, i) => edit(`work[0].highlights[${i + 10}]`, 'x', `no such line ${i}`));
   const result = tailorFromAnswer(TAILOR_BASE, emptyAnswer({ edits }), { ...TAILOR_JOB, confirmedKeywords: [] });
   assert.ok(result.details.length <= 50, `${result.details.length} details`);
+});
+
+// Second review (#351): honest rewrites that were dropped, on résumés other than an engineer's.
+test('a title the original line already names is not a new claim', () => {
+  const board = withBullet(0, 4, 'Prepared the weekly KPI briefing for the board and the CEO');
+  kept('work[0].highlights[4]', 'Prepared the weekly KPI briefing for the CEO and the board', { base: board });
+  const vp = withBullet(0, 4, 'Presented the roadmap to the VP of Sales');
+  kept('work[0].highlights[4]', 'Presented the roadmap to the Vice President of Sales', { base: vp });
+  const lead = withBullet(0, 4, 'Served as night-shift team lead for the payments services');
+  kept('work[0].highlights[4]', 'Served as team lead on the night shift for the payments services', { base: lead });
+  // Adding one is still a claim.
+  dropped('work[0].highlights[4]', 'Presented the migration plan to the CEO');
+});
+
+test('numbers in another honest form are kept', () => {
+  const revenue = withBullet(0, 0, 'Grew billing revenue to $1,200,000 for 2,000 merchants');
+  kept('work[0].highlights[0]', 'Grew billing revenue to $1.2M for 2,000 merchants', { base: revenue });
+  kept('work[0].highlights[0]', 'Grew billing revenue to $1.2MM for 2,000 merchants', { base: revenue });
+  const ms = withBullet(0, 1, 'Cut p95 latency to 40 ms with Redis caching');
+  kept('work[0].highlights[1]', 'Cut p95 latency to 40ms with Redis caching', { base: ms });
+  const words = {
+    ...TAILOR_BASE,
+    basics: { ...TAILOR_BASE.basics, summary: 'Backend engineer with eight years of experience building payment APIs in Go.' },
+  };
+  kept('basics.summary', 'Payments backend engineer with 8 years of experience building APIs in Go.', { base: words });
+  const ten = withBullet(1, 0, 'Automated nightly reports with Python, saving ten hours a week');
+  kept('work[1].highlights[0]', 'Automated the nightly reports with Python, saving 10 hours a week', { base: ten });
+  const times = withBullet(0, 1, 'Made p95 latency 3 times lower with Redis caching');
+  kept('work[0].highlights[1]', 'Made p95 latency 3x lower with Redis caching', { base: times });
+  const half = withBullet(0, 1, 'Cut p95 latency by half with Redis caching');
+  kept('work[0].highlights[1]', 'Halved p95 latency with Redis caching', { base: half });
+  const dashboards = withBullet(1, 0, 'Built 25 reporting dashboards with Python for the finance team');
+  kept('work[1].highlights[0]', 'Built twenty-five reporting dashboards with Python for the finance team', { base: dashboards });
+  const covid = withBullet(1, 0, 'Automated covid testing reports with Python for 300 clinics');
+  kept('work[1].highlights[0]', 'Automated COVID-19 testing reports with Python for 300 clinics', { base: covid });
+  const micro = withBullet(1, 0, 'Automated assay runs at 10 µL volumes with Python');
+  kept('work[1].highlights[0]', 'Automated the assay runs at 10 µL volumes with Python', { base: micro });
+});
+
+test('a word that only looks like a tool or the posting company is not one', () => {
+  const csuite = withBullet(0, 4, 'Presented the migration plan to the executive team');
+  kept('work[0].highlights[4]', 'Presented the migration plan to the C-suite and the executive team', { base: csuite });
+  const goal = withBullet(0, 3, 'Partnered with sales to meet the quarterly revenue goal');
+  kept('work[0].highlights[3]', 'Partnered with sales to hit the quarterly revenue target', { base: goal, company: 'Target Corporation' });
+  const interns = withBullet(0, 2, 'Helped two interns get started on the billing API');
+  kept('work[0].highlights[2]', 'Helped two interns ramp up on the billing API', { base: interns, company: 'Ramp' });
+});
+
+// Second review (#351): inflations that still passed.
+test('years of experience and rough counts in words are read', () => {
+  for (const text of [
+    'Backend engineer with a decade of experience who builds payment APIs in Go.',
+    'Backend engineer with ten years of experience who builds payment APIs in Go.',
+    'Backend engineer with 15-plus years of experience who builds payment APIs in Go.',
+    'Backend engineer with 10 or more years of experience who builds payment APIs in Go.',
+    'Backend engineer building payment APIs in Go since 2000.',
+  ]) {
+    dropped('basics.summary', text);
+  }
+  dropped('work[0].highlights[0]', 'Built the billing API in Go serving tens of thousands of merchants');
+  dropped('work[0].highlights[1]', 'Made p95 latency twice as fast with Redis caching');
+});
+
+test('a title through other words is a claim', () => {
+  for (const text of [
+    'Backend lead who builds payment APIs in Go.',
+    'Backend team leader who builds payment APIs in Go.',
+    'Backend engineering supervisor who builds payment APIs in Go.',
+    'Backend engineer and payments manager who builds payment APIs in Go.',
+    'Backend engineer and vice-president of payments who builds payment APIs in Go.',
+  ]) {
+    dropped('basics.summary', text);
+  }
+  dropped('work[0].highlights[0]', 'Promoted to manager; built the billing API in Go serving 2,000 merchants');
+});
+
+test('a very long suggestion is dropped quickly, and a large résumé is checked quickly', () => {
+  const started = performance.now();
+  dropped('work[0].highlights[0]', `Built the billing API in Go serving 2,000 merchants ${"R&D's ".repeat(11_000)}`);
+  assert.ok(performance.now() - started < 500, `long line took ${Math.round(performance.now() - started)} ms`);
+
+  const line = (i: number) => `Built service ${i} for the billing platform in Go, ${'serving merchants and partners '.repeat(60)}`;
+  const big: StructuredResume = {
+    ...TAILOR_BASE,
+    work: [{ ...TAILOR_BASE.work[0]!, highlights: Array.from({ length: 40 }, (_v, i) => line(i)) }],
+  };
+  const edits = big.work[0]!.highlights.map((text, i) => edit(`work[0].highlights[${i}]`, text.replace('Built', 'Developed'), text));
+  const t0 = performance.now();
+  tailorFromAnswer(big, emptyAnswer({ edits }), { ...TAILOR_JOB, confirmedKeywords: [] });
+  assert.ok(performance.now() - t0 < 1500, `40 long bullets took ${Math.round(performance.now() - t0)} ms`);
+});
+
+test('a confirmed cloud is added even when the résumé names only its services', () => {
+  const base = { ...TAILOR_BASE, skills: [{ category: 'Cloud', skills: ['EC2', 'S3'] }] };
+  const result = tailorFromAnswer(base, emptyAnswer({ skills_order: ['EC2', 'S3'] }), { ...TAILOR_JOB, confirmedKeywords: ['AWS'] });
+  assert.deepEqual(result.resume.skills, [{ category: 'Cloud', skills: ['EC2', 'S3', 'AWS'] }]);
+});
+
+test('lowercase gaps that name something the résumé lacks are kept', () => {
+  const result = tailorFromAnswer(
+    TAILOR_BASE,
+    emptyAnswer({ gaps: ['docker swarm orchestration', 'Experience with postgres replication', 'Advanced SQL experience'] }),
+    { ...TAILOR_JOB, confirmedKeywords: [] },
+  );
+  assert.deepEqual(result.gaps, ['docker swarm orchestration', 'Experience with postgres replication']);
 });

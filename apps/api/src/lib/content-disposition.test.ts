@@ -14,4 +14,6 @@ test('any file name makes a header Node accepts, with the name kept in UTF-8', (
   }
   assert.equal(attachmentDisposition('Jordan_Lee.pdf'), 'attachment; filename="Jordan_Lee.pdf"; filename*=UTF-8\'\'Jordan_Lee.pdf');
   assert.match(attachmentDisposition('李明.pdf'), /^attachment; filename="\.pdf"/);
+  // A broken UTF-16 name (a lone surrogate) still makes a header, without the broken part.
+  assert.doesNotThrow(() => response.setHeader('Content-Disposition', attachmentDisposition('Jo\ud800_1.pdf')));
 });

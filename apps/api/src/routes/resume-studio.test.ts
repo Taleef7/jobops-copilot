@@ -383,7 +383,7 @@ test('a posting the agent refused as a prompt injection is a 422 to fix the post
 test('confirmed keywords with control characters are refused before the AI is called', async () => {
   await withStudio(answerWith({}), async ({ agent, send }) => {
     const job = await setUp();
-    for (const keyword of ['Kafka\u0000', 'Kafka\nJava', 'Ka\u0007fka']) {
+    for (const keyword of ['Kafka\u0000', 'Kafka\nJava', 'Ka\u0007fka', 'Kafka\u0085', 'Kafka\u2028', 'Kafka\u202e', 'Kafka\ud800']) {
       const response = await send('POST', `/api/jobs/${job.id}/tailor`, { confirmedKeywords: [keyword] });
       assert.equal(response.status, 400, JSON.stringify(keyword));
     }

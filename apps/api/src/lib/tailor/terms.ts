@@ -98,7 +98,9 @@ function body(form: string): string {
 function patterns(form: string, ambiguous: boolean): Pick<Term, 'strict' | 'loose'> {
   // Never "R&D", "Q&A", or the "go" of "go-to-market"; "Rust-based" and "Rust's" are Rust.
   const before = `(?<![${WORD}.&'])`;
-  const after = `(?![${WORD}&]|'(?!s(?![\\p{L}]))|-to-)`;
+  // A one-letter name before a hyphenated word is a word part: "C-suite", "R-squared".
+  const letterWord = norm(form).length === 1 ? '|-\\p{L}' : '';
+  const after = `(?![${WORD}&]|'(?!s(?![\\p{L}]))|-to-${letterWord})`;
   const loose = new RegExp(`${before}${body(norm(form))}${after}`, 'u');
   if (!ambiguous) return { strict: loose, loose };
   const asWritten = plain(form);
@@ -179,7 +181,11 @@ export function buildVocab(extra: string[]): Vocab {
  * cloud's own services count as the cloud), so a base résumé's wording never blocks an honest
  * rewrite; a suggested line is read strictly.
  */
-export function termsIn(text: string, vocab: Vocab, options: { evidence?: boolean } = {}): string[] {
+export function termsIn(
+  text: string,
+  vocab: Vocab,
+  options: { evidence?: boolean; /** Count a cloud's services as the cloud (default true). */ parts?: boolean } = {},
+): string[] {
   const asWritten = plain(text);
   const lower = norm(text);
   const keys = new Set<string>();
@@ -190,7 +196,7 @@ export function termsIn(text: string, vocab: Vocab, options: { evidence?: boolea
       : term.strict.test(term.strict === term.loose ? lower : asWritten);
     if (found) keys.add(term.key);
   }
-  if (options.evidence) for (const key of [...keys]) if (PART_OF[key]) keys.add(PART_OF[key]);
+  if (options.evidence && options.parts !== false) for (const key of [...keys]) if (PART_OF[key]) keys.add(PART_OF[key]);
   return [...keys];
 }
 

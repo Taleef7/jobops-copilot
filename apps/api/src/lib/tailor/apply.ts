@@ -1,10 +1,10 @@
 import { isDeepStrictEqual } from 'node:util';
 import type { GroundingIssue, ResumeChangeDetail, ResumeVersionRecord, StructuredResume } from '@/types';
 import type { TailorAnswer } from './answer';
-import { BLOCKING, checkLine } from './ground';
+import { BLOCKING, checkLine, prepareEvidence } from './ground';
 import { editableLines, flatSkills, roleLabel, sectionLabel, setLine, wholeText, type TailorLine } from './lines';
-import { buildVocab, termsIn, type Vocab } from './terms';
-import { escapeRegex, norm, plain, stem, wordStems } from './text';
+import { buildVocab, termsIn } from './terms';
+import { contentTokens, norm, wordStems } from './text';
 
 /**
  * Apply the model's edits to the base résumé, checking each one (#351). The model never
@@ -96,36 +96,34 @@ function skillGroup(resume: StructuredResume, wanted: string | undefined): Struc
   return created;
 }
 
-function wordIn(text: string, phrase: string): boolean {
-  const needle = norm(phrase);
-  return needle.length > 0 && new RegExp(`(?<![\\p{L}\\p{N}])${escapeRegex(needle)}(?![\\p{L}\\p{N}])`, 'u').test(norm(text));
-}
-
 /** A requirement the résumé can't show by naming the tool: years, seniority, leading people. */
 const QUALIFIER = /\d|\byears?\b|\bsenior|\blead(ing|s)?\b|\bmanag(e|es|ed|ing)\b/i;
 
+/** Words a requirement is phrased with, which say nothing about what is required. */
+const GAP_FILLER = new Set(
+  contentTokens(
+    'experience knowledge proficiency proficient skills expertise familiarity understanding background advanced ' +
+      'strong solid deep hands working practical exposure ability demonstrated proven track record plus preferred ' +
+      'required nice good excellent',
+  ),
+);
+
 /**
- * Gaps the base résumé or the user's confirmed keywords already cover are left out ("Advanced
- * SQL" when SQL is a skill). A gap stays when it asks for a qualifier, or names something the
- * résumé doesn't ("Docker Swarm").
+ * Gaps the base résumé or the user's confirmed keywords already cover are left out: every
+ * word of the gap, apart from words like "advanced" or "experience", is already there
+ * ("Advanced SQL experience" when SQL is a skill). A gap that asks for years, seniority or
+ * leading people stays.
  */
-function openGaps(gaps: string[], base: StructuredResume, confirmed: string[], vocab: Vocab): string[] {
-  const baseText = wholeText(base);
-  const covered = new Set([...termsIn(baseText, vocab, { evidence: true }), ...termsIn(confirmed.join('\n'), vocab, { evidence: true })]);
-  const baseWords = wordStems(`${baseText}\n${confirmed.join('\n')}`);
+function openGaps(gaps: string[], base: StructuredResume, confirmed: string[]): string[] {
+  const known = wordStems(`${wholeText(base)}\n${confirmed.join('\n')}`);
   const seen = new Set<string>();
   const open: string[] = [];
   for (const raw of gaps) {
     const gap = raw.trim().slice(0, MAX_GAP_LENGTH);
     if (!gap || seen.has(norm(gap))) continue;
     seen.add(norm(gap));
-    const terms = termsIn(gap, vocab);
-    // Capitalised words after the first: names the gap asks for ("Swarm").
-    const names = (plain(gap).match(/(?<=\s)\p{Lu}[\p{L}\p{N}]*/gu) ?? []).filter((name) => !baseWords.has(stem(name.toLowerCase())));
-    const isCovered =
-      !QUALIFIER.test(gap) &&
-      names.length === 0 &&
-      (terms.length > 0 ? terms.every((key) => covered.has(key)) : confirmed.some((keyword) => wordIn(gap, keyword)));
+    const words = contentTokens(gap).filter((word) => !GAP_FILLER.has(word));
+    const isCovered = !QUALIFIER.test(gap) && words.length > 0 && words.every((word) => known.has(word));
     if (!isCovered) open.push(gap);
     if (open.length === MAX_GAPS) break;
   }
@@ -168,7 +166,8 @@ export function tailorFromAnswer(base: StructuredResume, answer: TailorAnswer, c
     ...ctx.jobTerms,
     ...confirmed,
   ]);
-  const check = { base, vocab, company: ctx.company, confirmedKeywords: confirmed };
+  const evidence = prepareEvidence(base, vocab, confirmed);
+  const check = { base, vocab, company: ctx.company, confirmedKeywords: confirmed, evidence };
   const details: ResumeChangeDetail[] = [];
   const counts = { reworded: 0, roles: 0, skillsReordered: false, added: 0, dropped: 0 };
 
@@ -282,8 +281,9 @@ export function tailorFromAnswer(base: StructuredResume, answer: TailorAnswer, c
   const isSkill = (term: string) => {
     const current = flatSkills(resume);
     if (current.some((skill) => norm(skill) === norm(term))) return true;
-    const keys = termsIn(term, vocab, { evidence: true });
-    const skillKeys = new Set(termsIn(current.join('\n'), vocab, { evidence: true }));
+    // Not counting a cloud's services as the cloud: confirming "AWS" over "EC2, S3" adds it.
+    const keys = termsIn(term, vocab, { evidence: true, parts: false });
+    const skillKeys = new Set(termsIn(current.join('\n'), vocab, { evidence: true, parts: false }));
     return keys.length > 0 && keys.every((key) => skillKeys.has(key));
   };
   const seen = new Set<string>();
@@ -342,7 +342,7 @@ export function tailorFromAnswer(base: StructuredResume, answer: TailorAnswer, c
   return {
     resume,
     details: details.map((detail, i) => ({ id: `c${i}`, ...detail })),
-    gaps: openGaps(answer.gaps, base, confirmed, vocab),
+    gaps: openGaps(answer.gaps, base, confirmed),
     changeSummary,
     suggested: details.filter((detail) => !(detail.kind === 'skill-added' && !detail.dropped)).length,
   };

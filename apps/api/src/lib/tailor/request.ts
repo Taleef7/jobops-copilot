@@ -32,9 +32,9 @@ export function postingKeywords(job: JobRecord): string[] {
   ]).slice(0, MAX_POSTING_KEYWORDS);
 }
 
-// A keyword is one line of text: no control characters (Postgres refuses NUL in jsonb).
-// eslint-disable-next-line no-control-regex
-const CONTROL = /[\u0000-\u001f\u007f]/;
+// A keyword is one line of plain text: no control, format or private-use characters, no line
+// or paragraph separators, and no broken UTF-16 (Postgres refuses NUL in jsonb).
+const CONTROL = /[\p{Cc}\p{Cf}\p{Cs}\p{Co}\p{Zl}\p{Zp}]/u;
 
 /**
  * The confirmed keywords from a request body: trimmed and de-duplicated, or null when the
@@ -44,7 +44,7 @@ export function parseConfirmedKeywords(value: unknown): string[] | null {
   if (value === undefined || value === null) return [];
   if (!Array.isArray(value) || value.length > MAX_CONFIRMED_KEYWORDS) return null;
   const isKeyword = (item: unknown) =>
-    typeof item === 'string' && item.trim().length > 0 && item.trim().length <= MAX_KEYWORD_LENGTH && !CONTROL.test(item.trim());
+    typeof item === 'string' && item.trim().length > 0 && item.trim().length <= MAX_KEYWORD_LENGTH && !CONTROL.test(item);
   if (!value.every(isKeyword)) return null;
   return unique(value as string[]);
 }

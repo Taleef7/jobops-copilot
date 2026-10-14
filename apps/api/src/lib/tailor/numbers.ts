@@ -5,8 +5,8 @@ import { plain } from './text';
  *
  * A number is its value with any multiplier applied, and its unit: "%", "cur" (a currency
  * sign), "x", a unit of time ("t:year", "t:hour", ...), or none. "~" marks a rough count
- * ("thousands of"), whose value is the magnitude. Identifiers that contain a digit (p95, EC2,
- * S3, Q3, OAuth2) are not numbers: a letter right before the digits rules them out.
+ * ("thousands of"), with the range it stands for. Identifiers that contain a digit (p95, EC2,
+ * S3, Q3, OAuth2, COVID-19) are not numbers: a letter right before the digits rules them out.
  */
 export interface FoundNumber {
   value: number;
@@ -17,10 +17,12 @@ export interface FoundNumber {
   raw: string;
   /** Written as an ordinal ("95th"). */
   ordinal?: boolean;
+  /** For a rough count ("~"): the values it stands for, [low, high). */
+  range?: [number, number];
 }
 
 const TIME: Array<[RegExp, string]> = [
-  [/^(years?|yrs?)$/i, 'year'],
+  [/^(years?|yrs?|decades?)$/i, 'year'],
   [/^(months?|mos?)$/i, 'month'],
   [/^(weeks?|wks?)$/i, 'week'],
   [/^days?$/i, 'day'],
@@ -29,11 +31,15 @@ const TIME: Array<[RegExp, string]> = [
   [/^(seconds?|secs?)$/i, 'second'],
   [/^(ms|milliseconds?)$/i, 'ms'],
 ];
-const TIME_WORDS = 'years?|yrs?|months?|mos?|weeks?|wks?|days?|hours?|hrs?|minutes?|mins?|seconds?|secs?|milliseconds?|ms';
+const TIME_WORDS = 'decades?|years?|yrs?|months?|mos?|weeks?|wks?|days?|hours?|hrs?|minutes?|mins?|seconds?|secs?|milliseconds?|ms';
+/** "15-plus years", "10 or more years", "10 full years": the unit still belongs to the number. */
+const TIME_AFTER = new RegExp(String.raw`^(?:[\s-]+(?:plus|or more|full|solid|long))?[\s-]*(${TIME_WORDS})\b`, 'i');
+const timeUnit = (word: string) => `t:${TIME.find(([pattern]) => pattern.test(word))![1]}`;
 
 const NUMBER = new RegExp(
-  String.raw`(?<![\p{L}\p{N}.])([$€£¥])?\s?(\d{1,3}(?:,\d{3})+|\d+)(?:\.(\d+))?\+?` +
-    String.raw`(?:[\s-]?(${TIME_WORDS})\b|\s?(%|percent\b|k\b|mm?\b|bn?\b|million\b|billion\b|thousand\b|x\b|×))?`,
+  String.raw`(?<![\p{L}\p{N}.])(?<!\p{L}-)([$€£¥])?\s?(\d{1,3}(?:,\d{3})+|\d+)(?:\.(\d+))?\+?` +
+    String.raw`(?:(?:[\s-]+(?:plus|or more|full|solid|long))?[\s-]?(${TIME_WORDS})\b` +
+    String.raw`|[\s-]?(%|percent\b|times\b|fold\b|k\b|mm?\b|bn?\b|million\b|billion\b|thousand\b|x\b|×))?`,
   'giu',
 );
 // "by60%": a percentage glued to a word.
@@ -41,21 +47,27 @@ const GLUED_PERCENT = /(?<=\p{L})(\d+(?:\.\d+)?)\s?%/gu;
 // "x3 faster".
 const TIMES_PREFIX = /(?<![\p{L}\p{N}])x(\d+(?:\.\d+)?)(?![\p{L}\p{N}])/giu;
 
-const SMALL: Record<string, number> = {
+const UNITS: Record<string, number> = {
   zero: 0, two: 2, three: 3, four: 4, five: 5, six: 6, seven: 7, eight: 8, nine: 9, ten: 10,
   eleven: 11, twelve: 12, thirteen: 13, fourteen: 14, fifteen: 15, sixteen: 16, seventeen: 17,
-  eighteen: 18, nineteen: 19, twenty: 20, thirty: 30, forty: 40, fifty: 50, sixty: 60,
-  seventy: 70, eighty: 80, ninety: 90, dozen: 12,
+  eighteen: 18, nineteen: 19, dozen: 12,
 };
+const TENS: Record<string, number> = { twenty: 20, thirty: 30, forty: 40, fifty: 50, sixty: 60, seventy: 70, eighty: 80, ninety: 90 };
+const SMALL: Record<string, number> = { ...UNITS, ...TENS };
+const ONES = 'one|two|three|four|five|six|seven|eight|nine';
+// "twenty-five".
+const TENS_AND_ONES = new RegExp(String.raw`\b(${Object.keys(TENS).join('|')})[\s-](${ONES})\b`, 'gi');
+const ONE_TO_NINE: Record<string, number> = { one: 1, two: 2, three: 3, four: 4, five: 5, six: 6, seven: 7, eight: 8, nine: 9 };
 const MAGNITUDE: Record<string, number> = { hundred: 1e2, thousand: 1e3, million: 1e6, billion: 1e9 };
-// "two thousand", "a million". "one" and "a" count only before a magnitude: "one of the first"
-// is not a count.
+// "two thousand", "a million". "one" and "a" count only before a magnitude or "decade": "one
+// of the first" is not a count.
 const WORD_TIMES_MAGNITUDE = new RegExp(
   String.raw`\b(a|an|one|${Object.keys(SMALL).join('|')})\s+(hundred|thousand|million|billion)\b`,
   'gi',
 );
+const DECADES = /\b(a|one|two|three|four)\s+decades?\b|\bdecades\b/gi;
 const SMALL_WORD = new RegExp(String.raw`\b(${Object.keys(SMALL).join('|')})\b`, 'gi');
-// "thousands of": a rough count, supported by a number of that size.
+// Rough counts, supported by a number of that size.
 const ROUGH: Record<string, [number, number]> = {
   dozens: [24, 200],
   hundreds: [200, 1e3],
@@ -63,12 +75,21 @@ const ROUGH: Record<string, [number, number]> = {
   millions: [2e6, 1e9],
   billions: [2e9, Infinity],
 };
+const ROUGH_PHRASE = /\b(tens|hundreds)\s+of\s+(thousands|millions|billions)\b/gi;
 const ROUGH_WORD = /\b(dozens|hundreds|thousands|millions|billions)\b/gi;
-// "doubled", "tripling", "halved".
-const MULTIPLIER_VERB = /\b(doubl|tripl|quadrupl|halv)(?:e|ed|es|ing)\b/gi;
-const MULTIPLIED: Record<string, [number, string]> = { doubl: [2, 'x'], tripl: [3, 'x'], quadrupl: [4, 'x'], halv: [50, '%'] };
+// "doubled", "tripling", "halved", "twice", "by half".
+const MULTIPLIER = /\b(?:(doubl|tripl|quadrupl|halv)(?:e|ed|es|ing)|(twice)|by (half))\b/gi;
+const MULTIPLIED: Record<string, [number, string]> = {
+  doubl: [2, 'x'], tripl: [3, 'x'], quadrupl: [4, 'x'], halv: [50, '%'], twice: [2, 'x'], half: [50, '%'],
+};
 
 const SCALE: Record<string, number> = { k: 1e3, thousand: 1e3, m: 1e6, mm: 1e6, million: 1e6, b: 1e9, bn: 1e9, billion: 1e9 };
+
+// A four-digit number is a year in a year's context ("since 2018", "2019-2021", "in Q3 2021",
+// at the end of a sentence), not before a noun ("2000 merchants").
+const YEAR_BEFORE =
+  /\b(in|since|from|until|till|through|by|during|of|early|mid|late|q[1-4]|(?:jan|feb|mar|apr|may|jun|jul|aug|sep|sept|oct|nov|dec)[a-z]*\.?)\s+$/i;
+const YEAR_AFTER = /^\s*(?:$|[-–,.;:)]|\s(?:and|to|until|through|onward|onwards)\b)/i;
 
 /** ".5M" reads as "0.5M". */
 const leadingPoint = (text: string) => text.replace(/(?<![\p{N}])\.(\d)/gu, '0.$1');
@@ -82,17 +103,30 @@ export function extractNumbers(text: string): FoundNumber[] {
     found.push({ ...number, at });
     taken.push([at, at + length]);
   };
+  /** A number word's unit of time, if one follows it ("ten hours", "eight years"). */
+  const unitAfter = (end: number) => {
+    const time = TIME_AFTER.exec(source.slice(end));
+    return time ? timeUnit(time[1]!) : '';
+  };
 
   for (const match of source.matchAll(NUMBER)) {
     const [whole, currency, digits = '', decimals, timeWord, suffix] = match;
     const unitWord = suffix?.toLowerCase();
     let value = Number(`${digits.replace(/,/g, '')}${decimals ? `.${decimals}` : ''}`);
     let unit = currency ? 'cur' : '';
-    if (timeWord) unit = `t:${TIME.find(([pattern]) => pattern.test(timeWord))![1]}`;
+    if (timeWord) unit = timeUnit(timeWord);
+    if (timeWord && /^decades?$/i.test(timeWord)) value *= 10;
     else if (unitWord === '%' || unitWord === 'percent') unit = '%';
-    else if (unitWord === 'x' || unitWord === '×') unit = 'x';
+    else if (unitWord === 'x' || unitWord === '×' || unitWord === 'times' || unitWord === 'fold') unit = 'x';
     else if (unitWord) value *= SCALE[unitWord] ?? 1;
-    const year = !currency && !decimals && !unitWord && !timeWord && /^(19|20)\d\d$/.test(digits);
+    const at = match.index ?? 0;
+    const year =
+      !currency &&
+      !decimals &&
+      !unitWord &&
+      !timeWord &&
+      /^(19|20)\d\d$/.test(digits) &&
+      (YEAR_BEFORE.test(source.slice(Math.max(0, at - 12), at)) || YEAR_AFTER.test(source.slice(at + whole.length)));
     const ordinal = /^(st|nd|rd|th)\b/i.test(source.slice((match.index ?? 0) + whole.length));
     add({ value, unit, year, raw: whole.trim(), ordinal }, match.index ?? 0, whole.length);
   }
@@ -102,24 +136,42 @@ export function extractNumbers(text: string): FoundNumber[] {
   for (const match of source.matchAll(TIMES_PREFIX)) {
     add({ value: Number(match[1]), unit: 'x', year: false, raw: match[0] }, match.index ?? 0, match[0].length);
   }
+  for (const match of source.matchAll(DECADES)) {
+    const count = match[1] ? (ONE_TO_NINE[match[1].toLowerCase()] ?? 1) : 2;
+    add({ value: 10 * count, unit: 't:year', year: false, raw: match[0] }, match.index ?? 0, match[0].length);
+  }
+  for (const match of source.matchAll(ROUGH_PHRASE)) {
+    const scale = MAGNITUDE[match[2]!.toLowerCase().replace(/s$/, '')]! * (match[1]!.toLowerCase() === 'tens' ? 10 : 100);
+    add({ value: scale, unit: '~', year: false, raw: match[0], range: [2 * scale, 10 * scale] }, match.index ?? 0, match[0].length);
+  }
   for (const match of source.matchAll(WORD_TIMES_MAGNITUDE)) {
     const word = match[1]!.toLowerCase();
     const value = (word === 'a' || word === 'an' || word === 'one' ? 1 : SMALL[word]!) * MAGNITUDE[match[2]!.toLowerCase()]!;
     add({ value, unit: '', year: false, raw: match[0] }, match.index ?? 0, match[0].length);
   }
+  for (const match of source.matchAll(TENS_AND_ONES)) {
+    if (isTaken(match.index ?? 0)) continue;
+    const value = TENS[match[1]!.toLowerCase()]! + ONE_TO_NINE[match[2]!.toLowerCase()]!;
+    const end = (match.index ?? 0) + match[0].length;
+    add({ value, unit: unitAfter(end), year: false, raw: match[0] }, match.index ?? 0, match[0].length);
+  }
   for (const match of source.matchAll(SMALL_WORD)) {
     if (isTaken(match.index ?? 0)) continue;
-    add({ value: SMALL[match[1]!.toLowerCase()]!, unit: '', year: false, raw: match[1]! }, match.index ?? 0, match[0].length);
+    const end = (match.index ?? 0) + match[0].length;
+    add({ value: SMALL[match[1]!.toLowerCase()]!, unit: unitAfter(end), year: false, raw: match[1]! }, match.index ?? 0, match[0].length);
   }
   for (const match of source.matchAll(ROUGH_WORD)) {
-    const word = match[1]!.toLowerCase();
-    add({ value: ROUGH[word]![0], unit: '~', year: false, raw: match[1]! }, match.index ?? 0, match[0].length);
+    if (isTaken(match.index ?? 0)) continue;
+    const range = ROUGH[match[1]!.toLowerCase()]!;
+    add({ value: range[0], unit: '~', year: false, raw: match[1]!, range }, match.index ?? 0, match[0].length);
   }
-  for (const match of source.matchAll(MULTIPLIER_VERB)) {
-    const [value, unit] = MULTIPLIED[match[1]!.toLowerCase()]!;
+  for (const match of source.matchAll(MULTIPLIER)) {
+    const [value, unit] = MULTIPLIED[(match[1] ?? match[2] ?? match[3])!.toLowerCase()]!;
     add({ value, unit, year: false, raw: match[0] }, match.index ?? 0, match[0].length);
   }
-  return found.sort((a, b) => a.at - b.at).map(({ value, unit, year, raw, ordinal }) => ({ value, unit, year, raw, ordinal }));
+  return found
+    .sort((a, b) => a.at - b.at)
+    .map(({ value, unit, year, raw, ordinal, range }) => ({ value, unit, year, raw, ordinal, range }));
 }
 
 /** Digits inside identifiers ("p95"): evidence only for the same ordinal ("95th percentile"). */
@@ -136,9 +188,15 @@ const same = (a: number, b: number) => Math.abs(a - b) <= 1e-9 * Math.max(1, Mat
 
 function supports(known: FoundNumber, number: FoundNumber): boolean {
   if (number.unit === '~') {
-    const [low, high] = Object.values(ROUGH).find(([start]) => start === number.value) ?? [number.value, number.value];
-    return (known.unit === '~' && same(known.value, number.value)) || (!known.unit.startsWith('t:') && known.value >= low && known.value < high);
+    const [low, high] = number.range ?? [number.value, number.value];
+    if (known.unit === '~') return same(known.value, number.value);
+    return !known.unit.startsWith('t:') && known.value >= low && known.value < high;
   }
+  // A year needs a year: "2,000 merchants" says nothing about "since 2000".
+  if (number.year && !known.year) return false;
+  // "2x" is "up 100%", and the other way round.
+  if (number.unit === 'x' && known.unit === '%') return same(known.value, (number.value - 1) * 100);
+  if (number.unit === '%' && known.unit === 'x') return same(number.value, (known.value - 1) * 100);
   if (!same(known.value, number.value)) return false;
   // Dropping a unit claims no more ("40" from "40%"); a new or changed unit does.
   return number.unit === '' || known.unit === number.unit;
