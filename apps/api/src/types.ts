@@ -373,11 +373,50 @@ export interface StructuredResume {
   certificates?: ResumeCertificate[];
 }
 
+/**
+ * Why a tailored line was dropped or needs a look (#351). Every code but LEADERSHIP_CLAIM
+ * drops the suggestion: the résumé keeps the base line.
+ */
+export type GroundingCode =
+  | 'INVALID_PATH'
+  | 'EMPTY_LINE'
+  | 'NOT_A_REWRITE'
+  | 'NEW_NUMBER'
+  | 'NEW_DATE'
+  | 'NEW_SKILL'
+  | 'NEW_ENTITY'
+  | 'NEW_SENIORITY'
+  | 'LEADERSHIP_CLAIM';
+
+export interface GroundingIssue {
+  code: GroundingCode;
+  /** The word or number at issue ("Kafka", "60%"). */
+  term?: string;
+  /** For the user, after "Suggestion dropped: …": "adds Kafka, which this role doesn't mention". */
+  message: string;
+}
+
 export interface ResumeChangeDetail {
+  /** "Summary", "Experience · Globex", "Skills · Data". */
   section: string;
+  /** The base résumé's text, never the model's. */
   oldText?: string | null;
   newText: string;
   rationale: string;
+  // Set by the tailoring check (#351); older rows don't have these.
+  id?: string;
+  kind?: 'rewrite' | 'reorder' | 'skills-reorder' | 'skill-added';
+  /** Where the line is in the base résumé, e.g. "work[0].highlights[2]". */
+  sourcePath?: string | null;
+  /** The suggestion failed the check and isn't in the résumé. */
+  dropped?: boolean;
+  /** Why it was dropped (the first blocking issue's message). */
+  dropReason?: string;
+  issues?: GroundingIssue[];
+  /** Kept, but worth a look: a leadership verb, or a keyword the user added. */
+  needsReview?: boolean;
+  /** Confirmed keywords the line uses that the base résumé doesn't ("uses Kafka, which you added"). */
+  confirmedTerms?: string[];
 }
 
 /**
@@ -394,6 +433,10 @@ export interface ResumeVersionBasis {
   model: string;
   createdAt: string;
   grounding: { version: number };
+  /** Keywords the user confirmed having in the tailor window. */
+  confirmedKeywords?: string[];
+  /** Posting requirements the base résumé doesn't support; shown, never put in the résumé. */
+  gaps?: string[];
 }
 
 export interface ResumeVersionRecord {

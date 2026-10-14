@@ -177,7 +177,11 @@ baseResumeRouter.post('/render-pdf', async (request, response, next) => {
     if (body.versionId) {
       const { getResumeVersion } = await import('@/data/resume-version-store');
       versionRecord = await getResumeVersion(userId, body.versionId);
-      if (versionRecord && !resumeToRender) {
+      // Base versions only: a tailored draft is exported through its own approval (#351).
+      if (!versionRecord?.isBase) {
+        return response.status(404).json({ error: 'Base résumé version not found.' });
+      }
+      if (!resumeToRender) {
         resumeToRender = versionRecord.structuredResume;
       }
     }
@@ -253,7 +257,8 @@ baseResumeRouter.get('/versions/:id/download', async (request, response, next) =
     const { getResumeVersion } = await import('@/data/resume-version-store');
     const version = await getResumeVersion(userId, id!);
 
-    if (!version) {
+    // Base versions only: a tailored draft is downloaded once approved, from resume-studio (#351).
+    if (!version?.isBase) {
       return response.status(404).json({ error: 'Resume version not found.' });
     }
 

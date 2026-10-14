@@ -123,8 +123,12 @@ describe('TailoredResumeReview', () => {
 
   it('renders error banner with link to settings if base resume is missing', async () => {
     const user = userEvent.setup();
+    // The API's 409 (#351), as requestJson throws it: the code says what's missing.
     tailorResumeForJob.mockRejectedValueOnce(
-      new Error('No structured base resume configured. Please set up your base resume in Settings first.'),
+      Object.assign(new Error('Add your work experience in Settings → Résumé before tailoring.'), {
+        status: 409,
+        code: 'BASE_RESUME_EMPTY',
+      }),
     );
 
     render(
@@ -139,8 +143,11 @@ describe('TailoredResumeReview', () => {
     await user.click(screen.getByRole('button', { name: /tailor resume for acme corp/i }));
 
     await waitFor(() => {
-      expect(screen.getByText(/no structured base resume configured/i)).toBeInTheDocument();
-      expect(screen.getByText(/open settings to set up your base resume/i)).toBeInTheDocument();
+      expect(screen.getByText(/add your work experience in settings/i)).toBeInTheDocument();
+      expect(screen.getByRole('link', { name: /open settings to set up your base resume/i })).toHaveAttribute(
+        'href',
+        '/settings',
+      );
     });
   });
 

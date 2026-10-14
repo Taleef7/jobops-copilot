@@ -27,6 +27,7 @@ import type {
 } from '@/types';
 import { AiBudgetExceededError, beforeAgentCall } from '@/lib/ai-call-context';
 import { capAgentPayload } from '@/lib/input-caps';
+import { isTailorAnswer, type TailorAgentRequest, type TailorAnswer } from '@/lib/tailor/answer';
 
 const AGENT_URL = process.env.AGENT_SERVICE_URL?.trim().replace(/\/$/, '');
 const AGENT_TIMEOUT_MS = Number(process.env.AGENT_TIMEOUT_MS ?? 60_000);
@@ -520,6 +521,19 @@ export function normalizeStructuredResume(raw: unknown): StructuredResume | null
     ...(projects ? { projects } : {}),
     ...(certificates ? { certificates } : {}),
   };
+}
+
+/**
+ * Ask the agent for edits to the base résumé's lines for one posting (#351). One paid call,
+ * never re-sent; an answer that isn't the expected shape is an `AiUnavailableError`.
+ */
+export async function resolveTailorResume(request: TailorAgentRequest): Promise<TailorAnswer & { model_used: string }> {
+  const answer = await withColdStartWake(() => callAgent<unknown>('/tailor-resume', request, AGENT_TIMEOUT_MS));
+  if (!isTailorAnswer(answer)) {
+    console.warn('agent /tailor-resume returned an unusable answer');
+    throw new AiUnavailableError(UNUSABLE_ANSWER);
+  }
+  return answer;
 }
 
 /** Parse résumé text into a StructuredResume via the agent. Throws `AiUnavailableError` when it can't. */

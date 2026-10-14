@@ -38,11 +38,30 @@ export const FAKE_OUTREACH_DRAFT = {
   draft_text: 'Hi there, I build backend services in Go and would like to talk about the role.',
 };
 
+/** A tailor answer for FAKE_STRUCTURED_RESUME's one bullet (#351). */
+export const FAKE_TAILOR_ANSWER = {
+  change_summary: 'Led with the billing API.',
+  edits: [
+    {
+      source_path: 'work[0].highlights[0]',
+      old_text: 'Built the billing API',
+      new_text: 'Built the billing API in Go',
+      rationale: 'The posting asks for Go.',
+    },
+  ],
+  highlight_orders: [],
+  skills_order: ['Go', 'Python'],
+  added_skills: [],
+  gaps: ['Kafka'],
+  model_used: 'openai:gpt-6-luna',
+};
+
 /** The JSON a fake agent should answer for a request path. */
 export function fakeAgentAnswer(path: string | undefined): unknown {
   if (path?.startsWith('/parse-job')) return FAKE_PARSED_JOB;
   if (path?.startsWith('/score-fit')) return FAKE_FIT_SCORE;
   if (path?.startsWith('/parse-resume')) return FAKE_STRUCTURED_RESUME;
   if (path?.startsWith('/draft-outreach')) return FAKE_OUTREACH_DRAFT;
+  if (path?.startsWith('/tailor-resume')) return FAKE_TAILOR_ANSWER;
   return {};
 }

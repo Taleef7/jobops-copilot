@@ -6,6 +6,8 @@ import { join } from 'node:path';
 import test from 'node:test';
 import { createApp } from './app';
 import { resetJobStoreForTests } from '@/data/job-store';
+import { resetResumeVersionStore } from '@/data/resume-version-store';
+import { TAILOR_BASE } from '@/test-support/tailor-fixtures';
 
 /**
  * #349: when the AI can't answer, the API says so (503, retryable) and saves nothing.
@@ -20,6 +22,7 @@ test('every AI route answers 503 retryable when the agent is down, and nothing i
   process.env.AGENT_SERVICE_URL = 'http://127.0.0.1:9';
   process.chdir(tempDir);
   await resetJobStoreForTests();
+  await resetResumeVersionStore();
   const server = http.createServer(createApp());
   await new Promise<void>((resolve) => server.listen(0, resolve));
   const address = server.address();
@@ -34,6 +37,8 @@ test('every AI route answers 503 retryable when the agent is down, and nothing i
 
   try {
     assert.equal((await send('POST', '/api/profile/resume', { resume_text: 'Backend engineer. Python, Postgres, TypeScript.' })).status, 200);
+    // A structured base résumé, so tailoring reaches the AI instead of answering 409.
+    assert.equal((await send('PUT', '/api/profile/base-resume', { baseResume: TAILOR_BASE })).status, 200);
     const created = await send('POST', '/api/jobs', { company: 'Acme', title: 'Engineer', descriptionText: 'Build APIs in Python.' });
     assert.equal(created.status, 201);
     const jobId = ((await created.json()) as { job: { id: string } }).job.id;
@@ -47,6 +52,7 @@ test('every AI route answers 503 retryable when the agent is down, and nothing i
       ['interview prep', '/api/ai/agents/interview-prep', { job_id: jobId }],
       ['research', '/api/ai/agents/research', { job_id: jobId }],
       ['résumé import', '/api/profile/base-resume/parse-resume', {}],
+      ['tailor résumé', `/api/jobs/${jobId}/tailor`, {}],
     ];
     for (const [label, path, body] of calls) {
       const response = await send('POST', path, body);
@@ -58,6 +64,8 @@ test('every AI route answers 503 retryable when the agent is down, and nothing i
 
     const after = ((await (await send('GET', `/api/jobs/${jobId}`)).json()) as { job: unknown }).job;
     assert.deepEqual(after, before, 'a failed AI call changes nothing on the job (no fake score, no draft)');
+    const versions = (await (await send('GET', `/api/jobs/${jobId}/resume-versions`)).json()) as { versions: unknown[] };
+    assert.deepEqual(versions.versions, [], 'a failed tailor saves no résumé version');
   } finally {
     server.closeAllConnections();
     await new Promise<void>((resolve) => server.close(() => resolve()));

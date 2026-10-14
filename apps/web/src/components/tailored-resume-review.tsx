@@ -58,6 +58,8 @@ export function TailoredResumeReview({
   const [rejectFeedback, setRejectFeedback] = useState('');
   const [showFullResume, setShowFullResume] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // The API says there is no base résumé to tailor (409 BASE_RESUME_EMPTY, #351).
+  const [needsBaseResume, setNeedsBaseResume] = useState(false);
 
   const currentVersion =
     versions.find((v) => v.id === selectedVersionId) ?? (versions.length > 0 ? versions[0] : null);
@@ -65,6 +67,7 @@ export function TailoredResumeReview({
   async function handleTailor() {
     setIsTailoring(true);
     setError(null);
+    setNeedsBaseResume(false);
     try {
       const newVersion = await tailorResumeForJob(jobId);
       setVersions((prev) => [newVersion, ...prev]);
@@ -73,6 +76,7 @@ export function TailoredResumeReview({
       toast.success('Tailored resume draft generated successfully!');
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : 'Failed to tailor resume.';
+      setNeedsBaseResume((err as { code?: unknown } | null)?.code === 'BASE_RESUME_EMPTY');
       setError(msg);
       toast.error(msg);
     } finally {
@@ -192,7 +196,7 @@ export function TailoredResumeReview({
           <div className="w-full max-w-md rounded-lg border border-destructive/30 bg-destructive/10 p-3 text-left text-xs text-destructive">
             <p className="font-medium">Error tailoring resume:</p>
             <p className="mt-0.5">{error}</p>
-            {error.toLowerCase().includes('base resume') ? (
+            {needsBaseResume ? (
               <p className="mt-2">
                 <Link href="/settings" className="font-semibold underline underline-offset-2 hover:opacity-80">
                   Open Settings to set up your Base Resume &rarr;

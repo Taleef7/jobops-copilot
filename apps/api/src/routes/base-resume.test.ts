@@ -627,3 +627,66 @@ test('POST /api/demo/clear deletes base resume versions so GET returns null afte
   }
 });
 
+
+// #351: the base-résumé PDF routes render base versions only. They used to render any version
+// by id, so an unapproved tailored draft could be downloaded here, and render-pdf wrote the
+// base PDF's URL onto the draft.
+test('the base-résumé PDF routes refuse a tailored version, and still render the base', async () => {
+  const originalCwd = process.cwd();
+  delete process.env.DATABASE_URL;
+  const tempDir = await mkdtemp(join(tmpdir(), 'jobops-base-resume-pdf-'));
+
+  try {
+    process.chdir(tempDir);
+    await resetResumeVersionStore();
+    const { insertResumeVersion, getResumeVersion } = await import('@/data/resume-version-store');
+    const draft = {
+      id: 'draft-1',
+      userId: 'user-br-pdf',
+      jobId: 'job-1',
+      changeSummary: 'Tailored draft',
+      structuredResume: sampleResume,
+      approved: false,
+      isBase: false,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    };
+    await insertResumeVersion(draft);
+
+    await withServer(
+      (app) => app.use('/api/profile/base-resume', baseResumeRouter),
+      async (baseUrl) => {
+        const headers = { 'Content-Type': 'application/json', 'X-User-Id': 'user-br-pdf' };
+        const download = await fetch(`${baseUrl}/api/profile/base-resume/versions/draft-1/download`, { headers });
+        assert.equal(download.status, 404);
+        const render = await fetch(`${baseUrl}/api/profile/base-resume/render-pdf`, {
+          method: 'POST',
+          headers,
+          body: JSON.stringify({ versionId: 'draft-1' }),
+        });
+        assert.equal(render.status, 404);
+        assert.equal((await getResumeVersion('user-br-pdf', 'draft-1'))?.baseResumeFileUrl ?? null, null);
+
+        // The base résumé itself still renders and downloads.
+        assert.equal(
+          (await fetch(`${baseUrl}/api/profile/base-resume`, { method: 'PUT', headers, body: JSON.stringify({ baseResume: sampleResume }) })).status,
+          200,
+        );
+        const rendered = await fetch(`${baseUrl}/api/profile/base-resume/render-pdf`, { method: 'POST', headers, body: '{}' });
+        assert.equal(rendered.status, 200);
+        const { versionId } = (await rendered.json()) as { versionId: string };
+        const byId = await fetch(`${baseUrl}/api/profile/base-resume/render-pdf`, {
+          method: 'POST',
+          headers,
+          body: JSON.stringify({ versionId }),
+        });
+        assert.equal(byId.status, 200);
+        const baseDownload = await fetch(`${baseUrl}/api/profile/base-resume/versions/${versionId}/download`, { headers });
+        assert.equal(baseDownload.status, 200);
+        assert.equal(baseDownload.headers.get('content-type'), 'application/pdf');
+      },
+    );
+  } finally {
+    process.chdir(originalCwd);
+  }
+});

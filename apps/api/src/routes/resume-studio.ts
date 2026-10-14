@@ -1,4 +1,4 @@
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { Router } from 'express';
 import { getJobById } from '@/data/job-store';
 import { getUserProfile } from '@/data/profile-store';
@@ -9,92 +9,103 @@ import {
   listResumeVersionsForJob,
   updateResumeVersion,
 } from '@/data/resume-version-store';
+import { AiUnavailableError, normalizeStructuredResume, resolveTailorResume } from '@/lib/agent-client';
 import { renderAtsResumePdf } from '@/lib/ats-resume-pdf';
 import { requireUser } from '@/lib/auth';
 import { storeResumePdf } from '@/lib/resume-storage';
-import { emitApprovalNeededNotification } from '@/lib/notify/events';
-import type { ResumeVersionRecord, StructuredResume } from '@/types';
+import { GROUNDING_VERSION, isGrounded, tailorFromAnswer } from '@/lib/tailor/apply';
+import { editableLines } from '@/lib/tailor/lines';
+import { buildTailorRequest, parseConfirmedKeywords, postingKeywords } from '@/lib/tailor/request';
+import type { ResumeVersionRecord } from '@/types';
 
 export const resumeStudioRouter = Router();
 
+const NOT_GROUNDED = {
+  code: 'NOT_GROUNDED',
+  error: "This draft wasn't checked against your base résumé, so it can't be used. Tailor it again.",
+};
+
 /**
- * POST /api/jobs/:id/tailor
+ * POST /api/jobs/:id/tailor   body: { confirmedKeywords?: string[] }
  *
- * Initiates an interactive tailoring run for a specific job.
- * Loads the user's base resume and the target job details, then initiates
- * the resume-tailor agent run or creates a deterministic draft version.
+ * Tailors the base résumé to the job's posting (#351). The AI suggests edits to the summary
+ * and bullets; the API applies the ones its grounding check accepts (lib/tailor) and saves a
+ * draft that records what it was based on. A suggestion that adds a fact is dropped and shown
+ * as dropped. `confirmedKeywords` are keywords the user said they have in the tailor window.
+ *
+ * - 409 BASE_RESUME_EMPTY / POSTING_EMPTY: nothing to tailor; the AI is not called.
+ * - 503 retryable: the AI couldn't answer usefully; nothing is saved.
+ * The strict limiter and the AI budget are mounted in app.ts (route inventory, #345).
  */
 resumeStudioRouter.post('/jobs/:id/tailor', async (request, response, next) => {
   try {
     const userId = requireUser(request, response);
     if (!userId) return;
 
-    const jobId = request.params.id;
-    const job = await getJobById(userId, jobId!);
+    const jobId = request.params.id!;
+    const job = await getJobById(userId, jobId);
     if (!job) {
       return response.status(404).json({ error: `Job not found: ${jobId}` });
     }
 
-    // Load base resume (profile or version store)
-    let baseResume: StructuredResume | null = null;
-    const baseVersion = await getBaseResumeVersion(userId);
-    if (baseVersion) {
-      baseResume = baseVersion.structuredResume;
-    } else {
-      const profile = await getUserProfile(userId);
-      baseResume = profile?.baseResume ?? null;
+    const confirmedKeywords = parseConfirmedKeywords((request.body ?? {}).confirmedKeywords);
+    if (!confirmedKeywords) {
+      return response.status(400).json({ error: 'confirmedKeywords must be a list of up to 25 keywords of up to 60 characters.' });
     }
 
-    if (!baseResume || !baseResume.basics?.name) {
-      return response.status(400).json({
-        error: 'No structured base resume configured. Please set up your base resume in Settings first.',
+    // The base résumé as Settings shows it: the profile's copy, else the base version.
+    const [profile, baseVersion] = await Promise.all([getUserProfile(userId), getBaseResumeVersion(userId)]);
+    const base = normalizeStructuredResume(profile?.baseResume ?? baseVersion?.structuredResume ?? null);
+    if (!base || editableLines(base).length === 0) {
+      return response.status(409).json({
+        code: 'BASE_RESUME_EMPTY',
+        error: 'Add your work experience in Settings → Résumé before tailoring.',
+      });
+    }
+    if (!job.descriptionText?.trim()) {
+      return response.status(409).json({
+        code: 'POSTING_EMPTY',
+        error: 'This job has no posting text to tailor to. Add the job description first.',
       });
     }
 
-    const versionId = randomUUID();
+    const answer = await resolveTailorResume(buildTailorRequest(base, job, confirmedKeywords));
+    const result = tailorFromAnswer(base, answer, {
+      company: job.company,
+      jobTerms: postingKeywords(job),
+      confirmedKeywords,
+    });
+    if (result.details.length === 0) {
+      throw new AiUnavailableError("The AI didn't suggest any changes. Try again.");
+    }
 
-    // Create initial draft row in resume_versions with approved = false
-    const draftVersion: ResumeVersionRecord = {
-      id: versionId,
+    const now = new Date().toISOString();
+    const version: ResumeVersionRecord = {
+      id: randomUUID(),
       userId,
       jobId,
-      changeSummary: `Tailored resume draft for ${job.title} at ${job.company}`,
-      changeDetails: [
-        {
-          section: 'basics.summary',
-          oldText: baseResume.basics.summary,
-          newText: `Experienced professional tailored for ${job.title} at ${job.company}: ${baseResume.basics.summary}`,
-          rationale: `Targeted summary directly aligning with ${job.title} core qualifications.`,
-        },
-      ],
-      structuredResume: {
-        ...baseResume,
-        basics: {
-          ...baseResume.basics,
-          summary: `Experienced professional tailored for ${job.title} at ${job.company}: ${baseResume.basics.summary}`,
-        },
-      },
+      changeSummary: result.changeSummary,
+      changeDetails: result.details,
+      structuredResume: result.resume,
       approved: false,
       isBase: false,
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
+      basedOn: {
+        baseVersionId: baseVersion?.id ?? null,
+        baseUpdatedAt: baseVersion?.updatedAt ?? profile?.updatedAt ?? null,
+        jobId,
+        postingSha256: createHash('sha256').update(job.descriptionText).digest('hex'),
+        model: answer.model_used,
+        createdAt: now,
+        grounding: { version: GROUNDING_VERSION },
+        confirmedKeywords,
+        gaps: result.gaps,
+      },
+      createdAt: now,
+      updatedAt: now,
     };
+    await insertResumeVersion(version);
 
-    await insertResumeVersion(draftVersion);
-
-    await emitApprovalNeededNotification(userId, {
-      kind: 'resume',
-      targetId: versionId,
-      jobId,
-      title: `Review Tailored Resume for ${job.company}`,
-      body: `Tailored resume draft ready for ${job.title} at ${job.company}. Review changes and approve before downloading.`,
-    });
-
-    return response.status(201).json({
-      status: 'awaiting_approval',
-      version: draftVersion,
-      threadId: `${userId}:resume-tailor:${jobId}`,
-    });
+    return response.status(201).json({ status: 'awaiting_approval', version });
   } catch (error) {
     next(error);
   }
@@ -118,14 +129,17 @@ resumeStudioRouter.get('/jobs/:id/resume-versions', async (request, response, ne
   }
 });
 
+/** A tailored draft of this user's, or null. Base versions are not drafts. */
+async function getDraft(userId: string, id: string): Promise<ResumeVersionRecord | null> {
+  const version = await getResumeVersion(userId, id);
+  return version && !version.isBase ? version : null;
+}
+
 /**
  * POST /api/resume-versions/:id/approve
  *
- * Approves a tailored draft version:
- * 1. Sets approved = true
- * 2. Renders deterministic ATS-safe PDF
- * 3. Persists to blob storage (or local fallback)
- * 4. Updates version record with tailoredResumeFileUrl
+ * Approves a tailored draft the API checked (422 NOT_GROUNDED otherwise): renders the PDF,
+ * stores it, and marks the version approved.
  */
 resumeStudioRouter.post('/resume-versions/:id/approve', async (request, response, next) => {
   try {
@@ -133,18 +147,16 @@ resumeStudioRouter.post('/resume-versions/:id/approve', async (request, response
     if (!userId) return;
 
     const { id } = request.params;
-    const version = await getResumeVersion(userId, id!);
+    const version = await getDraft(userId, id!);
     if (!version) {
       return response.status(404).json({ error: `Resume version not found: ${id}` });
     }
+    if (!isGrounded(version)) {
+      return response.status(422).json(NOT_GROUNDED);
+    }
 
-    // Render ATS PDF
     const pdfBuffer = renderAtsResumePdf(version.structuredResume);
-
-    // Upload / persist to blob storage
     const { fileUrl } = await storeResumePdf(version, pdfBuffer);
-
-    // Update row: approved = true, tailoredResumeFileUrl = fileUrl
     const updated = await updateResumeVersion(userId, id!, {
       approved: true,
       tailoredResumeFileUrl: fileUrl,
@@ -172,7 +184,7 @@ resumeStudioRouter.post('/resume-versions/:id/reject', async (request, response,
     if (!userId) return;
 
     const { id } = request.params;
-    const version = await getResumeVersion(userId, id!);
+    const version = await getDraft(userId, id!);
     if (!version) {
       return response.status(404).json({ error: `Resume version not found: ${id}` });
     }
@@ -201,8 +213,8 @@ resumeStudioRouter.post('/resume-versions/:id/reject', async (request, response,
 /**
  * GET /api/resume-versions/:id/download
  *
- * Gated download endpoint for a specific resume version.
- * Requires user authentication; returns short-lived SAS URL or streams PDF binary.
+ * The PDF of an approved tailored draft the API checked: 422 NOT_GROUNDED for a draft it
+ * didn't check, 409 NOT_APPROVED before approval.
  */
 resumeStudioRouter.get('/resume-versions/:id/download', async (request, response, next) => {
   try {
@@ -210,9 +222,15 @@ resumeStudioRouter.get('/resume-versions/:id/download', async (request, response
     if (!userId) return;
 
     const { id } = request.params;
-    const version = await getResumeVersion(userId, id!);
+    const version = await getDraft(userId, id!);
     if (!version) {
       return response.status(404).json({ error: `Resume version not found: ${id}` });
+    }
+    if (!isGrounded(version)) {
+      return response.status(422).json(NOT_GROUNDED);
+    }
+    if (!version.approved) {
+      return response.status(409).json({ code: 'NOT_APPROVED', error: 'Approve this draft before downloading it.' });
     }
 
     const pdfBuffer = renderAtsResumePdf(version.structuredResume);
