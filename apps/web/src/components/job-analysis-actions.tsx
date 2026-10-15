@@ -31,23 +31,30 @@ export function JobAnalysisActions({ jobId, autoScore = false }: JobAnalysisActi
   // disables the button only after a re-render: a click while the page hydrated ran
   // alongside the automatic score and sent a second POST.
   const scoring = useRef(false);
+  // Whether the running score reports its result. A click during the automatic one makes
+  // it report, since the click sends nothing of its own.
+  const quiet = useRef(false);
 
   async function handleScore({ silent = false }: { silent?: boolean } = {}) {
-    if (scoring.current) return;
+    if (scoring.current) {
+      if (!silent) quiet.current = false;
+      return;
+    }
     scoring.current = true;
+    quiet.current = silent;
     setIsScoring(true);
     setFailure(null);
     try {
       const scored = await scoreFit({ jobId });
       // A score is always the AI's: when it can't answer, the API says so (503) instead
       // of making one up (#349).
-      if (!silent) toast.success(`Fit score saved: ${scored.fit_score}/100`);
+      if (!quiet.current) toast.success(`Fit score saved: ${scored.fit_score}/100`);
       // Always refresh so the upgraded score is reflected in the UI, even silently.
       router.refresh();
     } catch (error) {
       // The automatic upgrade stays quiet on expected failures (e.g. daily budget
       // reached): the estimate remains and the manual button is the fallback.
-      if (!silent) {
+      if (!quiet.current) {
         setFailure(error instanceof ApiRequestError ? error.message : 'Scoring failed. Try again.');
       } else if (!(error instanceof ApiRequestError)) {
         // Surface unexpected failures (network/parse/bugs) to the console even in

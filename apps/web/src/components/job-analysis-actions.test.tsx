@@ -1,5 +1,6 @@
 import '@testing-library/jest-dom/vitest';
 import { act, render, screen, waitFor } from '@testing-library/react';
+import type { ReactElement } from 'react';
 import { hydrateRoot } from 'react-dom/client';
 import { renderToString } from 'react-dom/server';
 import { afterEach, expect, it, vi } from 'vitest';
@@ -78,29 +79,50 @@ it('sends one request for two clicks in the same tick', () => {
   expect(scoreFit).toHaveBeenCalledTimes(1);
 });
 
-// #353, the live double POST: the server renders an enabled "Score fit" for an estimated
-// job. A click while the page hydrated ran alongside the automatic score, and both called
-// the API.
-it('sends one request when Score fit is clicked while the page hydrates and auto-scores', async () => {
-  scoreFit.mockImplementation(() => new Promise(() => {}));
-  const ui = <JobAnalysisActions jobId="job-1" autoScore />;
+/** Server-render, then hydrate and click Score fit in one tick, as during a slow page load. */
+async function hydrateAndClick(ui: ReactElement) {
   const container = document.createElement('div');
   container.innerHTML = renderToString(ui);
   document.body.appendChild(container);
   const button = container.querySelector('button')!;
   expect(button).toBeEnabled();
-
   let root: ReturnType<typeof hydrateRoot> | undefined;
-  try {
-    await act(async () => {
-      root = hydrateRoot(container, ui);
-      button.click();
-    });
-
-    expect(scoreFit).toHaveBeenCalledTimes(1);
-  } finally {
+  await act(async () => {
+    root = hydrateRoot(container, ui);
+    button.click();
+  });
+  return () => {
     act(() => root?.unmount());
     container.remove();
+  };
+}
+
+// #353, the live double POST: the server renders an enabled "Score fit" for an estimated
+// job. A click while the page hydrated ran alongside the automatic score, and both called
+// the API.
+it('sends one request when Score fit is clicked while the page hydrates and auto-scores', async () => {
+  scoreFit.mockImplementation(() => new Promise(() => {}));
+  const cleanup = await hydrateAndClick(<JobAnalysisActions jobId="job-1" autoScore />);
+  try {
+    expect(scoreFit).toHaveBeenCalledTimes(1);
+  } finally {
+    cleanup();
+    scoreFit.mockImplementation(() => Promise.resolve({ fit_score: 80 }));
+  }
+});
+
+// The click that joins the automatic score gets its answer: a failure isn't kept quiet.
+it('shows why the automatic score failed when Score fit was clicked during it', async () => {
+  let fail: (error: Error) => void = () => {};
+  scoreFit.mockImplementation(() => new Promise((_resolve, reject) => (fail = reject)));
+  const cleanup = await hydrateAndClick(<JobAnalysisActions jobId="job-1" autoScore />);
+  try {
+    await act(async () => fail(new ApiRequestError("The AI couldn't be reached. Try again in a moment.", 503)));
+
+    expect(await screen.findByRole('alert')).toHaveTextContent("The AI couldn't be reached.");
+    expect(scoreFit).toHaveBeenCalledTimes(1);
+  } finally {
+    cleanup();
     scoreFit.mockImplementation(() => Promise.resolve({ fit_score: 80 }));
   }
 });
