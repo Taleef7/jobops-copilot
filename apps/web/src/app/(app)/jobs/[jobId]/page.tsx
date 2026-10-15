@@ -104,7 +104,8 @@ export default async function JobDetailPage({ params }: JobDetailParams) {
           </div>
         </div>
         <div className="border-t pt-4">
-          <JobAnalysisActions jobId={job.id} autoScore={autoScore} />
+          {/* Keyed so each job gets its own one-at-a-time Score fit guard (#353). */}
+          <JobAnalysisActions key={job.id} jobId={job.id} autoScore={autoScore} />
         </div>
       </Card>
 

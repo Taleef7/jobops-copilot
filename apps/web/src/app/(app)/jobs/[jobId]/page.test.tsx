@@ -3,7 +3,8 @@ import { render, screen } from '@testing-library/react';
 import { afterEach, expect, it, vi } from 'vitest';
 import type { Job } from '@/types/job';
 
-const { loadJob, api } = vi.hoisted(() => ({
+const { loadJob, api, scoreMounts } = vi.hoisted(() => ({
+  scoreMounts: [] as string[],
   loadJob: vi.fn(async (): Promise<{ job: unknown; error: string | null }> => ({ job: undefined, error: null })),
   api: {
     fetchProfile: vi.fn(async () => null),
@@ -24,7 +25,17 @@ vi.mock('next/navigation', () => ({
   },
 }));
 // The page's interactive panels have their own tests.
-vi.mock('@/components/job-analysis-actions', () => ({ JobAnalysisActions: () => null }));
+vi.mock('@/components/job-analysis-actions', async () => {
+  const { useEffect } = await import('react');
+  return {
+    JobAnalysisActions: ({ jobId }: { jobId: string }) => {
+      useEffect(() => {
+        scoreMounts.push(jobId);
+      }, []); // eslint-disable-line react-hooks/exhaustive-deps
+      return null;
+    },
+  };
+});
 vi.mock('@/components/job-edit-panel', () => ({ JobEditPanel: () => null }));
 vi.mock('@/components/job-outreach-actions', () => ({ JobOutreachActions: () => null }));
 vi.mock('@/components/job-agents-panel', () => ({ JobAgentsPanel: () => null }));
@@ -36,6 +47,7 @@ import JobDetailPage, { generateMetadata } from './page';
 
 afterEach(() => {
   vi.clearAllMocks();
+  scoreMounts.length = 0;
 });
 
 const params = (jobId: string) => ({ params: Promise.resolve({ jobId }) });
@@ -101,4 +113,17 @@ it('has no posting link without a web address to open', async () => {
     expect(screen.queryByRole('link', { name: /open posting/i })).not.toBeInTheDocument();
     unmount();
   }
+});
+
+// Score fit's one-at-a-time guard belongs to one job: another job gets its own instance,
+// so a run for the last job can't block the next one's (#353).
+it('gives each job its own Score fit', async () => {
+  const other = '0b9e5c1d-2f3a-4b5c-8d6e-7f8091a2b3c4';
+  loadJob.mockResolvedValueOnce({ job: makeJob(), error: null });
+  const { rerender } = render(await JobDetailPage(params(ID)));
+  loadJob.mockResolvedValueOnce({ job: makeJob({ id: other, title: 'Platform Engineer' }), error: null });
+  rerender(await JobDetailPage(params(other)));
+
+  expect(screen.getByRole('heading', { name: 'Platform Engineer' })).toBeInTheDocument();
+  expect(scoreMounts).toEqual([ID, other]);
 });
