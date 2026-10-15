@@ -1,5 +1,5 @@
 import '@testing-library/jest-dom/vitest';
-import { render, screen, within } from '@testing-library/react';
+import { fireEvent, render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, expect, it, vi } from 'vitest';
 import { hydrateInBrowser, renderOnServer } from '@/test/time-zones';
@@ -64,12 +64,37 @@ it("shows the follow-up in the browser's time zone, never the server's", async (
   expect(within(container).getByLabelText('Follow-up due')).toHaveValue('2026-10-15T22:00');
 });
 
-it('a save that leaves the follow-up alone keeps its instant', async () => {
+const savedPayload = () => updateJob.mock.calls[0]?.[1] as Record<string, unknown>;
+
+it('a save that leaves the follow-up alone leaves it as it was', async () => {
   updateJob.mockResolvedValueOnce({});
   const panel = <JobEditPanel job={dueJob} />;
   const { container } = await hydrateInBrowser(renderOnServer(panel), panel);
 
   await userEvent.setup().click(within(container).getByRole('button', { name: /save changes/i }));
 
-  expect(updateJob).toHaveBeenCalledWith('job-1', expect.objectContaining({ nextActionDue: '2026-10-16T02:00:00.000Z' }));
+  expect(updateJob).toHaveBeenCalledTimes(1);
+  expect(savedPayload().nextActionDue).toBeUndefined();
+});
+
+// When the clocks go back, 1:30 am happens twice: 05:30 and 06:30 UTC on Nov 1, 2026 in New
+// York. The input can't tell them apart, so reading it back would move a due date an hour.
+it("a save that leaves the follow-up alone doesn't move it in the hour that repeats", async () => {
+  updateJob.mockResolvedValueOnce({});
+  render(<JobEditPanel job={{ ...job, nextActionDue: '2026-11-01T06:30:00.000Z' } as Job} />);
+  expect(screen.getByLabelText('Follow-up due')).toHaveValue('2026-11-01T01:30');
+
+  await userEvent.setup().click(screen.getByRole('button', { name: /save changes/i }));
+
+  expect(savedPayload().nextActionDue).toBeUndefined();
+});
+
+it('a changed follow-up is sent as the instant it is where the user is', async () => {
+  updateJob.mockResolvedValueOnce({});
+  render(<JobEditPanel job={dueJob} />);
+
+  fireEvent.change(screen.getByLabelText('Follow-up due'), { target: { value: '2026-10-20T09:00' } });
+  await userEvent.setup().click(screen.getByRole('button', { name: /save changes/i }));
+
+  expect(savedPayload().nextActionDue).toBe('2026-10-20T13:00:00.000Z');
 });

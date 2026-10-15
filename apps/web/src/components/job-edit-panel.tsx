@@ -51,13 +51,14 @@ type FormState = {
 
 export function JobEditPanel({ job }: { job: Job }) {
   const router = useRouter();
-  const [form, setForm] = useState<FormState>({
+  const [initial] = useState<FormState>(() => ({
     status: job.status,
     priority: job.priority,
     notes: job.notes ?? '',
     nextAction: job.nextAction ?? '',
     nextActionDue: toDatetimeLocalValue(job.nextActionDue),
-  });
+  }));
+  const [form, setForm] = useState<FormState>(initial);
   const [dateError, setDateError] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState(false);
   // The follow-up is in the browser's time zone, so it's shown after hydration: the server's
@@ -84,9 +85,14 @@ export function JobEditPanel({ job }: { job: Job }) {
         priority: form.priority,
         notes: form.notes.trim() || undefined,
         nextAction: form.nextAction.trim() || undefined,
-        nextActionDue: form.nextActionDue.trim()
-          ? fromDatetimeLocalValue(form.nextActionDue)
-          : undefined,
+        // Only when changed: when the clocks go back, an hour repeats and the input can't say
+        // which, so reading it back could move the due date an hour.
+        nextActionDue:
+          form.nextActionDue === initial.nextActionDue
+            ? undefined
+            : form.nextActionDue.trim()
+              ? fromDatetimeLocalValue(form.nextActionDue)
+              : undefined,
       });
       toast.success('Job updated.');
       router.refresh();
