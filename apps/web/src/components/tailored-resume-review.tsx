@@ -18,7 +18,7 @@ import {
   tailorResumeForJob,
 } from '@/lib/api';
 import type { CoverLetterLength, ResumeChangeDetail, ResumeVersionRecord } from '@/types/job';
-import { LENGTH_HINT, LengthToggle, startCoverLetter } from './cover-letter-review';
+import { LENGTH_HINT, LengthToggle, setTailorKeywords, startCoverLetter } from './cover-letter-review';
 
 /**
  * Tailoring a résumé to a job (#351): a window to confirm the posting's keywords the user has,
@@ -158,6 +158,8 @@ export function TailoredResumeReview({ jobId, jobCompany, initialVersions = [] }
   function tailor(options: TailorOptions, letter: CoverLetterLength | null = null) {
     setWindowOpen(false);
     startTailoring(jobId, options);
+    // A letter written again later uses these keywords too.
+    setTailorKeywords(jobId, options.confirmedKeywords);
     // The letter runs alongside, from the same keywords; it has its own progress and errors.
     if (letter) startCoverLetter(jobId, { length: letter, confirmedKeywords: options.confirmedKeywords });
   }

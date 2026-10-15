@@ -131,3 +131,14 @@ test("the database itself refuses another length, and a letter for someone else'
   await assert.rejects(insert(`${user}_intruder`, 'full'), /foreign key/);
   await insert(user, 'full');
 });
+
+test('migration 031 can run again over itself', { skip }, async () => {
+  const { readFile } = await import('node:fs/promises');
+  const { join } = await import('node:path');
+  const { findMigrationDir } = await import('@/lib/migrations');
+  const sql = await readFile(join(findMigrationDir(__dirname)!, '031_cover_letters.sql'), 'utf8');
+  await getPool()!.query(sql);
+  await getPool()!.query(sql);
+  const { rows } = await getPool()!.query("select 1 from pg_indexes where indexname = 'jobs_id_user_id_key'");
+  assert.equal(rows.length, 1, 'the unique index the foreign key needs');
+});

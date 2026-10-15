@@ -26,8 +26,8 @@ export interface WriteOptions {
 interface LetterError {
   message: string;
   code?: string;
-  /** Write again: the AI failed. The retry uses the length and keywords as they are then. */
-  retry?: boolean;
+  /** The AI failed this run: Try again writes it again, with the length the toggle shows. */
+  retry?: WriteOptions;
   /** Read the letter again (reading it failed). */
   reload?: boolean;
 }
@@ -41,6 +41,8 @@ interface LetterState {
   /** A paragraph is being saved: Download waits. */
   saving: boolean;
   downloading: boolean;
+  /** The keywords confirmed in the latest tailoring, for a letter written again from the card. */
+  tailorKeywords?: string[];
 }
 
 // A letter takes 10 to 30 seconds to write. Its state is kept here, per job, so a letter started
@@ -77,6 +79,11 @@ export function resetCoverLetterStoreForTests() {
   generations.clear();
 }
 
+/** The tailor window's confirmed keywords, so "Write again" uses the latest ones. */
+export function setTailorKeywords(jobId: string, keywords: string[]) {
+  setLetterState(jobId, { tailorKeywords: keywords });
+}
+
 /** Write the job's letter (from the tailor window or this card). One run at a time per job. */
 export function startCoverLetter(jobId: string, options: WriteOptions) {
   if (stateOf(jobId).run) return;
@@ -93,7 +100,7 @@ export function startCoverLetter(jobId: string, options: WriteOptions) {
         error: {
           message: err instanceof Error ? err.message : "Your cover letter couldn't be written.",
           code: typeof code === 'string' ? code : undefined,
-          retry: typeof status === 'number' && status >= 500,
+          retry: typeof status === 'number' && status >= 500 ? options : undefined,
         },
       });
     },
@@ -132,6 +139,7 @@ function localDate(): string {
 }
 
 const LENGTH_LABEL: Record<CoverLetterLength, string> = { concise: 'Concise', full: 'Full' };
+const KEY_SEPARATOR = '\u0000';
 
 /** Concise or Full: two buttons, one pressed. */
 export function LengthToggle({
@@ -177,13 +185,19 @@ export function CoverLetterReview({
   const state = useSyncExternalStore(subscribe, () => stateOf(jobId), () => EMPTY);
   const [picked, setPicked] = useState<CoverLetterLength | null>(null);
   const { letter, run, error } = state;
-  const length = picked ?? letter?.length ?? 'concise';
+  // After a failed run, the toggle shows that run's length until another is picked.
+  const length = picked ?? error?.retry?.length ?? letter?.length ?? 'concise';
 
   useEffect(() => {
     loadCoverLetter(jobId);
   }, [jobId]);
 
-  function write(options: WriteOptions = { length, confirmedKeywords: letter?.basedOn.confirmedKeywords ?? defaultKeywords }) {
+  function write(
+    options: WriteOptions = {
+      length,
+      confirmedKeywords: state.tailorKeywords ?? letter?.basedOn.confirmedKeywords ?? defaultKeywords,
+    },
+  ) {
     startCoverLetter(jobId, options);
   }
 
@@ -231,7 +245,7 @@ export function CoverLetterReview({
                 size="sm"
                 variant="outline"
                 onClick={() => {
-                  if (error.retry) write();
+                  if (error.retry) write({ ...error.retry, length });
                   else {
                     setLetterState(jobId, { error: null });
                     loadCoverLetter(jobId);
@@ -288,8 +302,14 @@ function LetterView({
   const dropped = letter.checks.filter((check) => check.dropped);
   const edited = letter.paragraphs.some((paragraph) => paragraph.edited);
   // The paragraph being edited, by its key: while one is open, nothing else can change the letter.
+  // A key is the paragraph's text (and which copy of it), so it stays with the paragraph when
+  // another one is removed and the open editor keeps what was typed.
   const [editingKey, setEditingKey] = useState<string | null>(null);
-  const keyOf = (index: number) => `${letter.id}:${index}:${letter.paragraphs[index]!.text}`;
+  const keyOf = (index: number) => {
+    const text = letter.paragraphs[index]!.text;
+    const copy = letter.paragraphs.slice(0, index).filter((paragraph) => paragraph.text === text).length;
+    return [letter.id, text, copy].join(KEY_SEPARATOR);
+  };
   const editingOpen = editingKey !== null && letter.paragraphs.some((_paragraph, index) => keyOf(index) === editingKey);
   const locked = saving || downloading || editingOpen;
 
@@ -309,13 +329,31 @@ function LetterView({
     }
   }
 
-  async function change(run: () => Promise<CoverLetterRecord>, failure: string): Promise<boolean> {
+  // Text typed into a paragraph that another tab changed or removed: kept here to copy.
+  const [unsaved, setUnsaved] = useState<string | null>(null);
+
+  /** The paragraph moved or changed in another tab: read the letter as it is now. */
+  async function reread(typed: string | null) {
+    const fresh = await getCoverLetter(jobId).catch(() => null);
+    if (!fresh) return;
+    const editedText = editingKey?.split(KEY_SEPARATOR)[1];
+    setLetter(jobId, fresh);
+    if (typed !== null && !fresh.paragraphs.some((paragraph) => paragraph.text === editedText)) {
+      setEditingKey(null);
+      setUnsaved(typed);
+      toast.error("That paragraph changed in another tab, so your edit wasn't saved. Your text is below the letter to copy.");
+    }
+  }
+
+  async function change(run: () => Promise<CoverLetterRecord>, failure: string, typed: string | null = null): Promise<boolean> {
     setLetterState(jobId, { saving: true });
     try {
       setLetter(jobId, await run());
       return true;
     } catch (err: unknown) {
-      toast.error(err instanceof Error ? err.message : failure);
+      const { status, code } = (err ?? {}) as { status?: unknown; code?: unknown };
+      if (status === 409 && code === 'PARAGRAPH_CHANGED') await reread(typed);
+      else toast.error(err instanceof Error ? err.message : failure);
       return false;
     } finally {
       setLetterState(jobId, { saving: false });
@@ -327,6 +365,7 @@ function LetterView({
     const saved = await change(
       () => editCoverLetterParagraph(jobId, index, text, letter.updatedAt, letter.paragraphs[index]!.text),
       "That paragraph couldn't be saved.",
+      text,
     );
     if (saved) setEditingKey(null);
     return saved;
@@ -379,6 +418,16 @@ function LetterView({
           />
         ))}
       </div>
+
+      {unsaved !== null ? (
+        <div className="space-y-2 rounded-md border border-amber-500/40 bg-amber-500/5 p-3 text-xs">
+          <p className="font-medium">Your edit wasn&apos;t saved: that paragraph changed in another tab. Copy your text if you need it.</p>
+          <Textarea aria-label="Your unsaved text" readOnly value={unsaved} rows={4} />
+          <Button size="sm" variant="ghost" onClick={() => setUnsaved(null)}>
+            Dismiss
+          </Button>
+        </div>
+      ) : null}
 
       {dropped.length > 0 ? (
         <section aria-label="Left out by the check" className="bg-muted/40 space-y-2 rounded-md border p-3 text-xs">

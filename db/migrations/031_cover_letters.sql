@@ -10,15 +10,10 @@
 -- checks:     the sentences the check dropped or marked, with why.
 -- based_on:   the base résumé version, a hash of the posting, the model, the confirmed keywords.
 
--- A letter's owner is its job's owner: the foreign key is on (job_id, user_id), which needs
--- (id, user_id) to be unique on jobs. It is (id is the primary key), so the constraint only
--- states it.
-DO $$
-BEGIN
-  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'jobs_id_user_id_key') THEN
-    ALTER TABLE jobs ADD CONSTRAINT jobs_id_user_id_key UNIQUE (id, user_id);
-  END IF;
-END $$;
+-- A letter's owner is its job's owner: the foreign key is on (job_id, user_id), which needs a
+-- unique index on jobs (id, user_id). It is unique already (id is the primary key); the index
+-- only lets the key reference it.
+CREATE UNIQUE INDEX IF NOT EXISTS jobs_id_user_id_key ON jobs (id, user_id);
 
 CREATE TABLE IF NOT EXISTS cover_letters (
   id uuid PRIMARY KEY,

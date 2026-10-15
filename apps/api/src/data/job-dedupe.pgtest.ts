@@ -305,3 +305,32 @@ test('the cleanup sees which copies have a fit score', { skip }, async () => {
   assert.deepEqual([byId.get(older.id), byId.get(prerank.id), byId.get(scored.id)], [false, false, true]);
   assert.equal(planJobDedupe(rows).groups[0]?.keep, scored.id);
 });
+
+test('a job with a cover letter counts as worked on, so the cleanup never deletes it (#416)', { skip }, async () => {
+  const { saveCoverLetter } = await import('./cover-letter-store');
+  const userId = newUser();
+  const job = await createJob(userId, { company: 'Acme', title: 'Engineer', descriptionText: 'x' });
+  const now = new Date().toISOString();
+  await saveCoverLetter({
+    id: randomUUID(),
+    userId,
+    jobId: job.id,
+    length: 'concise',
+    paragraphs: [{ text: 'I build APIs.', edited: false }],
+    checks: [],
+    basedOn: {
+      baseVersionId: null,
+      baseUpdatedAt: now,
+      jobId: job.id,
+      postingSha256: 'a'.repeat(64),
+      model: 'm',
+      createdAt: now,
+      grounding: { version: 1 },
+      confirmedKeywords: [],
+    },
+    createdAt: now,
+    updatedAt: now,
+  });
+  const row = (await loadDedupeRows(userId)).find((r) => r.id === job.id)!;
+  assert.equal(row.activity, 1);
+});

@@ -9,7 +9,7 @@ import { requireUser } from '@/lib/auth';
 import { attachmentDisposition } from '@/lib/content-disposition';
 import { buildCoverLetterRequest } from '@/lib/cover-letter/answer';
 import { groundLetter, LETTER_GROUNDING_VERSION } from '@/lib/cover-letter/ground';
-import { countWords, letterTooLong, MAX_GENERATED_WORDS, MAX_PARAGRAPH_CHARS, TARGET_WORDS } from '@/lib/cover-letter/limits';
+import { countWords, letterTooLong, MAX_GENERATED_WORDS, MAX_LETTER_CHARS, MAX_PARAGRAPH_CHARS, TARGET_WORDS } from '@/lib/cover-letter/limits';
 import { renderCoverLetter, type CoverLetterPdfOptions } from '@/lib/cover-letter-pdf';
 import { companyName } from '@/lib/tailor/ground';
 import { editableLines } from '@/lib/tailor/lines';
@@ -148,6 +148,11 @@ coverLetterRouter.post('/jobs/:id/cover-letter', async (request, response, next)
       });
     }
 
+    // An answer far longer than any letter isn't one: refused before the check reads it.
+    const total = answer.paragraphs.reduce((sum, paragraph) => sum + paragraph.length, 0);
+    if (total > 3 * MAX_LETTER_CHARS || answer.paragraphs.some((paragraph) => paragraph.length > 2 * MAX_PARAGRAPH_CHARS)) {
+      throw new AiUnavailableError(`The AI wrote a letter too long for a ${length} one. Try again.`);
+    }
     const grounded = groundLetter(answer.paragraphs, { base, job, jobTerms: postingKeywords(job), confirmedKeywords });
     const words = grounded.paragraphs.reduce((sum, paragraph) => sum + countWords(paragraph), 0);
     // Less than half of the length asked for is left: most of what the AI wrote was dropped.

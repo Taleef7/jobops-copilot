@@ -15,7 +15,7 @@ const { toast } = vi.hoisted(() => ({ toast: { success: vi.fn(), error: vi.fn(),
 vi.mock('sonner', () => ({ toast }));
 vi.mock('@/lib/api', () => ({ getCoverLetter, writeCoverLetter, editCoverLetterParagraph, removeCoverLetterParagraph, downloadCoverLetter }));
 
-import { CoverLetterReview, resetCoverLetterStoreForTests, startCoverLetter } from './cover-letter-review';
+import { CoverLetterReview, resetCoverLetterStoreForTests, setTailorKeywords, startCoverLetter } from './cover-letter-review';
 
 afterEach(() => {
   vi.clearAllMocks();
@@ -280,5 +280,68 @@ describe('CoverLetterReview', () => {
     await user.click(screen.getByRole('button', { name: 'Full' }));
     await user.click(within(alert).getByRole('button', { name: 'Try again' }));
     expect(writeCoverLetter).toHaveBeenLastCalledWith('job-1', { length: 'full', confirmedKeywords: ['Kafka'] });
+  });
+  it("Try again after a failed run from the tailor window keeps that run's keywords and length", async () => {
+    const user = userEvent.setup();
+    getCoverLetter.mockResolvedValue(null);
+    writeCoverLetter.mockRejectedValueOnce(Object.assign(new Error("The AI couldn't answer this time."), { status: 503 }));
+    writeCoverLetter.mockReturnValueOnce(new Promise(() => undefined));
+    startCoverLetter('job-1', { length: 'full', confirmedKeywords: ['Snowflake'] });
+    renderLetter([]);
+
+    const alert = await screen.findByRole('alert');
+    expect(screen.getByRole('button', { name: 'Full' })).toHaveAttribute('aria-pressed', 'true');
+    await user.click(within(alert).getByRole('button', { name: 'Try again' }));
+    expect(writeCoverLetter).toHaveBeenLastCalledWith('job-1', { length: 'full', confirmedKeywords: ['Snowflake'] });
+  });
+
+  it('Write again uses the keywords of the latest tailoring, else the letter\'s', async () => {
+    const user = userEvent.setup();
+    getCoverLetter.mockResolvedValueOnce(letter);
+    writeCoverLetter.mockReturnValue(new Promise(() => undefined));
+    renderLetter();
+
+    setTailorKeywords('job-1', ['Kafka', 'Snowflake']);
+    await user.click(await screen.findByRole('button', { name: 'Write again' }));
+    expect(writeCoverLetter).toHaveBeenLastCalledWith('job-1', { length: 'concise', confirmedKeywords: ['Kafka', 'Snowflake'] });
+  });
+
+  it('a paragraph that moved in another tab: the letter is read again and the edit stays open on it', async () => {
+    const user = userEvent.setup();
+    getCoverLetter.mockResolvedValueOnce(letter);
+    editCoverLetterParagraph.mockRejectedValueOnce(
+      Object.assign(new Error('That paragraph changed or moved in another tab.'), { status: 409, code: 'PARAGRAPH_CHANGED' }),
+    );
+    // Another tab removed the first paragraph: the one being edited is now the first.
+    getCoverLetter.mockResolvedValueOnce({ ...letter, paragraphs: letter.paragraphs.slice(1), checks: [], updatedAt: '2026-10-14T12:05:00.000Z' });
+    renderLetter();
+
+    await user.click(await screen.findByRole('button', { name: 'Edit paragraph 2' }));
+    const box = screen.getByLabelText('Paragraph 2');
+    await user.type(box, ' More.');
+    await user.click(within(screen.getByTestId('letter-paragraph-1')).getByRole('button', { name: 'Save' }));
+
+    await waitFor(() => expect(getCoverLetter).toHaveBeenCalledTimes(2));
+    const moved = await screen.findByLabelText('Paragraph 1');
+    expect(moved).toHaveValue(`${letter.paragraphs[1]!.text} More.`);
+  });
+
+  it('a paragraph that is gone in another tab: the editor closes and the typed text is kept to copy', async () => {
+    const user = userEvent.setup();
+    getCoverLetter.mockResolvedValueOnce(letter);
+    editCoverLetterParagraph.mockRejectedValueOnce(
+      Object.assign(new Error('That paragraph changed or moved in another tab.'), { status: 409, code: 'PARAGRAPH_CHANGED' }),
+    );
+    getCoverLetter.mockResolvedValueOnce({ ...letter, paragraphs: [letter.paragraphs[0]!, letter.paragraphs[2]!], checks: [] });
+    renderLetter();
+
+    await user.click(await screen.findByRole('button', { name: 'Edit paragraph 2' }));
+    await user.type(screen.getByLabelText('Paragraph 2'), ' More.');
+    await user.click(within(screen.getByTestId('letter-paragraph-1')).getByRole('button', { name: 'Save' }));
+
+    const unsaved = await screen.findByLabelText('Your unsaved text');
+    expect(unsaved).toHaveValue(`${letter.paragraphs[1]!.text} More.`);
+    expect(screen.queryByLabelText(/^Paragraph \d$/)).not.toBeInTheDocument();
+    expect(toast.error).toHaveBeenCalledWith(expect.stringMatching(/changed in another tab/));
   });
 });

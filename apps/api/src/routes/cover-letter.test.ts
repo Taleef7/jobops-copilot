@@ -501,3 +501,17 @@ test('text within the length limits that still needs two pages (wide capitals) i
     assert.equal(pdf.pages.length, 1);
   });
 });
+
+test('an answer far longer than any letter is refused before the check: 503 at once, nothing written', async () => {
+  for (const paragraphs of [['a.'.repeat(50_000)], Array.from({ length: 8 }, () => 'I build payment APIs in Go. '.repeat(60))]) {
+    await withLetters(answerOf(paragraphs), async ({ send }) => {
+      const job = await setUp();
+      const started = performance.now();
+      const response = await send('POST', `/api/jobs/${job.id}/cover-letter`, { length: 'full' });
+      const ms = performance.now() - started;
+      assert.equal(response.status, 503);
+      assert.ok(ms < 1_500, `${ms.toFixed(0)} ms`);
+      assert.equal(await read(send, job.id), null);
+    });
+  }
+});

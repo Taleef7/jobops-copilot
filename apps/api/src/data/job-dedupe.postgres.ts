@@ -39,7 +39,8 @@ export async function loadDedupeRows(userId: string): Promise<DedupeRow[]> {
             ((select count(*) from outreach o where o.job_id = j.id)
              + (select count(*) from job_contacts c where c.job_id = j.id)
              + (select count(*) from resume_versions r where r.job_id = j.id)
-             + (select count(*) from agent_outputs a where a.job_id = j.id))::int as activity,
+             + (select count(*) from agent_outputs a where a.job_id = j.id)
+             + (select count(*) from cover_letters l where l.job_id = j.id))::int as activity,
             (j.fit_score is not null
              and exists (select 1 from job_analysis s where s.job_id = j.id and s.model_used <> $2)) as scored
        from jobs j
