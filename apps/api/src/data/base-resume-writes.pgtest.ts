@@ -25,19 +25,23 @@ const resume = (summary: string): StructuredResume => ({
   skills: [{ category: 'Languages', skills: ['Go'] }],
 });
 
-/** While `run` runs, every write to this user's résumé versions fails, as a dropped connection would. */
-async function withFailingVersionWrites(userId: string, run: () => Promise<void>) {
+/**
+ * While `run` runs, this user's writes to a table fail, as a dropped connection would.
+ * `on` is the trigger's events and table, e.g. 'insert or update on resume_versions'.
+ */
+async function withFailingWrites(on: string, userId: string, run: () => Promise<void>) {
   const pool = getPool();
   assert.ok(pool, 'DATABASE_URL is set but there is no pool');
   const name = `itest_fail_${randomUUID().slice(0, 8)}`;
-  await pool.query(`create function ${name}() returns trigger language plpgsql as $$ begin raise exception 'version write failed'; end $$`);
+  const table = on.split(' on ')[1]!;
   await pool.query(
-    `create trigger ${name} before insert or update on resume_versions for each row when (new.user_id = '${userId}') execute function ${name}()`,
+    `create function ${name}() returns trigger language plpgsql as $$ begin raise exception '% write failed', tg_table_name; end $$`,
   );
+  await pool.query(`create trigger ${name} before ${on} for each row when (new.user_id = '${userId}') execute function ${name}()`);
   try {
     await run();
   } finally {
-    await pool.query(`drop trigger ${name} on resume_versions`);
+    await pool.query(`drop trigger ${name} on ${table}`);
     await pool.query(`drop function ${name}()`);
   }
 }
@@ -75,7 +79,7 @@ test('a save whose version write fails changes neither copy', { skip }, async ()
   assert.equal(version?.structuredResume.basics.summary, 'Old.');
 
   // A replacement file: its résumé and its text.
-  await withFailingVersionWrites(userId, async () => {
+  await withFailingWrites('insert or update on resume_versions', userId, async () => {
     const status = await putBaseResume(userId, { baseResume: resume('New.'), resumeText: 'new text', resumeFileName: 'new.pdf' });
     assert.equal(status, 500);
   });
@@ -94,9 +98,26 @@ test('a save whose version write fails changes neither copy', { skip }, async ()
   assert.equal((await getBaseResumeVersion(userId))?.structuredResume.basics.summary, 'New.');
 });
 
+test('a save whose profile write fails changes neither copy', { skip }, async () => {
+  // The other way round: the version mustn't be written before a profile write that fails.
+  const userId = newUser();
+  assert.equal(await putBaseResume(userId, { baseResume: resume('Old.'), resumeText: 'old text', resumeFileName: 'old.pdf' }), 200);
+  const profile = await getUserProfile(userId);
+  const version = await getBaseResumeVersion(userId);
+  assert.equal(version?.structuredResume.basics.summary, 'Old.');
+
+  await withFailingWrites('insert or update on user_profiles', userId, async () => {
+    const status = await putBaseResume(userId, { baseResume: resume('New.'), resumeText: 'new text', resumeFileName: 'new.pdf' });
+    assert.equal(status, 500);
+  });
+
+  assert.deepEqual(await getUserProfile(userId), profile);
+  assert.deepEqual(await getBaseResumeVersion(userId), version);
+});
+
 test('a first save whose version write fails leaves no profile behind', { skip }, async () => {
   const userId = newUser();
-  await withFailingVersionWrites(userId, async () => {
+  await withFailingWrites('insert or update on resume_versions', userId, async () => {
     assert.equal(await putBaseResume(userId, { baseResume: resume('First.'), resumeText: 'text', resumeFileName: 'cv.pdf' }), 500);
   });
   assert.equal(await getUserProfile(userId), undefined);
@@ -126,8 +147,16 @@ test("keywords added to the base résumé from tailoring go on both copies, or n
 
   const profile = await getUserProfile(userId);
   const version = await getBaseResumeVersion(userId);
-  await withFailingVersionWrites(userId, async () => {
-    await assert.rejects(changeBaseResume(userId, null, add('Redis')), /version write failed/);
+  await withFailingWrites('insert or update on resume_versions', userId, async () => {
+    await assert.rejects(changeBaseResume(userId, null, add('Redis')), /resume_versions write failed/);
+  });
+  assert.deepEqual(await getUserProfile(userId), profile);
+  assert.deepEqual(await getBaseResumeVersion(userId), version);
+
+  // The profile's write failing instead. Update only: the insert that makes sure there is a row
+  // to lock fires insert triggers before anything is changed.
+  await withFailingWrites('update on user_profiles', userId, async () => {
+    await assert.rejects(changeBaseResume(userId, null, add('Redis')), /user_profiles write failed/);
   });
   assert.deepEqual(await getUserProfile(userId), profile);
   assert.deepEqual(await getBaseResumeVersion(userId), version);
