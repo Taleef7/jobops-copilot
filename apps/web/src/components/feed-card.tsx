@@ -23,6 +23,7 @@ import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { updateJob } from '@/lib/api';
 import { formatDate } from '@/lib/format';
+import { postingHref } from '@/lib/job-display';
 import { cn } from '@/lib/utils';
 import type { FeedItem, JobStatus } from '@/types/job';
 
@@ -82,6 +83,7 @@ export function FeedCard({ item, onStatusChange, className }: FeedCardProps) {
   const scoreDelta = adjustedScore != null && fitScore != null ? adjustedScore - fitScore : 0;
   const salaryText = formatSalary(job.salaryMin, job.salaryMax, job.salaryCurrency);
   const freshnessBadge = getFreshnessBadge(job.datePosted ?? job.discoveredAt);
+  const posting = postingHref(job.jobUrl);
 
   async function handleStatusUpdate(newStatus: JobStatus) {
     setIsUpdating(true);
@@ -295,11 +297,11 @@ export function FeedCard({ item, onStatusChange, className }: FeedCardProps) {
             </Badge>
           )}
 
-          {job.jobUrl && (
+          {posting && (
             <Button
               size="sm"
               variant="ghost"
-              render={<a href={job.jobUrl} target="_blank" rel="noopener noreferrer" />}
+              render={<a href={posting} target="_blank" rel="noopener noreferrer" />}
               className="gap-1 text-xs h-8 text-muted-foreground"
             >
               <ExternalLink className="size-3.5" /> Source
