@@ -92,7 +92,7 @@ export default async function OutreachPage() {
                         {item.draft.messageType.replaceAll('_', ' ')}
                       </Badge>
                     </div>
-                    <OutreachDraftCard draftText={item.draft.draftText} />
+                    <OutreachDraftCard draftText={item.draft.draftText} messageType={item.draft.messageType} />
                     <div className="flex items-center justify-between gap-2 border-t pt-2">
                       <OutreachReviewActions
                         outreachId={item.draft.id}

@@ -72,6 +72,13 @@ test('prerankAnalysis builds an estimated analysis tagged local-prerank', () => 
   // A matched skill must never also appear as missing.
   const overlap = analysis.missingSkills.filter((skill) => analysis.matchedSkills.includes(skill));
   assert.deepEqual(overlap, []);
+  // It measures skills only: the rest is unknown, not 50 (#354).
+  assert.deepEqual(analysis.subSignals, {
+    skillsMatch: 67,
+    titleSeniority: null,
+    salaryFit: null,
+    sponsorshipLikelihood: null,
+  });
 });
 
 test('prerankAnalysis leaves the score unset when evidence is thin', () => {
@@ -84,6 +91,8 @@ test('prerankAnalysis leaves the score unset when evidence is thin', () => {
   // Still a usable analysis — just without a fabricated number attached.
   assert.equal(analysis.modelUsed, PRERANK_MODEL);
   assert.deepEqual(analysis.matchedSkills, ['TypeScript']);
+  // No score means no skills signal either, not 50 (#354).
+  assert.equal(analysis.subSignals?.skillsMatch, null);
 });
 
 test('realistic 1500-char JD mentioning Python, PostgreSQL, Docker, Kubernetes, Terraform clears evidence floor', () => {

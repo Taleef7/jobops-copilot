@@ -1,3 +1,4 @@
+import { skillNames } from '@/lib/analysis-display';
 import type { Job, JobStatus } from '@/types/job';
 
 const statusBuckets: JobStatus[] = [
@@ -34,7 +35,7 @@ export function getDashboardSummary(jobs: Job[]) {
   const missingSkills = new Map<string, number>();
 
   for (const job of jobs) {
-    for (const skill of job.analysis?.missingSkills ?? []) {
+    for (const skill of skillNames(job.analysis?.missingSkills ?? [])) {
       missingSkills.set(skill, (missingSkills.get(skill) ?? 0) + 1);
     }
   }

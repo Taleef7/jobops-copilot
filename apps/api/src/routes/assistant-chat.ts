@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { requireUser } from '@/lib/auth';
 import { getJobById } from '@/data/job-store';
+import { skillNames } from '@/lib/analysis-core';
 import { AI_NO_ANSWER, AgentDisabledError, streamAssistantChatUpstream } from '@/lib/agent-client';
 import type { UpstreamStream } from '@/routes/assistant';
 
@@ -41,6 +42,8 @@ async function buildJobContext(
   if (!job) return undefined;
 
   const { analysis } = job;
+  const matched = skillNames(analysis?.matchedSkills ?? []);
+  const missing = skillNames(analysis?.missingSkills ?? []);
   const lines = [
     `Job ID: ${job.id}`,
     `Title: ${job.title}`,
@@ -48,8 +51,8 @@ async function buildJobContext(
     `Location: ${job.location} (${job.workplaceType})`,
     job.fitScore != null ? `Fit score: ${job.fitScore}` : null,
     analysis?.fitSummary ? `Fit summary: ${analysis.fitSummary}` : null,
-    analysis?.matchedSkills?.length ? `Matched skills: ${analysis.matchedSkills.join(', ')}` : null,
-    analysis?.missingSkills?.length ? `Missing skills: ${analysis.missingSkills.join(', ')}` : null,
+    matched.length ? `Matched skills: ${matched.join(', ')}` : null,
+    missing.length ? `Missing skills: ${missing.join(', ')}` : null,
     job.descriptionText
       ? `Job description:\n${job.descriptionText.slice(0, DESCRIPTION_LIMIT)}`
       : null,

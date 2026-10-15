@@ -59,7 +59,7 @@ function makeJob(overrides: Partial<JobRecord> = {}): JobRecord {
       fitSummary: 'Initial placeholder analysis waiting for AI processing.',
       recommendedResumeAngle: 'Emphasize truthful, relevant experience from the current resume.',
       applyRecommendation: 'Review manually before deciding whether to apply.',
-      confidenceScore: 48,
+      confidenceScore: null,
       modelUsed: 'mock-analysis-v1',
     },
     outreach: [],

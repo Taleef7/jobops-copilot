@@ -221,7 +221,7 @@ test('rankFeedJobs penalizes stale and expired postings and filters by min_score
   assert.equal(sponsorFiltered.items.length, 2); // active and stale have likely
 });
 
-test('rankFeedJobs applies 50% defaults per property when subSignals is empty object or missing', () => {
+test('rankFeedJobs keeps missing sub-signals and an unscored job unknown, not 50 (#354)', () => {
   const now = Date.now();
   const job = createMockJob({
     id: 'j-empty-signals',
@@ -241,10 +241,13 @@ test('rankFeedJobs applies 50% defaults per property when subSignals is empty ob
   const ranked = rankFeedJobs([job], stats, {}, now);
   assert.equal(ranked.items.length, 1);
   assert.deepEqual(ranked.items[0]?.subSignals, {
-    skillsMatch: 50,
-    titleSeniority: 50,
-    salaryFit: 50,
-    sponsorshipLikelihood: 50,
+    skillsMatch: null,
+    titleSeniority: null,
+    salaryFit: null,
+    sponsorshipLikelihood: null,
   });
+  // No score to adjust, so no adjusted score; a minimum score leaves it out.
+  assert.equal(ranked.items[0]?.adjustedScore, null);
+  assert.equal(rankFeedJobs([job], stats, { minScore: 10 }, now).items.length, 0);
 });
 

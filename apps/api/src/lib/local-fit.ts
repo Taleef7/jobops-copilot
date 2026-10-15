@@ -78,11 +78,12 @@ export function prerankAnalysis(
       // A keyword estimate claims no confidence (#349).
       confidenceScore: null,
       modelUsed: PRERANK_MODEL,
+      // It measures skills only; the rest is unknown (#354).
       subSignals: {
-        skillsMatch: score ?? 50,
-        titleSeniority: 50,
-        salaryFit: 50,
-        sponsorshipLikelihood: 50,
+        skillsMatch: score,
+        titleSeniority: null,
+        salaryFit: null,
+        sponsorshipLikelihood: null,
       },
     },
   };

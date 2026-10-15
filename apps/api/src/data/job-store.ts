@@ -13,7 +13,7 @@ import type {
   UpdateOutreachBody,
   UpdateJobBody,
 } from '@/types';
-import { validateJobAnalysis } from '@/lib/analysis-core';
+import { normalizeAnalysis, validateJobAnalysis } from '@/lib/analysis-core';
 import { deriveAnalyzedNextAction, UNSCORED_NEXT_ACTION } from '@/lib/analysis-workflow';
 import { deriveOutreachJobUpdate } from '@/lib/outreach-workflow';
 import { hasPostgresConnection } from '@/lib/postgres';
@@ -124,7 +124,10 @@ async function loadJobs(): Promise<JobRecord[]> {
       throw new Error('Invalid job store contents');
     }
 
-    jobsCache = parsed as JobRecord[];
+    // Rows saved before #354 hold a 0–1 confidence and skills as "label: why" strings.
+    jobsCache = (parsed as JobRecord[]).map((job) =>
+      job.analysis ? { ...job, analysis: normalizeAnalysis(job.analysis, job.fitScore) } : job,
+    );
   } catch {
     jobsCache = seedState();
     await persistJobs();
@@ -522,10 +525,10 @@ export async function saveJobAnalysis(
       throw new Error('Invalid job analysis payload');
     }
 
-    job.analysis = clone(analysis);
     if (fitScore !== undefined) {
       job.fitScore = fitScore;
     }
+    job.analysis = clone(normalizeAnalysis(analysis, job.fitScore));
     // A scored job must stop telling you to score it. Null means "leave it" —
     // a pre-rank, or a next action that is no longer the creation-time prompt.
     const nextAction = deriveAnalyzedNextAction(job.nextAction, analysis.modelUsed, fitScore);

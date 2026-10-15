@@ -124,11 +124,13 @@ export interface ScoreFitResponse {
   fit_score: number;
   matched_skills: string[];
   missing_skills: string[];
+  matched_skill_details?: { skill: string; evidence: string }[];
+  missing_skill_details?: { skill: string; posting_quote: string }[];
   ats_keywords: string[];
   fit_summary: string;
   recommended_resume_angle: string;
   apply_recommendation: 'apply' | 'review' | 'pass';
-  confidence_score: number;
+  confidence_score: number | null;
   model_used: string;
 }
 

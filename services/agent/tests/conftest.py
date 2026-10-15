@@ -24,4 +24,7 @@ def _clear_llm_env(monkeypatch):
         "google_gemini_api_key",
     ):
         monkeypatch.setattr(settings, attr, None)
+    # A model call a test forgot to fake goes nowhere instead of to a real provider.
+    for var in ("OPENAI_BASE_URL", "ANTHROPIC_BASE_URL"):
+        monkeypatch.setenv(var, "http://127.0.0.1:9")
     yield

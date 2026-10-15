@@ -18,11 +18,23 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
-import { isPrerankAnalysis } from '@/lib/analysis-display';
+import { isPrerankAnalysis, skillNames } from '@/lib/analysis-display';
 import { postedDay } from '@/lib/format';
 import { isWithinRecency, RECENCY_OPTIONS, type RecencyWindow } from '@/lib/job-recency';
 import { cn } from '@/lib/utils';
 import type { Job, JobPriority, JobStatus } from '@/types/job';
+
+/** "Matches: Go · Postgres · Kafka +2", or nothing when no skill matched. */
+function MatchesLine({ skills }: { skills: string[] }) {
+  const names = skillNames(skills);
+  if (!names.length) return null;
+  return (
+    <span className="text-muted-foreground mt-1 block truncate text-[11px]">
+      Matches: {names.slice(0, 3).join(' · ')}
+      {names.length > 3 ? ` +${names.length - 3}` : ''}
+    </span>
+  );
+}
 
 /** `outreach_drafted` -> `Outreach drafted`. */
 function titleCase(value: string) {
@@ -241,14 +253,9 @@ export function JobsTable({ jobs, initialQuery = '' }: { jobs: Job[]; initialQue
                         </span>
                         {!job.analysis ? (
                           <span className="text-muted-foreground mt-1 block text-[11px]">Not analysed yet</span>
-                        ) : job.analysis.matchedSkills.length > 0 ? (
-                          <span className="text-muted-foreground mt-1 block truncate text-[11px]">
-                            Matches: {job.analysis.matchedSkills.slice(0, 3).join(' · ')}
-                            {job.analysis.matchedSkills.length > 3
-                              ? ` +${job.analysis.matchedSkills.length - 3}`
-                              : ''}
-                          </span>
-                        ) : null}
+                        ) : (
+                          <MatchesLine skills={job.analysis.matchedSkills} />
+                        )}
                       </span>
                     </Link>
                   </TableCell>

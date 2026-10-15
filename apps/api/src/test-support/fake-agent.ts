@@ -16,8 +16,11 @@ export const FAKE_PARSED_JOB = {
 
 export const FAKE_FIT_SCORE = {
   fit_score: 72,
-  matched_skills: ['Go', 'Postgres'],
-  missing_skills: ['Kafka'],
+  matched_skills: [
+    { skill: 'Go', evidence: 'Built the billing API in Go.' },
+    { skill: 'Postgres', evidence: 'Ran Postgres in production.' },
+  ],
+  missing_skills: [{ skill: 'Kafka', posting_quote: 'Experience with Kafka' }],
   ats_keywords: ['Go', 'Postgres', 'Kafka'],
   fit_summary: 'Strong on Go and Postgres; no Kafka yet.',
   recommended_resume_angle: 'Lead with the Go services you built.',
