@@ -6,6 +6,7 @@ import { useState } from 'react';
 import { EmptyState } from '@/components/empty-state';
 import { OptionSelect } from '@/components/ui/option-select';
 import { FitScoreRing } from '@/components/fit-score-ring';
+import { LocalDate } from '@/components/local-date';
 import { StatusPill } from '@/components/status-pill';
 import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
@@ -18,8 +19,8 @@ import {
   TableRow,
 } from '@/components/ui/table';
 import { isPrerankAnalysis } from '@/lib/analysis-display';
-import { formatDate } from '@/lib/format';
-import { isWithinRecency, RECENCY_OPTIONS, recencyDate, type RecencyWindow } from '@/lib/job-recency';
+import { postedDay } from '@/lib/format';
+import { isWithinRecency, RECENCY_OPTIONS, type RecencyWindow } from '@/lib/job-recency';
 import { cn } from '@/lib/utils';
 import type { Job, JobPriority, JobStatus } from '@/types/job';
 
@@ -225,7 +226,7 @@ export function JobsTable({ jobs, initialQuery = '' }: { jobs: Job[]; initialQue
                             </Badge>
                           ) : null}
                           <span className="text-muted-foreground text-[11px]">
-                            Posted {formatDate(recencyDate(job))}
+                            Posted <LocalDate value={postedDay(job.datePosted) ?? job.discoveredAt} />
                           </span>
                         </span>
                         {!job.analysis ? (
@@ -269,7 +270,7 @@ export function JobsTable({ jobs, initialQuery = '' }: { jobs: Job[]; initialQue
                       row with its header still hidden — an unlabelled field in
                       every tablet-sized card. */}
                   <TableCell className="text-muted-foreground hidden max-w-[16rem] truncate text-sm lg:table-cell">
-                    {job.nextAction || formatDate(job.nextActionDue ?? job.discoveredAt)}
+                    {job.nextAction || <LocalDate value={job.nextActionDue ?? job.discoveredAt} />}
                   </TableCell>
                 </TableRow>
               ))}

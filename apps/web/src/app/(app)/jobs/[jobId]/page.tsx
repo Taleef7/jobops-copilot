@@ -9,6 +9,7 @@ import { JobAnalysisActions } from '@/components/job-analysis-actions';
 import { JobEditPanel } from '@/components/job-edit-panel';
 import { JobOutreachActions } from '@/components/job-outreach-actions';
 import { LoadFailure } from '@/components/load-failure';
+import { LocalDate } from '@/components/local-date';
 import { SkillChipList } from '@/components/skill-chip';
 import { StatusPill } from '@/components/status-pill';
 import { Badge } from '@/components/ui/badge';
@@ -26,7 +27,7 @@ import {
   fetchProfile,
 } from '@/lib/api';
 import { isPrerankAnalysis } from '@/lib/analysis-display';
-import { formatDate } from '@/lib/format';
+import { postedDay } from '@/lib/format';
 import { loadJob } from '@/lib/job-data';
 import { isDuplicateRemote } from '@/lib/job-display';
 
@@ -274,7 +275,7 @@ export default async function JobDetailPage({ params }: JobDetailParams) {
             <dl className="text-sm">
               <div className="flex justify-between gap-2 border-b py-2">
                 <dt className="text-muted-foreground">Posted</dt>
-                <dd>{formatDate(job.datePosted)}</dd>
+                <dd><LocalDate value={postedDay(job.datePosted)} /></dd>
               </div>
               <div className="flex justify-between gap-2 border-b py-2">
                 <dt className="text-muted-foreground">Next action</dt>
@@ -282,7 +283,7 @@ export default async function JobDetailPage({ params }: JobDetailParams) {
               </div>
               <div className="flex justify-between gap-2 py-2">
                 <dt className="text-muted-foreground">Follow-up</dt>
-                <dd>{job.nextActionDue ? formatDate(job.nextActionDue) : '—'}</dd>
+                <dd>{job.nextActionDue ? <LocalDate value={job.nextActionDue} /> : '—'}</dd>
               </div>
             </dl>
           </Card>

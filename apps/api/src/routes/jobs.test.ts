@@ -149,3 +149,45 @@ test('POST /api/jobs answers 409 with the existing job when the posting is alrea
     await rm(tempDir, { recursive: true, force: true });
   }
 });
+
+// #412: a cleared field is sent as null and cleared; a field the request leaves out is unchanged.
+test('PATCH /api/jobs/:id clears the notes, next action and follow-up sent as null, and keeps those left out', async () => {
+  const originalCwd = process.cwd();
+  delete process.env.DATABASE_URL; // force in-memory/file store
+  const tempDir = await mkdtemp(join(tmpdir(), 'jobops-route-jobs-'));
+
+  try {
+    process.chdir(tempDir);
+    resetJobStoreForTests();
+
+    await withServer((app) => app.use('/api/jobs', jobsRouter), async (baseUrl) => {
+      const send = async (method: string, path: string, body: unknown) => {
+        const response = await fetch(`${baseUrl}/api/jobs${path}`, {
+          method,
+          headers: { 'Content-Type': 'application/json', 'X-User-Id': 'test-user' },
+          body: JSON.stringify(body),
+        });
+        assert.ok(response.ok, `${method} ${path}: ${response.status}`);
+        return ((await response.json()) as { job: JobRecord }).job;
+      };
+      const { id } = await send('POST', '', { company: 'Acme', title: 'Engineer', descriptionText: 'Go.' });
+      const filled = { notes: 'Call Sam', nextAction: 'Send the follow-up', nextActionDue: '2026-10-20T13:00:00.000Z' };
+      await send('PATCH', `/${id}`, filled);
+
+      const kept = await send('PATCH', `/${id}`, { priority: 'high' });
+      assert.deepEqual(
+        { notes: kept.notes, nextAction: kept.nextAction, nextActionDue: kept.nextActionDue },
+        filled,
+      );
+
+      const cleared = await send('PATCH', `/${id}`, { notes: null, nextAction: null, nextActionDue: null });
+      assert.equal(cleared.notes, undefined);
+      assert.equal(cleared.nextAction || undefined, undefined);
+      assert.equal(cleared.nextActionDue, undefined);
+    });
+  } finally {
+    process.chdir(originalCwd);
+    resetJobStoreForTests();
+    await rm(tempDir, { recursive: true, force: true });
+  }
+});

@@ -69,7 +69,7 @@ export function selectDueFollowUps(jobs: JobRecord[], asOf = new Date()): Follow
         company: job.company,
         title: job.title,
         status: job.status,
-        nextAction: job.nextAction ?? 'Review the job and decide on the next step.',
+        nextAction: job.nextAction || 'Review the job and decide on the next step.',
         nextActionDue: job.nextActionDue!,
         outreachCount: job.outreach.length,
         daysOverdue,

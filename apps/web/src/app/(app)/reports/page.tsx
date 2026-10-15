@@ -1,5 +1,6 @@
 import type { Metadata } from 'next';
 import { LoadFailure } from '@/components/load-failure';
+import { LocalDate } from '@/components/local-date';
 import { CircleCheck, Download, Send, Target, Briefcase, CalendarCheck } from 'lucide-react';
 import { EmptyState } from '@/components/empty-state';
 import { isSkillLabelTruncated, skillLabel } from '@/lib/analysis-display';
@@ -14,6 +15,7 @@ export const dynamic = 'force-dynamic';
 
 export const metadata: Metadata = { title: 'Reports' };
 
+// A report's week is calendar days ("2026-10-05"), read in UTC so they stay the days saved.
 const dateFormatter = new Intl.DateTimeFormat('en-US', {
   month: 'short',
   day: 'numeric',
@@ -116,7 +118,9 @@ export default async function ReportsPage() {
               <li key={item.id} className="flex items-center justify-between gap-3 py-3">
                 <div>
                   <p className="text-sm font-medium">{formatWeekRange(item)}</p>
-                  <p className="text-muted-foreground text-xs">Generated {formatDate(item.createdAt)}</p>
+                  <p className="text-muted-foreground text-xs">
+                    Generated <LocalDate value={item.createdAt} />
+                  </p>
                 </div>
                 <a
                   href={`/api/proxy/api/reports/${item.id}/export`}

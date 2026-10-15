@@ -1,9 +1,8 @@
 import '@testing-library/jest-dom/vitest';
 import { act, render, screen, waitFor, within } from '@testing-library/react';
-import { hydrateRoot } from 'react-dom/client';
-import { renderToString } from 'react-dom/server';
 import userEvent from '@testing-library/user-event';
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { hydrateInBrowser, renderOnServer } from '@/test/time-zones';
 import type { StructuredResume } from '@/types/job';
 
 const { saveBaseResume, uploadResumeFile, parseResume, fetchResumeText, saveResumeText, toastFn } = vi.hoisted(() => {
@@ -196,21 +195,12 @@ describe('ResumePanel (#350)', () => {
   // does: live, the server rendered "Oct 3" and the browser "Oct 2", a hydration error.
   it('leaves the "Last updated" date to the browser', async () => {
     const panel = <ResumePanel initial={resume} updatedAt="2026-10-03T00:54:15.096Z" resumeFileName="cv.pdf" hasStoredText />;
-    const html = renderToString(panel);
-    expect(html).toContain('Last updated <!-- -->…');
+    const html = renderOnServer(panel);
+    expect(html).not.toContain('Oct 3, 2026');
 
-    const container = document.createElement('div');
-    container.innerHTML = html;
-    document.body.appendChild(container);
-    const onRecoverableError = vi.fn();
-    let root!: ReturnType<typeof hydrateRoot>;
-    await act(async () => {
-      root = hydrateRoot(container, panel, { onRecoverableError });
-    });
-    expect(onRecoverableError).not.toHaveBeenCalled();
-    expect(within(container).getByText(/Last updated (Oct 2|Oct 3), 2026/)).toBeInTheDocument();
-    act(() => root.unmount());
-    container.remove();
+    const { container, hydrationErrors } = await hydrateInBrowser(html, panel);
+    expect(hydrationErrors).not.toHaveBeenCalled();
+    expect(within(container).getByText(/^Last updated/)).toHaveTextContent('Last updated Oct 2, 2026');
   });
 
   it('shows what was read from the PDF', async () => {

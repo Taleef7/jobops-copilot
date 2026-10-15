@@ -396,16 +396,16 @@ export function updateJob(jobId: string, body: UpdateJobBody) {
     job.priority = body.priority;
   }
   if (typeof body.notes !== 'undefined') {
-    job.notes = body.notes;
+    job.notes = body.notes ?? undefined;
   }
   if (typeof body.fitScore !== 'undefined') {
     job.fitScore = body.fitScore;
   }
   if (typeof body.nextAction !== 'undefined') {
-    job.nextAction = body.nextAction;
+    job.nextAction = body.nextAction ?? undefined;
   }
   if (typeof body.nextActionDue !== 'undefined') {
-    job.nextActionDue = body.nextActionDue;
+    job.nextActionDue = body.nextActionDue ?? undefined;
   }
 
   job.updatedAt = now();
