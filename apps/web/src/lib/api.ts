@@ -110,7 +110,8 @@ export interface ParseJobResponse {
   job_id: string | null;
   company: string | null;
   title: string | null;
-  /** Null when the posting doesn't say; missing from an API before #355. */
+  /** Null when the posting doesn't say. Left out when unknown: an agent or API from before
+   *  #355, a workplace word the app doesn't know, or a salary the review can only guess at. */
   location?: string | null;
   workplace_type?: 'remote' | 'hybrid' | 'onsite' | null;
   salary?: PostedSalary | null;
@@ -833,8 +834,12 @@ export interface ExtractedJobResponse {
   location?: string;
   descriptionText?: string;
   workplaceType?: 'remote' | 'hybrid' | 'onsite' | 'flexible';
-  /** Read from the description; left out when it states none (#355). */
-  salary?: PostedSalary;
+  /**
+   * For the Add job review (#355): the annual salary the description states, null when it
+   * shows no sign of one, and left out when unknown (no description, only the page's meta
+   * description, an hourly rate, another currency, or an API from before #355).
+   */
+  salary?: PostedSalary | null;
   source: 'jsonld' | 'opengraph' | 'heuristic' | 'none';
 }
 

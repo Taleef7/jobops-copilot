@@ -86,6 +86,8 @@ type Posted = {
   location?: string;
   workplaceType?: Workplace | null;
   salary?: PostedSalary | null;
+  /** The description the salary was read from. */
+  description: string;
 };
 
 /** The review's starting values: what was read, and blank for the unknown. */
@@ -247,8 +249,9 @@ export function JobCreateForm() {
           location: data.location,
           workplaceType: data.workplaceType === undefined ? undefined : asWorkplace(data.workplaceType),
           salary: data.salary,
+          description: data.descriptionText ?? '',
         };
-        openReview(detailsFrom(from, link, data.descriptionText ?? ''), from);
+        openReview(detailsFrom(from, link, from.description), from);
       } else {
         const data = await parseJob({ descriptionText: text });
         if (id !== readSeq.current) return;
@@ -258,6 +261,7 @@ export function JobCreateForm() {
           location: data.location === undefined ? undefined : (data.location ?? ''),
           workplaceType: data.workplace_type === undefined ? undefined : asWorkplace(data.workplace_type),
           salary: data.salary,
+          description: text,
         };
         openReview(detailsFrom(from, '', text), from);
       }
@@ -316,7 +320,6 @@ export function JobCreateForm() {
 
     savingRef.current = true;
     setSaving(runFit ? 'fit' : 'save');
-    const salary = posted?.salary ?? null;
     try {
       const job = await createJob({
         company: details.company.trim(),
@@ -325,9 +328,8 @@ export function JobCreateForm() {
         workplaceType: details.workplaceType ?? undefined,
         jobUrl: details.jobUrl.trim() || undefined,
         source: 'manual',
+        // No salary: the store reads it from this description, as the review said it would.
         descriptionText: details.descriptionText.trim(),
-        // What the review showed is what's saved.
-        ...(salary ? { salaryMin: salary.min, salaryMax: salary.max, salaryCurrency: salary.currency } : {}),
       });
       setSaving('done');
       toast.success('Job saved.');
@@ -443,9 +445,12 @@ export function JobCreateForm() {
     location: hintFor(details.location, posted?.location, !posted || posted.location !== undefined),
   };
   const workplaceHint = posted?.workplaceType && details.workplaceType === posted.workplaceType ? 'from posting' : null;
-  // No row when nothing was read, or the reading couldn't tell (an API from before #355).
-  const showSalary = posted !== null && posted.salary !== undefined;
-  const salaryText = posted?.salary ? salaryAsPosted(posted.salary) : null;
+  // The store reads the salary from the saved description. The review shows the reading only
+  // while the description is the one it was read from and the reading could tell; otherwise
+  // it says the salary will be read on save, never "Not stated".
+  const salaryRead =
+    posted !== null && posted.salary !== undefined && details.descriptionText === posted.description;
+  const salaryText = salaryRead && posted?.salary ? salaryAsPosted(posted.salary) : null;
   const characters = details.descriptionText.length.toLocaleString('en-US');
 
   return (
@@ -547,18 +552,23 @@ export function JobCreateForm() {
           </div>
         </fieldset>
 
-        {showSalary ? (
-          // Read-only: the salary is what the posting states, not something to type in.
-          <div role="group" aria-labelledby="job-salary-label" className="space-y-1.5">
-            <div className="flex items-baseline justify-between gap-2">
-              <p id="job-salary-label" className="text-sm leading-none font-medium">
-                Salary
-              </p>
-              {salaryText ? <span className="text-muted-foreground text-xs">from posting</span> : null}
-            </div>
-            <p className="text-sm">{salaryText ?? <span className="text-muted-foreground">Not stated</span>}</p>
+        {/* Read-only: the salary is what the posting states, not something to type in. */}
+        <div role="group" aria-labelledby="job-salary-label" className="space-y-1.5">
+          <div className="flex items-baseline justify-between gap-2">
+            <p id="job-salary-label" className="text-sm leading-none font-medium">
+              Salary
+            </p>
+            {salaryText ? <span className="text-muted-foreground text-xs">from posting</span> : null}
           </div>
-        ) : null}
+          <p className="text-sm">
+            {salaryText ??
+              (salaryRead ? (
+                <span className="text-muted-foreground">Not stated</span>
+              ) : (
+                <span className="text-muted-foreground">Read from the description when you save.</span>
+              ))}
+          </p>
+        </div>
 
         <div className="space-y-1.5 sm:col-span-2">
           <Label htmlFor="job-url">Posting URL</Label>

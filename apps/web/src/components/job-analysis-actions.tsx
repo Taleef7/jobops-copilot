@@ -18,12 +18,12 @@ type JobAnalysisActionsProps = {
   runFit?: boolean;
 };
 
-/** Drop `?run=fit` from the address once the run has started, so a reload or Back to the
- *  page doesn't start (and pay for) another. Next keeps its router in step with this. */
 /** Jobs already scored from `?run=fit` in this page load. Back or Forward can bring the
  *  page back from the router's cache, still with `runFit`, after the address was cleaned. */
 const ranFromLink = new Set<string>();
 
+/** Drop `?run=fit` from the address once the run has started, so a reload or Back to the
+ *  page doesn't start (and pay for) another. Next keeps its router in step with this. */
 function forgetRunParam() {
   const url = new URL(window.location.href);
   if (!url.searchParams.has('run')) return;
