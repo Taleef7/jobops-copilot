@@ -67,7 +67,9 @@ done
 stream="$(curl -s -H "X-Agent-Key: $key" "https://$fqdn/openapi.json" --max-time 50 | grep -c '/assistant/stream' || true)"
 # The LLM canary: two tiny real model calls (structured output and a tool call), so a model
 # the provider rejects fails the deploy instead of every user's request (#348, #410). Each
-# call can take up to the agent's 60 s request timeout.
+# call is one attempt with no retries (#413). With the agent's 60 s request timeout (per
+# connect and per wait for data), a provider that doesn't answer costs about 120 s, inside the
+# 150 s below.
 canary_body="$(curl -s -H "X-Agent-Key: $key" -w '\n%{http_code}' --max-time 150 "https://$fqdn/health/llm" || true)"
 canary="$(printf '%s' "$canary_body" | tail -n1)"
 

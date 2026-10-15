@@ -1,6 +1,7 @@
 import '@testing-library/jest-dom/vitest';
-import { render, screen } from '@testing-library/react';
-import { afterEach, expect, it, vi } from 'vitest';
+import { render, screen, within } from '@testing-library/react';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import { renderPageOnServer } from '@/test/time-zones';
 import type { Job } from '@/types/job';
 
 const { loadJob, api, scoreMounts } = vi.hoisted(() => ({
@@ -23,6 +24,7 @@ vi.mock('next/navigation', () => ({
   notFound: () => {
     throw new Error('NEXT_NOT_FOUND');
   },
+  useRouter: () => ({ refresh: vi.fn() }),
 }));
 // The page's interactive panels have their own tests.
 vi.mock('@/components/job-analysis-actions', async () => {
@@ -47,6 +49,7 @@ import JobDetailPage, { generateMetadata } from './page';
 
 afterEach(() => {
   vi.clearAllMocks();
+  loadJob.mockImplementation(async () => ({ job: undefined, error: null }));
   scoreMounts.length = 0;
 });
 
@@ -126,4 +129,50 @@ it('gives each job its own Score fit', async () => {
 
   expect(screen.getByRole('heading', { name: 'Platform Engineer' })).toBeInTheDocument();
   expect(scoreMounts).toEqual([ID, other]);
+});
+
+// #412: the page's own dates, in the browser's time zone.
+describe('dates', () => {
+  // In UTC, Oct 1 and Oct 16; in New York, the browser's zone in these tests, Sep 30 and Oct 15.
+  const dated = makeJob({
+    company: 'Acme Pay',
+    location: 'New York, NY',
+    datePosted: '2026-10-01T01:30:00.000Z',
+    discoveredAt: '2026-10-01T02:00:00.000Z',
+    status: 'shortlisted',
+    priority: 'high',
+    fitScore: 81,
+    nextAction: 'Follow up with the recruiter',
+    nextActionDue: '2026-10-16T02:00:00.000Z',
+  });
+  const page = () => JobDetailPage(params(ID));
+
+  // #412: the page is a server component, so its dates were the server's (UTC) day.
+  it("shows the posted and follow-up days in the browser's time zone", async () => {
+    loadJob.mockResolvedValue({ job: dated, error: null });
+    const html = await renderPageOnServer(page);
+    expect(html).not.toContain('Oct 1, 2026');
+    expect(html).not.toContain('Oct 16, 2026');
+
+    render(await page());
+    const snapshot = screen.getByRole('heading', { name: 'Snapshot' }).parentElement!;
+    expect(within(snapshot).getByText('Sep 30, 2026')).toBeInTheDocument();
+    expect(within(snapshot).getByText('Oct 15, 2026')).toBeInTheDocument();
+  });
+
+  // date_posted is timestamptz, so a source that gives only the day reaches the web as UTC midnight.
+  it('shows a posting day stored as UTC midnight as that day', async () => {
+    loadJob.mockResolvedValue({ job: { ...dated, datePosted: '2026-06-01T00:00:00.000Z' }, error: null });
+    render(await page());
+    const snapshot = screen.getByRole('heading', { name: 'Snapshot' }).parentElement!;
+    expect(within(snapshot).getByText('Jun 1, 2026')).toBeInTheDocument();
+  });
+
+  // A cleared next action reads back as ''.
+  it('shows a dash for a job with no next action', async () => {
+    loadJob.mockResolvedValue({ job: { ...dated, nextAction: '' }, error: null });
+    render(await page());
+    const snapshot = screen.getByRole('heading', { name: 'Snapshot' }).parentElement!;
+    expect(within(snapshot).getByText('Next action').nextElementSibling).toHaveTextContent(/^—$/);
+  });
 });

@@ -104,7 +104,7 @@ export default async function JobsPage({
         <TabsContent value="searches" className="space-y-4">
           <SectionCard
             title="Find new jobs"
-            description="Save target searches, then pull real postings into your pipeline — already scored against your resume."
+            description="Save target searches, then pull real postings into your pipeline. Open one to get a fit read."
           >
             <SavedSearchesManager />
           </SectionCard>

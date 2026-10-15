@@ -6,12 +6,12 @@ import { useRouter } from 'next/navigation';
 import { Loader2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { ErrorState } from '@/components/error-state';
+import { LocalDate } from '@/components/local-date';
 import { ResumeImportConfirm } from '@/components/resume-import-confirm';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
-import { useHydrated } from '@/hooks/use-hydrated';
 import {
   errorMessage,
   fetchResumeText,
@@ -21,7 +21,6 @@ import {
   type ResumeFlag,
   type ResumeSource,
 } from '@/lib/api';
-import { formatDate } from '@/lib/format';
 import { formatResumeDate, formatResumeRange, withEndDate } from '@/lib/resume-display';
 import type {
   ResumeBasics,
@@ -439,7 +438,11 @@ export function ResumePanel({ initial, updatedAt, resumeFileName, hasStoredText,
         />
       ) : null}
 
-      {lastUpdated ? <LastUpdated at={lastUpdated} /> : null}
+      {lastUpdated ? (
+        <p className="text-muted-foreground text-xs">
+          Last updated <LocalDate value={lastUpdated} />
+        </p>
+      ) : null}
 
       <div className="divide-y border-t">
         {SECTIONS.map(({ key, title }) => {
@@ -524,12 +527,6 @@ export function ResumePanel({ initial, updatedAt, resumeFileName, hasStoredText,
       </div>
     </div>
   );
-}
-
-/** The date is in the browser's time zone, after hydration: the server's can put a save on another day. */
-function LastUpdated({ at }: { at: string }) {
-  const hydrated = useHydrated();
-  return <p className="text-muted-foreground text-xs">Last updated {hydrated ? formatDate(at) : '…'}</p>;
 }
 
 const NotSet = () => <p className="text-muted-foreground text-sm">Not set</p>;

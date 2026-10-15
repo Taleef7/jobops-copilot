@@ -1,4 +1,5 @@
 import { isDeepStrictEqual } from 'node:util';
+import { RESUME_LIST_MAX } from '@/lib/input-caps';
 import type { GroundingIssue, ResumeChangeDetail, ResumeVersionRecord, StructuredResume } from '@/types';
 import type { TailorAnswer } from './answer';
 import { BLOCKING, checkLine, prepareEvidence } from './ground';
@@ -106,7 +107,10 @@ export function addSkills(resume: StructuredResume, keywords: string[]): string[
   const added: string[] = [];
   for (const keyword of keywords) {
     if (isListedSkill(resume, keyword, vocab)) continue;
-    skillGroup(resume, undefined).skills.push(keyword);
+    const group = skillGroup(resume, undefined);
+    // A list stays within what a résumé can save (RESUME_LIST_MAX, #352).
+    if (group.skills.length >= RESUME_LIST_MAX) break;
+    group.skills.push(keyword);
     added.push(keyword);
   }
   return added;

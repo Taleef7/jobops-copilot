@@ -52,7 +52,12 @@ class _FakeChat:
 
 def _use(monkeypatch, answer, tool_answer=None):
     chat = _FakeChat(answer, tool_answer)
-    monkeypatch.setattr(canary, "get_model", lambda: (chat, "openai:gpt-6-luna"))
+
+    def get_model(**kwargs):
+        chat.built_with = kwargs
+        return chat, "openai:gpt-6-luna"
+
+    monkeypatch.setattr(canary, "get_model", get_model)
     return chat
 
 
@@ -63,6 +68,19 @@ def test_canary_parses_the_title_through_the_structured_model(monkeypatch):
 
     assert chat.schema is canary._CanaryTitle
     assert "Senior Data Engineer at Acme Corp" in chat.structured.prompts[0]
+
+
+# #413: the SDK retries a failed or timed-out request, so one canary call could take 3 times
+# the 60 s request timeout while its callers wait 140-150 s for both. The canary's model makes
+# one attempt per call.
+
+
+def test_canary_builds_its_model_for_one_attempt(monkeypatch):
+    chat = _use(monkeypatch, canary._CanaryTitle(title="Senior Data Engineer"))
+
+    canary.run_llm_canary()
+
+    assert chat.built_with == {"one_attempt": True}
 
 
 def test_canary_fails_on_an_empty_answer(monkeypatch):

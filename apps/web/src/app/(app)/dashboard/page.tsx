@@ -43,7 +43,7 @@ export default async function DashboardPage() {
         <div>
           <h1 className="font-heading text-2xl font-bold tracking-tight">Welcome back</h1>
           <p className="text-muted-foreground text-sm">
-            Your AI job-search operations at a glance.
+            Your job search at a glance.
           </p>
         </div>
         <div className="flex gap-2">
@@ -69,8 +69,7 @@ export default async function DashboardPage() {
           <div>
             <p className="font-heading text-lg font-semibold">No jobs yet</p>
             <p className="text-muted-foreground mx-auto max-w-sm text-sm">
-              Add a job (paste its description) and the AI will parse it, score your fit, and draft
-              outreach. You can also load sample data from Settings to explore first.
+              Add one by pasting a posting or its URL.
             </p>
           </div>
           <div className="flex gap-2">

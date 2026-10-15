@@ -194,7 +194,8 @@ function mapJob(row: JobRow, analysisRow?: JobAnalysisRow, outreachRows: Outreac
     priority: row.priority as JobRecord['priority'],
     fitScore: row.fit_score,
     notes: row.notes ?? undefined,
-    nextAction: row.next_action ?? 'Review the job and decide on the next step.',
+    // Cleared reads back empty: a default here would be saved by the next edit as the user's own.
+    nextAction: row.next_action ?? '',
     nextActionDue: toIsoString(row.next_action_due),
     analysis: mapAnalysis(analysisRow),
     outreach: outreachRows.map(mapOutreach),
@@ -481,10 +482,10 @@ export async function updateJob(
         set
           status = coalesce($2, status),
           priority = coalesce($3, priority),
-          notes = case when $4::text is null then notes else nullif($4::text, '') end,
+          notes = case when $9::boolean then nullif($4::text, '') else notes end,
           fit_score = coalesce($5, fit_score),
-          next_action = case when $6::text is null then next_action else nullif($6::text, '') end,
-          next_action_due = case when $7::timestamptz is null then next_action_due else $7::timestamptz end
+          next_action = case when $10::boolean then nullif($6::text, '') else next_action end,
+          next_action_due = case when $11::boolean then $7::timestamptz else next_action_due end
         where id = $1::uuid and user_id = $8
         returning *
       `,
@@ -497,6 +498,10 @@ export async function updateJob(
         body.nextAction ?? null,
         body.nextActionDue ?? null,
         userId,
+        // Set when given, null included (it clears); left out, unchanged.
+        body.notes !== undefined,
+        body.nextAction !== undefined,
+        body.nextActionDue !== undefined,
       ],
     );
 

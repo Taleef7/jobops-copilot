@@ -1,5 +1,8 @@
+import { randomUUID } from 'node:crypto';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
+import type { PoolClient } from 'pg';
+import { getBaseResumeVersion, insertResumeVersion, updateResumeVersion } from '@/data/resume-version-store';
 import { getPool, hasPostgresConnection } from '@/lib/postgres';
 import type { StructuredResume } from '@/types';
 
@@ -75,10 +78,11 @@ export async function getUserProfile(userId: string): Promise<UserProfile | unde
 export async function upsertUserProfile(
   userId: string,
   patch: Partial<Omit<UserProfile, 'userId'>>,
+  client?: PoolClient,
 ): Promise<UserProfile> {
   if (hasPostgresConnection()) {
-    const pool = getPool()!;
-    const { rows } = await pool.query<ProfileRow>(
+    const db = client ?? getPool()!;
+    const { rows } = await db.query<ProfileRow>(
       `
         insert into user_profiles (user_id, resume_text, resume_file_name, resume_file_url, profile_text, base_resume)
         values ($1, $2, $3, $4, $5, $6)
@@ -118,6 +122,67 @@ export async function upsertUserProfile(
 }
 
 /**
+ * Save the base résumé to both its copies (#408): the profile's, with the file's text for a
+ * replacement file, and the base version's, which the résumé studio and outreach read first.
+ * In Postgres one transaction, so a failed save changes neither. File mode has no
+ * transactions: the profile is written first, then the version.
+ */
+export async function saveBaseResume(
+  userId: string,
+  baseResume: StructuredResume,
+  source: { resumeText: string; resumeFileName: string } | null,
+): Promise<void> {
+  if (!hasPostgresConnection()) {
+    await upsertUserProfile(userId, { baseResume, ...source });
+    await saveBaseVersion(userId, baseResume);
+    return;
+  }
+
+  const client = await getPool()!.connect();
+  try {
+    await client.query('begin');
+    await upsertUserProfile(userId, { baseResume, ...source }, client);
+    await saveBaseVersion(userId, baseResume, client);
+    await client.query('commit');
+  } catch (error) {
+    await client.query('rollback').catch(() => undefined);
+    throw error;
+  } finally {
+    client.release();
+  }
+}
+
+/** Updates the base version, or creates it on the first save. */
+async function saveBaseVersion(userId: string, baseResume: StructuredResume, client?: PoolClient) {
+  const existing = await getBaseResumeVersion(userId, client);
+  if (existing) {
+    await updateResumeVersion(
+      userId,
+      existing.id,
+      { structuredResume: baseResume, changeSummary: 'Base resume updated via editor', approved: true },
+      {},
+      client,
+    );
+    return;
+  }
+  const now = new Date().toISOString();
+  await insertResumeVersion(
+    {
+      id: randomUUID(),
+      userId,
+      jobId: null,
+      changeSummary: 'Initial base resume created',
+      structuredResume: baseResume,
+      approved: true,
+      isBase: true,
+      createdAt: now,
+      updatedAt: now,
+    },
+    client,
+  );
+}
+
+/**
  * Change the base résumé as it is now, not as it was read earlier (#351): read, change and
  * write as one step, so a save made meanwhile (Settings, another tailoring) isn't overwritten.
  * `fallback` is the résumé to start from when the profile has none (the base version's).
@@ -150,6 +215,9 @@ export async function changeBaseResume(
         `,
         [userId, JSON.stringify(changed)],
       );
+      // The base version's copy too, in the same transaction (#408).
+      const baseVersion = await getBaseResumeVersion(userId, client);
+      if (baseVersion) await updateResumeVersion(userId, baseVersion.id, { structuredResume: changed }, {}, client);
       await client.query('commit');
       return changed;
     } catch (error) {
@@ -168,6 +236,8 @@ export async function changeBaseResume(
     if (!changed) return null;
     profiles[userId] = { ...existing, baseResume: changed, userId, updatedAt: new Date().toISOString() };
     await writeFileProfiles(profiles);
+    const baseVersion = await getBaseResumeVersion(userId);
+    if (baseVersion) await updateResumeVersion(userId, baseVersion.id, { structuredResume: changed });
     return changed;
   });
 }

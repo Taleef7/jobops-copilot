@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { Router } from 'express';
-import { getUserProfile, upsertUserProfile } from '@/data/profile-store';
+import { getUserProfile, saveBaseResume } from '@/data/profile-store';
 import {
   getBaseResumeVersion,
   insertResumeVersion,
@@ -9,7 +9,7 @@ import { resolveResumeParse } from '@/lib/agent-client';
 import { attachmentDisposition } from '@/lib/content-disposition';
 import { flagResume } from '@/lib/resume-flags';
 import { requireUser } from '@/lib/auth';
-import { isTooLong, STORED_TEXT_MAX, TOO_LONG_MESSAGE } from '@/lib/input-caps';
+import { isTooLong, resumeProblem, STORED_TEXT_MAX, TOO_LONG_MESSAGE } from '@/lib/input-caps';
 import type { ResumeVersionRecord, StructuredResume } from '@/types';
 
 export const baseResumeRouter = Router();
@@ -46,7 +46,8 @@ baseResumeRouter.get('/', async (request, response, next) => {
  * Save or update the canonical structured base resume.
  * Accepts a full `StructuredResume` in the request body.
  * Persists to both `user_profiles.base_resume` (denormalized) and
- * creates/updates a `resume_versions` row with `is_base = true`.
+ * creates/updates a `resume_versions` row with `is_base = true`, in one transaction in
+ * Postgres: a 500 means neither changed (#408).
  *
  * A résumé read from a replacement file comes with that file's text (`resumeText`, and
  * `resumeFileName`), stored in the same statement as the profile's résumé: the text
@@ -64,6 +65,10 @@ baseResumeRouter.put('/', async (request, response, next) => {
         error: 'baseResume with at least basics.name is required.',
       });
     }
+    const tooLarge = resumeProblem(body.baseResume);
+    if (tooLarge) {
+      return response.status(413).json({ error: tooLarge });
+    }
 
     let source: { resumeText: string; resumeFileName: string } | null = null;
     if (body.resumeText !== undefined) {
@@ -78,36 +83,7 @@ baseResumeRouter.put('/', async (request, response, next) => {
     }
 
     const baseResume = body.baseResume;
-
-    // Persist to the denormalized profile column, with the file's text when there is one.
-    await upsertUserProfile(userId, { baseResume, ...source });
-
-    // Also create/update the base resume version row.
-    const existingBase = await getBaseResumeVersion(userId);
-    if (existingBase) {
-      // Update the existing base version.
-      const { updateResumeVersion } = await import('@/data/resume-version-store');
-      await updateResumeVersion(userId, existingBase.id, {
-        structuredResume: baseResume,
-        changeSummary: 'Base resume updated via editor',
-        approved: true,
-      });
-    } else {
-      // Insert a new base version.
-      const versionRecord: ResumeVersionRecord = {
-        id: randomUUID(),
-        userId,
-        jobId: null,
-        changeSummary: 'Initial base resume created',
-        structuredResume: baseResume,
-        approved: true,
-        isBase: true,
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
-      };
-      await insertResumeVersion(versionRecord);
-    }
-
+    await saveBaseResume(userId, baseResume, source);
     return response.json({ baseResume });
   } catch (error) {
     next(error);
@@ -173,6 +149,10 @@ baseResumeRouter.post('/render-pdf', async (request, response, next) => {
 
     const body = (request.body ?? {}) as { resume?: StructuredResume; versionId?: string };
     let resumeToRender = body.resume;
+    const tooLarge = resumeProblem(body.resume);
+    if (tooLarge) {
+      return response.status(413).json({ error: tooLarge });
+    }
     let versionRecord: ResumeVersionRecord | null = null;
 
     if (body.versionId) {
@@ -206,8 +186,8 @@ baseResumeRouter.post('/render-pdf', async (request, response, next) => {
       });
     }
 
-    const { renderAtsResumePdf } = await import('@/lib/ats-resume-pdf');
-    const pdfBuffer = renderAtsResumePdf(resumeToRender);
+    const { renderResumePdf } = await import('@/lib/ats-resume-pdf');
+    const { pdf: pdfBuffer, pages, unsupported } = await renderResumePdf(resumeToRender);
 
     if (!versionRecord) {
       versionRecord = {
@@ -237,6 +217,9 @@ baseResumeRouter.post('/render-pdf', async (request, response, next) => {
       versionId: versionRecord.id,
       fileUrl,
       fileName: `resume_${versionRecord.id}.pdf`,
+      pages,
+      // Characters the font can't print (CJK, emoji), shown as "?" (#429).
+      unsupported,
     });
   } catch (error) {
     next(error);
@@ -263,15 +246,17 @@ baseResumeRouter.get('/versions/:id/download', async (request, response, next) =
       return response.status(404).json({ error: 'Resume version not found.' });
     }
 
-    const { renderAtsResumePdf } = await import('@/lib/ats-resume-pdf');
-    const pdfBuffer = renderAtsResumePdf(version.structuredResume);
+    const { renderResumePdf } = await import('@/lib/ats-resume-pdf');
+    const { pdf, pages, unsupported } = await renderResumePdf(version.structuredResume);
 
     response.setHeader('Content-Type', 'application/pdf');
+    response.setHeader('X-Page-Count', String(pages));
+    response.setHeader('X-Pdf-Unsupported-Characters', String(unsupported));
     response.setHeader(
       'Content-Disposition',
-      attachmentDisposition(`resume_${version.structuredResume.basics?.name || 'document'}_${version.id}.pdf`),
+      attachmentDisposition(`${version.structuredResume.basics?.name?.trim() || 'Resume'} – Résumé.pdf`),
     );
-    return response.send(pdfBuffer);
+    return response.send(pdf);
   } catch (error) {
     next(error);
   }

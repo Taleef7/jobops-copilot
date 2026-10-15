@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { tailorFromAnswer, type TailorContext } from './apply';
+import { addSkills, tailorFromAnswer, type TailorContext } from './apply';
 import { editableLines } from './lines';
 import { TAILOR_BASE, TAILOR_JOB, edit, emptyAnswer } from '@/test-support/tailor-fixtures';
 import type { TailorAnswer } from './answer';
@@ -270,4 +270,11 @@ test('employers, titles, dates, education and contact details are never changed'
   });
   assert.deepEqual(strip(result.resume), strip(TAILOR_BASE));
   assert.equal(TAILOR_BASE.work[0]!.highlights[2], 'Mentored two interns', 'the base résumé is not mutated');
+});
+
+test('adding keywords never takes a skill list past what a résumé can save', () => {
+  const resume: StructuredResume = { ...TAILOR_BASE, skills: [{ category: 'Other', skills: Array.from({ length: 199 }, (_, i) => `Tool${i}`) }] };
+  const added = addSkills(resume, ['Kafka', 'Snowflake', 'Redis']);
+  assert.deepEqual(added, ['Kafka']);
+  assert.equal(resume.skills.find((g) => g.category === 'Other')!.skills.length, 200);
 });

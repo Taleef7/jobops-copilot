@@ -55,6 +55,11 @@ const allowedStatuses = new Set<JobStatus>([
   'archived',
 ]);
 
+/** A field a PATCH leaves out is unchanged; null, or blank, clears it. */
+function cleared(value: string | null | undefined) {
+  return value === undefined ? undefined : value?.trim() || null;
+}
+
 function isValidUrl(value: string) {
   try {
     // Reject whitespace and malformed URLs while still allowing local/test URLs.
@@ -265,10 +270,10 @@ jobsRouter.patch('/:id', async (request, response, next) => {
     const job = await updateJob(userId, request.params.id, {
       status: body.status,
       priority: body.priority,
-      notes: body.notes?.trim(),
+      notes: cleared(body.notes),
       fitScore: typeof body.fitScore === 'undefined' ? undefined : body.fitScore,
-      nextAction: body.nextAction?.trim(),
-      nextActionDue: body.nextActionDue?.trim(),
+      nextAction: cleared(body.nextAction),
+      nextActionDue: cleared(body.nextActionDue),
     });
 
     if (!job) {

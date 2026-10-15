@@ -17,12 +17,14 @@ import Link from 'next/link';
 import { useState } from 'react';
 import { FeedSubSignals } from '@/components/feed-sub-signals';
 import { FitScoreRing } from '@/components/fit-score-ring';
+import { LocalDate } from '@/components/local-date';
 import { StatusPill } from '@/components/status-pill';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
+import { useHydrated } from '@/hooks/use-hydrated';
 import { updateJob } from '@/lib/api';
-import { formatDate } from '@/lib/format';
+import { postedDay } from '@/lib/format';
 import { postingHref } from '@/lib/job-display';
 import { cn } from '@/lib/utils';
 import type { FeedItem, JobStatus } from '@/types/job';
@@ -78,11 +80,13 @@ export function FeedCard({ item, onStatusChange, className }: FeedCardProps) {
   const { job, fitScore, adjustedScore, subSignals, rankReasons } = item;
   const [currentStatus, setCurrentStatus] = useState<JobStatus>(job.status);
   const [isUpdating, setIsUpdating] = useState(false);
+  const hydrated = useHydrated();
 
   const displayScore = adjustedScore ?? fitScore;
   const scoreDelta = adjustedScore != null && fitScore != null ? adjustedScore - fitScore : 0;
   const salaryText = formatSalary(job.salaryMin, job.salaryMax, job.salaryCurrency);
-  const freshnessBadge = getFreshnessBadge(job.datePosted ?? job.discoveredAt);
+  // "New today" depends on the time, which the browser reads after the server (#412).
+  const freshnessBadge = hydrated ? getFreshnessBadge(job.datePosted ?? job.discoveredAt) : null;
   const posting = postingHref(job.jobUrl);
 
   async function handleStatusUpdate(newStatus: JobStatus) {
@@ -263,7 +267,7 @@ export function FeedCard({ item, onStatusChange, className }: FeedCardProps) {
       {/* Card Footer: Summary & Action Buttons */}
       <div className="mt-1 flex flex-wrap items-center justify-between gap-3 pt-2 border-t border-border/50">
         <div className="text-xs text-muted-foreground">
-          {job.datePosted ? `Posted ${formatDate(job.datePosted)}` : `Discovered ${formatDate(job.discoveredAt)}`}
+          {job.datePosted ? 'Posted' : 'Discovered'} <LocalDate value={postedDay(job.datePosted) || job.discoveredAt} />
         </div>
 
         <div className="flex items-center gap-2">

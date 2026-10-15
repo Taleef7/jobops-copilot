@@ -27,6 +27,7 @@ import type {
 } from '@/types';
 import { AiBudgetExceededError, beforeAgentCall } from '@/lib/ai-call-context';
 import { capAgentPayload } from '@/lib/input-caps';
+import { normalizeLayout } from '@/lib/resume-layout';
 import { isTailorAnswer, type TailorAgentRequest, type TailorAnswer } from '@/lib/tailor/answer';
 
 const AGENT_URL = process.env.AGENT_SERVICE_URL?.trim().replace(/\/$/, '');
@@ -513,6 +514,8 @@ export function normalizeStructuredResume(raw: unknown): StructuredResume | null
         }))
     : undefined;
 
+  const layout = normalizeLayout(obj.layout);
+
   return {
     basics,
     work,
@@ -520,6 +523,7 @@ export function normalizeStructuredResume(raw: unknown): StructuredResume | null
     skills,
     ...(projects ? { projects } : {}),
     ...(certificates ? { certificates } : {}),
+    ...(layout ? { layout } : {}),
   };
 }
 

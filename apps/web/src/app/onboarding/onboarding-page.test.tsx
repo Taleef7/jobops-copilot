@@ -301,3 +301,17 @@ it('cancelling the check goes back to the résumé step without saving it', asyn
   expect(screen.getByRole('tab', { name: /upload pdf/i })).toBeInTheDocument();
   expect(saveBaseResume).not.toHaveBeenCalled();
 });
+
+// #356: discovered jobs are only pre-ranked by keywords until the user opens one.
+it('does not say discovered jobs come already scored', async () => {
+  const user = userEvent.setup();
+  render(<OnboardingPage />);
+
+  await user.click(screen.getByRole('tab', { name: /paste text/i }));
+  await user.type(screen.getByPlaceholderText(/paste your resume text/i), 'Engineer.');
+  await continueWithResume(user);
+
+  await screen.findByLabelText(/role or keywords/i);
+  expect(screen.getByText("We'll pull matching postings into your feed. Open one to get a fit read.")).toBeInTheDocument();
+  expect(screen.queryByText(/already scored/i)).not.toBeInTheDocument();
+});
