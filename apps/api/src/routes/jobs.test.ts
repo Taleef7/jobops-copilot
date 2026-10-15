@@ -7,9 +7,11 @@ import { join } from 'node:path';
 import express from 'express';
 import { jobsRouter } from './jobs';
 import { createApp } from '@/app';
-import { resetJobStoreForTests } from '@/data/job-store';
+import { createJob, resetJobStoreForTests } from '@/data/job-store';
+import { upsertUserProfile } from '@/data/profile-store';
+import { getResumeVersion, insertResumeVersion, resetResumeVersionStore } from '@/data/resume-version-store';
 import { closePool } from '@/lib/postgres';
-import type { JobRecord } from '@/types';
+import type { JobRecord, ResumeLayout, ResumeVersionRecord, StructuredResume } from '@/types';
 
 async function withServer(
   mount: (app: express.Express) => void,
@@ -234,6 +236,147 @@ test('PATCH /api/jobs/:id clears the notes, next action and follow-up sent as nu
   } finally {
     process.chdir(originalCwd);
     resetJobStoreForTests();
+    await rm(tempDir, { recursive: true, force: true });
+  }
+});
+
+// #415: a tailored draft follows the base résumé's layout until it's downloaded or its job is
+// marked applied. Marking the job applied freezes the layout on its drafts, once.
+test("marking a job applied freezes the base résumé's layout on its drafts", async () => {
+  const originalCwd = process.cwd();
+  delete process.env.DATABASE_URL;
+  const tempDir = await mkdtemp(join(tmpdir(), 'jobops-route-jobs-applied-'));
+  const user = 'user-applied';
+  const atTailoring: ResumeLayout = { sections: [{ key: 'skills' }] };
+  const whenApplied: ResumeLayout = { sections: [{ key: 'education', title: 'Schooling' }] };
+  const later: ResumeLayout = { sections: [{ key: 'work', hidden: true }] };
+  const resume: StructuredResume = {
+    basics: { name: 'Jordan Lee', email: 'jordan@example.com', summary: 'Engineer.' },
+    work: [],
+    education: [],
+    skills: [],
+  };
+
+  try {
+    process.chdir(tempDir);
+    resetJobStoreForTests();
+    await resetResumeVersionStore();
+    const job = await createJob(user, { company: 'Acme Pay', title: 'Backend Engineer', descriptionText: 'Build payment APIs.' });
+    await upsertUserProfile(user, { baseResume: { ...resume, layout: whenApplied } });
+    const now = new Date().toISOString();
+    const version = (id: string, overrides: Partial<ResumeVersionRecord> = {}): ResumeVersionRecord => ({
+      id,
+      userId: user,
+      jobId: job.id,
+      changeSummary: 'Tailored',
+      structuredResume: { ...resume, layout: atTailoring },
+      approved: false,
+      isBase: false,
+      basedOn: { baseVersionId: null, baseUpdatedAt: null, jobId: job.id, postingSha256: 'x', model: 'm', createdAt: now, grounding: { version: 1 } },
+      createdAt: now,
+      updatedAt: now,
+      ...overrides,
+    });
+    await insertResumeVersion(version('draft'));
+    await insertResumeVersion(version('downloaded', { approved: true }));
+    await insertResumeVersion(version('other-job', { jobId: 'another-job' }));
+
+    await withServer((app) => app.use('/api/jobs', jobsRouter), async (baseUrl) => {
+      const patch = (body: unknown) =>
+        fetch(`${baseUrl}/api/jobs/${job.id}`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json', 'X-User-Id': user },
+          body: JSON.stringify(body),
+        });
+
+      // Any other status, or a note, freezes nothing.
+      assert.equal((await patch({ status: 'shortlisted' })).status, 200);
+      assert.deepEqual((await getResumeVersion(user, 'draft'))!.structuredResume.layout, atTailoring);
+
+      assert.equal((await patch({ status: 'applied' })).status, 200);
+      const frozen = (await getResumeVersion(user, 'draft'))!;
+      assert.deepEqual(frozen.structuredResume.layout, whenApplied);
+      assert.ok(frozen.basedOn?.layoutFrozenAt);
+      // A downloaded version, and another job's draft, are left alone.
+      assert.deepEqual((await getResumeVersion(user, 'downloaded'))!.structuredResume.layout, atTailoring);
+      assert.equal((await getResumeVersion(user, 'downloaded'))!.basedOn?.layoutFrozenAt, undefined);
+      assert.deepEqual((await getResumeVersion(user, 'other-job'))!.structuredResume.layout, atTailoring);
+
+      // A draft tailored after the job was applied follows the base layout until it's downloaded:
+      // saving the job again as applied (the edit panel sends the status with every save), or
+      // moving it on to an interview, doesn't freeze it. Only a move into these stages does.
+      await insertResumeVersion(version('after-applying'));
+      await upsertUserProfile(user, { baseResume: { ...resume, layout: later } });
+      assert.equal((await patch({ status: 'applied', notes: 'Followed up.' })).status, 200);
+      assert.equal((await patch({ status: 'interview' })).status, 200);
+      const after = (await getResumeVersion(user, 'after-applying'))!;
+      assert.equal(after.basedOn?.layoutFrozenAt, undefined);
+      assert.deepEqual(after.structuredResume.layout, atTailoring);
+      assert.deepEqual(await getResumeVersion(user, 'draft'), frozen);
+    });
+  } finally {
+    process.chdir(originalCwd);
+    resetJobStoreForTests();
+    await resetResumeVersionStore();
+    await rm(tempDir, { recursive: true, force: true });
+  }
+});
+
+// The owner's rule: drafts follow the base layout "until downloaded or applied". A job moved
+// straight past applied (to an interview, an offer, a rejection) was applied to as well.
+test('moving a job straight to a stage after applied freezes its drafts too; outreach or archiving does not', async () => {
+  const originalCwd = process.cwd();
+  delete process.env.DATABASE_URL;
+  const tempDir = await mkdtemp(join(tmpdir(), 'jobops-route-jobs-stages-'));
+  const user = 'user-stages';
+  const layout: ResumeLayout = { sections: [{ key: 'education', title: 'Schooling' }] };
+  const resume: StructuredResume = { basics: { name: 'Jordan Lee', email: '', summary: 'Engineer.' }, work: [], education: [], skills: [] };
+
+  try {
+    process.chdir(tempDir);
+    resetJobStoreForTests();
+    await resetResumeVersionStore();
+    await upsertUserProfile(user, { baseResume: { ...resume, layout } });
+    const now = new Date().toISOString();
+
+    await withServer((app) => app.use('/api/jobs', jobsRouter), async (baseUrl) => {
+      const moveTo = async (from: string, to: string) => {
+        const job = await createJob(user, { company: `Acme ${from} ${to}`, title: 'Engineer', descriptionText: 'Go.' });
+        const id = `draft-${from}-${to}`;
+        await insertResumeVersion({
+          id,
+          userId: user,
+          jobId: job.id,
+          changeSummary: 'Tailored',
+          structuredResume: resume,
+          approved: false,
+          isBase: false,
+          basedOn: { baseVersionId: null, baseUpdatedAt: null, jobId: job.id, postingSha256: 'x', model: 'm', createdAt: now, grounding: { version: 1 } },
+          createdAt: now,
+          updatedAt: now,
+        });
+        const patch = (status: string) =>
+          fetch(`${baseUrl}/api/jobs/${job.id}`, {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json', 'X-User-Id': user },
+            body: JSON.stringify({ status }),
+          });
+        assert.equal((await patch(from)).status, 200);
+        assert.equal((await patch(to)).status, 200);
+        return Boolean((await getResumeVersion(user, id))!.basedOn?.layoutFrozenAt);
+      };
+
+      for (const stage of ['interview', 'offer', 'rejected', 'follow_up_due']) {
+        assert.equal(await moveTo('shortlisted', stage), true, `shortlisted → ${stage} freezes`);
+      }
+      for (const stage of ['outreach_sent', 'referral_requested', 'archived']) {
+        assert.equal(await moveTo('shortlisted', stage), false, `shortlisted → ${stage} doesn't`);
+      }
+    });
+  } finally {
+    process.chdir(originalCwd);
+    resetJobStoreForTests();
+    await resetResumeVersionStore();
     await rm(tempDir, { recursive: true, force: true });
   }
 });

@@ -243,6 +243,14 @@ export interface ResumeCertificate {
   url?: string;
 }
 
+export type ResumeSectionKey = 'summary' | 'work' | 'education' | 'skills' | 'projects' | 'certificates';
+
+/** The PDF's section order, headings and visibility, and page size (#415). */
+export interface ResumeLayout {
+  sections?: Array<{ key: ResumeSectionKey; title?: string; hidden?: boolean }>;
+  pageSize?: 'letter' | 'a4';
+}
+
 export interface StructuredResume {
   basics: ResumeBasics;
   work: ResumeWorkExperience[];
@@ -250,6 +258,8 @@ export interface StructuredResume {
   skills: ResumeSkill[];
   projects?: ResumeProject[];
   certificates?: ResumeCertificate[];
+  /** Saved through its own route (saveResumeLayout); a résumé save keeps it. */
+  layout?: ResumeLayout;
 }
 
 export interface ResumeChangeDetail {
@@ -291,6 +301,8 @@ export interface ResumeVersionBasis {
   gaps?: string[];
   /** Posting keywords in the base résumé and in the draft. */
   coverage?: { total: number; before: number; after: number; terms?: string[] };
+  /** Set once it prints with its own layout copy, not the base résumé's (#415). */
+  layoutFrozenAt?: string;
 }
 
 export interface ResumeVersionRecord {

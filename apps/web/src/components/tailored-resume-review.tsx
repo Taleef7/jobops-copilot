@@ -519,6 +519,15 @@ function VersionReview({
         ) : null}
         {version.approved ? (
           <p className="text-muted-foreground text-xs">Downloaded. To change it, tailor again.</p>
+        ) : basis?.layoutFrozenAt ? (
+          <p className="text-muted-foreground text-xs">
+            The PDF keeps the section order and headings your résumé had when this job moved to Applied or later.
+          </p>
+        ) : basis ? (
+          // #415: a draft prints in the base résumé's layout until it's downloaded.
+          <p className="text-muted-foreground text-xs">
+            The PDF uses the section order and headings set in Settings → Résumé until you download it.
+          </p>
         ) : null}
         {basis?.gaps?.length ? (
           <div className="space-y-1">
