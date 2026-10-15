@@ -62,6 +62,8 @@ const LLM_ROUTES: Array<[string, string, 'guard' | 'own']> = [
 const STRICT_ONLY_ROUTES: Array<[string, string]> = [
   ['POST', '/api/jobs/extract'],
   ['POST', '/api/profile/base-resume/render-pdf'],
+  // The base résumé's PDF preview (#415): drawn on the request.
+  ['GET', '/api/profile/base-resume/pdf'],
   ['POST', '/api/notifications/test'],
   ['POST', '/api/profile/resume'],
 ];

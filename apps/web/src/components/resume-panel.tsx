@@ -3,11 +3,14 @@
 import { useEffect, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
 import { useRouter } from 'next/navigation';
-import { Loader2 } from 'lucide-react';
+import { Loader2, X } from 'lucide-react';
 import { toast } from 'sonner';
 import { ErrorState } from '@/components/error-state';
 import { LocalDate } from '@/components/local-date';
+import { MoveButtons, MoveMessage, useReorder } from '@/components/reorder';
 import { ResumeImportConfirm } from '@/components/resume-import-confirm';
+import { ResumeLayoutEditor } from '@/components/resume-layout-editor';
+import { ResumePdfPreview } from '@/components/resume-pdf-preview';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -22,10 +25,13 @@ import {
   type ResumeSource,
 } from '@/lib/api';
 import { formatResumeDate, formatResumeRange, withEndDate } from '@/lib/resume-display';
+import { moveItem } from '@/lib/resume-layout';
 import type {
   ResumeBasics,
   ResumeCertificate,
   ResumeEducation,
+  ResumeLocation,
+  ResumeProfile,
   ResumeProject,
   ResumeSkill,
   ResumeWorkExperience,
@@ -63,26 +69,57 @@ const copy = <T,>(value: T): T => JSON.parse(JSON.stringify(value)) as T;
 
 const blank = (...values: Array<string | undefined>) => values.every((value) => !value?.trim());
 
+// A bullet holds one line, and a skill one skill: a pasted list becomes one item each.
+const LINE_BREAK = /\r?\n/;
+const COMMA = ',';
+
+/** Each item split at `separator`, trimmed, with the empty ones dropped. */
+const splitLines = (items: string[], separator: RegExp | string) =>
+  items.flatMap((item) => item.split(separator)).map((item) => item.trim()).filter(Boolean);
+
 /** Drop the blank lines, and the items left empty, that editing leaves behind. */
 function tidy(key: SectionKey, value: SectionValue): SectionValue {
+  if (key === 'basics') {
+    const basics = value as ResumeBasics;
+    return basics.profiles ? { ...basics, profiles: basics.profiles.filter((link) => !blank(link.network, link.url)) } : basics;
+  }
   if (key === 'work') {
     return (value as ResumeWorkExperience[])
-      .map((role) => ({ ...role, highlights: role.highlights.map((line) => line.trim()).filter(Boolean) }))
-      .filter((role) => !blank(role.company, role.position, role.startDate, role.endDate, role.location) || role.highlights.length > 0);
+      .map((role) => ({ ...role, highlights: splitLines(role.highlights, LINE_BREAK) }))
+      .filter(
+        (role) => !blank(role.company, role.position, role.startDate, role.endDate, role.location, role.summary) || role.highlights.length > 0,
+      );
   }
   if (key === 'skills') {
     return (value as ResumeSkill[])
-      .map((group) => ({ ...group, skills: group.skills.map((skill) => skill.trim()).filter(Boolean) }))
+      .map((group) => ({ ...group, skills: splitLines(group.skills, COMMA) }))
       .filter((group) => !blank(group.category) || group.skills.length > 0);
   }
   if (key === 'education') {
-    return (value as ResumeEducation[]).filter((entry) => !blank(entry.institution, entry.studyType, entry.area, entry.endDate));
+    return (value as ResumeEducation[])
+      .map((entry) => (entry.highlights ? { ...entry, highlights: splitLines(entry.highlights, LINE_BREAK) } : entry))
+      .filter(
+        (entry) =>
+          !blank(entry.institution, entry.studyType, entry.area, entry.startDate, entry.endDate, entry.gpa) ||
+          (entry.highlights?.length ?? 0) > 0,
+      );
   }
   if (key === 'projects') {
-    return (value as ResumeProject[]).filter((project) => !blank(project.name, project.url, project.description));
+    return (value as ResumeProject[])
+      .map((project) => ({
+        ...project,
+        ...(project.highlights ? { highlights: splitLines(project.highlights, LINE_BREAK) } : {}),
+        ...(project.keywords ? { keywords: splitLines(project.keywords, COMMA) } : {}),
+      }))
+      .filter(
+        (project) =>
+          !blank(project.name, project.url, project.description) ||
+          (project.highlights?.length ?? 0) > 0 ||
+          (project.keywords?.length ?? 0) > 0,
+      );
   }
   if (key === 'certificates') {
-    return (value as ResumeCertificate[]).filter((certificate) => !blank(certificate.name, certificate.issuer, certificate.date));
+    return (value as ResumeCertificate[]).filter((certificate) => !blank(certificate.name, certificate.issuer, certificate.date, certificate.url));
   }
   return value;
 }
@@ -147,6 +184,10 @@ export function ResumePanel({ initial, updatedAt, resumeFileName, hasStoredText,
   // A section save is on its way: an Undo now would change a draft that was already sent.
   const savingRef = useRef(false);
   const keepEditingRef = useRef<HTMLButtonElement>(null);
+  // Layout changes save on their own (#415); a résumé save waits for them, so the two can't cross.
+  const layoutSaves = useRef<Promise<void>>(Promise.resolve());
+  // Goes up with every save: a PDF preview made before it is out of date.
+  const [changes, setChanges] = useState(0);
 
   const dirty =
     editing !== null &&
@@ -240,10 +281,12 @@ export function ResumePanel({ initial, updatedAt, resumeFileName, hasStoredText,
     setSaving(true);
     setSectionError(null);
     try {
+      await layoutSaves.current;
       const result = await saveBaseResume(next);
       setSaved(result ?? next);
       setHasResume(true);
       setLastUpdated(new Date().toISOString());
+      setChanges((count) => count + 1);
       close();
       toast.success(`${titleOf(editing)} saved.`);
       router.refresh();
@@ -323,6 +366,8 @@ export function ResumePanel({ initial, updatedAt, resumeFileName, hasStoredText,
       // A new file's text is saved with the résumé read from it, in one request, so the stored
       // text can't change without the résumé.
       const { staged } = importState;
+      await layoutSaves.current;
+      // The API keeps the saved layout: the résumé read from a file has none (#415).
       const result = await saveBaseResume(resume, staged);
       if (staged) {
         setFileName(staged.fileName);
@@ -334,6 +379,7 @@ export function ResumePanel({ initial, updatedAt, resumeFileName, hasStoredText,
       setSaved(result ?? resume);
       setHasResume(true);
       setLastUpdated(new Date().toISOString());
+      setChanges((count) => count + 1);
       setImportState({ kind: 'idle' });
       toast.success('Résumé saved.');
       router.refresh();
@@ -354,7 +400,8 @@ export function ResumePanel({ initial, updatedAt, resumeFileName, hasStoredText,
     }
   }
 
-  const busy = saving || importState.kind === 'reading' || (importState.kind === 'confirming' && importState.saving);
+  const importSaving = importState.kind === 'confirming' && importState.saving;
+  const busy = saving || importState.kind === 'reading' || importSaving;
 
   if (loadError) {
     return <ErrorState title="Couldn't load your résumé" message={loadError} />;
@@ -525,22 +572,54 @@ export function ResumePanel({ initial, updatedAt, resumeFileName, hasStoredText,
           );
         })}
       </div>
+
+      <div className="space-y-5 border-t pt-4">
+        <ResumeLayoutEditor
+          initial={initial?.layout}
+          // While a résumé save is on its way, so a layout change can't cross it.
+          disabled={!hasResume || saving || importSaving}
+          onPending={(settled) => (layoutSaves.current = settled)}
+          onSaved={(layout) => {
+            setSaved((current) => ({ ...current, layout }));
+            setChanges((count) => count + 1);
+          }}
+        />
+        <ResumePdfPreview name={saved.basics.name} disabled={!hasResume} changes={changes} />
+      </div>
     </div>
   );
 }
 
 const NotSet = () => <p className="text-muted-foreground text-sm">Not set</p>;
 
+/** "Austin, TX, US", as the PDF prints a location. */
+const placeOf = (location: ResumeLocation | undefined) =>
+  [location?.city, location?.region, location?.countryCode].filter((part) => part?.trim()).join(', ');
+
+/** Bullets as the PDF prints them. */
+function Bullets({ lines }: { lines: string[] | undefined }) {
+  if (!lines?.length) return null;
+  return (
+    <ul className="list-disc space-y-0.5 pl-5">
+      {lines.map((line, index) => (
+        <li key={index}>{line}</li>
+      ))}
+    </ul>
+  );
+}
+
 function SectionView({ sectionKey, resume }: { sectionKey: SectionKey; resume: StructuredResume }) {
   if (sectionKey === 'basics') {
-    const { name, label, email, phone, summary } = resume.basics;
-    const contact = [email, phone].filter((part) => part?.trim()).join(' · ');
+    const { name, label, email, phone, summary, location, url, profiles } = resume.basics;
+    const contact = [email, phone, placeOf(location), url, ...(profiles ?? []).map((link) => link.url)]
+      .filter((part) => part?.trim())
+      .join(' · ');
     if (!name.trim() && !label?.trim() && !contact && !summary.trim()) return <NotSet />;
     return (
       <div className="space-y-1 text-sm">
         {name.trim() ? <p className="font-medium">{name}</p> : null}
         {label?.trim() ? <p>{label}</p> : null}
-        {contact ? <p className="text-muted-foreground">{contact}</p> : null}
+        {contact ? <p className="text-muted-foreground break-words">{contact}</p> : null}
         {summary.trim() ? <p className="pt-1">{summary}</p> : null}
       </div>
     );
@@ -556,13 +635,8 @@ function SectionView({ sectionKey, resume }: { sectionKey: SectionKey; resume: S
               <p className="font-medium">{role.position.trim() || 'No title'}</p>
               <p className="text-muted-foreground">{[role.company.trim() || 'No company', dates].filter(Boolean).join(' · ')}</p>
               {role.location?.trim() ? <p className="text-muted-foreground">{role.location}</p> : null}
-              {role.highlights.length > 0 ? (
-                <ul className="list-disc space-y-0.5 pl-5">
-                  {role.highlights.map((line, lineIndex) => (
-                    <li key={lineIndex}>{line}</li>
-                  ))}
-                </ul>
-              ) : null}
+              {role.summary?.trim() ? <p>{role.summary}</p> : null}
+              <Bullets lines={role.highlights} />
             </li>
           );
         })}
@@ -576,12 +650,12 @@ function SectionView({ sectionKey, resume }: { sectionKey: SectionKey; resume: S
         {resume.education.map((entry, index) => {
           const degree = [entry.studyType, entry.area].filter((part) => part?.trim()).join(', ');
           const dates = formatResumeRange(entry.startDate, entry.endDate);
+          const detail = [degree, dates, entry.gpa?.trim() ? `GPA ${entry.gpa.trim()}` : ''].filter(Boolean).join(' · ');
           return (
             <li key={index} className="space-y-0.5 py-3 text-sm first:pt-0 last:pb-0">
               <p className="font-medium">{entry.institution.trim() || 'No school'}</p>
-              {degree || dates ? (
-                <p className="text-muted-foreground">{[degree, dates].filter(Boolean).join(' · ')}</p>
-              ) : null}
+              {detail ? <p className="text-muted-foreground">{detail}</p> : null}
+              <Bullets lines={entry.highlights} />
             </li>
           );
         })}
@@ -609,8 +683,10 @@ function SectionView({ sectionKey, resume }: { sectionKey: SectionKey; resume: S
         {projects.map((project, index) => (
           <li key={index} className="space-y-0.5 py-3 text-sm first:pt-0 last:pb-0">
             <p className="font-medium">{project.name.trim() || 'Untitled project'}</p>
+            {project.keywords?.length ? <p className="text-muted-foreground">{project.keywords.join(', ')}</p> : null}
             {project.url?.trim() ? <p className="text-muted-foreground break-all">{project.url}</p> : null}
             {project.description?.trim() ? <p>{project.description}</p> : null}
+            <Bullets lines={project.highlights} />
           </li>
         ))}
       </ol>
@@ -624,6 +700,7 @@ function SectionView({ sectionKey, resume }: { sectionKey: SectionKey; resume: S
         <li key={index}>
           <span className="font-medium">{certificate.name}</span>
           {[certificate.issuer, formatResumeDate(certificate.date)].filter((part) => part?.trim()).map((part) => ` · ${part}`)}
+          {certificate.url?.trim() ? <span className="text-muted-foreground block break-all">{certificate.url}</span> : null}
         </li>
       ))}
     </ul>
@@ -650,25 +727,79 @@ function SectionEditor({ sectionKey, value, onChange, onRemove }: EditorProps) {
   if (sectionKey === 'basics') {
     const basics = value as ResumeBasics;
     const set = (field: keyof ResumeBasics, text: string) => onChange({ ...basics, [field]: text });
+    const setPlace = (field: keyof ResumeLocation, text: string) => onChange({ ...basics, location: { ...basics.location, [field]: text } });
+    const links = basics.profiles ?? [];
+    const setLinks = (next: ResumeProfile[]) => onChange({ ...basics, profiles: next });
+    const setLink = (index: number, field: keyof ResumeProfile, text: string) =>
+      setLinks(links.map((link, i) => (i === index ? { ...link, [field]: text } : link)));
     return (
-      <div className="grid gap-3 sm:grid-cols-2">
-        <Field id="resume-basics-name" label="Name">
-          <Input id="resume-basics-name" value={basics.name} onChange={(e) => set('name', e.target.value)} />
-        </Field>
-        <Field id="resume-basics-label" label="Title">
-          <Input id="resume-basics-label" value={basics.label ?? ''} onChange={(e) => set('label', e.target.value)} />
-        </Field>
-        <Field id="resume-basics-email" label="Email">
-          <Input id="resume-basics-email" type="email" value={basics.email} onChange={(e) => set('email', e.target.value)} />
-        </Field>
-        <Field id="resume-basics-phone" label="Phone">
-          <Input id="resume-basics-phone" value={basics.phone ?? ''} onChange={(e) => set('phone', e.target.value)} />
-        </Field>
-        <div className="sm:col-span-2">
-          <Field id="resume-basics-summary" label="Summary">
-            <Textarea id="resume-basics-summary" rows={3} value={basics.summary} onChange={(e) => set('summary', e.target.value)} />
+      <div className="space-y-4">
+        <div className="grid gap-3 sm:grid-cols-2">
+          <Field id="resume-basics-name" label="Name">
+            <Input id="resume-basics-name" value={basics.name} onChange={(e) => set('name', e.target.value)} />
           </Field>
+          <Field id="resume-basics-label" label="Title">
+            <Input id="resume-basics-label" value={basics.label ?? ''} onChange={(e) => set('label', e.target.value)} />
+          </Field>
+          <Field id="resume-basics-email" label="Email">
+            <Input id="resume-basics-email" type="email" value={basics.email} onChange={(e) => set('email', e.target.value)} />
+          </Field>
+          <Field id="resume-basics-phone" label="Phone">
+            <Input id="resume-basics-phone" value={basics.phone ?? ''} onChange={(e) => set('phone', e.target.value)} />
+          </Field>
+          <Field id="resume-basics-city" label="City">
+            <Input id="resume-basics-city" value={basics.location?.city ?? ''} onChange={(e) => setPlace('city', e.target.value)} />
+          </Field>
+          <Field id="resume-basics-region" label="State or region">
+            <Input id="resume-basics-region" value={basics.location?.region ?? ''} onChange={(e) => setPlace('region', e.target.value)} />
+          </Field>
+          <Field id="resume-basics-country" label="Country">
+            <Input
+              id="resume-basics-country"
+              value={basics.location?.countryCode ?? ''}
+              onChange={(e) => setPlace('countryCode', e.target.value)}
+            />
+          </Field>
+          <Field id="resume-basics-url" label="Website">
+            <Input id="resume-basics-url" type="url" value={basics.url ?? ''} onChange={(e) => set('url', e.target.value)} />
+          </Field>
+          <div className="sm:col-span-2">
+            <Field id="resume-basics-summary" label="Summary">
+              <Textarea id="resume-basics-summary" rows={3} value={basics.summary} onChange={(e) => set('summary', e.target.value)} />
+            </Field>
+          </div>
         </div>
+        <fieldset className="min-w-0 space-y-2">
+          <legend className="text-sm font-medium">Links</legend>
+          <p className="text-muted-foreground text-xs">Printed on the contact line, in this order: LinkedIn, GitHub, a portfolio.</p>
+          <ItemList
+            items={links}
+            addLabel="Add a link"
+            onAdd={() => setLinks([...links, { network: '', url: '' }])}
+            onMove={(from, to) => setLinks(moveItem(links, from, to))}
+            render={(link, index) => (
+              <div className="grid gap-3 sm:grid-cols-[1fr_2fr]">
+                <Field id={`resume-basics-profiles-${index}-network`} label="Site">
+                  <Input
+                    id={`resume-basics-profiles-${index}-network`}
+                    value={link.network}
+                    onChange={(e) => setLink(index, 'network', e.target.value)}
+                  />
+                </Field>
+                <Field id={`resume-basics-profiles-${index}-url`} label="URL">
+                  <Input
+                    id={`resume-basics-profiles-${index}-url`}
+                    type="url"
+                    value={link.url}
+                    onChange={(e) => setLink(index, 'url', e.target.value)}
+                  />
+                </Field>
+              </div>
+            )}
+            itemLabel={(link, index) => link.network.trim() || `link ${index + 1}`}
+            onRemove={(index) => setLinks(links.filter((_, i) => i !== index))}
+          />
+        </fieldset>
       </div>
     );
   }
@@ -682,6 +813,7 @@ function SectionEditor({ sectionKey, value, onChange, onRemove }: EditorProps) {
         items={roles}
         addLabel="Add a role"
         onAdd={() => onChange([...roles, { company: '', position: '', startDate: '', highlights: [] }])}
+        onMove={(from, to) => onChange(moveItem(roles, from, to))}
         render={(role, index) => (
           <>
             <div className="grid gap-3 sm:grid-cols-2">
@@ -706,14 +838,23 @@ function SectionEditor({ sectionKey, value, onChange, onRemove }: EditorProps) {
                 <Input id={`resume-work-${index}-location`} value={role.location ?? ''} onChange={(e) => set(index, 'location', e.target.value)} />
               </Field>
             </div>
-            <Field id={`resume-work-${index}-highlights`} label="Bullets, one per line">
+            <Field id={`resume-work-${index}-summary`} label="Summary (optional)">
               <Textarea
-                id={`resume-work-${index}-highlights`}
-                rows={4}
-                value={role.highlights.join('\n')}
-                onChange={(e) => set(index, 'highlights', e.target.value.split('\n'))}
+                id={`resume-work-${index}-summary`}
+                rows={2}
+                value={role.summary ?? ''}
+                onChange={(e) => set(index, 'summary', e.target.value)}
               />
             </Field>
+            <LineList
+              idPrefix={`resume-work-${index}-highlights`}
+              legend="Bullets"
+              noun="bullet"
+              lines={role.highlights}
+              separator={LINE_BREAK}
+              multiline
+              onChange={(lines) => set(index, 'highlights', lines)}
+            />
           </>
         )}
         itemLabel={(role) => role.company.trim() || role.position.trim() || 'this role'}
@@ -724,28 +865,46 @@ function SectionEditor({ sectionKey, value, onChange, onRemove }: EditorProps) {
 
   if (sectionKey === 'education') {
     const entries = value as ResumeEducation[];
-    const set = (index: number, field: keyof ResumeEducation, text: string) =>
-      onChange(entries.map((entry, i) => (i === index ? { ...entry, [field]: text } : entry)));
+    const set = (index: number, field: keyof ResumeEducation, next: string | string[]) =>
+      onChange(entries.map((entry, i) => (i === index ? { ...entry, [field]: next } : entry)));
     return (
       <ItemList
         items={entries}
         addLabel="Add education"
         onAdd={() => onChange([...entries, { institution: '' }])}
+        onMove={(from, to) => onChange(moveItem(entries, from, to))}
         render={(entry, index) => (
-          <div className="grid gap-3 sm:grid-cols-2">
-            <Field id={`resume-education-${index}-institution`} label="School">
-              <Input id={`resume-education-${index}-institution`} value={entry.institution} onChange={(e) => set(index, 'institution', e.target.value)} />
-            </Field>
-            <Field id={`resume-education-${index}-degree`} label="Degree">
-              <Input id={`resume-education-${index}-degree`} value={entry.studyType ?? ''} onChange={(e) => set(index, 'studyType', e.target.value)} />
-            </Field>
-            <Field id={`resume-education-${index}-area`} label="Field of study">
-              <Input id={`resume-education-${index}-area`} value={entry.area ?? ''} onChange={(e) => set(index, 'area', e.target.value)} />
-            </Field>
-            <Field id={`resume-education-${index}-end`} label="Finished">
-              <Input id={`resume-education-${index}-end`} value={entry.endDate ?? ''} placeholder="e.g. 2024-06" onChange={(e) => set(index, 'endDate', e.target.value)} />
-            </Field>
-          </div>
+          <>
+            <div className="grid gap-3 sm:grid-cols-2">
+              <Field id={`resume-education-${index}-institution`} label="School">
+                <Input id={`resume-education-${index}-institution`} value={entry.institution} onChange={(e) => set(index, 'institution', e.target.value)} />
+              </Field>
+              <Field id={`resume-education-${index}-degree`} label="Degree">
+                <Input id={`resume-education-${index}-degree`} value={entry.studyType ?? ''} onChange={(e) => set(index, 'studyType', e.target.value)} />
+              </Field>
+              <Field id={`resume-education-${index}-area`} label="Field of study">
+                <Input id={`resume-education-${index}-area`} value={entry.area ?? ''} onChange={(e) => set(index, 'area', e.target.value)} />
+              </Field>
+              <Field id={`resume-education-${index}-gpa`} label="GPA">
+                <Input id={`resume-education-${index}-gpa`} value={entry.gpa ?? ''} onChange={(e) => set(index, 'gpa', e.target.value)} />
+              </Field>
+              <Field id={`resume-education-${index}-start`} label="Start">
+                <Input id={`resume-education-${index}-start`} value={entry.startDate ?? ''} placeholder="e.g. 2024-06" onChange={(e) => set(index, 'startDate', e.target.value)} />
+              </Field>
+              <Field id={`resume-education-${index}-end`} label="End">
+                <Input id={`resume-education-${index}-end`} value={entry.endDate ?? ''} placeholder="e.g. 2024-06" onChange={(e) => set(index, 'endDate', e.target.value)} />
+              </Field>
+            </div>
+            <LineList
+              idPrefix={`resume-education-${index}-highlights`}
+              legend="Bullets"
+              noun="bullet"
+              lines={entry.highlights ?? []}
+              separator={LINE_BREAK}
+              multiline
+              onChange={(lines) => set(index, 'highlights', lines)}
+            />
+          </>
         )}
         itemLabel={(entry) => entry.institution.trim() || 'this entry'}
         onRemove={onRemove}
@@ -761,18 +920,20 @@ function SectionEditor({ sectionKey, value, onChange, onRemove }: EditorProps) {
         items={groups}
         addLabel="Add a skill group"
         onAdd={() => onChange([...groups, { category: '', skills: [] }])}
+        onMove={(from, to) => onChange(moveItem(groups, from, to))}
         render={(group, index) => (
-          <div className="grid gap-3 sm:grid-cols-[1fr_2fr]">
+          <div className="space-y-3">
             <Field id={`resume-skills-${index}-category`} label="Group">
               <Input id={`resume-skills-${index}-category`} value={group.category} onChange={(e) => set(index, { ...group, category: e.target.value })} />
             </Field>
-            <Field id={`resume-skills-${index}-skills`} label="Skills, separated by commas">
-              <Input
-                id={`resume-skills-${index}-skills`}
-                value={group.skills.join(', ')}
-                onChange={(e) => set(index, { ...group, skills: e.target.value.split(',').map((skill) => skill.trimStart()) })}
-              />
-            </Field>
+            <LineList
+              idPrefix={`resume-skills-${index}-skills`}
+              legend="Skills"
+              noun="skill"
+              lines={group.skills}
+              separator={COMMA}
+              onChange={(skills) => set(index, { ...group, skills })}
+            />
           </div>
         )}
         itemLabel={(group) => group.category.trim() || 'this group'}
@@ -783,27 +944,48 @@ function SectionEditor({ sectionKey, value, onChange, onRemove }: EditorProps) {
 
   if (sectionKey === 'projects') {
     const projects = value as ResumeProject[];
-    const set = (index: number, field: keyof ResumeProject, text: string) =>
-      onChange(projects.map((project, i) => (i === index ? { ...project, [field]: text } : project)));
+    const set = (index: number, field: keyof ResumeProject, next: string | string[]) =>
+      onChange(projects.map((project, i) => (i === index ? { ...project, [field]: next } : project)));
     return (
       <ItemList
         items={projects}
         addLabel="Add a project"
         onAdd={() => onChange([...projects, { name: '' }])}
+        onMove={(from, to) => onChange(moveItem(projects, from, to))}
         render={(project, index) => (
-          <div className="grid gap-3 sm:grid-cols-2">
-            <Field id={`resume-projects-${index}-name`} label="Name">
-              <Input id={`resume-projects-${index}-name`} value={project.name} onChange={(e) => set(index, 'name', e.target.value)} />
-            </Field>
-            <Field id={`resume-projects-${index}-url`} label="Link">
-              <Input id={`resume-projects-${index}-url`} value={project.url ?? ''} onChange={(e) => set(index, 'url', e.target.value)} />
-            </Field>
-            <div className="sm:col-span-2">
-              <Field id={`resume-projects-${index}-description`} label="Description">
-                <Textarea id={`resume-projects-${index}-description`} rows={2} value={project.description ?? ''} onChange={(e) => set(index, 'description', e.target.value)} />
+          <>
+            <div className="grid gap-3 sm:grid-cols-2">
+              <Field id={`resume-projects-${index}-name`} label="Name">
+                <Input id={`resume-projects-${index}-name`} value={project.name} onChange={(e) => set(index, 'name', e.target.value)} />
               </Field>
+              <Field id={`resume-projects-${index}-url`} label="Link">
+                <Input id={`resume-projects-${index}-url`} value={project.url ?? ''} onChange={(e) => set(index, 'url', e.target.value)} />
+              </Field>
+              <div className="sm:col-span-2">
+                <Field id={`resume-projects-${index}-keywords`} label="Keywords, separated by commas">
+                  <Input
+                    id={`resume-projects-${index}-keywords`}
+                    value={(project.keywords ?? []).join(', ')}
+                    onChange={(e) => set(index, 'keywords', e.target.value.split(',').map((keyword) => keyword.trimStart()))}
+                  />
+                </Field>
+              </div>
+              <div className="sm:col-span-2">
+                <Field id={`resume-projects-${index}-description`} label="Description">
+                  <Textarea id={`resume-projects-${index}-description`} rows={2} value={project.description ?? ''} onChange={(e) => set(index, 'description', e.target.value)} />
+                </Field>
+              </div>
             </div>
-          </div>
+            <LineList
+              idPrefix={`resume-projects-${index}-highlights`}
+              legend="Bullets"
+              noun="bullet"
+              lines={project.highlights ?? []}
+              separator={LINE_BREAK}
+              multiline
+              onChange={(lines) => set(index, 'highlights', lines)}
+            />
+          </>
         )}
         itemLabel={(project) => project.name.trim() || 'this project'}
         onRemove={onRemove}
@@ -819,8 +1001,9 @@ function SectionEditor({ sectionKey, value, onChange, onRemove }: EditorProps) {
       items={certificates}
       addLabel="Add a certificate"
       onAdd={() => onChange([...certificates, { name: '', issuer: '' }])}
+      onMove={(from, to) => onChange(moveItem(certificates, from, to))}
       render={(certificate, index) => (
-        <div className="grid gap-3 sm:grid-cols-3">
+        <div className="grid gap-3 sm:grid-cols-2">
           <Field id={`resume-certificates-${index}-name`} label="Name">
             <Input id={`resume-certificates-${index}-name`} value={certificate.name} onChange={(e) => set(index, 'name', e.target.value)} />
           </Field>
@@ -829,6 +1012,9 @@ function SectionEditor({ sectionKey, value, onChange, onRemove }: EditorProps) {
           </Field>
           <Field id={`resume-certificates-${index}-date`} label="Date">
             <Input id={`resume-certificates-${index}-date`} value={certificate.date ?? ''} placeholder="e.g. 2024-06" onChange={(e) => set(index, 'date', e.target.value)} />
+          </Field>
+          <Field id={`resume-certificates-${index}-url`} label="Link">
+            <Input id={`resume-certificates-${index}-url`} value={certificate.url ?? ''} onChange={(e) => set(index, 'url', e.target.value)} />
           </Field>
         </div>
       )}
@@ -842,36 +1028,132 @@ interface ItemListProps<T> {
   items: T[];
   addLabel: string;
   onAdd: () => void;
+  /** Move the item at `from` to `to`. */
+  onMove: (from: number, to: number) => void;
   render: (item: T, index: number) => ReactNode;
-  itemLabel: (item: T) => string;
+  itemLabel: (item: T, index: number) => string;
   onRemove: (index: number, label: string) => void;
 }
 
-/** Items separated by dividers, each with a plain Remove (undoable), and one Add below. */
-function ItemList<T>({ items, addLabel, onAdd, render, itemLabel, onRemove }: ItemListProps<T>) {
+/**
+ * Items separated by dividers, each with Move up, Move down (#415) and a plain Remove, and one
+ * Add below.
+ */
+function ItemList<T>({ items, addLabel, onAdd, onMove, render, itemLabel, onRemove }: ItemListProps<T>) {
+  const { container, message, move: moveAndSay } = useReorder();
   return (
-    <div className="space-y-3">
+    <div ref={container} className="space-y-3">
       <ol className="divide-y">
-        {items.map((item, index) => (
-          <li key={index} className="space-y-3 py-3 first:pt-0">
-            {render(item, index)}
-            <div className="flex justify-end">
-              <Button
-                variant="ghost"
-                size="sm"
-                className="text-muted-foreground"
-                aria-label={`Remove ${itemLabel(item)}`}
-                onClick={() => onRemove(index, itemLabel(item))}
-              >
-                Remove
-              </Button>
-            </div>
-          </li>
-        ))}
+        {items.map((item, index) => {
+          const label = itemLabel(item, index);
+          return (
+            <li key={index} className="space-y-3 py-3 first:pt-0">
+              {render(item, index)}
+              <div className="flex justify-end gap-1">
+                <MoveButtons
+                  index={index}
+                  count={items.length}
+                  label={label}
+                  onMove={(to, direction) => moveAndSay(() => onMove(index, to), label, to, items.length, direction)}
+                />
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="text-muted-foreground"
+                  aria-label={`Remove ${label}`}
+                  onClick={() => onRemove(index, label)}
+                >
+                  Remove
+                </Button>
+              </div>
+            </li>
+          );
+        })}
       </ol>
       <Button variant="outline" size="sm" onClick={onAdd}>
         {addLabel}
       </Button>
+      <MoveMessage message={message} />
     </div>
+  );
+}
+
+interface LineListProps {
+  idPrefix: string;
+  /** "Bullets", "Skills". */
+  legend: string;
+  /** "bullet", "skill": "Bullet 2", "Move bullet 2 up", "Add a bullet". */
+  noun: string;
+  lines: string[];
+  /** What splits a pasted list into lines: a line break for bullets, a comma for skills. */
+  separator: RegExp | string;
+  multiline?: boolean;
+  onChange: (lines: string[]) => void;
+}
+
+/** One field per line (a bullet, a skill), each with Move up, Move down and Remove (#415). */
+function LineList({ idPrefix, legend, noun, lines, separator, multiline = false, onChange }: LineListProps) {
+  const { container, message, move: moveAndSay } = useReorder();
+  const Noun = noun.charAt(0).toUpperCase() + noun.slice(1);
+  const set = (index: number, text: string) => onChange(lines.map((line, i) => (i === index ? text : line)));
+  // A pasted list is split when the field is left; a lone blank line stays until the save.
+  const split = (index: number) => {
+    const parts = lines[index]!.split(separator).map((part) => part.trim()).filter(Boolean);
+    if (parts.length > 1) onChange([...lines.slice(0, index), ...parts, ...lines.slice(index + 1)]);
+  };
+  return (
+    <fieldset className="min-w-0 space-y-2">
+      <legend className="text-sm font-medium">{legend}</legend>
+      <div ref={container} className="space-y-2">
+        {lines.length > 0 ? (
+          <ol className="space-y-2">
+            {lines.map((line, index) => {
+              const id = `${idPrefix}-${index}`;
+              return (
+                <li key={index} className={`flex items-start gap-1 ${multiline ? 'flex-wrap sm:flex-nowrap' : ''}`}>
+                  <Label htmlFor={id} className="sr-only">
+                    {`${Noun} ${index + 1}`}
+                  </Label>
+                  {multiline ? (
+                    <Textarea
+                      id={id}
+                      rows={2}
+                      className="min-h-0 min-w-0 basis-full sm:basis-0 sm:flex-1"
+                      value={line}
+                      onChange={(e) => set(index, e.target.value)}
+                      onBlur={() => split(index)}
+                    />
+                  ) : (
+                    <Input id={id} className="min-w-0 flex-1" value={line} onChange={(e) => set(index, e.target.value)} onBlur={() => split(index)} />
+                  )}
+                  <div className="ml-auto flex shrink-0 gap-1">
+                    <MoveButtons
+                      index={index}
+                      count={lines.length}
+                      label={`${noun} ${index + 1}`}
+                      onMove={(to, direction) => moveAndSay(() => onChange(moveItem(lines, index, to)), Noun, to, lines.length, direction)}
+                    />
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon-sm"
+                      aria-label={`Remove ${noun} ${index + 1}`}
+                      title="Remove"
+                      onClick={() => onChange(lines.filter((_, i) => i !== index))}
+                    >
+                      <X aria-hidden="true" />
+                    </Button>
+                  </div>
+                </li>
+              );
+            })}
+          </ol>
+        ) : null}
+        <Button type="button" variant="outline" size="sm" onClick={() => onChange([...lines, ''])}>
+          {`Add a ${noun}`}
+        </Button>
+        <MoveMessage message={message} />
+      </div>
+    </fieldset>
   );
 }

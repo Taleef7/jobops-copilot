@@ -8,6 +8,7 @@ import type {
   OutreachDraft,
   OutreachMessageType,
   OutreachStatus,
+  ResumeLayout,
   ResumeVersionRecord,
   StructuredResume,
   WeeklyReport,
@@ -509,6 +510,59 @@ export async function saveBaseResume(baseResume: StructuredResume, source?: Resu
     },
   );
   return response.baseResume;
+}
+
+/**
+ * Save the base résumé's layout (#415): its sections' order, headings and visibility, or the
+ * page size. Only the fields sent change; answers with the whole layout as saved.
+ */
+export async function saveResumeLayout(patch: ResumeLayout): Promise<ResumeLayout> {
+  const response = await requestJson<{ layout: ResumeLayout }>('/api/profile/base-resume/layout', {
+    method: 'PATCH',
+    body: JSON.stringify(patch),
+  });
+  return response.layout;
+}
+
+export interface ResumePdf {
+  blob: Blob;
+  /** How many pages it runs to. */
+  pages: number;
+  /** Characters its font can't print (CJK, emoji), shown as "?" (#429). */
+  unsupported: number;
+}
+
+/** The saved base résumé's PDF, in its layout (#415). The API renders it and stores nothing. */
+export async function fetchBaseResumePdf(): Promise<ResumePdf> {
+  let res: Response;
+  try {
+    res = await fetch('/api/proxy/api/profile/base-resume/pdf', { cache: 'no-store', signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS) });
+  } catch (error) {
+    throw requestFailure(error);
+  }
+  if (!res.ok) {
+    const errorData = (await res.json().catch(() => ({}))) as { error?: string };
+    throw new ApiRequestError(errorData.error || "The PDF couldn't be made. Try again in a moment.", res.status);
+  }
+  return {
+    blob: await res.blob(),
+    pages: Number(res.headers.get('x-page-count') ?? 0) || 0,
+    unsupported: Number(res.headers.get('x-pdf-unsupported-characters') ?? 0) || 0,
+  };
+}
+
+/** Downloads the saved base résumé's PDF as `filename` ("First Last – Résumé.pdf"). */
+export async function downloadBaseResumePdf(filename: string): Promise<{ pages: number; unsupported: number }> {
+  const { blob, pages, unsupported } = await fetchBaseResumePdf();
+  const url = window.URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  window.URL.revokeObjectURL(url);
+  document.body.removeChild(a);
+  return { pages, unsupported };
 }
 
 /** A parsed field that looks misread (#350), held on the confirmation screen. */

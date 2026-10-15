@@ -1,14 +1,17 @@
 import '@testing-library/jest-dom/vitest';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { act, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { hydrateInBrowser, renderOnServer } from '@/test/time-zones';
-import type { StructuredResume } from '@/types/job';
+import type { ResumeLayout, StructuredResume } from '@/types/job';
 
-const { saveBaseResume, uploadResumeFile, parseResume, fetchResumeText, saveResumeText, toastFn } = vi.hoisted(() => {
+const { saveBaseResume, saveResumeLayout, uploadResumeFile, parseResume, fetchResumeText, saveResumeText, toastFn } = vi.hoisted(() => {
   const toastFn = Object.assign(vi.fn(), { success: vi.fn(), error: vi.fn(), dismiss: vi.fn() });
   return {
     saveBaseResume: vi.fn(async (resume: unknown) => resume),
+    saveResumeLayout: vi.fn(async (layout: unknown) => layout),
     uploadResumeFile: vi.fn(),
     parseResume: vi.fn(),
     fetchResumeText: vi.fn(),
@@ -20,6 +23,9 @@ vi.mock('sonner', () => ({ toast: toastFn }));
 vi.mock('next/navigation', () => ({ useRouter: () => ({ refresh: vi.fn() }) }));
 vi.mock('@/lib/api', () => ({
   saveBaseResume,
+  saveResumeLayout,
+  fetchBaseResumePdf: vi.fn(),
+  downloadBaseResumePdf: vi.fn(),
   uploadResumeFile,
   parseResume,
   fetchResumeText,
@@ -492,5 +498,228 @@ describe('ResumePanel Codex fixes (#350)', () => {
 
     expect(await screen.findByText('NEW TEXT')).toBeInTheDocument();
     expect(screen.queryByText("The API couldn't be reached.")).not.toBeInTheDocument();
+  });
+});
+
+// #415: everything the PDF prints can be edited here, and lists can be put in order with the
+// keyboard (Move up / Move down), each move announced.
+describe('ResumePanel editor (#415)', () => {
+  const saved = () => saveBaseResume.mock.calls.at(-1)![0] as StructuredResume;
+
+  it('edits the contact line: location, website and profile links', async () => {
+    const user = userEvent.setup();
+    render(<ResumePanel initial={resume} updatedAt={null} resumeFileName="cv.pdf" hasStoredText />);
+
+    const basics = section('Basics');
+    await user.click(within(basics).getByRole('button', { name: /edit/i }));
+    await user.type(within(basics).getByLabelText('City'), 'Austin');
+    await user.type(within(basics).getByLabelText('State or region'), 'TX');
+    await user.type(within(basics).getByLabelText('Country'), 'US');
+    await user.type(within(basics).getByLabelText('Website'), 'https://jane.dev');
+    await user.click(within(basics).getByRole('button', { name: 'Add a link' }));
+    await user.type(within(basics).getByLabelText('Site', { selector: '#resume-basics-profiles-0-network' }), 'GitHub');
+    await user.type(within(basics).getByLabelText('URL', { selector: '#resume-basics-profiles-0-url' }), 'https://github.com/jane');
+    await user.click(within(basics).getByRole('button', { name: /^save$/i }));
+
+    expect(saved().basics).toEqual({
+      ...resume.basics,
+      location: { city: 'Austin', region: 'TX', countryCode: 'US' },
+      url: 'https://jane.dev',
+      profiles: [{ network: 'GitHub', url: 'https://github.com/jane' }],
+    });
+    expect(await within(basics).findByText(/Austin, TX, US/)).toBeInTheDocument();
+    expect(within(basics).getByText(/github\.com\/jane/)).toBeInTheDocument();
+  });
+
+  it("edits a role's summary, and its bullets one at a time: add, move and remove", async () => {
+    const user = userEvent.setup();
+    render(<ResumePanel initial={resume} updatedAt={null} resumeFileName="cv.pdf" hasStoredText />);
+
+    const experience = section('Experience');
+    await user.click(within(experience).getByRole('button', { name: /edit/i }));
+    await user.type(within(experience).getByLabelText('Summary (optional)', { selector: '#resume-work-0-summary' }), 'Led the rules engine.');
+    const bullets = within(experience).getAllByRole('group', { name: 'Bullets' })[0]!;
+    await user.click(within(bullets).getByRole('button', { name: 'Add a bullet' }));
+    await user.type(within(bullets).getByLabelText('Bullet 2'), 'Cut review time by 30%');
+    within(bullets).getByRole('button', { name: 'Move bullet 2 up' }).focus();
+    await user.keyboard('{Enter}');
+    expect(within(bullets).getByLabelText('Bullet 1')).toHaveValue('Cut review time by 30%');
+    expect(within(experience).getByText('Bullet moved to position 1 of 2')).toBeInTheDocument();
+    expect(within(bullets).getByRole('button', { name: 'Move bullet 1 down' })).toHaveFocus();
+    await user.click(within(bullets).getByRole('button', { name: 'Add a bullet' }));
+    await user.type(within(bullets).getByLabelText('Bullet 3'), 'A line to remove');
+    await user.click(within(bullets).getByRole('button', { name: 'Remove bullet 3' }));
+    await user.click(within(experience).getByRole('button', { name: /^save$/i }));
+
+    expect(saved().work[0]).toEqual({
+      ...resume.work[0],
+      summary: 'Led the rules engine.',
+      highlights: ['Cut review time by 30%', 'Encoded 9 regulatory measures as documented business rules'],
+    });
+    expect(await within(experience).findByText('Led the rules engine.')).toBeInTheDocument();
+  });
+
+  it('splits a bullet pasted with line breaks into bullets', async () => {
+    const user = userEvent.setup();
+    render(<ResumePanel initial={resume} updatedAt={null} resumeFileName="cv.pdf" hasStoredText />);
+    const experience = section('Experience');
+    await user.click(within(experience).getByRole('button', { name: /edit/i }));
+    const bullets = within(experience).getAllByRole('group', { name: 'Bullets' })[1]!;
+    await user.click(within(bullets).getByRole('button', { name: 'Add a bullet' }));
+    await user.click(within(bullets).getByLabelText('Bullet 1'));
+    await user.paste('Ran the pilot\nWrote the playbook');
+    await user.click(within(experience).getByRole('button', { name: /^save$/i }));
+    expect(saved().work[1]!.highlights).toEqual(['Ran the pilot', 'Wrote the playbook']);
+  });
+
+  it('moves roles up and down with the keyboard, and says where they went', async () => {
+    const user = userEvent.setup();
+    render(<ResumePanel initial={resume} updatedAt={null} resumeFileName="cv.pdf" hasStoredText />);
+
+    const experience = section('Experience');
+    await user.click(within(experience).getByRole('button', { name: /edit/i }));
+    within(experience).getByRole('button', { name: 'Move Riccle up' }).focus();
+    await user.keyboard('{Enter}');
+    expect(within(experience).getByText('Riccle moved to position 1 of 2')).toBeInTheDocument();
+    expect(within(experience).getByRole('button', { name: 'Move Riccle up' })).toBeDisabled();
+    expect(within(experience).getByRole('button', { name: 'Move Riccle down' })).toHaveFocus();
+    expect(within(experience).getByLabelText('Company', { selector: '#resume-work-0-company' })).toHaveValue('Riccle');
+    await user.click(within(experience).getByRole('button', { name: /^save$/i }));
+    expect(saved().work.map((role) => role.company)).toEqual(['Riccle', 'Medical Informatics Engineering']);
+  });
+
+  it("edits a school's start, GPA and bullets", async () => {
+    const user = userEvent.setup();
+    render(<ResumePanel initial={resume} updatedAt={null} resumeFileName="cv.pdf" hasStoredText />);
+
+    const education = section('Education');
+    await user.click(within(education).getByRole('button', { name: /edit/i }));
+    await user.type(within(education).getByLabelText('Start'), '2024-08');
+    await user.type(within(education).getByLabelText('GPA'), '3.9');
+    await user.click(within(education).getByRole('button', { name: 'Add a bullet' }));
+    await user.type(within(education).getByLabelText('Bullet 1'), 'Thesis on clinical rules');
+    await user.click(within(education).getByRole('button', { name: /^save$/i }));
+
+    expect(saved().education[0]).toEqual({ ...resume.education[0], startDate: '2024-08', gpa: '3.9', highlights: ['Thesis on clinical rules'] });
+    expect(await within(education).findByText(/GPA 3\.9/)).toBeInTheDocument();
+  });
+
+  it('orders skill groups and the skills in them; skills typed with commas are split', async () => {
+    const user = userEvent.setup();
+    render(<ResumePanel initial={resume} updatedAt={null} resumeFileName="cv.pdf" hasStoredText />);
+
+    const skills = section('Skills');
+    await user.click(within(skills).getByRole('button', { name: /edit/i }));
+    within(skills).getByRole('button', { name: 'Move skill 2 up' }).focus();
+    await user.keyboard('{Enter}');
+    expect(within(skills).getByText('Skill moved to position 1 of 2')).toBeInTheDocument();
+    await user.click(within(skills).getByRole('button', { name: 'Add a skill group' }));
+    await user.type(within(skills).getByLabelText('Group', { selector: '#resume-skills-1-category' }), 'Tools');
+    const tools = within(skills).getAllByRole('group', { name: 'Skills' })[1]!;
+    await user.click(within(tools).getByRole('button', { name: 'Add a skill' }));
+    await user.type(within(tools).getByLabelText('Skill 1'), 'Docker, Terraform');
+    await user.click(within(skills).getByRole('button', { name: 'Move Tools up' }));
+    await user.click(within(skills).getByRole('button', { name: /^save$/i }));
+
+    expect(saved().skills).toEqual([
+      { category: 'Tools', skills: ['Docker', 'Terraform'] },
+      { category: 'Languages', skills: ['TypeScript', 'Python'] },
+    ]);
+  });
+
+  it("edits a project's keywords and bullets, and a certificate's link", async () => {
+    const user = userEvent.setup();
+    render(
+      <ResumePanel
+        initial={{ ...resume, projects: [{ name: 'Ledger' }], certificates: [{ name: 'AZ-900', issuer: 'Microsoft' }] }}
+        updatedAt={null}
+        resumeFileName="cv.pdf"
+        hasStoredText
+      />,
+    );
+
+    const projects = section('Projects');
+    await user.click(within(projects).getByRole('button', { name: /edit/i }));
+    await user.type(within(projects).getByLabelText('Keywords, separated by commas'), 'Go, Postgres');
+    await user.click(within(projects).getByRole('button', { name: 'Add a bullet' }));
+    await user.type(within(projects).getByLabelText('Bullet 1'), 'Handles 1M entries a day');
+    await user.click(within(projects).getByRole('button', { name: /^save$/i }));
+    expect(saved().projects).toEqual([{ name: 'Ledger', keywords: ['Go', 'Postgres'], highlights: ['Handles 1M entries a day'] }]);
+    expect(await within(projects).findByText('Handles 1M entries a day')).toBeInTheDocument();
+
+    const certificates = section('Certificates');
+    await user.click(within(certificates).getByRole('button', { name: /edit/i }));
+    await user.type(within(certificates).getByLabelText('Link'), 'https://learn.microsoft.com/cert');
+    await user.click(within(certificates).getByRole('button', { name: /^save$/i }));
+    expect(saved().certificates).toEqual([{ name: 'AZ-900', issuer: 'Microsoft', url: 'https://learn.microsoft.com/cert' }]);
+  });
+
+  it('can edit every field the PDF prints', async () => {
+    // The fields the renderer reads, listed by the API's test of it (resume-printed-paths.test.ts).
+    const printed = JSON.parse(readFileSync(join(__dirname, '../../../api/src/lib/resume-printed-paths.json'), 'utf8')) as string[];
+    const blankResume: StructuredResume = {
+      basics: { name: 'Jane Candidate', email: '', summary: '' },
+      work: [],
+      education: [],
+      skills: [],
+      projects: [],
+      certificates: [],
+    };
+    const user = userEvent.setup();
+    render(<ResumePanel initial={blankResume} updatedAt={null} resumeFileName={null} hasStoredText={false} />);
+
+    // Each section: add one of everything, fill every field, save.
+    for (const name of ['Basics', 'Experience', 'Education', 'Skills', 'Projects', 'Certificates']) {
+      const region = section(name);
+      await user.click(within(region).getByRole('button', { name: /edit/i }));
+      const clicked = new Set<HTMLElement>();
+      for (let round = 0; round < 3; round += 1) {
+        for (const add of within(region).queryAllByRole('button', { name: /^add /i })) {
+          if (clicked.has(add)) continue;
+          clicked.add(add);
+          await user.click(add);
+        }
+      }
+      for (const field of within(region).getAllByRole('textbox')) {
+        if ((field as HTMLInputElement).value) continue;
+        await user.type(field, 'x');
+      }
+      await user.click(within(region).getByRole('button', { name: /^save$/i }));
+      await waitFor(() => expect(within(region).queryByRole('button', { name: /^save$/i })).not.toBeInTheDocument());
+    }
+    // The layout: a heading, a hidden section, the page size.
+    const heading = screen.getByLabelText('Skills heading');
+    await user.clear(heading);
+    await user.type(heading, 'Toolbox{Enter}');
+    await user.click(screen.getByRole('button', { name: 'Hide Projects' }));
+    await user.selectOptions(screen.getByLabelText('Page size'), 'A4');
+
+    const written = new Set<string>();
+    const walk = (value: unknown, path: string) => {
+      if (Array.isArray(value)) value.forEach((item) => walk(item, `${path}[]`));
+      else if (value && typeof value === 'object') for (const [key, field] of Object.entries(value)) walk(field, path ? `${path}.${key}` : key);
+      else if (value !== undefined && value !== '') written.add(path);
+    };
+    for (const [body] of saveBaseResume.mock.calls) walk(body, '');
+    for (const [body] of saveResumeLayout.mock.calls) walk(body, 'layout');
+    expect(printed.length).toBeGreaterThan(30);
+    expect(printed.filter((path) => !written.has(path))).toEqual([]);
+  });
+
+  it('shows the sections in their saved order, and the PDF preview', () => {
+    const layout: ResumeLayout = { sections: [{ key: 'education' }, { key: 'skills', title: 'Technical Skills' }] };
+    render(<ResumePanel initial={{ ...resume, layout }} updatedAt={null} resumeFileName="cv.pdf" hasStoredText />);
+    const sections = screen.getByRole('region', { name: 'Sections' });
+    expect(within(sections).getAllByRole('textbox').map((field) => (field as HTMLInputElement).value).slice(0, 2)).toEqual([
+      'Education',
+      'Technical Skills',
+    ]);
+    expect(screen.getByRole('button', { name: 'Preview PDF' })).toBeEnabled();
+  });
+
+  it('offers no layout or PDF before there is a résumé', () => {
+    render(<ResumePanel initial={null} updatedAt={null} resumeFileName={null} hasStoredText={false} />);
+    expect(screen.getByRole('button', { name: 'Preview PDF' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Reset to default' })).toBeDisabled();
   });
 });

@@ -1,15 +1,18 @@
 import { randomUUID } from 'node:crypto';
 import { Router } from 'express';
-import { getUserProfile, saveBaseResume } from '@/data/profile-store';
+import { readBaseResume } from '@/data/base-resume';
+import { changeBaseResume, getUserProfile, saveBaseResume } from '@/data/profile-store';
 import {
   getBaseResumeVersion,
   insertResumeVersion,
+  updateResumeVersion,
 } from '@/data/resume-version-store';
 import { resolveResumeParse } from '@/lib/agent-client';
 import { attachmentDisposition } from '@/lib/content-disposition';
 import { flagResume } from '@/lib/resume-flags';
 import { requireUser } from '@/lib/auth';
 import { isTooLong, resumeProblem, STORED_TEXT_MAX, TOO_LONG_MESSAGE } from '@/lib/input-caps';
+import { normalizeLayout, parseLayoutPatch, withLayout } from '@/lib/resume-layout';
 import type { ResumeVersionRecord, StructuredResume } from '@/types';
 
 export const baseResumeRouter = Router();
@@ -52,6 +55,10 @@ baseResumeRouter.get('/', async (request, response, next) => {
  * A résumé read from a replacement file comes with that file's text (`resumeText`, and
  * `resumeFileName`), stored in the same statement as the profile's résumé: the text
  * discovery scores against can't change without the résumé (#350).
+ *
+ * The layout (section order, headings, page size) changes only through PATCH /layout (#415):
+ * a save keeps the stored one, whatever the body carries (none from a résumé read from a
+ * file, or an old one from another tab).
  */
 baseResumeRouter.put('/', async (request, response, next) => {
   try {
@@ -82,9 +89,78 @@ baseResumeRouter.put('/', async (request, response, next) => {
       source = { resumeText: body.resumeText.trim(), resumeFileName: fileName || 'resume.txt' };
     }
 
-    const baseResume = body.baseResume;
+    const [profile, storedBase] = await Promise.all([getUserProfile(userId), getBaseResumeVersion(userId)]);
+    const baseResume = withLayout(body.baseResume, normalizeLayout((profile?.baseResume ?? storedBase?.structuredResume)?.layout));
     await saveBaseResume(userId, baseResume, source);
     return response.json({ baseResume });
+  } catch (error) {
+    next(error);
+  }
+});
+
+/**
+ * PATCH /api/profile/base-resume/layout   body: { sections?, pageSize? }
+ *
+ * Saves the base résumé's layout (#415): the sections' order, headings and visibility, and
+ * the page size. Only the fields sent change. 400 for a malformed layout, 404 before there is a
+ * résumé. It changes the résumé as it is now, so a save made meanwhile is kept, and both
+ * copies: the profile's, which Settings shows, and the base version's, which the résumé
+ * studio and outreach read first.
+ */
+baseResumeRouter.patch('/layout', async (request, response, next) => {
+  try {
+    const userId = requireUser(request, response);
+    if (!userId) return;
+
+    const parsed = parseLayoutPatch(request.body);
+    if ('error' in parsed) {
+      return response.status(400).json({ error: parsed.error });
+    }
+
+    const baseVersion = await getBaseResumeVersion(userId);
+    const saved = await changeBaseResume(userId, baseVersion?.structuredResume ?? null, (current) =>
+      withLayout(current, normalizeLayout({ ...normalizeLayout(current.layout), ...parsed.layout })),
+    );
+    if (!saved) {
+      return response.status(404).json({ error: 'There is no résumé yet. Add yours in Settings → Résumé first.' });
+    }
+    // The base version's copy follows the profile's. (#408 puts both writes in one transaction.)
+    if (baseVersion) {
+      await updateResumeVersion(userId, baseVersion.id, { structuredResume: saved });
+    }
+
+    return response.json({ layout: saved.layout ?? {} });
+  } catch (error) {
+    next(error);
+  }
+});
+
+/**
+ * GET /api/profile/base-resume/pdf
+ *
+ * The saved base résumé's PDF, in its layout (#415): Settings' Preview PDF and Download PDF.
+ * Rendered on the request and nothing is stored: no version row, no file. `X-Page-Count` is
+ * how many pages it runs to.
+ */
+baseResumeRouter.get('/pdf', async (request, response, next) => {
+  try {
+    const userId = requireUser(request, response);
+    if (!userId) return;
+
+    const resume = await readBaseResume(userId);
+    if (!resume) {
+      return response.status(404).json({ error: 'There is no résumé yet. Add yours in Settings → Résumé first.' });
+    }
+
+    const { renderResumePdf } = await import('@/lib/ats-resume-pdf');
+    const { pdf, pages, unsupported } = await renderResumePdf(resume);
+
+    response.setHeader('Content-Type', 'application/pdf');
+    response.setHeader('Cache-Control', 'private, no-store');
+    response.setHeader('X-Page-Count', String(pages));
+    response.setHeader('X-Pdf-Unsupported-Characters', String(unsupported));
+    response.setHeader('Content-Disposition', attachmentDisposition(`${resume.basics?.name?.trim() || 'Resume'} – Résumé.pdf`));
+    return response.send(pdf);
   } catch (error) {
     next(error);
   }

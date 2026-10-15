@@ -1,5 +1,16 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { ApiRequestError, createJob, draftOutreach, fetchJobs, parseJob, saveBaseResume, scoreFit, uploadResumeFile } from './api';
+import {
+  ApiRequestError,
+  createJob,
+  draftOutreach,
+  fetchBaseResumePdf,
+  fetchJobs,
+  parseJob,
+  saveBaseResume,
+  saveResumeLayout,
+  scoreFit,
+  uploadResumeFile,
+} from './api';
 
 // Under jsdom `window` is defined, so apiFetch routes through the same-origin
 // Next proxy (`/api/proxy/*`). We mock global fetch and inspect the call.
@@ -143,6 +154,38 @@ describe('saveBaseResume', () => {
     const fetchMock = mockFetch({ json: async () => ({ baseResume: resume }) });
     await saveBaseResume(resume, { text: 'NEW TEXT', fileName: 'new.pdf' });
     expect(lastBody(fetchMock)).toEqual({ baseResume: resume, resumeText: 'NEW TEXT', resumeFileName: 'new.pdf' });
+  });
+});
+
+// #415: the layout is saved on its own, and the PDF preview is rendered without storing anything.
+describe('saveResumeLayout', () => {
+  it('sends only what changed, and answers with the layout as saved', async () => {
+    const layout = { sections: [{ key: 'skills' as const, title: 'Technical Skills' }] };
+    const fetchMock = mockFetch({ json: async () => ({ layout }) });
+    expect(await saveResumeLayout({ sections: layout.sections })).toEqual(layout);
+    const [url, init] = fetchMock.mock.calls[0]!;
+    expect(url).toBe('/api/proxy/api/profile/base-resume/layout');
+    expect(init.method).toBe('PATCH');
+    expect(lastBody(fetchMock)).toEqual({ sections: [{ key: 'skills', title: 'Technical Skills' }] });
+  });
+});
+
+describe('fetchBaseResumePdf', () => {
+  it('returns the PDF with its page count and unprintable characters', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response('%PDF-1.7', { status: 200, headers: { 'content-type': 'application/pdf', 'x-page-count': '2', 'x-pdf-unsupported-characters': '3' } }),
+    );
+    vi.stubGlobal('fetch', fetchMock);
+    const pdf = await fetchBaseResumePdf();
+    expect(fetchMock.mock.calls[0]![0]).toBe('/api/proxy/api/profile/base-resume/pdf');
+    expect(pdf.pages).toBe(2);
+    expect(pdf.unsupported).toBe(3);
+    expect(pdf.blob.size).toBe(8);
+  });
+
+  it("says why when it can't be rendered", async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(JSON.stringify({ error: 'No base résumé yet.' }), { status: 404 })));
+    await expect(fetchBaseResumePdf()).rejects.toThrow('No base résumé yet.');
   });
 });
 

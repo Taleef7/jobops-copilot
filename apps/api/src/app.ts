@@ -139,6 +139,7 @@ export function createApp(dependencies: AppDependencies = {}) {
   // Résumé parsing calls the LLM; rendering a PDF is CPU on the event loop plus a blob write.
   app.post('/api/profile/base-resume/parse-resume', runLimiter, runBudget);
   app.post('/api/profile/base-resume/render-pdf', runLimiter);
+  app.get('/api/profile/base-resume/pdf', runLimiter);
   app.use('/api/profile/base-resume', baseResumeRouter);
   // Reading an uploaded PDF is CPU work in a worker thread (#389).
   app.post('/api/profile/resume', runLimiter);

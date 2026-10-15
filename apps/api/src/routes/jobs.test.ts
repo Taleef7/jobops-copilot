@@ -7,9 +7,11 @@ import { join } from 'node:path';
 import express from 'express';
 import { jobsRouter } from './jobs';
 import { createApp } from '@/app';
-import { resetJobStoreForTests } from '@/data/job-store';
+import { createJob, resetJobStoreForTests } from '@/data/job-store';
+import { upsertUserProfile } from '@/data/profile-store';
+import { getResumeVersion, insertResumeVersion, resetResumeVersionStore } from '@/data/resume-version-store';
 import { closePool } from '@/lib/postgres';
-import type { JobRecord } from '@/types';
+import type { JobRecord, ResumeLayout, ResumeVersionRecord, StructuredResume } from '@/types';
 
 async function withServer(
   mount: (app: express.Express) => void,
@@ -234,6 +236,81 @@ test('PATCH /api/jobs/:id clears the notes, next action and follow-up sent as nu
   } finally {
     process.chdir(originalCwd);
     resetJobStoreForTests();
+    await rm(tempDir, { recursive: true, force: true });
+  }
+});
+
+// #415: a tailored draft follows the base résumé's layout until it's downloaded or its job is
+// marked applied. Marking the job applied freezes the layout on its drafts, once.
+test("marking a job applied freezes the base résumé's layout on its drafts", async () => {
+  const originalCwd = process.cwd();
+  delete process.env.DATABASE_URL;
+  const tempDir = await mkdtemp(join(tmpdir(), 'jobops-route-jobs-applied-'));
+  const user = 'user-applied';
+  const atTailoring: ResumeLayout = { sections: [{ key: 'skills' }] };
+  const whenApplied: ResumeLayout = { sections: [{ key: 'education', title: 'Schooling' }] };
+  const later: ResumeLayout = { sections: [{ key: 'work', hidden: true }] };
+  const resume: StructuredResume = {
+    basics: { name: 'Jordan Lee', email: 'jordan@example.com', summary: 'Engineer.' },
+    work: [],
+    education: [],
+    skills: [],
+  };
+
+  try {
+    process.chdir(tempDir);
+    resetJobStoreForTests();
+    await resetResumeVersionStore();
+    const job = await createJob(user, { company: 'Acme Pay', title: 'Backend Engineer', descriptionText: 'Build payment APIs.' });
+    await upsertUserProfile(user, { baseResume: { ...resume, layout: whenApplied } });
+    const now = new Date().toISOString();
+    const version = (id: string, overrides: Partial<ResumeVersionRecord> = {}): ResumeVersionRecord => ({
+      id,
+      userId: user,
+      jobId: job.id,
+      changeSummary: 'Tailored',
+      structuredResume: { ...resume, layout: atTailoring },
+      approved: false,
+      isBase: false,
+      basedOn: { baseVersionId: null, baseUpdatedAt: null, jobId: job.id, postingSha256: 'x', model: 'm', createdAt: now, grounding: { version: 1 } },
+      createdAt: now,
+      updatedAt: now,
+      ...overrides,
+    });
+    await insertResumeVersion(version('draft'));
+    await insertResumeVersion(version('downloaded', { approved: true }));
+    await insertResumeVersion(version('other-job', { jobId: 'another-job' }));
+
+    await withServer((app) => app.use('/api/jobs', jobsRouter), async (baseUrl) => {
+      const patch = (body: unknown) =>
+        fetch(`${baseUrl}/api/jobs/${job.id}`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json', 'X-User-Id': user },
+          body: JSON.stringify(body),
+        });
+
+      // Any other status, or a note, freezes nothing.
+      assert.equal((await patch({ status: 'shortlisted' })).status, 200);
+      assert.deepEqual((await getResumeVersion(user, 'draft'))!.structuredResume.layout, atTailoring);
+
+      assert.equal((await patch({ status: 'applied' })).status, 200);
+      const frozen = (await getResumeVersion(user, 'draft'))!;
+      assert.deepEqual(frozen.structuredResume.layout, whenApplied);
+      assert.ok(frozen.basedOn?.layoutFrozenAt);
+      // A downloaded version, and another job's draft, are left alone.
+      assert.deepEqual((await getResumeVersion(user, 'downloaded'))!.structuredResume.layout, atTailoring);
+      assert.equal((await getResumeVersion(user, 'downloaded'))!.basedOn?.layoutFrozenAt, undefined);
+      assert.deepEqual((await getResumeVersion(user, 'other-job'))!.structuredResume.layout, atTailoring);
+
+      // Saved again as applied (the edit panel sends the status with every save): no change.
+      await upsertUserProfile(user, { baseResume: { ...resume, layout: later } });
+      assert.equal((await patch({ status: 'applied', notes: 'Followed up.' })).status, 200);
+      assert.deepEqual(await getResumeVersion(user, 'draft'), frozen);
+    });
+  } finally {
+    process.chdir(originalCwd);
+    resetJobStoreForTests();
+    await resetResumeVersionStore();
     await rm(tempDir, { recursive: true, force: true });
   }
 });

@@ -1,4 +1,5 @@
 import { Router, type NextFunction, type Request, type Response } from 'express';
+import { freezeDraftLayouts } from '@/data/base-resume';
 import { DuplicateJobError } from '@/data/duplicate-job';
 import {
   countJobs,
@@ -267,6 +268,8 @@ jobsRouter.patch('/:id', async (request, response, next) => {
   }
 
   try {
+    // Marking a job applied freezes the base résumé's layout on its tailored drafts (#415).
+    const before = body.status === 'applied' ? await getJobById(userId, request.params.id) : null;
     const job = await updateJob(userId, request.params.id, {
       status: body.status,
       priority: body.priority,
@@ -279,6 +282,12 @@ jobsRouter.patch('/:id', async (request, response, next) => {
     if (!job) {
       response.status(404).json({ error: 'Job not found' });
       return;
+    }
+    if (before && before.status !== 'applied' && job.status === 'applied') {
+      // The status is saved either way: a draft left unfrozen still prints, with the current layout.
+      await freezeDraftLayouts(userId, job.id).catch((error: unknown) =>
+        console.error("[jobs] freezing the layout of the job's drafts failed", error),
+      );
     }
 
     response.json({ job });
