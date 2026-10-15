@@ -1,5 +1,7 @@
 import '@testing-library/jest-dom/vitest';
+import { render, screen } from '@testing-library/react';
 import { afterEach, expect, it, vi } from 'vitest';
+import type { Job } from '@/types/job';
 
 const { loadJob, api } = vi.hoisted(() => ({
   loadJob: vi.fn(async (): Promise<{ job: unknown; error: string | null }> => ({ job: undefined, error: null })),
@@ -21,6 +23,14 @@ vi.mock('next/navigation', () => ({
     throw new Error('NEXT_NOT_FOUND');
   },
 }));
+// The page's interactive panels have their own tests.
+vi.mock('@/components/job-analysis-actions', () => ({ JobAnalysisActions: () => null }));
+vi.mock('@/components/job-edit-panel', () => ({ JobEditPanel: () => null }));
+vi.mock('@/components/job-outreach-actions', () => ({ JobOutreachActions: () => null }));
+vi.mock('@/components/job-agents-panel', () => ({ JobAgentsPanel: () => null }));
+vi.mock('@/components/tailored-resume-review', () => ({ TailoredResumeReview: () => null }));
+vi.mock('@/components/application-pack-view', () => ({ ApplicationPackView: () => null }));
+vi.mock('@/components/job-contacts-panel', () => ({ JobContactsPanel: () => null }));
 
 import JobDetailPage, { generateMetadata } from './page';
 
@@ -29,6 +39,7 @@ afterEach(() => {
 });
 
 const params = (jobId: string) => ({ params: Promise.resolve({ jobId }) });
+const ID = '7f1c2a9e-3b4d-4e5f-8a6b-0c1d2e3f4a5b';
 
 // #353: `/jobs/not-a-real-id` asked the API for the job and its outputs, versions, pack and
 // contacts, and took 12.5 s on live to say "not found". A job id is a UUID.
@@ -45,6 +56,49 @@ it('titles a malformed id without asking the API', async () => {
 });
 
 it('asks the API about a well-formed id, and is not found when there is no such job', async () => {
-  await expect(JobDetailPage(params('7f1c2a9e-3b4d-4e5f-8a6b-0c1d2e3f4a5b'))).rejects.toThrow('NEXT_NOT_FOUND');
-  expect(loadJob).toHaveBeenCalledWith('7f1c2a9e-3b4d-4e5f-8a6b-0c1d2e3f4a5b');
+  await expect(JobDetailPage(params(ID))).rejects.toThrow('NEXT_NOT_FOUND');
+  expect(loadJob).toHaveBeenCalledWith(ID);
+});
+
+function makeJob(overrides: Partial<Job> = {}): Job {
+  return {
+    id: ID,
+    source: 'lever',
+    company: 'Jobot',
+    title: 'Backend Engineer',
+    location: 'Austin, TX',
+    employmentType: 'Full-time',
+    workplaceType: 'hybrid',
+    discoveredAt: '2026-10-01T00:00:00.000Z',
+    descriptionText: 'Build APIs.',
+    status: 'discovered',
+    priority: 'medium',
+    fitScore: null,
+    nextAction: '',
+    analysis: null,
+    outreach: [],
+    ...overrides,
+  };
+}
+
+// #353 (from C2, SPEC "posting link"): the job page had no way back to the posting.
+it('links to the posting from the header, in a new tab', async () => {
+  loadJob.mockResolvedValueOnce({ job: makeJob({ jobUrl: 'https://jobs.lever.co/jobot/123' }), error: null });
+  render(await JobDetailPage(params(ID)));
+
+  const link = screen.getByRole('link', { name: /open posting/i });
+  expect(link).toHaveAttribute('href', 'https://jobs.lever.co/jobot/123');
+  expect(link).toHaveAttribute('target', '_blank');
+  expect(link).toHaveAttribute('rel', 'noopener noreferrer');
+});
+
+it('has no posting link without a web address to open', async () => {
+  for (const jobUrl of [undefined, 'javascript:alert(1)', 'not a url']) {
+    loadJob.mockResolvedValueOnce({ job: makeJob({ jobUrl }), error: null });
+    const { unmount } = render(await JobDetailPage(params(ID)));
+
+    expect(screen.getByRole('heading', { name: 'Backend Engineer' })).toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: /open posting/i })).not.toBeInTheDocument();
+    unmount();
+  }
 });

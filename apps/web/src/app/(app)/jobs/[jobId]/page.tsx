@@ -28,7 +28,7 @@ import {
 import { isPrerankAnalysis } from '@/lib/analysis-display';
 import { formatDate } from '@/lib/format';
 import { isJobId, loadJob } from '@/lib/job-data';
-import { isDuplicateRemote } from '@/lib/job-display';
+import { isDuplicateRemote, postingHref } from '@/lib/job-display';
 
 export const dynamic = 'force-dynamic';
 
@@ -64,6 +64,7 @@ export default async function JobDetailPage({ params }: JobDetailParams) {
   // so auto-firing on every open would silently drain the daily AI budget.
   const estimated = isPrerankAnalysis(analysis?.modelUsed);
   const autoScore = estimated && profile?.hasResume === true;
+  const posting = postingHref(job.jobUrl);
 
   return (
     <div className="space-y-6">
@@ -77,6 +78,16 @@ export default async function JobDetailPage({ params }: JobDetailParams) {
           <div className="min-w-0 space-y-2">
             <h1 className="font-heading text-2xl font-bold tracking-tight">{job.title}</h1>
             <p className="text-muted-foreground">{job.company}</p>
+            {posting ? (
+              <a
+                href={posting}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-primary inline-block text-sm font-medium hover:underline"
+              >
+                Open posting <span aria-hidden="true">↗</span>
+              </a>
+            ) : null}
             <div className="flex flex-wrap items-center gap-2">
               <StatusPill status={job.status} />
               {!isDuplicateRemote(job.location, job.workplaceType) ? (
