@@ -88,3 +88,19 @@ test('returns source "none" for an empty page', () => {
   assert.equal(result.source, 'none');
   assert.equal(result.title, undefined);
 });
+
+// #355: the Add job review shows the salary as posted, read the way the store reads it
+// when the job is saved, or "Not stated".
+test('reads the salary the posting states', () => {
+  const html = `<html><head><script type="application/ld+json">
+    {"@type":"JobPosting","title":"Engineer",
+     "description":"<p>Build APIs.</p><p>The salary range is £80,000 - £95,000.</p>"}
+    </script></head><body></body></html>`;
+  const result = extractJobFromHtml(html);
+  assert.deepEqual(result.salary, { min: 80000, max: 95000, currency: 'GBP' });
+});
+
+test('a posting that states no salary has none', () => {
+  assert.equal(extractJobFromHtml(JSONLD).salary, undefined);
+  assert.equal(extractJobFromHtml('<html><head></head><body></body></html>').salary, undefined);
+});

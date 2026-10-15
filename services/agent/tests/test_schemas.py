@@ -11,6 +11,27 @@ def test_parsed_job_defaults_are_safe():
     assert parsed.seniority == "unknown"
     assert parsed.required_skills == []
     assert parsed.summary == ""
+    # #355: what the posting doesn't state stays unknown, never a default such as "Remote".
+    assert parsed.location is None
+    assert parsed.workplace_type is None
+
+
+def test_parsed_job_reads_location_and_workplace():
+    parsed = ParsedJob(location="London, United Kingdom", workplace_type="hybrid")
+    assert parsed.location == "London, United Kingdom"
+    assert parsed.workplace_type == "hybrid"
+
+
+def test_parsed_job_workplace_is_one_the_api_knows():
+    # Mirrors PARSED_WORKPLACE_TYPES in apps/api/src/lib/analysis-core.ts.
+    for value in ("remote", "hybrid", "onsite"):
+        assert ParsedJob(workplace_type=value).workplace_type == value
+    try:
+        ParsedJob(workplace_type="anywhere")
+    except ValueError:
+        pass
+    else:
+        raise AssertionError("an unknown workplace type must not validate")
 
 
 def test_fit_score_clamps_range():

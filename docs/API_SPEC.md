@@ -206,6 +206,7 @@ Response fields (every field except `source` is optional and omitted when not fo
 
 - `title`, `company`, `location`, `descriptionText` — extracted strings.
 - `workplaceType` — one of `remote`, `hybrid`, `onsite`, `flexible` (currently only set to `remote`, from a JSON-LD `TELECOMMUTE` location).
+- `salary` — `{ min, max, currency }` read from `descriptionText` the way the store reads it when a job is saved (#355).
 - `source` — the highest-priority tier that contributed at least one field: `jsonld`, `opengraph`, `heuristic`, or `none`.
 
 When nothing could be extracted the body is just `{ "source": "none" }`.
@@ -258,26 +259,28 @@ The `/api/ai/*` and `/api/discovery/*` routes are protected (Phase 2 · Workstre
 
 ### `POST /api/ai/parse-job`
 
-Parses raw text into structured job fields.
+Parses raw text into structured job fields. The Add job form sends a pasted posting here and shows the result for review; nothing is saved (#349, #355).
 
 Example request:
 
 ```json
 {
-  "job_id": "uuid",
   "description_text": "Build internal automations..."
 }
 ```
 
-If `job_id` is provided, the parsed analysis is saved back to the current job record.
+`job_id` is optional and only echoed back.
 
 Example response:
 
 ```json
 {
-  "job_id": "uuid",
+  "job_id": null,
   "company": "Northwind Labs",
   "title": "AI Automation Engineer",
+  "location": "London, United Kingdom",
+  "workplace_type": "hybrid",
+  "salary": { "min": 80000, "max": 95000, "currency": "GBP" },
   "required_skills": ["TypeScript", "Azure Functions", "n8n"],
   "preferred_skills": ["LLM"],
   "responsibilities": [
@@ -295,6 +298,9 @@ Current response fields:
 
 - `company`
 - `title`
+- `location`: where the job is based, as the posting says, or `null`.
+- `workplace_type`: `remote`, `hybrid` or `onsite` when the posting says, or `null`.
+- `salary`: `{ min, max, currency }` read from `description_text` the way the store reads it when a job is saved, or `null`.
 - `required_skills`
 - `preferred_skills`
 - `responsibilities`

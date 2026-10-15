@@ -14,6 +14,8 @@ from typing import Any, Literal
 from pydantic import BaseModel, Field
 
 Seniority = Literal["junior", "mid", "senior", "lead", "unknown"]
+# Mirrors PARSED_WORKPLACE_TYPES in apps/api/src/lib/analysis-core.ts (#355).
+WorkplaceType = Literal["remote", "hybrid", "onsite"]
 ApplyRecommendation = Literal["apply", "review", "pass"]
 MessageType = Literal[
     "recruiter_email",
@@ -33,6 +35,14 @@ class ParsedJob(BaseModel):
 
     company: str | None = Field(default=None, description="Hiring company, or null if unknown.")
     title: str | None = Field(default=None, description="Role title, or null if unknown.")
+    location: str | None = Field(
+        default=None,
+        description="Where the job is based, in the posting's words, or null if it doesn't say.",
+    )
+    workplace_type: WorkplaceType | None = Field(
+        default=None,
+        description="remote, hybrid or onsite when the posting says which, otherwise null.",
+    )
     required_skills: list[str] = Field(default_factory=list)
     preferred_skills: list[str] = Field(default_factory=list)
     responsibilities: list[str] = Field(default_factory=list)
