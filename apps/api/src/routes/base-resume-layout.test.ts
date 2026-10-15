@@ -9,6 +9,7 @@ import { baseResumeRouter } from './base-resume';
 import { getUserProfile } from '@/data/profile-store';
 import { getBaseResumeVersion, listResumeVersionsForUser, resetResumeVersionStore } from '@/data/resume-version-store';
 import { apiErrorHandler } from '@/lib/api-error-handler';
+import { RESUME_TEXT_MAX, resumeTextLength } from '@/lib/input-caps';
 import { readPdf } from '@/test-support/pdf-read';
 import type { ResumeLayout, StructuredResume } from '@/types';
 
@@ -211,5 +212,39 @@ test('GET /pdf with no résumé is a 404, and is per user', async () => {
     await send('PUT', '', { baseResume: resume });
     assert.equal((await send('GET', '/pdf', undefined, 'someone-else')).status, 404);
     assert.equal((await send('GET', '/pdf')).status, 200);
+  });
+});
+
+test("the layout's headings don't count toward the résumé's size: one near the cap still renders after a rename", async () => {
+  await withApi(async (send) => {
+    // 100 characters under the 60,000-character cap, every field within its own.
+    const bullet = (i: number, length: number) => `${i} ${'Shipped a careful change. '.repeat(200)}`.slice(0, length);
+    const full: StructuredResume = { ...resume, projects: [], certificates: [], work: [{ ...resume.work[0]!, highlights: [] }] };
+    const room = RESUME_TEXT_MAX - 100 - resumeTextLength(full);
+    full.work[0]!.highlights = Array.from({ length: Math.ceil(room / 4_900) }, (_, i) => bullet(i, Math.min(4_900, room - i * 4_900)));
+    assert.equal(resumeTextLength(full), RESUME_TEXT_MAX - 100);
+    assert.equal((await send('PUT', '', { baseResume: full })).status, 200);
+    const long = (word: string) => `${word} `.repeat(15).slice(0, 60).trim();
+    const sections = (['summary', 'work', 'education', 'skills', 'projects', 'certificates'] as const).map((key) => ({ key, title: long(key) }));
+    assert.equal((await send('PATCH', '/layout', { sections })).status, 200);
+    const pdf = await send('GET', '/pdf');
+    assert.equal(pdf.status, 200, await pdf.clone().text().catch(() => ''));
+  });
+});
+
+test('résumé saves and layout changes at once never undo the layout, in file mode too', async () => {
+  await withApi(async (send) => {
+    assert.equal((await send('PUT', '', { baseResume: resume })).status, 200);
+    for (let round = 0; round < 8; round += 1) {
+      const layout: ResumeLayout = { sections: [{ key: 'skills', title: `Skills ${round}` }] };
+      const statuses = await Promise.all([
+        send('PUT', '', { baseResume: { ...resume, basics: { ...resume.basics, summary: `Saved ${round}.` } } }),
+        send('PATCH', '/layout', layout),
+        send('PUT', '', { baseResume: resume, resumeText: 'Zoë Núñez', resumeFileName: 'cv.pdf' }),
+      ]);
+      assert.deepEqual(statuses.map((r) => r.status), [200, 200, 200]);
+      assert.deepEqual(await savedLayout(send), layout, `round ${round}`);
+      assert.deepEqual((await getBaseResumeVersion('user-layout'))?.structuredResume.layout, layout, `round ${round}`);
+    }
   });
 });

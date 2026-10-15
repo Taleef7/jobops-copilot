@@ -72,6 +72,22 @@ describe('ResumePdfPreview (#415)', () => {
     expect(await screen.findByText(/couldn't be shown here\. Download PDF has it/)).toBeInTheDocument();
   });
 
+  it('a preview that failed to draw can be tried again, and the failure is logged', async () => {
+    const logged = vi.spyOn(console, 'error').mockImplementation(() => {});
+    fetchBaseResumePdf.mockResolvedValueOnce(pdf(1)).mockResolvedValueOnce(pdf(1));
+    renderPdfPages.mockRejectedValueOnce(new Error('canvas unavailable'));
+    const user = userEvent.setup();
+    render(<ResumePdfPreview name="Zoë Núñez" />);
+    await user.click(screen.getByRole('button', { name: 'Preview PDF' }));
+    expect(await screen.findByText(/couldn't be shown here/)).toBeInTheDocument();
+    expect(logged).toHaveBeenCalledWith(expect.stringContaining('preview'), expect.objectContaining({ message: 'canvas unavailable' }));
+
+    await user.click(screen.getByRole('button', { name: 'Preview PDF' }));
+    expect(await screen.findByRole('img', { name: 'Page 1 of 1' })).toBeInTheDocument();
+    expect(screen.queryByText(/couldn't be shown here/)).not.toBeInTheDocument();
+    logged.mockRestore();
+  });
+
   it('downloads the PDF as "First Last – Résumé.pdf"', async () => {
     const user = userEvent.setup();
     render(<ResumePdfPreview name=" Zoë Núñez " />);

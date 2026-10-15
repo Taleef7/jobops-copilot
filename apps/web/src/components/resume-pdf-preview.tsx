@@ -19,6 +19,8 @@ interface ResumePdfPreviewProps {
 }
 
 interface Preview {
+  /** Each preview is drawn afresh: one whose pages failed can be tried again. */
+  attempt: number;
   data: ArrayBuffer;
   pages: number;
   unsupported: number;
@@ -48,6 +50,7 @@ export function ResumePdfPreview({ name, disabled = false, changes = 0, pending 
 
   // For a render on its way: the latest save it has to include, and whether it's still wanted.
   const latest = useRef(changes);
+  const attempts = useRef(0);
   const mounted = useRef(true);
   useEffect(() => {
     latest.current = changes;
@@ -71,7 +74,7 @@ export function ResumePdfPreview({ name, disabled = false, changes = 0, pending 
         const data = await blob.arrayBuffer();
         if (!mounted.current) return;
         if (asOf === latest.current) {
-          setPreview({ data, pages, unsupported });
+          setPreview({ attempt: (attempts.current += 1), data, pages, unsupported });
           return;
         }
       }
@@ -118,7 +121,7 @@ export function ResumePdfPreview({ name, disabled = false, changes = 0, pending 
         <div className="space-y-2">
           <p role="status" className="text-sm">{`Your PDF is ${preview.pages} ${preview.pages === 1 ? 'page' : 'pages'}.`}</p>
           {preview.unsupported ? <p className="text-xs text-amber-700 dark:text-amber-400">{unprintable(preview.unsupported)}</p> : null}
-          <PdfPages data={preview.data} />
+          <PdfPages key={preview.attempt} data={preview.data} />
         </div>
       ) : null}
     </div>
@@ -143,7 +146,8 @@ function PdfPages({ data }: { data: ArrayBuffer }) {
         });
         frame.replaceChildren(...canvases);
       })
-      .catch(() => {
+      .catch((error: unknown) => {
+        console.error('[résumé preview] the PDF pages could not be drawn', error);
         if (current) setFailed(true);
       });
     return () => {

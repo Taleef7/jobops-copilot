@@ -44,7 +44,7 @@ interface ResumeLayoutEditorProps {
 /**
  * The PDF's sections (#415): their order, headings and whether each prints, and the page size.
  * Every change saves at once; one that fails is put back, with a toast. Tailored résumés print
- * with this layout until they are downloaded.
+ * with this layout until they are downloaded or their job moves to Applied.
  */
 export function ResumeLayoutEditor({ initial, disabled = false, busy = false, onSaved, onPending }: ResumeLayoutEditorProps) {
   const [rows, setRows] = useState(() => layoutRows(initial));
@@ -125,7 +125,7 @@ export function ResumeLayoutEditor({ initial, disabled = false, busy = false, on
         <p className="text-muted-foreground text-xs">
           {disabled
             ? 'Save your résumé first, then arrange its sections here.'
-            : 'The order and headings your PDF uses. Tailored résumés follow them until you download one. Changes save as you make them.'}
+            : 'The order and headings your PDF uses. Tailored résumés follow them until you download one or the job moves to Applied. Changes save as you make them.'}
         </p>
       </div>
       <div ref={container}>

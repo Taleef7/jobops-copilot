@@ -12,7 +12,7 @@ import { createApp } from './app';
  * The injected guards block with a tag, so a response proves which guard ran first.
  */
 
-type Guard = 'limiter' | 'budget';
+type Guard = 'limiter' | 'budget' | 'pdf';
 const block = (tag: Guard): express.RequestHandler => (_request, response) => {
   response.status(429).json({ guard: tag });
 };
@@ -62,8 +62,6 @@ const LLM_ROUTES: Array<[string, string, 'guard' | 'own']> = [
 const STRICT_ONLY_ROUTES: Array<[string, string]> = [
   ['POST', '/api/jobs/extract'],
   ['POST', '/api/profile/base-resume/render-pdf'],
-  // The base résumé's PDF preview (#415): drawn on the request.
-  ['GET', '/api/profile/base-resume/pdf'],
   ['POST', '/api/notifications/test'],
   ['POST', '/api/profile/resume'],
 ];
@@ -124,4 +122,16 @@ test('every route module that can call the AI agent is in the inventory above', 
   for (const file of reaching) {
     assert.ok(covered.has(file) || file in exempt, `routes/${file} can call the AI agent but is not in the inventory`);
   }
+});
+
+// The base résumé's PDF preview (#415) is drawn on the request: it has its own per-user limit,
+// so previewing doesn't use up the AI routes' allowance, nor theirs the preview's.
+test("the PDF preview has its own limiter, not the AI routes' one", async () => {
+  await withApp({ runLimiter: block('limiter'), runBudget: block('budget'), pdfLimiter: block('pdf') }, async (baseUrl) => {
+    assert.equal(await guardFor(baseUrl, 'GET', '/api/profile/base-resume/pdf'), 'pdf');
+    assert.equal(await guardFor(baseUrl, 'GET', '/api/profile/base-resume/PDF/'), 'pdf');
+  });
+  await withApp({ runLimiter: block('limiter'), runBudget: pass, pdfLimiter: pass }, async (baseUrl) => {
+    assert.notEqual(await guardFor(baseUrl, 'GET', '/api/profile/base-resume/pdf'), 'limiter');
+  });
 });

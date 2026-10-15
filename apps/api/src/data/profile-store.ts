@@ -139,11 +139,17 @@ export async function saveBaseResume(
   source: { resumeText: string; resumeFileName: string } | null,
 ): Promise<StructuredResume> {
   if (!hasPostgresConnection()) {
-    const stored = (await getUserProfile(userId))?.baseResume ?? (await getBaseResumeVersion(userId))?.structuredResume;
-    const saved = withLayout(baseResume, normalizeLayout(stored?.layout));
-    await upsertUserProfile(userId, { baseResume: saved, ...source });
-    await saveBaseVersion(userId, saved);
-    return saved;
+    // One step in the file queue, as changeBaseResume is: a layout change can't land in between.
+    return exclusive(async () => {
+      const profiles = await readFileProfiles();
+      const existing = profiles[userId] ?? { userId };
+      const stored = existing.baseResume ?? (await getBaseResumeVersion(userId))?.structuredResume;
+      const saved = withLayout(baseResume, normalizeLayout(stored?.layout));
+      profiles[userId] = { ...existing, ...source, baseResume: saved, userId, updatedAt: new Date().toISOString() };
+      await writeFileProfiles(profiles);
+      await saveBaseVersion(userId, saved);
+      return saved;
+    });
   }
 
   const client = await getPool()!.connect();

@@ -302,9 +302,16 @@ test("marking a job applied freezes the base résumé's layout on its drafts", a
       assert.equal((await getResumeVersion(user, 'downloaded'))!.basedOn?.layoutFrozenAt, undefined);
       assert.deepEqual((await getResumeVersion(user, 'other-job'))!.structuredResume.layout, atTailoring);
 
-      // Saved again as applied (the edit panel sends the status with every save): no change.
+      // A draft tailored after the job was applied follows the base layout until it's downloaded:
+      // saving the job again as applied (the edit panel sends the status with every save), or
+      // moving it on to an interview, doesn't freeze it. Only a move into these stages does.
+      await insertResumeVersion(version('after-applying'));
       await upsertUserProfile(user, { baseResume: { ...resume, layout: later } });
       assert.equal((await patch({ status: 'applied', notes: 'Followed up.' })).status, 200);
+      assert.equal((await patch({ status: 'interview' })).status, 200);
+      const after = (await getResumeVersion(user, 'after-applying'))!;
+      assert.equal(after.basedOn?.layoutFrozenAt, undefined);
+      assert.deepEqual(after.structuredResume.layout, atTailoring);
       assert.deepEqual(await getResumeVersion(user, 'draft'), frozen);
     });
   } finally {

@@ -48,8 +48,16 @@ export class ResumeTooLargeError extends Error {
   }
 }
 
+/**
+ * The résumé without its layout (#415): the layout isn't résumé text, and its own check bounds
+ * it (six sections, headings of 60 characters). Counting it would refuse a résumé near the cap
+ * once a heading is renamed.
+ */
+const content = (value: unknown): unknown => (isPlainObject(value) && 'layout' in value ? { ...value, layout: undefined } : value);
+
 /** All the text in a structured résumé, in characters. */
 export function resumeTextLength(value: unknown, depth = 0): number {
+  if (depth === 0) value = content(value);
   if (depth > 6) return 0;
   if (typeof value === 'string') return value.length;
   if (Array.isArray(value)) return value.reduce<number>((sum, item) => sum + resumeTextLength(item, depth + 1), 0);
@@ -82,7 +90,7 @@ export function resumeProblem(value: unknown): string | null {
     }
     return null;
   };
-  const problem = walk(value, 'A field of this résumé', 0);
+  const problem = walk(content(value), 'A field of this résumé', 0);
   if (problem) return problem;
   return resumeTextLength(value) > RESUME_TEXT_MAX ? new ResumeTooLargeError().message : null;
 }

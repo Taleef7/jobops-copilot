@@ -38,6 +38,7 @@ describe('ResumeLayoutEditor (#415)', () => {
     expect(rows()).toEqual(['Technical Skills', 'Education', 'Certifications (hidden)', 'Summary', 'Experience', 'Projects']);
     // The field says which section it is, whatever its heading.
     expect(screen.getByLabelText('Skills heading')).toHaveValue('Technical Skills');
+    expect(screen.getByText(/Tailored résumés follow them until you download one or the job moves to Applied\./)).toBeInTheDocument();
   });
 
   it('moves a section with the keyboard, saves at once, and says where it went', async () => {
