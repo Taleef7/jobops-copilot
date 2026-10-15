@@ -127,13 +127,22 @@ export async function getBaseResumeVersion(userId: string): Promise<ResumeVersio
   return match ? clone(match) : null;
 }
 
+export interface UpdateOptions {
+  /**
+   * Change the version only while it is as it was read: its updatedAt, and approved or not. A
+   * version that changed meanwhile (another tab, a download) isn't overwritten: null.
+   */
+  expect?: { updatedAt?: string; approved?: boolean };
+}
+
 export async function updateResumeVersion(
   userId: string,
   id: string,
   patch: Partial<ResumeVersionRecord>,
+  options: UpdateOptions = {},
 ): Promise<ResumeVersionRecord | null> {
   if (hasPostgresConnection()) {
-    return postgresStore.updateResumeVersion(userId, id, patch);
+    return postgresStore.updateResumeVersion(userId, id, patch, options);
   }
 
   return runExclusive(async () => {
@@ -142,10 +151,15 @@ export async function updateResumeVersion(
     if (index === -1) return null;
 
     const existing = items[index]!;
+    const { expect } = options;
+    if (expect?.updatedAt !== undefined && existing.updatedAt !== expect.updatedAt) return null;
+    if (expect?.approved !== undefined && existing.approved !== expect.approved) return null;
+    // Always later than before, so two writes in one millisecond still tell apart.
+    const previous = Date.parse(existing.updatedAt);
     const updated: ResumeVersionRecord = {
       ...existing,
       ...clone(patch),
-      updatedAt: new Date().toISOString(),
+      updatedAt: new Date(Number.isNaN(previous) ? Date.now() : Math.max(Date.now(), previous + 1)).toISOString(),
     };
     items[index] = updated;
     await persist();

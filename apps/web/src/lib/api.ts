@@ -546,20 +546,27 @@ export async function fetchJobResumeVersions(jobId: string): Promise<ResumeVersi
   return response.versions;
 }
 
-/** Initiate an interactive tailoring run for a specific job. */
+/** The posting's keywords for the tailor window, and which the base résumé has (#351). */
+export async function getTailorKeywords(
+  jobId: string,
+): Promise<{ fitRead: boolean; keywords: Array<{ term: string; onResume: boolean }> }> {
+  return await requestJson(`/api/jobs/${jobId}/tailor/keywords`);
+}
+
+/**
+ * Tailor the base résumé to a job's posting (#351). `confirmedKeywords` are the ones the user
+ * says they have; `addToBase` also puts them on the base résumé.
+ */
 export async function tailorResumeForJob(
   jobId: string,
-  options?: { targetRole?: string },
-): Promise<ResumeVersionRecord> {
-  const response = await requestJson<{ version: ResumeVersionRecord }>(
-    `/api/jobs/${jobId}/tailor`,
-    {
-      timeoutMs: AI_REQUEST_TIMEOUT_MS,
-      method: 'POST',
-      body: JSON.stringify(options ?? {}),
-    },
-  );
-  return response.version;
+  options?: { confirmedKeywords?: string[]; addToBase?: boolean },
+): Promise<{ version: ResumeVersionRecord; addedToBase?: boolean }> {
+  // addedToBase: false when the draft was saved but the keywords couldn't go into the base résumé.
+  return requestJson<{ version: ResumeVersionRecord; addedToBase?: boolean }>(`/api/jobs/${jobId}/tailor`, {
+    timeoutMs: AI_REQUEST_TIMEOUT_MS,
+    method: 'POST',
+    body: JSON.stringify(options ?? {}),
+  });
 }
 
 /** Approve a tailored resume draft version. */
@@ -572,18 +579,18 @@ export async function approveResumeVersion(
   );
 }
 
-/** Reject a tailored resume draft version with user feedback. */
-export async function rejectResumeVersion(
+/** Keep, restore or edit one line of a tailored draft (#351). */
+export async function reviewResumeChange(
   versionId: string,
-  feedback?: string,
-): Promise<{ version: ResumeVersionRecord; approved: boolean; feedback: string | null }> {
-  return await requestJson<{ version: ResumeVersionRecord; approved: boolean; feedback: string | null }>(
-    `/api/resume-versions/${versionId}/reject`,
-    {
-      method: 'POST',
-      body: JSON.stringify(feedback ? { feedback } : {}),
-    },
+  changeId: string,
+  action: 'keep' | 'restore' | 'edit',
+  text?: string,
+): Promise<ResumeVersionRecord> {
+  const response = await requestJson<{ version: ResumeVersionRecord }>(
+    `/api/resume-versions/${versionId}/changes/${changeId}`,
+    { method: 'PATCH', body: JSON.stringify(text === undefined ? { action } : { action, text }) },
   );
+  return response.version;
 }
 
 /**

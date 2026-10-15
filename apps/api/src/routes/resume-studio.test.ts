@@ -6,9 +6,10 @@ import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import express from 'express';
-import { createJob, resetJobStoreForTests } from '@/data/job-store';
+import { createJob, resetJobStoreForTests, saveJobAnalysis } from '@/data/job-store';
 import { insertResumeVersion, resetResumeVersionStore } from '@/data/resume-version-store';
-import { upsertUserProfile } from '@/data/profile-store';
+import { getUserProfile, upsertUserProfile } from '@/data/profile-store';
+import { sampleAnalysis } from '@/test-support/analysis';
 import { apiErrorHandler } from '@/lib/api-error-handler';
 import { resumeStudioRouter } from './resume-studio';
 import { TAILOR_BASE, edit, emptyAnswer } from '@/test-support/tailor-fixtures';
@@ -33,7 +34,8 @@ interface Agent {
 async function withStudio(
   answer: unknown,
   run: (ctx: { agent: Agent; send: Send }) => Promise<void>,
-  options: { agentDown?: boolean } = {},
+  // duringAgent runs while the AI call is in flight, before the fake agent answers.
+  options: { agentDown?: boolean; duringAgent?: () => Promise<void> } = {},
 ) {
   const originalCwd = process.cwd();
   const originalAgent = process.env.AGENT_SERVICE_URL;
@@ -49,7 +51,9 @@ async function withStudio(
     request.on('data', (chunk) => (raw += chunk));
     request.on('end', () => {
       agent.calls.push({ path: request.url ?? '', body: JSON.parse(raw || '{}') as TailorAgentRequest });
-      response.writeHead(200, { 'Content-Type': 'application/json' }).end(JSON.stringify(answer));
+      void Promise.resolve(options.duringAgent?.()).then(() =>
+        response.writeHead(200, { 'Content-Type': 'application/json' }).end(JSON.stringify(answer)),
+      );
     });
   });
   await new Promise<void>((resolve) => agentServer.listen(0, resolve));
@@ -326,15 +330,123 @@ test("approve and download need the API's check; download needs approval; base v
   });
 });
 
-test('reject records the feedback on the draft', async () => {
+// #351 step 4: the review keeps, restores or edits each line, and Download is the approval.
+// Reject (with feedback) is gone.
+test('there is no reject any more', async () => {
   await withStudio(answerWith({ edits: [edit('work[0].highlights[2]', 'Mentored 2 interns')] }), async ({ send }) => {
     const job = await setUp();
     const version = await tailor(send, job.id);
-    const response = await send('POST', `/api/resume-versions/${version.id}/reject`, { feedback: 'Lead with Go.' });
+    assert.equal((await send('POST', `/api/resume-versions/${version.id}/reject`, { feedback: 'x' })).status, 404);
+  });
+});
+
+test('the tailor window lists the posting keywords and which are on the résumé', async () => {
+  await withStudio(answerWith({}), async ({ send }) => {
+    const job = await setUp();
+    const before = (await (await send('GET', `/api/jobs/${job.id}/tailor/keywords`)).json()) as {
+      fitRead: boolean;
+      keywords: unknown[];
+    };
+    assert.deepEqual(before, { fitRead: false, keywords: [] });
+
+    await saveJobAnalysis('user-studio', job.id, sampleAnalysis(), 70);
+    const response = await send('GET', `/api/jobs/${job.id}/tailor/keywords`);
     assert.equal(response.status, 200);
-    const body = (await response.json()) as { approved: boolean; version: ResumeVersionRecord };
-    assert.equal(body.approved, false);
-    assert.match(body.version.changeSummary, /Lead with Go\./);
+    assert.deepEqual(await response.json(), {
+      fitRead: true,
+      keywords: [
+        { term: 'Go', onResume: true },
+        { term: 'Postgres', onResume: true },
+        { term: 'Kafka', onResume: false },
+      ],
+    });
+    assert.equal((await send('GET', `/api/jobs/${job.id}/tailor/keywords`, undefined, 'someone-else')).status, 404);
+
+    // Requirements written as phrases aren't keywords to confirm: they'd land in the skills.
+    await saveJobAnalysis(
+      'user-studio',
+      job.id,
+      sampleAnalysis({ requiredSkills: ['Go', '3+ years of backend development experience', 'Kafka or another streaming platform'] }),
+      70,
+    );
+    const filtered = (await (await send('GET', `/api/jobs/${job.id}/tailor/keywords`)).json()) as { keywords: Array<{ term: string }> };
+    assert.deepEqual(filtered.keywords.map((k) => k.term), ['Go', 'Kafka', 'Postgres']);
+  });
+});
+
+test('a draft records how many posting keywords the résumé has, before and after', async () => {
+  const answer = answerWith({ added_skills: [{ skill: 'Kafka', category: 'Infrastructure' }], edits: [edit('work[0].highlights[2]', 'Mentored 2 interns')] });
+  await withStudio(answer, async ({ send }) => {
+    const job = await setUp();
+    await saveJobAnalysis('user-studio', job.id, sampleAnalysis(), 70);
+    const version = await tailor(send, job.id, { confirmedKeywords: ['Kafka'] });
+    assert.deepEqual(version.basedOn!.coverage, { total: 3, before: 2, after: 3, terms: ['Go', 'Postgres', 'Kafka'] });
+  });
+});
+
+test('confirmed keywords can be added to the base résumé too', async () => {
+  const answer = answerWith({ edits: [edit('work[0].highlights[2]', 'Mentored 2 interns')] });
+  await withStudio(answer, async ({ send }) => {
+    const job = await setUp();
+    const response = await send('POST', `/api/jobs/${job.id}/tailor`, { confirmedKeywords: ['Kafka', 'Go'], addToBase: true });
+    assert.equal(response.status, 201);
+    assert.equal(((await response.json()) as { addedToBase: boolean }).addedToBase, true);
+    const profile = await getUserProfile('user-studio');
+    assert.deepEqual(profile?.baseResume?.skills, [
+      { category: 'Languages', skills: ['Go', 'Python', 'SQL'] },
+      { category: 'Infrastructure', skills: ['PostgreSQL', 'Docker'] },
+      { category: 'Other', skills: ['Kafka'] },
+    ]);
+    assert.equal((await send('POST', `/api/jobs/${job.id}/tailor`, { addToBase: 'yes' })).status, 400);
+  });
+});
+
+test('each line of a draft can be kept, restored or edited until it is downloaded', async () => {
+  const answer = answerWith({
+    edits: [
+      edit('work[0].highlights[1]', 'Cut p95 latency 40% with Redis caching'),
+      edit('work[0].highlights[0]', 'Built the billing API in Go and Kafka serving 2,000 merchants'),
+    ],
+  });
+  await withStudio(answer, async ({ send }) => {
+    const job = await setUp();
+    const version = await tailor(send, job.id, { confirmedKeywords: ['Snowflake'] });
+    const [reworded, dropped] = version.changeDetails!;
+    const added = version.changeDetails!.find((d) => d.kind === 'skill-added')!;
+    const act = (changeId: string, body: unknown, user?: string) =>
+      send('PATCH', `/api/resume-versions/${version.id}/changes/${changeId}`, body, user);
+    const read = async (response: Response) => ((await response.json()) as { version: ResumeVersionRecord }).version;
+
+    // Restore: the base line comes back.
+    let updated = await read(await act(reworded!.id!, { action: 'restore' }));
+    assert.equal(updated.structuredResume.work[0]!.highlights[1], TAILOR_BASE.work[0]!.highlights[1]);
+    assert.equal(updated.changeDetails![0]!.resolution, 'restored');
+    // Keep: back to the suggestion.
+    updated = await read(await act(reworded!.id!, { action: 'keep' }));
+    assert.equal(updated.structuredResume.work[0]!.highlights[1], 'Cut p95 latency 40% with Redis caching');
+    assert.equal(updated.changeDetails![0]!.resolution, 'kept');
+    // Edit: the user's own words, even for a dropped suggestion; marked as theirs.
+    updated = await read(await act(dropped!.id!, { action: 'edit', text: '  Built the billing API in Go for 2,000 merchants ' }));
+    assert.equal(updated.structuredResume.work[0]!.highlights[0], 'Built the billing API in Go for 2,000 merchants');
+    assert.equal(updated.changeDetails![1]!.resolution, 'edited');
+    assert.equal(updated.changeDetails![1]!.userText, 'Built the billing API in Go for 2,000 merchants');
+    // Restore an added skill: it comes off the list.
+    updated = await read(await act(added.id!, { action: 'restore' }));
+    assert.ok(!updated.structuredResume.skills.some((group) => group.skills.includes('Snowflake')));
+    // The facts never move.
+    assert.equal(updated.structuredResume.work[0]!.company, 'Globex');
+
+    for (const body of [{ action: 'delete' }, { action: 'edit' }, { action: 'edit', text: ' ' }, { action: 'edit', text: 'x'.repeat(1_001) }]) {
+      assert.equal((await act(reworded!.id!, body)).status, 400, JSON.stringify(body).slice(0, 40));
+    }
+    assert.equal((await act('c99', { action: 'keep' })).status, 404);
+    assert.equal((await act(reworded!.id!, { action: 'keep' }, 'someone-else')).status, 404);
+
+    // Downloaded (approved): the version is final.
+    assert.equal((await send('POST', `/api/resume-versions/${version.id}/approve`, {})).status, 200);
+    const late = await act(reworded!.id!, { action: 'restore' });
+    assert.equal(late.status, 409);
+    assert.equal(((await late.json()) as { code: string }).code, 'VERSION_FINAL');
   });
 });
 
@@ -413,5 +525,167 @@ test('a résumé whose lines are all too long to send gets its own 409', async (
     assert.equal(body.code, 'RESUME_LINES_TOO_LONG');
     assert.match(body.error, /too long/);
     assert.equal(agent.calls.length, 0);
+  });
+});
+
+// Step 4 review fixes.
+test('a line of an older draft, saved before lines knew where they moved, is not changed blindly', async () => {
+  const answer = answerWith({
+    edits: [edit('work[0].highlights[1]', 'Cut p95 latency 40% with Redis caching')],
+    highlight_orders: [{ work_index: 0, highlight_order: [1, 0, 2, 3, 4] }],
+  });
+  await withStudio(answer, async ({ send }) => {
+    const job = await setUp();
+    const version = await tailor(send, job.id);
+    // A step-3 draft: the same details, without targetPath.
+    const old = {
+      ...version,
+      id: randomUUID(),
+      changeDetails: version.changeDetails!.map((detail) => {
+        const copy = { ...detail };
+        delete copy.targetPath;
+        return copy;
+      }),
+    } as ResumeVersionRecord;
+    await insertResumeVersion(old);
+    const response = await send('PATCH', `/api/resume-versions/${old.id}/changes/c0`, { action: 'restore' });
+    assert.equal(response.status, 409);
+    assert.equal(((await response.json()) as { code: string }).code, 'TAILOR_AGAIN');
+  });
+});
+
+test('the review only offers what can apply, and coverage follows the review', async () => {
+  const answer = answerWith({
+    // 9,000 merchants is a number the base résumé doesn't have: dropped.
+    edits: [edit('work[0].highlights[0]', 'Built the billing API in Go serving 9,000 merchants')],
+  });
+  await withStudio(answer, async ({ send }) => {
+    const job = await setUp();
+    await saveJobAnalysis('user-studio', job.id, sampleAnalysis(), 70);
+    const version = await tailor(send, job.id, { confirmedKeywords: ['Kafka'] });
+    const dropped = version.changeDetails!.find((d) => d.kind === 'rewrite')!;
+    assert.equal(dropped.dropped, true);
+    const added = version.changeDetails!.find((d) => d.kind === 'skill-added')!;
+    assert.equal((await send('PATCH', `/api/resume-versions/${version.id}/changes/${dropped.id}`, { action: 'keep' })).status, 400);
+    assert.deepEqual(version.basedOn!.coverage, { total: 3, before: 2, after: 3, terms: ['Go', 'Postgres', 'Kafka'] });
+    const removed = (await (await send('PATCH', `/api/resume-versions/${version.id}/changes/${added.id}`, { action: 'restore' })).json()) as {
+      version: ResumeVersionRecord;
+    };
+    assert.deepEqual(removed.version.basedOn!.coverage, { total: 3, before: 2, after: 2, terms: ['Go', 'Postgres', 'Kafka'] });
+  });
+});
+
+test('the window offers skills with digits and short names, not requirement sentences', async () => {
+  await withStudio(answerWith({}), async ({ send }) => {
+    const base = { ...TAILOR_BASE, skills: [...TAILOR_BASE.skills, { category: 'Other', skills: ['UX', 'S3'] }] };
+    const job = await setUp(base);
+    await saveJobAnalysis(
+      'user-studio',
+      job.id,
+      sampleAnalysis({
+        requiredSkills: ['S3', 'HTML5', 'UX', 'OAuth 2.0'],
+        preferredSkills: ['Excellent written communication skills', "Bachelor's degree in CS", '5+ years of Go'],
+        atsKeywords: [],
+        missingSkills: [],
+      }),
+      70,
+    );
+    const { keywords } = (await (await send('GET', `/api/jobs/${job.id}/tailor/keywords`)).json()) as {
+      keywords: Array<{ term: string; onResume: boolean }>;
+    };
+    assert.deepEqual(keywords, [
+      { term: 'S3', onResume: true },
+      { term: 'HTML5', onResume: false },
+      { term: 'UX', onResume: true },
+      { term: 'OAuth 2.0', onResume: false },
+    ]);
+  });
+});
+
+test('adding keywords to the base résumé keeps a change saved during the run', async () => {
+  const answer = answerWith({ edits: [edit('work[0].highlights[2]', 'Mentored 2 interns')] });
+  await withStudio(
+    answer,
+    async ({ send }) => {
+      const job = await setUp();
+      const response = await send('POST', `/api/jobs/${job.id}/tailor`, { confirmedKeywords: ['Kafka'], addToBase: true });
+      assert.equal(response.status, 201);
+      const base = (await getUserProfile('user-studio'))!.baseResume!;
+      assert.equal(base.basics.summary, 'Edited in Settings during the run.');
+      assert.deepEqual(base.skills.at(-1), { category: 'Other', skills: ['Kafka'] });
+    },
+    {
+      // A Settings save while the AI is working.
+      duringAgent: async () => {
+        const base = (await getUserProfile('user-studio'))!.baseResume!;
+        await upsertUserProfile('user-studio', {
+          baseResume: { ...base, basics: { ...base.basics, summary: 'Edited in Settings during the run.' } },
+        });
+      },
+    },
+  );
+});
+
+test('two runs that add keywords to the base résumé at once keep both', async () => {
+  const answer = answerWith({ edits: [edit('work[0].highlights[2]', 'Mentored 2 interns')] });
+  let arrived = 0;
+  let release: () => void = () => undefined;
+  const bothArrived = new Promise<void>((resolve) => (release = resolve));
+  await withStudio(
+    answer,
+    async ({ send }) => {
+      const first = await setUp();
+      const second = await createJob('user-studio', { company: 'Globex', title: 'Backend Engineer', descriptionText: POSTING });
+      const responses = await Promise.all([
+        send('POST', `/api/jobs/${first.id}/tailor`, { confirmedKeywords: ['Kafka'], addToBase: true }),
+        send('POST', `/api/jobs/${second.id}/tailor`, { confirmedKeywords: ['Snowflake'], addToBase: true }),
+      ]);
+      assert.deepEqual(responses.map((r) => r.status), [201, 201]);
+      const other = (await getUserProfile('user-studio'))!.baseResume!.skills.find((g) => g.category === 'Other');
+      assert.deepEqual([...other!.skills].sort(), ['Kafka', 'Snowflake']);
+    },
+    {
+      // Both runs are in flight before either answers.
+      duringAgent: async () => {
+        arrived += 1;
+        if (arrived === 2) release();
+        await bothArrived;
+      },
+    },
+  );
+});
+
+test("a dropped suggestion can't be put back by editing it in unchanged", async () => {
+  const answer = answerWith({ edits: [edit('work[0].highlights[0]', 'Built the billing API in Go serving 9,000 merchants')] });
+  await withStudio(answer, async ({ send }) => {
+    const job = await setUp();
+    const version = await tailor(send, job.id);
+    const dropped = version.changeDetails!.find((d) => d.kind === 'rewrite')!;
+    assert.equal(dropped.dropped, true);
+    const path = `/api/resume-versions/${version.id}/changes/${dropped.id}`;
+    assert.equal((await send('PATCH', path, { action: 'edit', text: dropped.newText })).status, 400);
+    assert.equal((await send('PATCH', path, { action: 'edit', text: '  built the billing API in Go  serving 9,000 merchants ' })).status, 400);
+    assert.equal((await send('PATCH', path, { action: 'edit', text: 'Built the billing API in Go for 2,000 merchants' })).status, 200);
+  });
+});
+
+test('coverage keeps counting the keywords it started with after a new fit read', async () => {
+  const answer = answerWith({ edits: [edit('work[0].highlights[2]', 'Mentored 2 interns')] });
+  await withStudio(answer, async ({ send }) => {
+    const job = await setUp();
+    await saveJobAnalysis('user-studio', job.id, sampleAnalysis(), 70);
+    const version = await tailor(send, job.id, { confirmedKeywords: ['Kafka'] });
+    // Another fit read, with as many keywords but different ones.
+    await saveJobAnalysis(
+      'user-studio',
+      job.id,
+      sampleAnalysis({ requiredSkills: ['Rust', 'Elixir'], preferredSkills: ['Scala'], atsKeywords: [], missingSkills: [] }),
+      70,
+    );
+    const added = version.changeDetails!.find((d) => d.kind === 'skill-added')!;
+    const removed = (await (await send('PATCH', `/api/resume-versions/${version.id}/changes/${added.id}`, { action: 'restore' })).json()) as {
+      version: ResumeVersionRecord;
+    };
+    assert.deepEqual(removed.version.basedOn!.coverage, { total: 3, before: 2, after: 2, terms: ['Go', 'Postgres', 'Kafka'] });
   });
 });

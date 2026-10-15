@@ -236,3 +236,30 @@ test('a version must name its owner', async () => {
     );
   });
 });
+
+test('a conditional update changes a version only while it is as it was read', async () => {
+  await withTempStore(async () => {
+    const record: ResumeVersionRecord = {
+      id: 'ver-cond',
+      userId: 'u1',
+      jobId: 'job-1',
+      changeSummary: 'Tailored',
+      structuredResume: sampleResume,
+      approved: false,
+      isBase: false,
+      createdAt: '2026-10-15T10:00:00.000Z',
+      updatedAt: '2026-10-15T10:00:00.000Z',
+    };
+    await insertResumeVersion(record);
+    const read = (await getResumeVersion('u1', 'ver-cond'))!;
+    const first = await updateResumeVersion('u1', 'ver-cond', { changeSummary: 'First' }, { expect: { updatedAt: read.updatedAt, approved: false } });
+    assert.equal(first?.changeSummary, 'First');
+    // A second write from the same read: the version has changed since.
+    const stale = await updateResumeVersion('u1', 'ver-cond', { changeSummary: 'Second' }, { expect: { updatedAt: read.updatedAt } });
+    assert.equal(stale, null);
+    // Approved meanwhile: a draft-only write is refused.
+    const approved = (await updateResumeVersion('u1', 'ver-cond', { approved: true }))!;
+    assert.equal(await updateResumeVersion('u1', 'ver-cond', { changeSummary: 'Third' }, { expect: { updatedAt: approved.updatedAt, approved: false } }), null);
+    assert.equal((await getResumeVersion('u1', 'ver-cond'))!.changeSummary, 'First');
+  });
+});

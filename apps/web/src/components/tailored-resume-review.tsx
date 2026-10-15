@@ -1,37 +1,28 @@
 'use client';
 
-import { useState } from 'react';
 import Link from 'next/link';
-import {
-  Briefcase,
-  CheckCircle2,
-  ChevronDown,
-  ChevronUp,
-  Clock,
-  Download,
-  FileText,
-  GraduationCap,
-  Lightbulb,
-  Loader2,
-  Lock,
-  MinusCircle,
-  PlusCircle,
-  Sparkles,
-  Wrench,
-  XCircle,
-} from 'lucide-react';
+import { useEffect, useState, useSyncExternalStore } from 'react';
+import { Loader2, Plus, X } from 'lucide-react';
 import { toast } from 'sonner';
-import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
+import { Input } from '@/components/ui/input';
+import { Sheet, SheetContent, SheetDescription, SheetFooter, SheetHeader, SheetTitle } from '@/components/ui/sheet';
 import { Textarea } from '@/components/ui/textarea';
 import {
   approveResumeVersion,
   downloadResumeVersion,
-  rejectResumeVersion,
+  getTailorKeywords,
+  reviewResumeChange,
   tailorResumeForJob,
 } from '@/lib/api';
 import type { ResumeChangeDetail, ResumeVersionRecord } from '@/types/job';
+
+/**
+ * Tailoring a résumé to a job (#351): a window to confirm the posting's keywords the user has,
+ * then a review of the AI's suggestions, each checked by the API against the base résumé. Each
+ * line can be kept, restored or edited; one Download approves the draft and saves the PDF.
+ */
 
 interface TailoredResumeReviewProps {
   jobId: string;
@@ -40,610 +31,633 @@ interface TailoredResumeReviewProps {
   initialVersions?: ResumeVersionRecord[];
 }
 
-export function TailoredResumeReview({
-  jobId,
-  jobTitle,
-  jobCompany,
-  initialVersions = [],
-}: TailoredResumeReviewProps) {
-  const [versions, setVersions] = useState<ResumeVersionRecord[]>(initialVersions);
-  const [selectedVersionId, setSelectedVersionId] = useState<string | null>(
-    initialVersions.length > 0 ? initialVersions[0]!.id : null,
+interface TailorOptions {
+  confirmedKeywords: string[];
+  addToBase: boolean;
+}
+
+const MAX_KEYWORDS = 25;
+const MAX_KEYWORD_LENGTH = 60;
+
+const day = (iso: string | null | undefined) => (iso ? iso.slice(0, 10) : 'unknown date');
+const modelName = (model: string) => model.split(':').pop() ?? model;
+
+interface TailorError {
+  message: string;
+  code?: string;
+  retry?: TailorOptions;
+}
+
+interface TailorState {
+  /** Versions this session made or changed (a new run, a line in the review), each at its latest. */
+  seen: ResumeVersionRecord[];
+  /** The version shown; null for the newest. */
+  selectedId: string | null;
+  run: { startedAt: number; options: TailorOptions } | null;
+  error: TailorError | null;
+  /** A line of the review is being saved: Download waits, here too after a tab switch. */
+  saving: boolean;
+  /** The draft is being approved and downloaded. */
+  downloading: boolean;
+}
+
+// A tailoring run takes 20 to 40 seconds. Its state is kept here, per job, not in the
+// component, so it carries on when the user switches to another tab of the job page and back,
+// and that tab shows the draft it made rather than the page's older list of versions.
+const EMPTY: TailorState = { seen: [], selectedId: null, run: null, error: null, saving: false, downloading: false };
+const tailorStates = new Map<string, TailorState>();
+const listeners = new Set<() => void>();
+
+function setTailorState(jobId: string, patch: Partial<TailorState>) {
+  tailorStates.set(jobId, { ...(tailorStates.get(jobId) ?? EMPTY), ...patch });
+  listeners.forEach((listener) => listener());
+}
+
+/** Remember a version this session made or changed. */
+function see(jobId: string, version: ResumeVersionRecord, patch: Partial<TailorState> = {}) {
+  const { seen } = tailorStates.get(jobId) ?? EMPTY;
+  setTailorState(jobId, { seen: [version, ...seen.filter((v) => v.id !== version.id)], ...patch });
+}
+
+function subscribe(listener: () => void) {
+  listeners.add(listener);
+  return () => {
+    listeners.delete(listener);
+  };
+}
+
+/** For tests: forget runs and drafts left over from an earlier test. */
+export function resetTailorStoreForTests() {
+  tailorStates.clear();
+}
+
+function startTailoring(jobId: string, options: TailorOptions) {
+  if (tailorStates.get(jobId)?.run) return;
+  setTailorState(jobId, { run: { startedAt: Date.now(), options }, error: null });
+  // One handler per run, whichever tab is showing: one toast.
+  tailorResumeForJob(jobId, options).then(
+    ({ version, addedToBase }) => {
+      // The new draft is shown; earlier versions stay in the list.
+      see(jobId, version, { selectedId: version.id, run: null });
+      toast.success('Your tailored résumé is ready to review.');
+      if (addedToBase === false) {
+        toast.warning("Your draft is ready, but the keywords couldn't be added to your base résumé. Add them in Settings → Résumé.");
+      }
+    },
+    (err: unknown) => {
+      const { code, status } = (err ?? {}) as { code?: unknown; status?: unknown };
+      setTailorState(jobId, {
+        run: null,
+        error: {
+          message: err instanceof Error ? err.message : "Your résumé couldn't be tailored.",
+          code: typeof code === 'string' ? code : undefined,
+          retry: typeof status === 'number' && status >= 500 ? options : undefined,
+        },
+      });
+    },
   );
-  const [isTailoring, setIsTailoring] = useState(false);
-  const [isApproving, setIsApproving] = useState(false);
-  const [isRejecting, setIsRejecting] = useState(false);
-  const [isDownloading, setIsDownloading] = useState(false);
-  const [showRejectForm, setShowRejectForm] = useState(false);
-  const [rejectFeedback, setRejectFeedback] = useState('');
-  const [showFullResume, setShowFullResume] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  // The API says there is no base résumé to tailor (409 BASE_RESUME_EMPTY, #351).
-  const [needsBaseResume, setNeedsBaseResume] = useState(false);
+}
 
-  const currentVersion =
-    versions.find((v) => v.id === selectedVersionId) ?? (versions.length > 0 ? versions[0] : null);
+/**
+ * The page's versions and the ones this session saw, each at its latest (the page's list can be
+ * older than what this session saw), newest first.
+ */
+function allVersions(seen: ResumeVersionRecord[], page: ResumeVersionRecord[]): ResumeVersionRecord[] {
+  const byId = new Map<string, ResumeVersionRecord>();
+  for (const version of [...page, ...seen]) {
+    const known = byId.get(version.id);
+    if (!known || version.updatedAt >= known.updatedAt) byId.set(version.id, version);
+  }
+  return [...byId.values()].sort((a, b) => b.createdAt.localeCompare(a.createdAt) || b.updatedAt.localeCompare(a.updatedAt));
+}
 
-  async function handleTailor() {
-    setIsTailoring(true);
-    setError(null);
-    setNeedsBaseResume(false);
-    try {
-      const newVersion = await tailorResumeForJob(jobId);
-      setVersions((prev) => [newVersion, ...prev]);
-      setSelectedVersionId(newVersion.id);
-      setShowRejectForm(false);
-      toast.success('Tailored resume draft generated successfully!');
-    } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : 'Failed to tailor resume.';
-      setNeedsBaseResume((err as { code?: unknown } | null)?.code === 'BASE_RESUME_EMPTY');
-      setError(msg);
-      toast.error(msg);
-    } finally {
-      setIsTailoring(false);
-    }
+export function TailoredResumeReview({ jobId, jobCompany, initialVersions = [] }: TailoredResumeReviewProps) {
+  const state = useSyncExternalStore(
+    subscribe,
+    () => tailorStates.get(jobId) ?? EMPTY,
+    () => EMPTY,
+  );
+  const versions = allVersions(state.seen, initialVersions);
+  const version = versions.find((v) => v.id === state.selectedId) ?? versions[0] ?? null;
+  const startedAt = state.run?.startedAt ?? null;
+  const error = state.error;
+  const [windowOpen, setWindowOpen] = useState(false);
+  // A new window each time it opens: the keywords are read again (a run may have added some to
+  // the base résumé), with nothing picked.
+  const [windowKey, setWindowKey] = useState(0);
+  const setVersion = (next: ResumeVersionRecord) => see(jobId, next);
+  const setSaving = (saving: boolean) => setTailorState(jobId, { saving });
+
+  function openWindow() {
+    setWindowKey((key) => key + 1);
+    setWindowOpen(true);
   }
 
-  async function handleApprove() {
-    if (!currentVersion) return;
-    setIsApproving(true);
-    setError(null);
-    try {
-      const { version: updated } = await approveResumeVersion(currentVersion.id);
-      setVersions((prev) =>
-        prev.map((v) => (v.id === updated.id ? { ...v, approved: true } : v)),
-      );
-      toast.success('Resume version approved! ATS PDF is now unlocked for download.');
-    } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : 'Failed to approve resume version.';
-      setError(msg);
-      toast.error(msg);
-    } finally {
-      setIsApproving(false);
-    }
+  function tailor(options: TailorOptions) {
+    setWindowOpen(false);
+    startTailoring(jobId, options);
   }
-
-  async function handleReject() {
-    if (!currentVersion) return;
-    if (!rejectFeedback.trim()) {
-      toast.error('Please enter feedback explaining why you are rejecting this draft.');
-      return;
-    }
-    setIsRejecting(true);
-    setError(null);
-    try {
-      const { version: updated } = await rejectResumeVersion(currentVersion.id, rejectFeedback.trim());
-      setVersions((prev) =>
-        prev.map((v) => (v.id === updated.id ? { ...v, changeSummary: updated.changeSummary } : v)),
-      );
-      setShowRejectForm(false);
-      setRejectFeedback('');
-      toast.success('Feedback recorded. You can re-tailor or adjust your base resume.');
-    } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : 'Failed to record rejection feedback.';
-      setError(msg);
-      toast.error(msg);
-    } finally {
-      setIsRejecting(false);
-    }
-  }
-
-  async function handleDownload() {
-    if (!currentVersion) return;
-    if (!currentVersion.approved) {
-      toast.error('This version must be approved before downloading the ATS PDF.');
-      return;
-    }
-    setIsDownloading(true);
-    try {
-      const candidateName = currentVersion.structuredResume?.basics?.name || 'Resume';
-      const cleanName = candidateName.replace(/\s+/g, '_');
-      const filename = `${cleanName}_${jobCompany.replace(/\s+/g, '_')}_Tailored.pdf`;
-      await downloadResumeVersion(currentVersion.id, filename);
-      toast.success('ATS PDF downloaded successfully!');
-    } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : 'Download failed.';
-      toast.error(msg);
-    } finally {
-      setIsDownloading(false);
-    }
-  }
-
-  // --- EMPTY STATE ---
-  if (!currentVersion) {
-    return (
-      <Card className="flex flex-col items-center gap-6 p-8 text-center sm:p-10">
-        <div className="bg-primary/10 text-primary flex size-14 items-center justify-center rounded-2xl ring-8 ring-primary/5">
-          <Sparkles className="size-7" />
-        </div>
-        <div className="max-w-md space-y-2">
-          <h2 className="font-heading text-xl font-bold tracking-tight">Tailored Resume Studio</h2>
-          <p className="text-muted-foreground text-sm leading-relaxed">
-            Generate an ATS-optimized, job-targeted resume tailored specifically for{' '}
-            <span className="font-semibold text-foreground">{jobTitle}</span> at{' '}
-            <span className="font-semibold text-foreground">{jobCompany}</span>.
-          </p>
-        </div>
-
-        <div className="grid w-full max-w-lg gap-3 text-left sm:grid-cols-2">
-          <div className="rounded-lg border bg-muted/30 p-3">
-            <p className="text-xs font-semibold text-foreground">Zero Invented Facts</p>
-            <p className="text-muted-foreground mt-1 text-xs">
-              Grounded strictly in your verified base resume with zero hallucinated credentials.
-            </p>
-          </div>
-          <div className="rounded-lg border bg-muted/30 p-3">
-            <p className="text-xs font-semibold text-foreground">Diff & Rationale</p>
-            <p className="text-muted-foreground mt-1 text-xs">
-              Inspect exactly what changed and why before approving or exporting.
-            </p>
-          </div>
-          <div className="rounded-lg border bg-muted/30 p-3">
-            <p className="text-xs font-semibold text-foreground">ATS Keyword Alignment</p>
-            <p className="text-muted-foreground mt-1 text-xs">
-              Aligns phrasing to match the target job description and scanning algorithms.
-            </p>
-          </div>
-          <div className="rounded-lg border bg-muted/30 p-3">
-            <p className="text-xs font-semibold text-foreground">Deterministic PDF Export</p>
-            <p className="text-muted-foreground mt-1 text-xs">
-              Clean single-column standard layout guaranteed readable by all major ATS parsers.
-            </p>
-          </div>
-        </div>
-
-        {error ? (
-          <div className="w-full max-w-md rounded-lg border border-destructive/30 bg-destructive/10 p-3 text-left text-xs text-destructive">
-            <p className="font-medium">Error tailoring resume:</p>
-            <p className="mt-0.5">{error}</p>
-            {needsBaseResume ? (
-              <p className="mt-2">
-                <Link href="/settings" className="font-semibold underline underline-offset-2 hover:opacity-80">
-                  Open Settings to set up your Base Resume &rarr;
-                </Link>
-              </p>
-            ) : null}
-          </div>
-        ) : null}
-
-        <Button
-          onClick={handleTailor}
-          disabled={isTailoring}
-          size="lg"
-          className="gap-2 shadow-sm"
-        >
-          {isTailoring ? (
-            <>
-              <Loader2 className="size-4 animate-spin" />
-              Tailoring resume for this role...
-            </>
-          ) : (
-            <>
-              <Sparkles className="size-4" />
-              Tailor Resume for {jobCompany}
-            </>
-          )}
-        </Button>
-      </Card>
-    );
-  }
-
-  // --- VERSION VIEW ---
-  const changes: ResumeChangeDetail[] = currentVersion.changeDetails ?? [];
 
   return (
-    <div className="space-y-6">
-      {/* Top Banner & Control Bar */}
-      <Card className="gap-5 p-5 sm:p-6">
-        <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-          <div className="space-y-1">
-            <div className="flex flex-wrap items-center gap-2">
-              <h2 className="font-heading text-lg font-bold tracking-tight">Tailored Resume</h2>
-              {currentVersion.approved ? (
-                <Badge className="gap-1 border-emerald-500/30 bg-emerald-500/15 text-emerald-700 dark:text-emerald-400">
-                  <CheckCircle2 className="size-3" /> Approved & Ready
-                </Badge>
-              ) : (
-                <Badge variant="outline" className="gap-1 border-amber-500/30 bg-amber-500/10 text-amber-700 dark:text-amber-400">
-                  <Clock className="size-3" /> Draft · Pending Review
-                </Badge>
-              )}
-              {currentVersion.groundednessScore != null && (
-                <Badge variant="secondary" className="text-xs">
-                  Groundedness: {Math.round(currentVersion.groundednessScore * 100)}%
-                </Badge>
-              )}
-            </div>
-            <p className="text-muted-foreground text-xs">
-              Optimized for <span className="font-medium text-foreground">{jobTitle}</span> at{' '}
-              <span className="font-medium text-foreground">{jobCompany}</span> · Created{' '}
-              {new Date(currentVersion.createdAt).toLocaleDateString()}
-            </p>
-          </div>
-
-          {/* Action buttons */}
-          <div className="flex flex-wrap items-center gap-2">
-            {/* Gated Download Button */}
-            {currentVersion.approved ? (
-              <Button
-                onClick={handleDownload}
-                disabled={isDownloading}
-                className="gap-2 bg-primary text-primary-foreground shadow-sm"
-              >
-                {isDownloading ? (
-                  <Loader2 className="size-4 animate-spin" />
-                ) : (
-                  <Download className="size-4" />
-                )}
-                Download ATS PDF
-              </Button>
-            ) : (
-              <div className="relative group">
+    <div className="space-y-4">
+      {startedAt !== null ? (
+        <TailoringProgress startedAt={startedAt} />
+      ) : version ? (
+        <>
+          {versions.length > 1 ? (
+            <div className="flex flex-wrap items-center gap-1.5" role="group" aria-label="Versions">
+              <span className="text-muted-foreground text-xs">Versions:</span>
+              {versions.map((v, index) => (
                 <Button
-                  disabled
-                  variant="outline"
-                  className="gap-2 cursor-not-allowed opacity-60"
-                  aria-label="Download PDF locked until approved"
-                >
-                  <Lock className="size-3.5" />
-                  Download ATS PDF
-                </Button>
-                <div className="pointer-events-none absolute bottom-full mb-1.5 left-1/2 -translate-x-1/2 hidden group-hover:block whitespace-nowrap rounded bg-popover px-2 py-1 text-xs text-popover-foreground shadow border">
-                  Approve this version to unlock PDF download
-                </div>
-              </div>
-            )}
-
-            {/* Approval Workflow */}
-            {!currentVersion.approved && (
-              <>
-                <Button
-                  onClick={handleApprove}
-                  disabled={isApproving}
-                  className="gap-1.5 bg-emerald-600 hover:bg-emerald-700 text-white"
-                >
-                  {isApproving ? (
-                    <Loader2 className="size-3.5 animate-spin" />
-                  ) : (
-                    <CheckCircle2 className="size-3.5" />
-                  )}
-                  Approve Resume
-                </Button>
-                <Button
-                  onClick={() => setShowRejectForm(!showRejectForm)}
-                  variant="outline"
-                  className="gap-1.5 text-muted-foreground hover:text-foreground"
-                >
-                  <XCircle className="size-3.5" />
-                  Reject
-                </Button>
-              </>
-            )}
-
-            {/* Re-tailor */}
-            <Button
-              onClick={handleTailor}
-              disabled={isTailoring}
-              variant="outline"
-              size="sm"
-              className="gap-1.5"
-            >
-              {isTailoring ? (
-                <Loader2 className="size-3.5 animate-spin" />
-              ) : (
-                <Sparkles className="size-3.5" />
-              )}
-              Re-tailor
-            </Button>
-          </div>
-        </div>
-
-        {/* Version Switcher if multiple versions */}
-        {versions.length > 1 && (
-          <div className="flex items-center gap-2 border-t pt-3">
-            <span className="text-muted-foreground text-xs font-medium">Versions:</span>
-            <div className="flex flex-wrap gap-1.5">
-              {versions.map((ver, idx) => (
-                <Button
-                  key={ver.id}
-                  onClick={() => {
-                    setSelectedVersionId(ver.id);
-                    setShowRejectForm(false);
-                  }}
-                  variant={ver.id === currentVersion.id ? 'secondary' : 'ghost'}
+                  key={v.id}
                   size="sm"
-                  className="h-7 px-2.5 text-xs"
+                  variant={v.id === version.id ? 'default' : 'outline'}
+                  aria-pressed={v.id === version.id}
+                  disabled={state.saving || state.downloading}
+                  onClick={() => setTailorState(jobId, { selectedId: v.id })}
                 >
-                  v{versions.length - idx} {ver.approved ? '✓' : '(draft)'}
+                  {`v${versions.length - index} · ${v.approved ? 'Downloaded' : 'Draft'}`}
                 </Button>
               ))}
             </div>
-          </div>
-        )}
-      </Card>
-
-      {/* Reject with Feedback Form */}
-      {showRejectForm && !currentVersion.approved && (
-        <Card className="border-amber-500/30 bg-amber-500/5 p-5 space-y-4">
-          <div className="space-y-1">
-            <h3 className="font-heading text-sm font-semibold text-foreground">
-              Provide Rejection Feedback
-            </h3>
-            <p className="text-muted-foreground text-xs">
-              Explain what should be adjusted or removed. Your feedback is recorded in the version audit
-              trail.
-            </p>
-          </div>
-          <Textarea
-            value={rejectFeedback}
-            onChange={(e) => setRejectFeedback(e.target.value)}
-            placeholder="e.g. Tone down the summary, emphasize Kubernetes and distributed systems more..."
-            rows={3}
-            className="text-sm bg-background"
+          ) : null}
+          <VersionReview
+            version={version}
+            onChange={setVersion}
+            saving={state.saving}
+            onSaving={setSaving}
+            downloading={state.downloading}
+            onDownloading={(downloading) => setTailorState(jobId, { downloading })}
+            onTailorAgain={openWindow}
           />
-          <div className="flex justify-end gap-2">
-            <Button
-              onClick={() => {
-                setShowRejectForm(false);
-                setRejectFeedback('');
-              }}
-              variant="ghost"
-              size="sm"
-            >
-              Cancel
-            </Button>
-            <Button
-              onClick={handleReject}
-              disabled={isRejecting || !rejectFeedback.trim()}
-              size="sm"
-              variant="destructive"
-              className="gap-1.5"
-            >
-              {isRejecting ? <Loader2 className="size-3.5 animate-spin" /> : null}
-              Submit Rejection
-            </Button>
+        </>
+      ) : (
+        <Card className="space-y-3 p-6">
+          <h3 className="font-heading text-base font-semibold">Tailor your résumé to {jobCompany}</h3>
+          <p className="text-muted-foreground text-sm">
+            The AI rewords and reorders what your base résumé already says, for this posting. Every suggestion is
+            checked against your résumé, and you review each line before you download.
+          </p>
+          <p className="text-muted-foreground text-xs">Single-column PDF with selectable text.</p>
+          <div>
+            <Button onClick={openWindow}>Tailor résumé</Button>
           </div>
         </Card>
       )}
 
-      {/* Old → New Change Summary with "Why" */}
-      <div className="space-y-4">
-        <div className="flex items-center justify-between">
-          <h3 className="font-heading text-base font-semibold tracking-tight">
-            Tailoring Changes & Rationale
-          </h3>
-          <span className="text-muted-foreground text-xs">
-            {changes.length} section{changes.length === 1 ? '' : 's'} modified
-          </span>
+      {error && startedAt === null ? (
+        <Card className="space-y-2 border-destructive/40 p-4 text-sm" role="alert">
+          <p>{error.message}</p>
+          {error.code === 'BASE_RESUME_EMPTY' || error.code === 'RESUME_LINES_TOO_LONG' ? (
+            <Link href="/settings" className="font-medium underline underline-offset-2">
+              Open Settings → Résumé
+            </Link>
+          ) : null}
+          {error.retry ? (
+            <div>
+              <Button size="sm" variant="outline" onClick={() => tailor(error.retry!)}>
+                Try again
+              </Button>
+            </div>
+          ) : null}
+        </Card>
+      ) : null}
+
+      <TailorWindow key={windowKey} jobId={jobId} open={windowOpen} onOpenChange={setWindowOpen} onTailor={tailor} />
+    </div>
+  );
+}
+
+function TailoringProgress({ startedAt }: { startedAt: number }) {
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    const timer = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(timer);
+  }, []);
+  const seconds = Math.max(0, Math.round((now - startedAt) / 1000));
+  return (
+    <Card className="flex items-center gap-3 p-5 text-sm" role="status">
+      <Loader2 className="size-4 animate-spin" aria-hidden />
+      <span>
+        Tailoring your résumé… {seconds}s. This usually takes 20 to 40 seconds; you can switch tabs meanwhile.
+      </span>
+    </Card>
+  );
+}
+
+function TailorWindow({
+  jobId,
+  open,
+  onOpenChange,
+  onTailor,
+}: {
+  jobId: string;
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  onTailor: (options: TailorOptions) => void;
+}) {
+  const [loaded, setLoaded] = useState<{
+    fitRead: boolean;
+    keywords: Array<{ term: string; onResume: boolean }>;
+    failed?: boolean;
+  } | null>(null);
+  const loading = open && loaded === null;
+  const fitRead = loaded?.fitRead ?? true;
+  const keywords = loaded?.keywords ?? [];
+  const [picked, setPicked] = useState<string[]>([]);
+  const [custom, setCustom] = useState<string[]>([]);
+  const [draft, setDraft] = useState('');
+  const [addToBase, setAddToBase] = useState(false);
+
+  // The posting's keywords, read when the window opens (it's a new window each time).
+  useEffect(() => {
+    if (!open || loaded) return;
+    let cancelled = false;
+    getTailorKeywords(jobId)
+      .then((result) => {
+        if (!cancelled) setLoaded(result);
+      })
+      .catch(() => {
+        if (!cancelled) setLoaded({ fitRead: false, keywords: [], failed: true });
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [jobId, open, loaded]);
+
+  const missing = keywords.filter((keyword) => !keyword.onResume);
+  const present = keywords.filter((keyword) => keyword.onResume);
+  const confirmed = [...missing.map((k) => k.term).filter((term) => picked.includes(term)), ...custom];
+  // The API takes up to 25.
+  const full = confirmed.length >= MAX_KEYWORDS;
+
+  function addCustom() {
+    const keyword = draft.trim();
+    if (!keyword || keyword.length > MAX_KEYWORD_LENGTH || full) return;
+    if (![...custom, ...picked].some((existing) => existing.toLowerCase() === keyword.toLowerCase())) {
+      setCustom((current) => [...current, keyword]);
+    }
+    setDraft('');
+  }
+
+  const toggle = (term: string) =>
+    setPicked((current) => (current.includes(term) ? current.filter((t) => t !== term) : full ? current : [...current, term]));
+
+  return (
+    <Sheet open={open} onOpenChange={onOpenChange}>
+      <SheetContent side="right" className="w-full overflow-y-auto sm:max-w-md">
+        <SheetHeader>
+          <SheetTitle>Tailor your résumé</SheetTitle>
+          <SheetDescription>
+            Pick the posting&apos;s keywords you have, or add your own. Only those, and what your base résumé already
+            says, can go into the tailored version.
+          </SheetDescription>
+        </SheetHeader>
+
+        <div className="space-y-5 px-4 text-sm">
+          {loading ? (
+            <p className="text-muted-foreground">Reading the posting&apos;s keywords…</p>
+          ) : loaded?.failed ? (
+            <p className="text-muted-foreground">Couldn&apos;t read the posting&apos;s keywords. You can still add your own.</p>
+          ) : !fitRead ? (
+            <p className="text-muted-foreground">
+              Run a fit read to see the posting&apos;s keywords here. You can still add keywords you have.
+            </p>
+          ) : (
+            <>
+              {present.length > 0 ? (
+                <div className="space-y-2">
+                  <p className="text-muted-foreground text-xs font-medium uppercase tracking-wide">On your résumé</p>
+                  <div className="flex flex-wrap gap-1.5">
+                    {present.map((keyword) => (
+                      <span key={keyword.term} className="bg-muted rounded-md px-2 py-1 text-xs">
+                        {keyword.term}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              ) : null}
+              {missing.length > 0 ? (
+                <div className="space-y-2">
+                  <p className="text-muted-foreground text-xs font-medium uppercase tracking-wide">
+                    Not on your résumé: pick the ones you have
+                  </p>
+                  <div className="flex flex-wrap gap-1.5">
+                    {missing.map((keyword) => (
+                      <Button
+                        key={keyword.term}
+                        type="button"
+                        size="sm"
+                        variant={picked.includes(keyword.term) ? 'default' : 'outline'}
+                        aria-pressed={picked.includes(keyword.term)}
+                        disabled={full && !picked.includes(keyword.term)}
+                        onClick={() => toggle(keyword.term)}
+                      >
+                        {keyword.term}
+                      </Button>
+                    ))}
+                  </div>
+                </div>
+              ) : null}
+            </>
+          )}
+
+          <div className="space-y-2">
+            <label htmlFor="tailor-custom-keyword" className="text-muted-foreground text-xs font-medium uppercase tracking-wide">
+              Add a keyword you have
+            </label>
+            <div className="flex gap-2">
+              <Input
+                id="tailor-custom-keyword"
+                value={draft}
+                maxLength={MAX_KEYWORD_LENGTH}
+                onChange={(event) => setDraft(event.target.value)}
+                onKeyDown={(event) => {
+                  if (event.key === 'Enter') {
+                    event.preventDefault();
+                    addCustom();
+                  }
+                }}
+              />
+              <Button type="button" variant="outline" onClick={addCustom} disabled={full}>
+                <Plus className="size-4" aria-hidden />
+                Add
+              </Button>
+            </div>
+            {custom.length > 0 ? (
+              <div className="flex flex-wrap gap-1.5">
+                {custom.map((keyword) => (
+                  <span key={keyword} className="bg-muted inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs">
+                    {keyword}
+                    <button
+                      type="button"
+                      aria-label={`Remove ${keyword}`}
+                      onClick={() => setCustom((current) => current.filter((k) => k !== keyword))}
+                    >
+                      <X className="size-3" aria-hidden />
+                    </button>
+                  </span>
+                ))}
+              </div>
+            ) : null}
+          </div>
+
+          {full ? <p className="text-muted-foreground text-xs">Up to {MAX_KEYWORDS} keywords.</p> : null}
+
+          {confirmed.length > 0 ? (
+            <label className="flex items-center gap-2 text-sm">
+              <input type="checkbox" checked={addToBase} onChange={(event) => setAddToBase(event.target.checked)} />
+              Also add them to my base résumé
+            </label>
+          ) : null}
         </div>
 
-        {/* High-level change summary */}
-        <Card className="p-4 bg-muted/20 border-l-4 border-l-primary">
-          <p className="text-xs font-medium uppercase tracking-wider text-muted-foreground mb-1">
-            Executive Summary
-          </p>
-          <p className="text-sm leading-relaxed text-foreground">
-            {currentVersion.changeSummary}
-          </p>
-        </Card>
+        <SheetFooter>
+          <Button onClick={() => onTailor({ confirmedKeywords: confirmed, addToBase: confirmed.length > 0 && addToBase })}>
+            {confirmed.length > 0
+              ? `Tailor with ${confirmed.length} keyword${confirmed.length === 1 ? '' : 's'}`
+              : 'Tailor résumé'}
+          </Button>
+        </SheetFooter>
+      </SheetContent>
+    </Sheet>
+  );
+}
 
-        {/* Section changes breakdown */}
-        {changes.length === 0 ? (
-          <Card className="p-6 text-center text-muted-foreground text-sm">
-            No line-by-line diff recorded for this draft version.
-          </Card>
-        ) : (
-          <div className="space-y-4">
-            {changes.map((detail, idx) => (
-              <Card key={idx} className="p-5 space-y-4">
-                {/* Section Header */}
-                <div className="flex items-center justify-between gap-2 border-b pb-3">
-                  <div className="flex items-center gap-2">
-                    <Badge variant="outline" className="font-mono text-xs uppercase">
-                      {detail.section}
-                    </Badge>
-                  </div>
-                </div>
+function VersionReview({
+  version,
+  onChange,
+  saving,
+  onSaving,
+  downloading,
+  onDownloading,
+  onTailorAgain,
+}: {
+  version: ResumeVersionRecord;
+  onChange: (version: ResumeVersionRecord) => void;
+  /** One line at a time: each save changes the whole draft, and Download waits for it. */
+  saving: boolean;
+  onSaving: (saving: boolean) => void;
+  /** Approving and downloading: one at a time, here too after a tab switch. */
+  downloading: boolean;
+  onDownloading: (downloading: boolean) => void;
+  onTailorAgain: () => void;
+}) {
+  const basis = version.basedOn ?? null;
+  const editable = Boolean(basis) && !version.approved;
+  const changes = version.changeDetails ?? [];
 
-                {/* The API's check dropped it: the résumé keeps the base line (#351). */}
-                {detail.dropped && (
-                  <p className="rounded-lg border bg-muted/40 p-3 text-xs font-medium text-foreground">
-                    {`Suggestion dropped: ${detail.dropReason ?? "it isn't supported by your base résumé"}`}
-                  </p>
-                )}
+  async function download() {
+    onDownloading(true);
+    try {
+      let current = version;
+      // Downloading is the approval (#351): the draft becomes final.
+      if (!current.approved) {
+        current = (await approveResumeVersion(current.id)).version;
+        onChange(current);
+      }
+      const name = current.structuredResume.basics?.name || 'Resume';
+      await downloadResumeVersion(current.id, `${name.replace(/\s+/g, '_')}_tailored.pdf`);
+    } catch (err: unknown) {
+      toast.error(err instanceof Error ? err.message : "The PDF couldn't be downloaded.");
+    } finally {
+      onDownloading(false);
+    }
+  }
 
-                {/* Kept, but worth a look before downloading (#351). */}
-                {!detail.dropped && detail.needsReview && (detail.issues?.length || detail.confirmedTerms?.length) ? (
-                  <div className="space-y-1 rounded-lg border border-amber-500/40 bg-amber-500/5 p-3 text-xs text-foreground">
-                    {(detail.issues ?? []).map((issue, i) => (
-                      <p key={i}>{`Check this line: ${issue.message}`}</p>
-                    ))}
-                    {detail.confirmedTerms?.length ? (
-                      <p>{`Uses ${detail.confirmedTerms.join(', ')}, which you added`}</p>
-                    ) : null}
-                  </div>
-                ) : null}
+  async function review(detail: ResumeChangeDetail, action: ReviewAction, text?: string): Promise<boolean> {
+    onSaving(true);
+    try {
+      onChange(await reviewResumeChange(version.id, detail.id!, action, text));
+      return true;
+    } catch (err: unknown) {
+      toast.error(err instanceof Error ? err.message : "That change couldn't be saved.");
+      return false;
+    } finally {
+      onSaving(false);
+    }
+  }
 
-                {/* Strategic Rationale ("Why") */}
-                {detail.rationale && (
-                  <div className="flex items-start gap-2.5 rounded-lg border border-primary/20 bg-primary/5 p-3 text-xs">
-                    <Lightbulb className="size-4 shrink-0 text-primary mt-0.5" />
-                    <div>
-                      <span className="font-semibold text-foreground">Why this was changed: </span>
-                      <span className="text-muted-foreground">{detail.rationale}</span>
-                    </div>
-                  </div>
-                )}
-
-                {/* Diff View: Old vs New */}
-                <div className="grid gap-3 sm:grid-cols-2 text-xs">
-                  {/* Previous / Old */}
-                  <div className="space-y-1.5 rounded-lg border border-rose-500/20 bg-rose-500/5 p-3">
-                    <div className="flex items-center gap-1.5 font-medium text-rose-700 dark:text-rose-400">
-                      <MinusCircle className="size-3.5" />
-                      <span>Previous (Base Resume)</span>
-                    </div>
-                    <p className="text-muted-foreground leading-relaxed whitespace-pre-wrap font-sans">
-                      {detail.oldText || '— (None / Newly added)'}
-                    </p>
-                  </div>
-
-                  {/* Tailored / New, or the dropped suggestion */}
-                  {detail.dropped ? (
-                    <div className="space-y-1.5 rounded-lg border border-dashed p-3">
-                      <div className="flex items-center gap-1.5 font-medium text-muted-foreground">
-                        <span>Suggested, not used</span>
-                      </div>
-                      <p className="text-muted-foreground leading-relaxed whitespace-pre-wrap font-sans line-through">
-                        {detail.newText}
-                      </p>
-                    </div>
-                  ) : (
-                    <div className="space-y-1.5 rounded-lg border border-emerald-500/20 bg-emerald-500/5 p-3">
-                      <div className="flex items-center gap-1.5 font-medium text-emerald-700 dark:text-emerald-400">
-                        <PlusCircle className="size-3.5" />
-                        <span>Tailored (Role-Optimized)</span>
-                      </div>
-                      <p className="text-foreground leading-relaxed whitespace-pre-wrap font-sans">
-                        {detail.newText}
-                      </p>
-                    </div>
-                  )}
-                </div>
-              </Card>
-            ))}
+  return (
+    <div className="space-y-4">
+      <Card className="space-y-3 p-5">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div className="space-y-1">
+            <h3 className="font-heading text-base font-semibold">Tailored résumé</h3>
+            {basis ? (
+              <p className="text-muted-foreground text-xs">
+                Based on your base résumé saved {day(basis.baseUpdatedAt)} and this posting · {modelName(basis.model)} ·
+                tailored {day(basis.createdAt)}
+              </p>
+            ) : null}
           </div>
-        )}
+          <div className="flex gap-2">
+            <Button variant="outline" onClick={onTailorAgain}>
+              Tailor again
+            </Button>
+            <Button onClick={download} disabled={downloading || saving}>
+              {downloading ? <Loader2 className="size-4 animate-spin" aria-hidden /> : null}
+              Download PDF
+            </Button>
+          </div>
+        </div>
+        <p className="text-sm">{version.changeSummary}</p>
+        {basis?.coverage ? (
+          <p className="text-muted-foreground text-xs">
+            {`Posting keywords in your résumé: ${basis.coverage.before} of ${basis.coverage.total} → ${basis.coverage.after} of ${basis.coverage.total}`}
+          </p>
+        ) : null}
+        {version.approved ? (
+          <p className="text-muted-foreground text-xs">Downloaded. To change it, tailor again.</p>
+        ) : null}
+        {basis?.gaps?.length ? (
+          <div className="space-y-1">
+            <p className="text-muted-foreground text-xs font-medium">The posting asks for these, which your résumé doesn&apos;t show:</p>
+            <ul className="list-disc space-y-0.5 pl-5 text-xs">
+              {basis.gaps.map((gap) => (
+                <li key={gap}>{gap}</li>
+              ))}
+            </ul>
+          </div>
+        ) : null}
+      </Card>
+
+      {changes.length === 0 ? (
+        <Card className="text-muted-foreground p-5 text-sm">No line-by-line changes recorded for this version.</Card>
+      ) : (
+        changes.map((detail, index) => (
+          <ChangeCard
+            key={`${version.id}-${detail.id ?? index}`}
+            detail={detail}
+            editable={editable && Boolean(detail.id)}
+            busy={saving || downloading}
+            onReview={review}
+          />
+        ))
+      )}
+    </div>
+  );
+}
+
+const RESOLUTION_LABEL: Record<NonNullable<ResumeChangeDetail['resolution']>, string> = {
+  kept: 'Kept',
+  restored: 'Restored',
+  edited: 'Your words',
+};
+
+type ReviewAction = 'keep' | 'restore' | 'edit';
+
+function ChangeCard({
+  detail,
+  editable,
+  busy,
+  onReview,
+}: {
+  detail: ResumeChangeDetail;
+  editable: boolean;
+  busy: boolean;
+  onReview: (detail: ResumeChangeDetail, action: ReviewAction, text?: string) => Promise<boolean>;
+}) {
+  const [editing, setEditing] = useState(false);
+  // A dropped suggestion adds something the résumé lacks: editing starts from the base line.
+  const [text, setText] = useState(detail.userText ?? (detail.dropped ? (detail.oldText ?? '') : detail.newText));
+  // A line of the base résumé; a suggestion that matched none has nothing to change.
+  const isLine = detail.kind === 'rewrite' && Boolean(detail.sourcePath);
+  const isAddedSkill = detail.kind === 'skill-added' && !detail.dropped;
+
+  async function act(action: ReviewAction, value?: string) {
+    if (await onReview(detail, action, value)) setEditing(false);
+  }
+
+  const shown =
+    detail.resolution === 'edited' ? (detail.userText ?? detail.newText) : detail.resolution === 'restored' ? detail.oldText : detail.newText;
+
+  return (
+    <Card className="space-y-3 p-5" data-testid={detail.id ? `change-${detail.id}` : undefined}>
+      <div className="flex items-center justify-between gap-2">
+        <span className="text-muted-foreground text-xs font-medium uppercase tracking-wide">{detail.section}</span>
+        {detail.resolution ? (
+          <span className="text-xs font-medium">
+            {isAddedSkill && detail.resolution === 'restored' ? 'Removed' : RESOLUTION_LABEL[detail.resolution]}
+          </span>
+        ) : null}
       </div>
 
-      {/* Full Resume Preview Toggle */}
-      <Card className="p-4 sm:p-5 space-y-4">
-        <button
-          type="button"
-          onClick={() => setShowFullResume(!showFullResume)}
-          className="flex w-full items-center justify-between text-left font-heading text-sm font-semibold"
-        >
-          <span className="flex items-center gap-2">
-            <FileText className="size-4 text-primary" />
-            Full Tailored Resume Document Preview
-          </span>
-          {showFullResume ? <ChevronUp className="size-4" /> : <ChevronDown className="size-4" />}
-        </button>
+      {detail.dropped ? (
+        <p className="bg-muted/40 rounded-md border p-2 text-xs">
+          {`Suggestion dropped: ${detail.dropReason ?? "it isn't supported by your base résumé"}`}
+        </p>
+      ) : null}
+      {!detail.dropped && detail.needsReview && (detail.issues?.length || detail.confirmedTerms?.length) ? (
+        <div className="space-y-1 rounded-md border border-amber-500/40 bg-amber-500/5 p-2 text-xs">
+          {(detail.issues ?? []).map((issue, i) => (
+            <p key={i}>{`Check this line: ${issue.message}`}</p>
+          ))}
+          {detail.confirmedTerms?.length ? <p>{`Uses ${detail.confirmedTerms.join(', ')}, which you added`}</p> : null}
+        </div>
+      ) : null}
 
-        {showFullResume && (
-          <div className="border-t pt-4 space-y-6 text-sm">
-            {/* Basics */}
-            {currentVersion.structuredResume?.basics && (
-              <div className="space-y-1 border-b pb-4">
-                <h4 className="font-heading text-lg font-bold text-foreground">
-                  {currentVersion.structuredResume.basics.name}
-                </h4>
-                {currentVersion.structuredResume.basics.label && (
-                  <p className="text-sm font-medium text-primary">
-                    {currentVersion.structuredResume.basics.label}
-                  </p>
-                )}
-                <div className="flex flex-wrap gap-3 text-xs text-muted-foreground pt-1">
-                  {currentVersion.structuredResume.basics.email && (
-                    <span>{currentVersion.structuredResume.basics.email}</span>
-                  )}
-                  {currentVersion.structuredResume.basics.phone && (
-                    <span>· {currentVersion.structuredResume.basics.phone}</span>
-                  )}
-                  {currentVersion.structuredResume.basics.location?.city && (
-                    <span>
-                      · {currentVersion.structuredResume.basics.location.city}
-                      {currentVersion.structuredResume.basics.location.region
-                        ? `, ${currentVersion.structuredResume.basics.location.region}`
-                        : ''}
-                    </span>
-                  )}
-                </div>
-                {currentVersion.structuredResume.basics.summary && (
-                  <p className="text-xs leading-relaxed text-foreground mt-3 bg-muted/30 p-3 rounded-lg">
-                    {currentVersion.structuredResume.basics.summary}
-                  </p>
-                )}
-              </div>
-            )}
+      <div className="grid gap-3 text-sm sm:grid-cols-2">
+        <div className="space-y-1">
+          <p className="text-muted-foreground text-xs">Your base résumé</p>
+          <p className="text-muted-foreground whitespace-pre-wrap">{detail.oldText || '(new)'}</p>
+        </div>
+        <div className="space-y-1">
+          <p className="text-muted-foreground text-xs">{detail.dropped && detail.resolution !== 'edited' ? 'Suggested, not used' : 'Tailored'}</p>
+          {editing ? (
+            <Textarea
+              aria-label="Your words for this line"
+              value={text}
+              onChange={(event) => setText(event.target.value)}
+              rows={3}
+            />
+          ) : (
+            <p className={`whitespace-pre-wrap ${detail.dropped && detail.resolution !== 'edited' ? 'text-muted-foreground line-through' : ''}`}>
+              {detail.dropped && detail.resolution !== 'edited' ? detail.newText : shown}
+            </p>
+          )}
+        </div>
+      </div>
 
-            {/* Experience */}
-            {currentVersion.structuredResume?.work &&
-              currentVersion.structuredResume.work.length > 0 && (
-                <div className="space-y-3 border-b pb-4">
-                  <h5 className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-                    <Briefcase className="size-3.5" /> Professional Experience
-                  </h5>
-                  <div className="space-y-4">
-                    {currentVersion.structuredResume.work.map((w, idx) => (
-                      <div key={idx} className="space-y-1.5">
-                        <div className="flex flex-wrap items-baseline justify-between gap-2">
-                          <p className="font-medium text-foreground">
-                            {w.position} · <span className="text-muted-foreground">{w.company}</span>
-                          </p>
-                          <span className="text-xs text-muted-foreground font-mono">
-                            {w.startDate} — {w.endDate || (w.current ? 'Present' : '')}
-                          </span>
-                        </div>
-                        {w.highlights && w.highlights.length > 0 && (
-                          <ul className="list-disc list-inside space-y-1 text-xs text-muted-foreground">
-                            {w.highlights.map((h, hIdx) => (
-                              <li key={hIdx} className="leading-relaxed">
-                                {h}
-                              </li>
-                            ))}
-                          </ul>
-                        )}
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
+      {detail.rationale ? <p className="text-muted-foreground text-xs">Why: {detail.rationale}</p> : null}
 
-            {/* Education */}
-            {currentVersion.structuredResume?.education &&
-              currentVersion.structuredResume.education.length > 0 && (
-                <div className="space-y-3 border-b pb-4">
-                  <h5 className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-                    <GraduationCap className="size-3.5" /> Education
-                  </h5>
-                  <div className="space-y-2">
-                    {currentVersion.structuredResume.education.map((edu, idx) => (
-                      <div key={idx} className="flex justify-between items-baseline text-xs">
-                        <p className="font-medium text-foreground">
-                          {edu.studyType ? `${edu.studyType} in ` : ''}
-                          {edu.area || 'General Studies'} ·{' '}
-                          <span className="text-muted-foreground">{edu.institution}</span>
-                        </p>
-                        <span className="text-muted-foreground font-mono">
-                          {edu.startDate ? `${edu.startDate} — ` : ''}
-                          {edu.endDate || ''}
-                        </span>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
-
-            {/* Skills */}
-            {currentVersion.structuredResume?.skills &&
-              currentVersion.structuredResume.skills.length > 0 && (
-                <div className="space-y-3">
-                  <h5 className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-                    <Wrench className="size-3.5" /> Skills & Competencies
-                  </h5>
-                  <div className="flex flex-wrap gap-2">
-                    {currentVersion.structuredResume.skills.flatMap((s) => s.skills).map((skill, idx) => (
-                      <Badge key={idx} variant="secondary" className="text-xs">
-                        {skill}
-                      </Badge>
-                    ))}
-                  </div>
-                </div>
-              )}
-          </div>
-        )}
-      </Card>
-    </div>
+      {editable && (isLine || isAddedSkill) ? (
+        <div className="flex flex-wrap gap-2">
+          {editing ? (
+            <>
+              <Button size="sm" disabled={busy || !text.trim()} onClick={() => act('edit', text.trim())}>
+                Save
+              </Button>
+              <Button size="sm" variant="ghost" onClick={() => setEditing(false)}>
+                Cancel
+              </Button>
+            </>
+          ) : (
+            <>
+              {!detail.dropped ? (
+                <Button size="sm" variant="outline" disabled={busy} onClick={() => act('keep')}>
+                  Keep
+                </Button>
+              ) : null}
+              {isLine && (!detail.dropped || detail.resolution === 'edited') ? (
+                <Button size="sm" variant="outline" disabled={busy} onClick={() => act('restore')}>
+                  Restore original
+                </Button>
+              ) : null}
+              {isAddedSkill ? (
+                <Button size="sm" variant="outline" disabled={busy} onClick={() => act('restore')}>
+                  Remove
+                </Button>
+              ) : null}
+              {isLine ? (
+                <Button size="sm" variant="outline" disabled={busy} onClick={() => setEditing(true)}>
+                  Edit
+                </Button>
+              ) : null}
+            </>
+          )}
+        </div>
+      ) : null}
+    </Card>
   );
 }

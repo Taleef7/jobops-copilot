@@ -3,7 +3,7 @@ import type { GroundingIssue, ResumeChangeDetail, ResumeVersionRecord, Structure
 import type { TailorAnswer } from './answer';
 import { BLOCKING, checkLine, prepareEvidence } from './ground';
 import { editableLines, flatSkills, roleLabel, sectionLabel, setLine, wholeText, type TailorLine } from './lines';
-import { buildVocab, termsIn } from './terms';
+import { buildVocab, termsIn, type Vocab } from './terms';
 import { contentTokens, norm, wordStems } from './text';
 
 /**
@@ -84,8 +84,36 @@ function listPhrase(parts: string[]): string {
   return `${parts.slice(0, -1).join(', ')} and ${parts[parts.length - 1]}`;
 }
 
+/**
+ * Whether `term` is already one of the résumé's skills, by name or another name for it
+ * ("Postgres" for PostgreSQL). A cloud's services don't count as the cloud: confirming "AWS"
+ * over "EC2, S3" still adds it.
+ */
+export function isListedSkill(resume: StructuredResume, term: string, vocab: Vocab): boolean {
+  const current = flatSkills(resume);
+  if (current.some((skill) => norm(skill) === norm(term))) return true;
+  const keys = termsIn(term, vocab, { evidence: true, parts: false });
+  const skillKeys = new Set(termsIn(current.join('\n'), vocab, { evidence: true, parts: false }));
+  return keys.length > 0 && keys.every((key) => skillKeys.has(key));
+}
+
+/**
+ * Add the keywords the résumé doesn't already list to its skills ("Other", or "Skills" when it
+ * has no groups). Used to put confirmed keywords on the base résumé too. Returns those added.
+ */
+export function addSkills(resume: StructuredResume, keywords: string[]): string[] {
+  const vocab = buildVocab([...flatSkills(resume), ...keywords]);
+  const added: string[] = [];
+  for (const keyword of keywords) {
+    if (isListedSkill(resume, keyword, vocab)) continue;
+    skillGroup(resume, undefined).skills.push(keyword);
+    added.push(keyword);
+  }
+  return added;
+}
+
 /** The skill group an added keyword goes in. Creates "Skills" or "Other" when needed. */
-function skillGroup(resume: StructuredResume, wanted: string | undefined): StructuredResume['skills'][number] {
+export function skillGroup(resume: StructuredResume, wanted: string | undefined): StructuredResume['skills'][number] {
   const byName = (name: string) => resume.skills.find((group) => norm(group.category) === norm(name));
   const chosen = wanted ? byName(wanted) : undefined;
   if (chosen) return chosen;
@@ -211,6 +239,7 @@ export function tailorFromAnswer(base: StructuredResume, answer: TailorAnswer, c
       kind: 'rewrite',
       section: sectionLabel(base, line),
       sourcePath: line.path,
+      targetPath: line.path,
       oldText: line.text,
       newText,
       rationale: edit.rationale,
@@ -233,6 +262,11 @@ export function tailorFromAnswer(base: StructuredResume, answer: TailorAnswer, c
     if (!isPermutation || order.every((i, position) => i === position)) continue;
     const current = [...role.highlights];
     role.highlights = order.map((i) => current[i]!);
+    // Where each reworded bullet of this role now sits, for the review's Restore and Edit.
+    for (const detail of details) {
+      const match = detail.kind === 'rewrite' ? /^work\[(\d+)\]\.highlights\[(\d+)\]$/.exec(detail.targetPath ?? '') : null;
+      if (match && Number(match[1]) === index) detail.targetPath = `work[${index}].highlights[${order.indexOf(Number(match[2]))}]`;
+    }
     counts.roles += 1;
     details.push({
       kind: 'reorder',
@@ -281,14 +315,7 @@ export function tailorFromAnswer(base: StructuredResume, answer: TailorAnswer, c
 
   // Confirmed keywords join the skills, under the group the model chose when the résumé has it.
   // A skill by another name ("Postgres" for PostgreSQL) is already there.
-  const isSkill = (term: string) => {
-    const current = flatSkills(resume);
-    if (current.some((skill) => norm(skill) === norm(term))) return true;
-    // Not counting a cloud's services as the cloud: confirming "AWS" over "EC2, S3" adds it.
-    const keys = termsIn(term, vocab, { evidence: true, parts: false });
-    const skillKeys = new Set(termsIn(current.join('\n'), vocab, { evidence: true, parts: false }));
-    return keys.length > 0 && keys.every((key) => skillKeys.has(key));
-  };
+  const isSkill = (term: string) => isListedSkill(resume, term, vocab);
   const seen = new Set<string>();
   for (const keyword of confirmed) {
     if (seen.has(norm(keyword)) || isSkill(keyword)) continue;
