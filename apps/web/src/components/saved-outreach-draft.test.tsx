@@ -30,3 +30,11 @@ it('does not warn about a note within the limit', () => {
   expect(screen.getByText('Hi there, I would like to connect.')).toBeInTheDocument();
   expect(screen.queryByText(/over 300 characters/i)).not.toBeInTheDocument();
 });
+
+// #416: new letters live in the tailor window; a cover letter saved as an outreach draft before
+// still shows, with its own download.
+it('a legacy cover letter draft still shows and can be downloaded', () => {
+  render(<SavedOutreachDraft draft={draft({ messageType: 'cover_letter', draftText: 'Dear team, I build APIs.' })} company="Acme" />);
+  expect(screen.getByText('Dear team, I build APIs.')).toBeInTheDocument();
+  expect(screen.getByRole('button', { name: /Download PDF/ })).toBeInTheDocument();
+});
