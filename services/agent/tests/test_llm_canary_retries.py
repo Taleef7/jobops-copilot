@@ -6,17 +6,19 @@ workflows 150 s. The caller gave up first and reported "the agent timed out" ins
 provider's error. The canary now makes one attempt per call; the calls users make keep the
 retries.
 
-No request leaves the process: every one is answered by the fake transport below.
+No request leaves the process. The SDK's own send, inside its retry loop, is replaced by the
+fake below; it is the seam on openai 2 (httpx) and 3 (httpx2) alike.
 """
 
+import importlib
 import json
 import re
 from pathlib import Path
 
-import httpx
 import openai
 import pytest
 from fastapi.testclient import TestClient
+from openai._base_client import SyncAPIClient
 
 import app.main as main
 from app.config import Settings, settings
@@ -53,21 +55,27 @@ _TITLE = {
 }
 
 
+def _http(request):
+    """The HTTP library the SDK sends with: httpx, or httpx2 from openai 3 on."""
+    return importlib.import_module(type(request).__module__.partition(".")[0])
+
+
 def _title(request):
-    return httpx.Response(200, json=_TITLE)
+    return _http(request).Response(200, json=_TITLE, request=request)
 
 
 def _overloaded(request):
     # retry-after-ms keeps the SDK's wait before a retry to 1 ms.
-    return httpx.Response(
+    return _http(request).Response(
         500,
         json={"error": {"message": "The engine is currently overloaded", "type": "server_error"}},
         headers={"retry-after-ms": "1"},
+        request=request,
     )
 
 
 def _timed_out(request):
-    raise httpx.ReadTimeout("timed out", request=request)
+    raise _http(request).ReadTimeout("timed out", request=request)
 
 
 @pytest.fixture()
@@ -78,15 +86,18 @@ def fake_openai(monkeypatch):
     monkeypatch.setattr(settings, "openai_api_key", "sk-test-oa")
     monkeypatch.setattr(settings, "openai_model", "gpt-6-luna")
     monkeypatch.setattr(settings, "openai_reasoning_effort", "medium")
+    # A request the fake doesn't catch fails here, on a closed local port, not at OpenAI.
+    for name in ("OPENAI_BASE_URL", "OPENAI_API_BASE"):
+        monkeypatch.setenv(name, "http://127.0.0.1:9/v1")
     provider.get_model.cache_clear()
-    requests: list[httpx.Request] = []
+    requests = []
 
     def answer_with(*answers):
-        def handle_request(self, request):
+        def send(self, request, **kwargs):
             requests.append(request)
             return answers[min(len(requests), len(answers)) - 1](request)
 
-        monkeypatch.setattr(httpx.HTTPTransport, "handle_request", handle_request)
+        monkeypatch.setattr(SyncAPIClient, "_send_request", send)
         return requests
 
     yield answer_with
