@@ -99,10 +99,21 @@ export interface ParseJobPayload {
   descriptionText: string;
 }
 
+/** A salary as the API reads it from a posting (#355). */
+export interface PostedSalary {
+  min: number | null;
+  max: number | null;
+  currency: string;
+}
+
 export interface ParseJobResponse {
   job_id: string | null;
   company: string | null;
   title: string | null;
+  /** Null when the posting doesn't say; missing from an API before #355. */
+  location?: string | null;
+  workplace_type?: 'remote' | 'hybrid' | 'onsite' | null;
+  salary?: PostedSalary | null;
   required_skills: string[];
   preferred_skills: string[];
   responsibilities: string[];
@@ -822,6 +833,8 @@ export interface ExtractedJobResponse {
   location?: string;
   descriptionText?: string;
   workplaceType?: 'remote' | 'hybrid' | 'onsite' | 'flexible';
+  /** Read from the description; left out when it states none (#355). */
+  salary?: PostedSalary;
   source: 'jsonld' | 'opengraph' | 'heuristic' | 'none';
 }
 

@@ -28,3 +28,19 @@ it('reloads the page when it has no callback (server-rendered pages)', async () 
   await userEvent.click(screen.getByRole('button', { name: 'Try again' }));
   expect(refresh).toHaveBeenCalledTimes(1);
 });
+
+// #355: the Add job form offers "Enter details yourself" beside Try again.
+it('shows another way forward beside Try again', async () => {
+  const onManual = vi.fn();
+  render(
+    <ErrorState title="Couldn't get the details" message="Could not read that page." onRetry={vi.fn()}>
+      <button type="button" onClick={onManual}>
+        Enter details yourself
+      </button>
+    </ErrorState>,
+  );
+
+  await userEvent.click(screen.getByRole('button', { name: 'Enter details yourself' }));
+  expect(onManual).toHaveBeenCalledTimes(1);
+  expect(screen.getByRole('button', { name: 'Try again' })).toBeInTheDocument();
+});

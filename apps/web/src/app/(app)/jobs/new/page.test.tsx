@@ -6,15 +6,13 @@ vi.mock('@/components/job-create-form', () => ({ JobCreateForm: () => <form data
 
 import AddJobPage from './page';
 
-// #356: saving a job doesn't extract skills or score it (#349); the page says what does happen.
-it('says what saving does, and that the fit is run on the job page', () => {
+// #355: the page promised that saving pulls out the skills and scores the fit, into "the
+// CRM". It says what the form does: read a link or a posting, then save.
+it('says what adding a job does, in plain words', () => {
   const { container } = render(<AddJobPage />);
 
   expect(screen.getByRole('heading', { name: 'Add a job' })).toBeInTheDocument();
-  // Pasting the text fills only the description; Autofill from a URL fills the rest.
-  expect(
-    screen.getByText('Paste the posting and fill in the company and title, or paste its URL and press Autofill. Then save.'),
-  ).toBeInTheDocument();
-  expect(screen.getByText(/score fit/i)).toBeInTheDocument();
-  expect(container.textContent).not.toMatch(/AI extracts|scores your fit|analy[sz]ed|CRM/i);
+  expect(screen.getByText('Paste a job link or the posting. Check the details, then save.')).toBeInTheDocument();
+  expect(screen.getByTestId('job-create-form')).toBeInTheDocument();
+  expect(container.textContent).not.toMatch(/AI\s+extracts|scores your fit|analy[sz]ed|CRM/i);
 });

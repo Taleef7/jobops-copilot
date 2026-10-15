@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { companyAndLocation, isDuplicateRemote, postingHref } from './job-display';
+import { companyAndLocation, isDuplicateRemote, postingHref, salaryAsPosted } from './job-display';
 
 describe('isDuplicateRemote', () => {
   it('returns true when location is Remote and workplaceType is remote', () => {
@@ -47,5 +47,21 @@ describe('postingHref', () => {
     expect(postingHref(undefined)).toBeNull();
     expect(postingHref('javascript:alert(1)')).toBeNull();
     expect(postingHref('not a url')).toBeNull();
+  });
+});
+
+// #355: the Add job review shows the salary the posting states, in full.
+describe('salaryAsPosted', () => {
+  it('writes a range, a floor, a ceiling and a single figure', () => {
+    expect(salaryAsPosted({ min: 80000, max: 95000, currency: 'GBP' })).toBe('£80,000 – £95,000');
+    expect(salaryAsPosted({ min: 90000, max: null, currency: 'USD' })).toBe('From $90,000');
+    expect(salaryAsPosted({ min: null, max: 120000, currency: 'EUR' })).toBe('Up to €120,000');
+    expect(salaryAsPosted({ min: 100000, max: 100000, currency: 'USD' })).toBe('$100,000');
+  });
+  it('names a currency it has no sign for', () => {
+    expect(salaryAsPosted({ min: 120000, max: 150000, currency: 'CAD' })).toBe('CAD 120,000 – CAD 150,000');
+  });
+  it('is nothing without an amount', () => {
+    expect(salaryAsPosted({ min: null, max: null, currency: 'USD' })).toBeNull();
   });
 });

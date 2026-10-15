@@ -2,6 +2,7 @@
 
 import { AlertCircle, RotateCw } from 'lucide-react';
 import { useRouter } from 'next/navigation';
+import type { ReactNode } from 'react';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 
@@ -14,6 +15,8 @@ type ErrorStateProps = {
   onRetry?: () => void;
   /** Hold "Try again" while something it would undo is still on its way. */
   retryDisabled?: boolean;
+  /** Another way forward, shown beside "Try again" (e.g. "Enter details yourself"). */
+  children?: ReactNode;
   className?: string;
 };
 
@@ -21,7 +24,7 @@ type ErrorStateProps = {
  * A failure shown where it happened, with the reason and a way to try again (#349). It
  * replaces transient toasts, and the sample data pages used to show when the API failed.
  */
-export function ErrorState({ title, message, onRetry, retryDisabled = false, className }: ErrorStateProps) {
+export function ErrorState({ title, message, onRetry, retryDisabled = false, children, className }: ErrorStateProps) {
   const router = useRouter();
 
   return (
@@ -35,16 +38,19 @@ export function ErrorState({ title, message, onRetry, retryDisabled = false, cla
           <p className="text-sm font-medium">{title}</p>
           {message ? <p className="text-muted-foreground text-sm">{message}</p> : null}
         </div>
-        <Button
-          size="sm"
-          variant="outline"
-          className="gap-1.5"
-          disabled={retryDisabled}
-          onClick={() => (onRetry ? onRetry() : router.refresh())}
-        >
-          <RotateCw className="size-3.5" aria-hidden="true" />
-          Try again
-        </Button>
+        <div className="flex flex-wrap items-center gap-2">
+          <Button
+            size="sm"
+            variant="outline"
+            className="gap-1.5"
+            disabled={retryDisabled}
+            onClick={() => (onRetry ? onRetry() : router.refresh())}
+          >
+            <RotateCw className="size-3.5" aria-hidden="true" />
+            Try again
+          </Button>
+          {children}
+        </div>
       </div>
     </div>
   );
