@@ -10,6 +10,7 @@
 
 import {
   validateFitScoreOutput,
+  normalizeWorkplace,
   validateParsedJobOutput,
   type FitScoreOutput,
   type ParsedJobOutput,
@@ -60,6 +61,17 @@ export class AiUnavailableError extends Error {
   constructor(message: string, options?: { cause?: unknown }) {
     super(message, options);
     this.name = 'AiUnavailableError';
+  }
+}
+
+/**
+ * The agent refused to read the input: it looked like instructions to the AI (#355). Not a
+ * failure to retry: the API answers 422 with the reason.
+ */
+export class AiRefusedInputError extends Error {
+  constructor(message = 'This posting has text that reads like instructions to the AI, so it wasn’t read. Enter the details yourself.') {
+    super(message);
+    this.name = 'AiRefusedInputError';
   }
 }
 
@@ -121,13 +133,31 @@ async function callAgent<T>(path: string, payload: unknown, timeoutMs = AGENT_TI
   }
   if (!response.ok) {
     console.warn(`agent ${path} responded with ${response.status}`);
-    await response.body?.cancel();
+    // A 422 is read to tell a refusal from FastAPI's validation error; anything else is
+    // dropped unread. The body is read once: cancelling it after reading throws.
+    if (response.status === 422) {
+      if (await refusedInput(response)) throw new AiRefusedInputError();
+    } else {
+      await response.body?.cancel().catch(() => undefined);
+    }
     throw new AiUnavailableError(AI_NO_ANSWER);
   }
   try {
     return (await response.json()) as T;
   } catch (error) {
     throw asAiUnavailable(error, path);
+  }
+}
+
+/** True when a 422 is the agent refusing the input (`detail.code: "input_refused"`). Reads the body. */
+async function refusedInput(response: Response): Promise<boolean> {
+  const text = await response.text().catch(() => '');
+  try {
+    const body = JSON.parse(text) as { detail?: unknown } | null;
+    const detail = body && typeof body === 'object' ? body.detail : undefined;
+    return Boolean(detail && typeof detail === 'object' && (detail as { code?: unknown }).code === 'input_refused');
+  } catch {
+    return false;
   }
 }
 
@@ -348,6 +378,13 @@ export async function resolveParsedJob(descriptionText: string): Promise<ParsedJ
     callAgent<ParsedJobOutput>('/parse-job', { description_text: descriptionText }, AGENT_TIMEOUT_MS),
   );
   if (!validateParsedJobOutput(parsed)) throw new AiUnavailableError(UNUSABLE_ANSWER);
+  // A workplace in other words ("On-site") is read; one the app doesn't know is left out
+  // (unknown). An odd word mustn't fail Score fit or the n8n intake, which parse the same way (#355).
+  if ('workplace_type' in parsed) {
+    const workplace = normalizeWorkplace(parsed.workplace_type);
+    if (workplace === undefined) delete parsed.workplace_type;
+    else parsed.workplace_type = workplace;
+  }
   return parsed;
 }
 

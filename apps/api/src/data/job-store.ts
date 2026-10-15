@@ -77,9 +77,10 @@ function createBaseJob(userId: string, body: CreateJobBody): JobRecord {
     source: body.source ?? 'manual',
     company: body.company.trim(),
     title: body.title.trim(),
-    location: body.location?.trim() ?? 'Remote',
-    employmentType: body.employmentType?.trim() ?? 'Full-time',
-    workplaceType: body.workplaceType ?? 'remote',
+    // What the posting doesn't state stays unstated, not "Remote" (#355).
+    location: body.location?.trim() ?? '',
+    employmentType: body.employmentType?.trim() ?? '',
+    workplaceType: body.workplaceType ?? null,
     datePosted: body.datePosted,
     discoveredAt: timestamp,
     descriptionText: body.descriptionText.trim(),

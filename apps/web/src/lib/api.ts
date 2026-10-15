@@ -99,10 +99,23 @@ export interface ParseJobPayload {
   descriptionText: string;
 }
 
+/** A salary as the API reads it from a posting (#355). */
+export interface PostedSalary {
+  min: number | null;
+  max: number | null;
+  currency: string;
+}
+
 export interface ParseJobResponse {
   job_id: string | null;
   company: string | null;
   title: string | null;
+  /** Null when the posting doesn't say. Left out when unknown: an agent or API from before
+   *  #355, or a workplace word the app doesn't know. */
+  location?: string | null;
+  workplace_type?: 'remote' | 'hybrid' | 'onsite' | 'flexible' | null;
+  /** The salary as the store will save it from this description, or null. */
+  salary?: PostedSalary | null;
   required_skills: string[];
   preferred_skills: string[];
   responsibilities: string[];
@@ -822,6 +835,12 @@ export interface ExtractedJobResponse {
   location?: string;
   descriptionText?: string;
   workplaceType?: 'remote' | 'hybrid' | 'onsite' | 'flexible';
+  /**
+   * For the Add job review (#355): the salary as the store will save it from this
+   * description, or null. Left out when there's no description, only the page's meta
+   * description, or the API is from before #355.
+   */
+  salary?: PostedSalary | null;
   source: 'jsonld' | 'opengraph' | 'heuristic' | 'none';
 }
 

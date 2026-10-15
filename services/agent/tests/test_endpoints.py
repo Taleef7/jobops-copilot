@@ -42,6 +42,26 @@ def test_parse_job_happy_path(monkeypatch):
     data = res.json()
     assert data["title"] == "AI Software Engineer"
     assert "Python" in data["required_skills"]
+    # #355: the Add job review reads these; unstated is null.
+    assert data["location"] is None
+    assert data["workplace_type"] is None
+
+
+def test_parse_job_returns_location_and_workplace(monkeypatch):
+    monkeypatch.setattr(main, "llm_available", lambda: True)
+    monkeypatch.setattr(
+        main,
+        "parse_job",
+        lambda text, config=None: ParsedJob(
+            title="Engineer",
+            company="Acme",
+            location="London, United Kingdom",
+            workplace_type="onsite",
+        ),
+    )
+    data = client.post("/parse-job", json={"description_text": "anything"}).json()
+    assert data["location"] == "London, United Kingdom"
+    assert data["workplace_type"] == "onsite"
 
 
 def test_score_fit_happy_path(monkeypatch):

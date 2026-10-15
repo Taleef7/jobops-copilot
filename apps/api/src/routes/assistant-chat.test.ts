@@ -176,6 +176,26 @@ test('leaves out a skills line that would only list "Other" (#354)', async () =>
   assert.ok(!captured.context?.includes('Matched skills'));
 });
 
+// #355: a job can say nothing about where it is; the context says so instead of "null".
+test('says a location and workplace the job does not state are not stated', async () => {
+  let captured: { context?: string } = {};
+  const router = createAssistantChatRouter({
+    getJob: async () => fakeJob({ location: '', workplaceType: null }),
+    openUpstream: async (payload) => {
+      captured = payload as { context?: string };
+      return okStream();
+    },
+  });
+  await withServer(router, async (baseUrl) => {
+    await fetch(`${baseUrl}/chat`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-User-Id': 'u1' },
+      body: JSON.stringify({ messages: [{ role: 'user', content: 'where is it?' }], jobId: 'job-1' }),
+    });
+  });
+  assert.ok(captured.context?.includes('Location: not stated (workplace not stated)'), captured.context);
+});
+
 test('omits context when the job is not found / not owned', async () => {
   let captured: { context?: string } = { context: 'sentinel' };
   const router = createAssistantChatRouter({

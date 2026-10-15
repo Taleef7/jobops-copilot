@@ -11,6 +11,7 @@ import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { getDashboardSummary } from '@/lib/dashboard';
 import { loadJobs } from '@/lib/job-data';
+import { companyAndLocation } from '@/lib/job-display';
 
 export const dynamic = 'force-dynamic';
 
@@ -141,7 +142,7 @@ export default async function DashboardPage() {
                   <div className="min-w-0 flex-1">
                     <p className="truncate text-sm font-medium">{job.title}</p>
                     <p className="text-muted-foreground truncate text-xs">
-                      {job.company} · {job.location}
+                      {companyAndLocation(job)}
                     </p>
                   </div>
                   <StatusPill status={job.status} />

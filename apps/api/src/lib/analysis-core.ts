@@ -2,9 +2,35 @@ import type { JobAnalysis, JobAnalysisSubSignals, MatchedSkill, MissingSkill } f
 
 export type ParsedJobSeniority = 'junior' | 'mid' | 'senior' | 'lead' | 'unknown';
 
+/** What the job parser can say about where the work is done (#355). */
+export const PARSED_WORKPLACE_TYPES = ['remote', 'hybrid', 'onsite', 'flexible'] as const;
+export type ParsedWorkplaceType = (typeof PARSED_WORKPLACE_TYPES)[number];
+
+/**
+ * The parser's workplace in the app's words. Null stays null ("not stated"). The agent
+ * passes a word it doesn't map through as written; one the app doesn't know is undefined
+ * (unknown). Mirrors ParsedJob's validator in services/agent/app/schemas.py (#355).
+ */
+export function normalizeWorkplace(value: unknown): ParsedWorkplaceType | null | undefined {
+  if (value === null) return null;
+  if (typeof value !== 'string') return undefined;
+  const word = value.trim().toLowerCase().replace(/\s+/g, ' ');
+  if (word === 'remote' || word === 'hybrid' || word === 'onsite' || word === 'flexible') return word;
+  if (/^(?:on[-\s]*site|in[-\s]*(?:office|person))$/.test(word)) return 'onsite';
+  // "remote-first", "Remote (US)", "fully remote", "100% remote", unless it also names an office.
+  if (/^(?:fully\s|100%\s?)?remote\b/.test(word) && !/hybrid|office|on[-\s]*site|in[-\s]*person/.test(word)) {
+    return 'remote';
+  }
+  return undefined;
+}
+
 export interface ParsedJobOutput {
   company: string | null;
   title: string | null;
+  /** Where the job is based, as the posting says. An agent from before #355 leaves it out. */
+  location?: string | null;
+  /** Remote, hybrid or on-site, when the posting says. An agent from before #355 leaves it out. */
+  workplace_type?: ParsedWorkplaceType | null;
   required_skills: string[];
   preferred_skills: string[];
   responsibilities: string[];
@@ -522,6 +548,7 @@ export function validateParsedJobOutput(value: unknown): value is ParsedJobOutpu
   return (
     (record.company === null || typeof record.company === 'string') &&
     (record.title === null || typeof record.title === 'string') &&
+    (record.location == null || typeof record.location === 'string') &&
     Array.isArray(record.required_skills) &&
     Array.isArray(record.preferred_skills) &&
     Array.isArray(record.responsibilities) &&

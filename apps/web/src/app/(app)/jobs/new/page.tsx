@@ -16,12 +16,10 @@ export default function AddJobPage() {
 
       <div>
         <h1 className="font-heading text-2xl font-bold tracking-tight">Add a job</h1>
-        <p className="text-muted-foreground text-sm">
-          Paste the posting and fill in the company and title, or paste its URL and press Autofill. Then save.
-        </p>
+        <p className="text-muted-foreground text-sm">Paste a job link or the posting. Check the details, then save.</p>
       </div>
 
-      <SectionCard title="Job details" description="After you save, run Score fit on the job page.">
+      <SectionCard title="Job details">
         <JobCreateForm />
       </SectionCard>
     </div>
