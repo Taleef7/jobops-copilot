@@ -130,3 +130,11 @@ it('links to the job you already added when the URL is tracked (#346)', async ()
   expect(await screen.findByText('You already added this job.')).toBeInTheDocument();
   expect(screen.getByRole('link', { name: /open the job/i })).toHaveAttribute('href', '/jobs/job-123');
 });
+
+// #356: saving creates the job and nothing else (#349); the fit is run on the job page.
+it('labels the submit "Save job" and promises no analysis', () => {
+  const { container } = render(<JobCreateForm />);
+
+  expect(screen.getByRole('button', { name: 'Save job' })).toHaveAttribute('type', 'submit');
+  expect(container.textContent).not.toMatch(/analy[sz]e|scores fit/i);
+});
