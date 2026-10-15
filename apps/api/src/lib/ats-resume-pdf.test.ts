@@ -128,15 +128,16 @@ test('an empty résumé still renders a page', async () => {
 });
 
 test('a word longer than a line, or a huge field, renders fast and inside the page', async () => {
-  // One field over the 5,000 cap is refused at save; the renderer must still be linear.
-  const token = 'x'.repeat(40_000);
+  // A word as long as a field may be, eight of them: the renderer must still be linear.
+  const token = 'x'.repeat(4_900);
   const summary = Array.from({ length: 2_500 }, (_, i) => `word${i % 50}`).join(' ').slice(0, 4_900);
   const start = Date.now();
-  const pdf = await renderAtsResumePdf(resume({ basics: { ...resume().basics, summary }, work: [{ company: 'Globex', position: 'Engineer', startDate: '2020-01', highlights: [token, `1,${'1,'.repeat(4000)}1 users`] }] }));
+  const pdf = await renderAtsResumePdf(resume({ basics: { ...resume().basics, summary }, work: [{ company: 'Globex', position: 'Engineer', startDate: '2020-01', highlights: [...Array.from({ length: 8 }, () => token), `1,${'1,'.repeat(2000)}1 users`] }] }));
   assert.ok(Date.now() - start < 5_000, `${Date.now() - start} ms`);
   const { pages } = await readPdf(pdf);
   for (const page of pages) for (const item of page.items) assert.ok(item.x + item.width <= page.width - 36 + 0.5, `"${item.str.slice(0, 20)}" runs past the margin`);
-  assert.ok(pages.flatMap((page) => page.lines).join('').includes('x'.repeat(40_000)), 'every character of the long word');
+  const joined = pages.flatMap((page) => page.lines).join('');
+  assert.equal(joined.split('x'.repeat(4_900)).length - 1, 8, 'every character of every long word');
 });
 
 test('a heading is never left alone at the bottom of a page', async () => {
@@ -273,6 +274,16 @@ test('a role summary that is a real sentence is kept, even with month-like words
     await renderAtsResumePdf(resume({ work: [{ company: 'Uniswap', position: 'Engineer', startDate: '2020-01', summary: 'Decentralized markets.', highlights: [] }] })),
   );
   assert.ok(text.includes('Decentralized markets.'));
+});
+
+test('a résumé stored before the caps, with too many short bullets or one huge field, is refused before it is drawn', async () => {
+  const many = resume({ work: [{ company: 'Globex', position: 'Engineer', startDate: '2020-01', highlights: Array.from({ length: 3_000 }, (_, i) => `Did thing ${i}.`) }] });
+  const field = resume({ basics: { ...resume().basics, summary: 'word '.repeat(1_400) } });
+  for (const stored of [many, field]) {
+    const start = Date.now();
+    await assert.rejects(renderResumePdf(stored), ResumeTooLargeError);
+    assert.ok(Date.now() - start < 1_000, `${Date.now() - start} ms`);
+  }
 });
 
 test('a résumé bigger than any real one is refused before it is drawn', async () => {

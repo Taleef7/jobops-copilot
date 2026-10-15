@@ -2,7 +2,7 @@ import { PDFDocument } from 'pdf-lib';
 import type { StructuredResume } from '@/types';
 import { embedFonts, type Fonts } from '@/lib/pdf/fonts';
 import { Flow, PAGE_SIZES, safeLink, type Run } from '@/lib/pdf/flow';
-import { RESUME_TEXT_MAX, ResumeTooLargeError, resumeTextLength } from '@/lib/input-caps';
+import { ResumeTooLargeError, resumeProblem } from '@/lib/input-caps';
 import { resolveLayout, type ResolvedLayout } from '@/lib/resume-layout';
 
 /**
@@ -262,8 +262,10 @@ export interface ResumePdf {
 }
 
 export async function renderResumePdf(resume: StructuredResume, options: { fit?: boolean } = {}): Promise<ResumePdf> {
-  // Drawn on the request: one bigger than any real résumé (saved before the caps, say) is refused.
-  if (resumeTextLength(resume) > RESUME_TEXT_MAX) throw new ResumeTooLargeError();
+  // Drawn on the request: one bigger than any real résumé (saved before the caps, say) is refused,
+  // by every cap a save checks: a field, a list, and the text in all.
+  const tooLarge = resumeProblem(resume);
+  if (tooLarge) throw new ResumeTooLargeError(tooLarge);
   const doc = await PDFDocument.create();
   const fonts = await embedFonts(doc);
   const layout = resolveLayout(resume);
