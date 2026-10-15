@@ -19,9 +19,10 @@ export interface LlmCanaryResult {
 }
 
 /**
- * The agent's canary makes two model calls (structured output, then a tool call, #410), each
- * up to its 60 s request timeout, and a cold agent (scale-to-zero) can take a while to start.
- * The workflows that call /internal/llm-canary give the whole request 150 s.
+ * The agent's canary makes two model calls (structured output, then a tool call, #410). Each is
+ * one attempt with no retries (#413), so up to the agent's 60 s request timeout: 120 s at worst,
+ * and a cold agent (scale-to-zero) can take a while to start. The workflows that call
+ * /internal/llm-canary give the whole request 150 s.
  */
 export const LLM_CANARY_TIMEOUT_MS = 140_000;
 const CACHE_KEY = 'llm-canary:last';
