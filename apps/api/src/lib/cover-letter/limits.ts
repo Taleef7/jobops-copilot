@@ -1,9 +1,12 @@
 import type { CoverLetterLength } from '@/types';
 
 /**
- * How long a cover letter may be (#416). The letter is always one page: the PDF fits a long
- * letter (spacing, margins, then 10 pt), and these limits keep every letter the API saves within
- * what fitting can reach. `cover-letter-pdf.test.ts` renders a letter at every limit at once.
+ * How long a cover letter may be (#416). These limits count words and characters, which is what
+ * fitting (spacing, margins, then 10 pt) can absorb for ordinary prose: `cover-letter-pdf.test.ts`
+ * renders a prose letter at every limit at once on one page. They don't measure width, so text
+ * within them can still need two pages (all capitals, very wide letters). The routes render the
+ * letter itself and never save or print more than one page: a write is a 503, an edit a 400
+ * LETTER_TOO_LONG, a download a 422.
  */
 
 /** The lengths the model is asked for, in words. */

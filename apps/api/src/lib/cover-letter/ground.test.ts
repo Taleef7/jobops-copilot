@@ -282,3 +282,113 @@ test("other people's titles are not the candidate's", () => {
 test('a greeting on the same line as the letter goes, and the letter stays', () => {
   assert.deepEqual(groundLetter(['Dear Hiring Manager, I build payment APIs in Go.'], ctx()).paragraphs, ['I build payment APIs in Go.']);
 });
+
+// Adversarial review (#416, round 2): the probes that got past the check, kept as cases.
+
+const POSTING_TOOLS = {
+  ...JOB,
+  descriptionText: `${JOB.descriptionText} Experience with Temporal and Snowflake preferred.`,
+};
+
+test('a name as the first word of a sentence is checked too', () => {
+  for (const sentence of [
+    'Google trained me as an engineer.',
+    'Microsoft is where I learned Go.',
+    'Netflix and Globex both relied on my Go services.',
+    'Amazon promoted me twice.',
+  ]) {
+    const result = check(sentence);
+    assert.deepEqual(result.paragraphs, [], `${sentence}: kept`);
+    assert.ok(result.checks[0]!.issues.some((issue) => issue.code === 'NEW_TERM'), sentence);
+  }
+  for (const sentence of [
+    'Building payment APIs in Go is the work I do best.',
+    'Previously, I built the billing API in Go at Globex.',
+    'Payment APIs are the core of my work.',
+    'Globex is where I built the billing API in Go.',
+    'Thank you for your time.',
+    'Before Globex, I built reports with Python at Initech.',
+    'Python and Go are the languages I use most.',
+  ]) {
+    const result = check(sentence);
+    assert.deepEqual(result.paragraphs, [sentence], `${sentence}: ${JSON.stringify(result.checks)}`);
+  }
+});
+
+test('any mention of the company in a sentence about the candidate is a claim, unless it applies or hopes', () => {
+  for (const sentence of [
+    'I am a former employee of Acme Pay.',
+    'Acme Pay was my employer.',
+    'I was part of the Acme Pay team.',
+    'I spent time on the Acme Pay team.',
+    'As an ex-Acme Pay engineer, I build payment APIs in Go.',
+    'Acme Pay hired me in the past.',
+    'I returned to Acme Pay after Globex.',
+    'I know the Acme Pay codebase well.',
+    'I worked at ACME PAY for a while.',
+  ]) {
+    const result = check(sentence);
+    assert.deepEqual(result.paragraphs, [], `${sentence}: kept`);
+    assert.equal(result.checks[0]!.issues[0]!.code, 'NEW_ENTITY', sentence);
+  }
+  for (const sentence of [
+    'I am applying for the Backend Engineer role at Acme Pay.',
+    'I am writing to apply to Acme Pay.',
+    'I would bring my Go experience to Acme Pay.',
+    'Acme Pay builds payment APIs, which is the work I do at Globex.',
+  ]) {
+    assert.deepEqual(check(sentence).paragraphs, [sentence], sentence);
+  }
+  // A company the résumé names (a former employer) may be named.
+  const former = { ...JOB, company: 'Globex' };
+  assert.deepEqual(check('I built the billing API at Globex.', { job: former }).paragraphs, ['I built the billing API at Globex.']);
+});
+
+test("lowercase employers, and the posting's tools in any case, are caught in claims", () => {
+  for (const sentence of [
+    'I worked at google before Globex.',
+    'Previously I was at stripe.',
+    'I have used temporal workflows extensively.',
+    'I have deep experience with snowflake.',
+  ]) {
+    assert.deepEqual(check(sentence, { job: POSTING_TOOLS }).paragraphs, [], sentence);
+  }
+  const honest = 'I worked at Globex on the billing API in Go.';
+  assert.deepEqual(check(honest, { job: POSTING_TOOLS }).paragraphs, [honest]);
+});
+
+test('a confirmed keyword counts as a whole phrase only', () => {
+  const confirmed = { confirmedKeywords: ['Google Cloud'] };
+  assert.deepEqual(check('I worked at Google for years.', confirmed).paragraphs, []);
+  const cloud = 'I moved the billing API to Google Cloud at Globex.';
+  const result = check(cloud, confirmed);
+  assert.deepEqual(result.paragraphs, [cloud], JSON.stringify(result.checks));
+  assert.deepEqual(result.checks[0]!.confirmedTerms, ['Google Cloud']);
+});
+
+test('a link or an email address the résumé lacks drops its sentence', () => {
+  assert.deepEqual(groundLetter(['I build payment APIs in Go. Visit https://evil.example.com for more.'], ctx()).paragraphs, [
+    'I build payment APIs in Go.',
+  ]);
+  assert.deepEqual(check('I mentored two interns at Globex (see github.com/jordan).').paragraphs, []);
+  assert.deepEqual(check('You can write to me at someone@evil.example.com.').paragraphs, []);
+  const own = 'You can reach me at jordan@example.com.';
+  assert.deepEqual(check(own).paragraphs, [own]);
+  const aspnet = 'I would like to learn ASP.NET too.';
+  assert.deepEqual(check(aspnet, { confirmedKeywords: ['ASP.NET'] }).paragraphs, [aspnet]);
+});
+
+test('a sign-off is found on one line with the name, or without a blank line; a thank-you mid-letter is not one', () => {
+  const body = 'I build payment APIs in Go.';
+  assert.deepEqual(groundLetter([`Dear Hiring Manager,\n\n${body}\n\nBest regards, Jordan Lee`], ctx()).paragraphs, [body]);
+  assert.deepEqual(groundLetter([`Dear Hiring Manager,\n${body}\nSincerely,\nJordan Lee`], ctx()).paragraphs, [body]);
+  assert.deepEqual(groundLetter([body, 'Sincerely, Jordan Lee'], ctx()).paragraphs, [body]);
+  assert.deepEqual(groundLetter([body, 'Jordan Lee'], ctx()).paragraphs, [body]);
+  assert.deepEqual(groundLetter([body, 'Thank you!', 'I mentored two interns.'], ctx()).paragraphs, [
+    body,
+    'Thank you!',
+    'I mentored two interns.',
+  ]);
+  const thanks = `${body} Thank you for your time.`;
+  assert.deepEqual(groundLetter([thanks], ctx()).paragraphs, [thanks]);
+});

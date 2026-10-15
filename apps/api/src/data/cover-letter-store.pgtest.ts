@@ -116,3 +116,18 @@ test('the table takes only a Concise or Full letter, with an owner', { skip }, a
     ),
   );
 });
+
+test("the database itself refuses another length, and a letter for someone else's job", { skip }, async () => {
+  const user = `itest_letter_db_${randomUUID().slice(0, 8)}`;
+  const job = await createJob(user, { company: 'Acme', title: 'Engineer', descriptionText: 'Build APIs.' });
+  const insert = (owner: string, length: string) =>
+    getPool()!.query(
+      "insert into cover_letters (id, user_id, job_id, length, paragraphs, checks, based_on) values ($1, $2, $3, $4, '[]', '[]', '{}')",
+      [randomUUID(), owner, job.id, length],
+    );
+  // Past the JS guard: the CHECK constraint.
+  await assert.rejects(insert(user, 'long'), /cover_letters_length_check/);
+  // The job belongs to `user`: a row for another owner breaks the (job_id, user_id) foreign key.
+  await assert.rejects(insert(`${user}_intruder`, 'full'), /foreign key/);
+  await insert(user, 'full');
+});

@@ -26,8 +26,8 @@ export interface WriteOptions {
 interface LetterError {
   message: string;
   code?: string;
-  /** Write again with these options (the AI failed). */
-  retry?: WriteOptions;
+  /** Write again: the AI failed. The retry uses the length and keywords as they are then. */
+  retry?: boolean;
   /** Read the letter again (reading it failed). */
   reload?: boolean;
 }
@@ -93,7 +93,7 @@ export function startCoverLetter(jobId: string, options: WriteOptions) {
         error: {
           message: err instanceof Error ? err.message : "Your cover letter couldn't be written.",
           code: typeof code === 'string' ? code : undefined,
-          retry: typeof status === 'number' && status >= 500 ? options : undefined,
+          retry: typeof status === 'number' && status >= 500,
         },
       });
     },
@@ -231,7 +231,7 @@ export function CoverLetterReview({
                 size="sm"
                 variant="outline"
                 onClick={() => {
-                  if (error.retry) write(error.retry);
+                  if (error.retry) write();
                   else {
                     setLetterState(jobId, { error: null });
                     loadCoverLetter(jobId);
@@ -287,6 +287,11 @@ function LetterView({
   const words = letter.paragraphs.reduce((sum, paragraph) => sum + countWords(paragraph.text), 0);
   const dropped = letter.checks.filter((check) => check.dropped);
   const edited = letter.paragraphs.some((paragraph) => paragraph.edited);
+  // The paragraph being edited, by its key: while one is open, nothing else can change the letter.
+  const [editingKey, setEditingKey] = useState<string | null>(null);
+  const keyOf = (index: number) => `${letter.id}:${index}:${letter.paragraphs[index]!.text}`;
+  const editingOpen = editingKey !== null && letter.paragraphs.some((_paragraph, index) => keyOf(index) === editingKey);
+  const locked = saving || downloading || editingOpen;
 
   async function download() {
     setLetterState(jobId, { downloading: true });
@@ -317,10 +322,20 @@ function LetterView({
     }
   }
 
-  const save = (index: number, text: string) =>
-    change(() => editCoverLetterParagraph(jobId, index, text, letter.updatedAt), "That paragraph couldn't be saved.");
+  // Each change names the paragraph by its text as shown, so the API refuses one that moved.
+  const save = async (index: number, text: string) => {
+    const saved = await change(
+      () => editCoverLetterParagraph(jobId, index, text, letter.updatedAt, letter.paragraphs[index]!.text),
+      "That paragraph couldn't be saved.",
+    );
+    if (saved) setEditingKey(null);
+    return saved;
+  };
   const remove = (index: number) =>
-    change(() => removeCoverLetterParagraph(jobId, index, letter.updatedAt), "That paragraph couldn't be removed.");
+    change(
+      () => removeCoverLetterParagraph(jobId, index, letter.updatedAt, letter.paragraphs[index]!.text),
+      "That paragraph couldn't be removed.",
+    );
 
   return (
     <Card className="space-y-4 p-5">
@@ -333,11 +348,11 @@ function LetterView({
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
-          <LengthToggle value={length} onChange={onLength} disabled={saving || downloading} />
-          <Button variant="outline" onClick={onWriteAgain} disabled={saving || downloading}>
+          <LengthToggle value={length} onChange={onLength} disabled={locked} />
+          <Button variant="outline" onClick={onWriteAgain} disabled={locked}>
             Write again
           </Button>
-          <Button onClick={download} disabled={saving || downloading}>
+          <Button onClick={download} disabled={locked}>
             {downloading ? <Loader2 className="size-4 animate-spin" aria-hidden /> : null}
             Download PDF
           </Button>
@@ -351,11 +366,14 @@ function LetterView({
       <div className="space-y-3">
         {letter.paragraphs.map((paragraph, index) => (
           <ParagraphCard
-            key={`${letter.id}-${index}`}
+            key={keyOf(index)}
             index={index}
             paragraph={paragraph}
             notes={letter.checks.filter((check) => !check.dropped && check.paragraph === index)}
-            busy={saving || downloading}
+            editing={editingKey === keyOf(index)}
+            onEdit={() => setEditingKey(keyOf(index))}
+            onCancel={() => setEditingKey(null)}
+            busy={saving || downloading || (editingOpen && editingKey !== keyOf(index))}
             onSave={save}
             onRemove={letter.paragraphs.length > 1 ? remove : undefined}
           />
@@ -383,6 +401,9 @@ function ParagraphCard({
   index,
   paragraph,
   notes,
+  editing,
+  onEdit,
+  onCancel,
   busy,
   onSave,
   onRemove,
@@ -391,18 +412,17 @@ function ParagraphCard({
   paragraph: CoverLetterParagraph;
   /** The check's marks on this paragraph's sentences; the user's own words have none. */
   notes: CoverLetterCheck[];
+  editing: boolean;
+  onEdit: () => void;
+  onCancel: () => void;
+  /** Saving, downloading, or another paragraph is open: nothing here can change. */
   busy: boolean;
   onSave: (index: number, text: string) => Promise<boolean>;
   /** Absent for a letter's only paragraph. */
   onRemove?: (index: number) => Promise<boolean>;
 }) {
-  const [editing, setEditing] = useState(false);
   const [text, setText] = useState(paragraph.text);
   const shownNotes = paragraph.edited ? [] : notes;
-
-  async function save() {
-    if (await onSave(index, text.trim())) setEditing(false);
-  }
 
   return (
     <div className="space-y-2 rounded-md border p-3" data-testid={`letter-paragraph-${index}`}>
@@ -423,10 +443,10 @@ function ParagraphCard({
       <div className="flex flex-wrap gap-2">
         {editing ? (
           <>
-            <Button size="sm" disabled={busy || !text.trim()} onClick={save}>
+            <Button size="sm" disabled={busy || !text.trim()} onClick={() => void onSave(index, text.trim())}>
               Save
             </Button>
-            <Button size="sm" variant="ghost" onClick={() => setEditing(false)}>
+            <Button size="sm" variant="ghost" onClick={onCancel}>
               Cancel
             </Button>
           </>
@@ -439,7 +459,7 @@ function ParagraphCard({
               aria-label={`Edit paragraph ${index + 1}`}
               onClick={() => {
                 setText(paragraph.text);
-                setEditing(true);
+                onEdit();
               }}
             >
               Edit

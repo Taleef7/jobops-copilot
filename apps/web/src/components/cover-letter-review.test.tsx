@@ -115,7 +115,8 @@ describe('CoverLetterReview', () => {
     await user.type(box, mine);
     await user.click(within(second).getByRole('button', { name: 'Save' }));
 
-    expect(editCoverLetterParagraph).toHaveBeenCalledWith('job-1', 1, mine, letter.updatedAt);
+    // The paragraph's text as it was read goes too: the API refuses if it moved or changed.
+    expect(editCoverLetterParagraph).toHaveBeenCalledWith('job-1', 1, mine, letter.updatedAt, letter.paragraphs[1]!.text);
     const saved = await screen.findByTestId('letter-paragraph-1');
     expect(await within(saved).findByText(mine)).toBeInTheDocument();
     expect(within(saved).getByText('Your words')).toBeInTheDocument();
@@ -226,7 +227,7 @@ describe('CoverLetterReview', () => {
     renderLetter();
 
     await user.click(await screen.findByRole('button', { name: 'Remove paragraph 3' }));
-    expect(removeCoverLetterParagraph).toHaveBeenCalledWith('job-1', 2, letter.updatedAt);
+    expect(removeCoverLetterParagraph).toHaveBeenCalledWith('job-1', 2, letter.updatedAt, letter.paragraphs[2]!.text);
     await waitFor(() => expect(screen.queryByTestId('letter-paragraph-1')).not.toBeInTheDocument());
     expect(screen.queryByRole('button', { name: /Remove paragraph/ })).not.toBeInTheDocument();
   });
@@ -251,5 +252,33 @@ describe('CoverLetterReview', () => {
     renderLetter();
     expect(await screen.findByText('I am applying for the Backend Engineer role at Acme Pay.')).toBeInTheDocument();
     expect(getCoverLetter).toHaveBeenCalledTimes(2);
+  });
+  it("while a paragraph is being edited, the other paragraphs can't be edited or removed", async () => {
+    const user = userEvent.setup();
+    getCoverLetter.mockResolvedValueOnce(letter);
+    renderLetter();
+
+    await user.click(await screen.findByRole('button', { name: 'Edit paragraph 2' }));
+    expect(screen.getByRole('button', { name: 'Edit paragraph 1' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Remove paragraph 1' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Remove paragraph 3' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Write again' })).toBeDisabled();
+    await user.click(within(screen.getByTestId('letter-paragraph-1')).getByRole('button', { name: 'Cancel' }));
+    expect(screen.getByRole('button', { name: 'Remove paragraph 1' })).toBeEnabled();
+  });
+
+  it('Try again writes with the length and keywords as they are now', async () => {
+    const user = userEvent.setup();
+    getCoverLetter.mockResolvedValueOnce(null);
+    writeCoverLetter.mockRejectedValueOnce(Object.assign(new Error("The AI couldn't answer this time."), { status: 503 }));
+    writeCoverLetter.mockReturnValueOnce(new Promise(() => undefined));
+    renderLetter(['Kafka']);
+
+    await user.click(await screen.findByRole('button', { name: 'Write cover letter' }));
+    expect(writeCoverLetter).toHaveBeenLastCalledWith('job-1', { length: 'concise', confirmedKeywords: ['Kafka'] });
+    const alert = await screen.findByRole('alert');
+    await user.click(screen.getByRole('button', { name: 'Full' }));
+    await user.click(within(alert).getByRole('button', { name: 'Try again' }));
+    expect(writeCoverLetter).toHaveBeenLastCalledWith('job-1', { length: 'full', confirmedKeywords: ['Kafka'] });
   });
 });

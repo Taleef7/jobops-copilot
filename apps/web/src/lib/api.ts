@@ -713,21 +713,35 @@ export async function writeCoverLetter(
   return response.coverLetter;
 }
 
-/** The user's own words for one paragraph of the letter, onto the letter as it was read. */
-export async function editCoverLetterParagraph(jobId: string, index: number, text: string, updatedAt: string): Promise<CoverLetterRecord> {
+/**
+ * The user's own words for one paragraph of the letter, onto the letter as it was read.
+ * `expectedText` is the paragraph as the page shows it: the API refuses (409) if it moved.
+ */
+export async function editCoverLetterParagraph(
+  jobId: string,
+  index: number,
+  text: string,
+  updatedAt: string,
+  expectedText: string,
+): Promise<CoverLetterRecord> {
   const response = await requestJson<{ coverLetter: CoverLetterRecord }>(`/api/jobs/${jobId}/cover-letter/paragraphs/${index}`, {
     method: 'PATCH',
-    body: JSON.stringify({ text, updatedAt }),
+    body: JSON.stringify({ text, expectedText, updatedAt }),
   });
   return response.coverLetter;
 }
 
-/** Remove one paragraph of the letter (not the last), from the letter as it was read. */
-export async function removeCoverLetterParagraph(jobId: string, index: number, updatedAt: string): Promise<CoverLetterRecord> {
-  const response = await requestJson<{ coverLetter: CoverLetterRecord }>(
-    `/api/jobs/${jobId}/cover-letter/paragraphs/${index}?updatedAt=${encodeURIComponent(updatedAt)}`,
-    { method: 'DELETE' },
-  );
+/** Remove one paragraph of the letter (not the last), the one the page shows as `expectedText`. */
+export async function removeCoverLetterParagraph(
+  jobId: string,
+  index: number,
+  updatedAt: string,
+  expectedText: string,
+): Promise<CoverLetterRecord> {
+  const response = await requestJson<{ coverLetter: CoverLetterRecord }>(`/api/jobs/${jobId}/cover-letter/paragraphs/${index}`, {
+    method: 'DELETE',
+    body: JSON.stringify({ expectedText, updatedAt }),
+  });
   return response.coverLetter;
 }
 

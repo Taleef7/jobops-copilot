@@ -459,3 +459,45 @@ test('a paragraph can be removed, but not the last one', async () => {
     assert.ok(text.includes(letter.paragraphs[3]!.text));
   });
 });
+
+test('an edit or a removal names the paragraph it means: a paragraph that changed meanwhile is a 409', async () => {
+  await withLetters(answerOf(letterOf(240, 3)), async ({ send }) => {
+    const job = await setUp();
+    const letter = await write(send, job.id);
+    const [first, second] = letter.paragraphs.map((p) => p.text);
+    // The page meant the second paragraph, but another tab removed the first: index 1 is now another one.
+    const moved = await send('PATCH', `/api/jobs/${job.id}/cover-letter/paragraphs/0`, { text: 'Mine.', expectedText: second });
+    assert.equal(moved.status, 409);
+    assert.equal(((await moved.json()) as { code?: string }).code, 'PARAGRAPH_CHANGED');
+    const gone = await send('DELETE', `/api/jobs/${job.id}/cover-letter/paragraphs/0`, { expectedText: second });
+    assert.equal(gone.status, 409);
+    assert.deepEqual((await read(send, job.id))!.paragraphs, letter.paragraphs, 'nothing changed');
+
+    const edited = await send('PATCH', `/api/jobs/${job.id}/cover-letter/paragraphs/0`, { text: 'Mine.', expectedText: first });
+    assert.equal(edited.status, 200);
+    const removed = await send('DELETE', `/api/jobs/${job.id}/cover-letter/paragraphs/1`, { expectedText: second });
+    assert.equal(removed.status, 200);
+    assert.equal((await send('DELETE', `/api/jobs/${job.id}/cover-letter/paragraphs/0`, undefined, 'intruder')).status, 404);
+    assert.equal((await read(send, job.id))!.paragraphs.length, 2);
+  });
+});
+
+test('text within the length limits that still needs two pages (wide capitals) is refused by the page check', async () => {
+  await withLetters(answerOf(letterOf(180, 3)), async ({ send }) => {
+    const job = await setUp();
+    await write(send, job.id);
+    const shout = 'WWWWWWWWWWWW MMMMMMMMMMMM WORKFLOW MAINTAINED WORLDWIDE. ';
+    const paragraph = shout.repeat(40).slice(0, 1_190).trim();
+    const statuses: Array<{ status: number; code?: string; error?: string }> = [];
+    for (const index of [0, 1, 2]) {
+      const response = await send('PATCH', `/api/jobs/${job.id}/cover-letter/paragraphs/${index}`, { text: paragraph });
+      statuses.push({ status: response.status, ...((await response.json()) as { code?: string; error?: string }) });
+    }
+    const refused = statuses.find((s) => s.status === 400);
+    assert.ok(refused, JSON.stringify(statuses.map((s) => s.status)));
+    assert.equal(refused.code, 'LETTER_TOO_LONG');
+    assert.doesNotMatch(refused.error ?? '', /520 words/, 'within the word and character limits: refused for its pages');
+    const { pdf } = await download(send, job.id);
+    assert.equal(pdf.pages.length, 1);
+  });
+});

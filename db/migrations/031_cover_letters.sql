@@ -10,17 +10,28 @@
 -- checks:     the sentences the check dropped or marked, with why.
 -- based_on:   the base résumé version, a hash of the posting, the model, the confirmed keywords.
 
+-- A letter's owner is its job's owner: the foreign key is on (job_id, user_id), which needs
+-- (id, user_id) to be unique on jobs. It is (id is the primary key), so the constraint only
+-- states it.
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'jobs_id_user_id_key') THEN
+    ALTER TABLE jobs ADD CONSTRAINT jobs_id_user_id_key UNIQUE (id, user_id);
+  END IF;
+END $$;
+
 CREATE TABLE IF NOT EXISTS cover_letters (
   id uuid PRIMARY KEY,
   user_id text NOT NULL,
-  job_id uuid NOT NULL REFERENCES jobs(id) ON DELETE CASCADE,
+  job_id uuid NOT NULL,
   length text NOT NULL CONSTRAINT cover_letters_length_check CHECK (length IN ('concise', 'full')),
   paragraphs jsonb NOT NULL,
   checks jsonb NOT NULL DEFAULT '[]'::jsonb,
   based_on jsonb NOT NULL,
   created_at timestamptz NOT NULL DEFAULT now(),
   updated_at timestamptz NOT NULL DEFAULT now(),
-  CONSTRAINT cover_letters_user_job_key UNIQUE (user_id, job_id)
+  CONSTRAINT cover_letters_user_job_key UNIQUE (user_id, job_id),
+  CONSTRAINT cover_letters_job_owner_fkey FOREIGN KEY (job_id, user_id) REFERENCES jobs (id, user_id) ON DELETE CASCADE
 );
 
 CREATE INDEX IF NOT EXISTS cover_letters_job_id_idx ON cover_letters (job_id);

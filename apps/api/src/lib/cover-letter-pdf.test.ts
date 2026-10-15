@@ -81,9 +81,10 @@ test('a letter that fits at the regular size keeps it', async () => {
   assert.equal(fitted.size, 11);
 });
 
-test('the longest letter the API accepts fits on one page, at 10 pt or more', async () => {
-  // At every cap at once: the most words, made of long words up to the character cap, in the
-  // most paragraphs, under a long name, contact line, company and title.
+test('a prose letter at every length limit fits on one page, at 10 pt or more', async () => {
+  // At every cap at once: long words up to the character cap, in the most paragraphs, under a
+  // long name, contact line, company and title. Width isn't a limit: all-capitals text this long
+  // needs two pages, and the routes refuse it (cover-letter.test.ts).
   const cycle = ['responsibilities', 'and', 'infrastructure', 'to'];
   const words: string[] = [];
   while ([...words, cycle[words.length % cycle.length]].join(' ').length <= MAX_LETTER_CHARS) words.push(cycle[words.length % cycle.length]!);

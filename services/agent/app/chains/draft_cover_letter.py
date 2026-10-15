@@ -13,7 +13,7 @@ from __future__ import annotations
 import logging
 
 from app.chains.posting import guarded_posting
-from app.llm.provider import get_model
+from app.llm.provider import get_model_for_agent
 from app.prompts import COVER_LETTER_SYSTEM
 from app.safety.injection import annotate_trace, injection_refused
 from app.schemas import CoverLetterOutput, CoverLetterRequest, CoverLetterResponse
@@ -48,7 +48,9 @@ def _human_message(req: CoverLetterRequest, jd_block: str) -> str:
 
 
 def draft_cover_letter(req: CoverLetterRequest, config: dict | None = None) -> CoverLetterResponse:
-    model, label = get_model()
+    # The tailoring agent writes the letter too: an operator's agent_configs row for
+    # resume-tailor applies here as it does to tailoring.
+    model, label, _config_row = get_model_for_agent("resume-tailor")
 
     jd_block, verdict = guarded_posting(
         req.job_title, req.company, req.keywords, req.description_text, req.confirmed_keywords

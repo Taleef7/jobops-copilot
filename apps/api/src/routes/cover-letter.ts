@@ -34,6 +34,15 @@ const LETTER_CHANGED = {
   error: 'This letter changed in another tab. Reload the page to see it.',
 };
 const LETTER_TOO_LONG = 'LETTER_TOO_LONG';
+const PARAGRAPH_CHANGED = {
+  code: 'PARAGRAPH_CHANGED',
+  error: 'That paragraph changed or moved in another tab. Reload the page to see the letter as it is.',
+};
+
+/** The paragraph's text as the page read it: given and different means the page meant another one. */
+function paragraphMoved(expected: unknown, current: string): boolean {
+  return expected !== undefined && (typeof expected !== 'string' || expected !== current);
+}
 
 /** The base résumé as Settings shows it: the profile's copy, else the base version. */
 async function baseResumeOf(userId: string) {
@@ -194,11 +203,12 @@ coverLetterRouter.get('/jobs/:id/cover-letter', async (request, response, next) 
 });
 
 /**
- * PATCH /api/jobs/:id/cover-letter/paragraphs/:index   body: { text, updatedAt? }
+ * PATCH /api/jobs/:id/cover-letter/paragraphs/:index   body: { text, expectedText?, updatedAt? }
  *
  * The user's own words for one paragraph: saved as theirs, not checked. The letter must still fit
- * on one page (400 LETTER_TOO_LONG). With `updatedAt`, only onto the letter as it was read
- * (409 LETTER_CHANGED otherwise).
+ * on one page (400 LETTER_TOO_LONG). `expectedText` is the paragraph as the page read it: if the
+ * paragraph at `index` is another one now, 409 PARAGRAPH_CHANGED. With `updatedAt`, only onto
+ * the letter as it was read (409 LETTER_CHANGED otherwise).
  */
 coverLetterRouter.patch('/jobs/:id/cover-letter/paragraphs/:index', async (request, response, next) => {
   try {
@@ -215,7 +225,8 @@ coverLetterRouter.patch('/jobs/:id/cover-letter/paragraphs/:index', async (reque
       return response.status(404).json({ error: `Paragraph not found: ${request.params.index}` });
     }
 
-    const body = (request.body ?? {}) as { text?: unknown; updatedAt?: unknown };
+    const body = (request.body ?? {}) as { text?: unknown; expectedText?: unknown; updatedAt?: unknown };
+    if (paragraphMoved(body.expectedText, letter.paragraphs[index]!.text)) return response.status(409).json(PARAGRAPH_CHANGED);
     const text = typeof body.text === 'string' ? body.text.replace(/\s+/g, ' ').trim() : '';
     if (!text || text.length > MAX_PARAGRAPH_CHARS || NOT_PLAIN.test(text)) {
       return response.status(400).json({
@@ -244,10 +255,10 @@ coverLetterRouter.patch('/jobs/:id/cover-letter/paragraphs/:index', async (reque
 });
 
 /**
- * DELETE /api/jobs/:id/cover-letter/paragraphs/:index?updatedAt=…
+ * DELETE /api/jobs/:id/cover-letter/paragraphs/:index   body: { expectedText?, updatedAt? }
  *
- * Removes one paragraph, and the check's marks on it. A letter keeps at least one (400). With
- * `updatedAt`, only from the letter as it was read (409 LETTER_CHANGED otherwise).
+ * Removes one paragraph, and the check's marks on it. A letter keeps at least one (400).
+ * `expectedText` and `updatedAt` (also accepted in the query) work as for PATCH.
  */
 coverLetterRouter.delete('/jobs/:id/cover-letter/paragraphs/:index', async (request, response, next) => {
   try {
@@ -266,7 +277,11 @@ coverLetterRouter.delete('/jobs/:id/cover-letter/paragraphs/:index', async (requ
     if (letter.paragraphs.length === 1) {
       return response.status(400).json({ error: 'A letter keeps at least one paragraph. Edit it, or write the letter again.' });
     }
-    const { updatedAt } = request.query;
+    const body = (request.body ?? {}) as { expectedText?: unknown; updatedAt?: unknown };
+    if (paragraphMoved(body.expectedText ?? request.query.expectedText, letter.paragraphs[index]!.text)) {
+      return response.status(409).json(PARAGRAPH_CHANGED);
+    }
+    const updatedAt = body.updatedAt ?? request.query.updatedAt;
     if (updatedAt !== undefined && !isTimestamp(updatedAt)) {
       return response.status(400).json({ error: 'updatedAt must be the letter’s updatedAt.' });
     }

@@ -80,8 +80,23 @@ class _Chat:
 def _use_fake_model(monkeypatch, answer=None):
     sink: dict = {}
     chat = _Chat(sink, answer or _answer())
-    monkeypatch.setattr(chain, "get_model", lambda: (chat, "openai:gpt-6-luna"))
+
+    def for_agent(agent_id):
+        sink["agent_id"] = agent_id
+        return chat, "openai:gpt-6-luna", None
+
+    monkeypatch.setattr(chain, "get_model_for_agent", for_agent)
     return sink
+
+
+def test_the_resume_tailor_agent_config_picks_the_model(monkeypatch):
+    # The letter is written by the same agent as the tailoring: an operator's agent_configs
+    # row for resume-tailor applies; with none, the env model.
+    sink = _use_fake_model(monkeypatch)
+
+    chain.draft_cover_letter(_request())
+
+    assert sink["agent_id"] == "resume-tailor"
 
 
 def test_the_prompt_has_the_resume_and_guards_the_posting(monkeypatch):
