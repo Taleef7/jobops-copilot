@@ -1,6 +1,6 @@
 import '@testing-library/jest-dom/vitest';
 import { render, screen, within } from '@testing-library/react';
-import { expect, it, vi } from 'vitest';
+import { beforeEach, expect, it, vi } from 'vitest';
 import { renderPageOnServer } from '@/test/time-zones';
 import type { Job } from '@/types/job';
 
@@ -25,7 +25,8 @@ const job: Job = {
   outreach: [],
 };
 
-vi.mock('@/lib/job-data', () => ({ loadJob: vi.fn(async () => ({ job, error: null })) }));
+const { loadJob } = vi.hoisted(() => ({ loadJob: vi.fn() }));
+vi.mock('@/lib/job-data', () => ({ loadJob }));
 vi.mock('@/lib/api', () => ({
   fetchProfile: vi.fn(async () => null),
   fetchAgentOutputs: vi.fn(async () => []),
@@ -47,6 +48,8 @@ import JobDetailPage from './page';
 
 const page = () => JobDetailPage({ params: Promise.resolve({ jobId: 'job-1' }) });
 
+beforeEach(() => loadJob.mockResolvedValue({ job, error: null }));
+
 // #412: the page is a server component, so its dates were the server's (UTC) day.
 it("shows the posted and follow-up days in the browser's time zone", async () => {
   const html = await renderPageOnServer(page);
@@ -57,4 +60,12 @@ it("shows the posted and follow-up days in the browser's time zone", async () =>
   const snapshot = screen.getByRole('heading', { name: 'Snapshot' }).parentElement!;
   expect(within(snapshot).getByText('Sep 30, 2026')).toBeInTheDocument();
   expect(within(snapshot).getByText('Oct 15, 2026')).toBeInTheDocument();
+});
+
+// date_posted is timestamptz, so a source that gives only the day reaches the web as UTC midnight.
+it('shows a posting day stored as UTC midnight as that day', async () => {
+  loadJob.mockResolvedValue({ job: { ...job, datePosted: '2026-06-01T00:00:00.000Z' }, error: null });
+  render(await page());
+  const snapshot = screen.getByRole('heading', { name: 'Snapshot' }).parentElement!;
+  expect(within(snapshot).getByText('Jun 1, 2026')).toBeInTheDocument();
 });

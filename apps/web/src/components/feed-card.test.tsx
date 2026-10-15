@@ -148,3 +148,15 @@ it('decides "New today" in the browser, without a hydration error', async () => 
     vi.useRealTimers();
   }
 });
+
+// date_posted is timestamptz, so a source that gives only the day reaches the web as UTC midnight.
+it('shows a posting day stored as UTC midnight as that day', () => {
+  const { container } = render(<FeedCard item={makeFeedItem({ datePosted: '2026-06-01T00:00:00.000Z' })} />);
+  expect(container).toHaveTextContent('Posted Jun 1, 2026');
+});
+
+it('shows when a job was discovered as the instant it was, even at UTC midnight', () => {
+  const item = makeFeedItem({ datePosted: undefined, discoveredAt: '2026-06-01T00:00:00.000Z' });
+  const { container } = render(<FeedCard item={item} />);
+  expect(container).toHaveTextContent('Discovered May 31, 2026');
+});

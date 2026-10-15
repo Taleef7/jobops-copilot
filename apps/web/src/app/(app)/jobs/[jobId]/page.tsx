@@ -27,6 +27,7 @@ import {
   fetchProfile,
 } from '@/lib/api';
 import { isPrerankAnalysis } from '@/lib/analysis-display';
+import { postedDay } from '@/lib/format';
 import { loadJob } from '@/lib/job-data';
 import { isDuplicateRemote } from '@/lib/job-display';
 
@@ -274,7 +275,7 @@ export default async function JobDetailPage({ params }: JobDetailParams) {
             <dl className="text-sm">
               <div className="flex justify-between gap-2 border-b py-2">
                 <dt className="text-muted-foreground">Posted</dt>
-                <dd><LocalDate value={job.datePosted} /></dd>
+                <dd><LocalDate value={postedDay(job.datePosted)} /></dd>
               </div>
               <div className="flex justify-between gap-2 border-b py-2">
                 <dt className="text-muted-foreground">Next action</dt>

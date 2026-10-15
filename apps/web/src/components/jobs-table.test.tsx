@@ -183,3 +183,9 @@ it("shows the posted and follow-up days in the browser's time zone, without a hy
   expect(within(container).getByText('Posted Sep 30, 2026')).toBeInTheDocument();
   expect(within(container).getByText('Oct 15, 2026')).toBeInTheDocument();
 });
+
+// date_posted is timestamptz, so a source that gives only the day reaches the web as UTC midnight.
+it('shows a posting day stored as UTC midnight as that day', () => {
+  const { container } = render(<JobsTable jobs={[makeJob({ datePosted: '2026-06-01T00:00:00.000Z' })]} initialQuery="" />);
+  expect(container).toHaveTextContent('Posted Jun 1, 2026');
+});

@@ -19,7 +19,8 @@ import {
   TableRow,
 } from '@/components/ui/table';
 import { isPrerankAnalysis } from '@/lib/analysis-display';
-import { isWithinRecency, RECENCY_OPTIONS, recencyDate, type RecencyWindow } from '@/lib/job-recency';
+import { postedDay } from '@/lib/format';
+import { isWithinRecency, RECENCY_OPTIONS, type RecencyWindow } from '@/lib/job-recency';
 import { cn } from '@/lib/utils';
 import type { Job, JobPriority, JobStatus } from '@/types/job';
 
@@ -225,7 +226,7 @@ export function JobsTable({ jobs, initialQuery = '' }: { jobs: Job[]; initialQue
                             </Badge>
                           ) : null}
                           <span className="text-muted-foreground text-[11px]">
-                            Posted <LocalDate value={recencyDate(job)} />
+                            Posted <LocalDate value={postedDay(job.datePosted) ?? job.discoveredAt} />
                           </span>
                         </span>
                         {!job.analysis ? (

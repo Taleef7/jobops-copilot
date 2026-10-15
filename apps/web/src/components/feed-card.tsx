@@ -24,6 +24,7 @@ import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { useHydrated } from '@/hooks/use-hydrated';
 import { updateJob } from '@/lib/api';
+import { postedDay } from '@/lib/format';
 import { cn } from '@/lib/utils';
 import type { FeedItem, JobStatus } from '@/types/job';
 
@@ -264,7 +265,7 @@ export function FeedCard({ item, onStatusChange, className }: FeedCardProps) {
       {/* Card Footer: Summary & Action Buttons */}
       <div className="mt-1 flex flex-wrap items-center justify-between gap-3 pt-2 border-t border-border/50">
         <div className="text-xs text-muted-foreground">
-          {job.datePosted ? 'Posted' : 'Discovered'} <LocalDate value={job.datePosted || job.discoveredAt} />
+          {job.datePosted ? 'Posted' : 'Discovered'} <LocalDate value={postedDay(job.datePosted) || job.discoveredAt} />
         </div>
 
         <div className="flex items-center gap-2">

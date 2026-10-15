@@ -13,6 +13,19 @@ function parseDate(value: string): Date {
   return date.getFullYear() === year && date.getMonth() === month && date.getDate() === day ? date : new Date(NaN);
 }
 
+const DAY_MS = 24 * 3600_000;
+
+/**
+ * The day a job was posted. date_posted is timestamptz, so a source that gives only the day
+ * reaches us as UTC midnight: exactly UTC midnight is that day ("2026-06-01"), not the evening
+ * before in the Americas. Any other time is the instant it is. Only for posting dates.
+ */
+export function postedDay(datePosted: string | undefined): string | undefined {
+  if (!datePosted) return datePosted;
+  const time = Date.parse(datePosted);
+  return time % DAY_MS === 0 ? new Date(time).toISOString().slice(0, 10) : datePosted;
+}
+
 /** In the runtime's time zone: on a page, render it with `<LocalDate>`, after hydration. */
 export function formatDate(value: string | undefined, fallback = 'Not set'): string {
   if (!value) {
