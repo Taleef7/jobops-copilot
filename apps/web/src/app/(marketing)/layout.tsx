@@ -23,11 +23,6 @@ export default async function MarketingLayout({ children }: { children: React.Re
           {/* Desktop Navigation */}
           <nav className="ml-auto hidden sm:flex items-center gap-1.5 sm:gap-2">
             <Button
-              render={<Link href="/#features">Features</Link>}
-              variant="ghost"
-              size="sm"
-            />
-            <Button
               render={<Link href="/architecture">Architecture</Link>}
               variant="ghost"
               size="sm"
@@ -62,13 +57,7 @@ export default async function MarketingLayout({ children }: { children: React.Re
       <main className="flex-1">{children}</main>
 
       <footer className="border-t py-8">
-        <div className="text-muted-foreground mx-auto flex max-w-6xl flex-col items-center justify-between gap-3 px-4 text-sm sm:flex-row sm:px-6">
-          <p>© {new Date().getFullYear()} JobOps Copilot — a portfolio AI-agent platform.</p>
-          <p className="flex items-center gap-1.5">
-            <span className="bg-primary inline-block size-2 rounded-full" />
-            Human-approved AI. Never auto-sends.
-          </p>
-        </div>
+        <p className="text-muted-foreground mx-auto max-w-6xl px-4 text-sm sm:px-6">© JobOps</p>
       </footer>
     </div>
   );
