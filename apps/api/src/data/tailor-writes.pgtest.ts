@@ -61,3 +61,17 @@ test('confirmed keywords from runs at once all go on the latest base résumé', 
   assert.equal(changed?.basics.summary, 'Changed.');
   assert.equal((await getUserProfile(fresh))?.baseResume?.basics.summary, 'Changed.');
 });
+
+test('runs at once for a user with no profile row yet all land too', { skip }, async () => {
+  // A base version but no profile row (the base PDF route can make one): every run starts from
+  // the base version's copy.
+  const userId = `itest_norow_${randomUUID().slice(0, 8)}`;
+  const add = (skill: string) => (base: StructuredResume) => ({ ...base, skills: [...base.skills, { category: skill, skills: [skill] }] });
+  await Promise.all(['Kafka', 'Snowflake', 'Redis', 'dbt'].map((skill) => changeBaseResume(userId, resume, add(skill))));
+  const saved = await getUserProfile(userId);
+  assert.deepEqual(saved?.baseResume?.skills.map((g) => g.category).sort(), ['Kafka', 'Languages', 'Redis', 'Snowflake', 'dbt']);
+  // Nothing to change: no row is left behind.
+  const none = `itest_norow_${randomUUID().slice(0, 8)}`;
+  assert.equal(await changeBaseResume(none, resume, () => null), null);
+  assert.equal(await getUserProfile(none), undefined);
+});

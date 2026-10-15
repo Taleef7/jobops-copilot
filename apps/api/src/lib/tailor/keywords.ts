@@ -8,17 +8,24 @@ import { escapeRegex, norm, plain } from './text';
  * how many, for "Posting keywords in your résumé: 6 of 16 → 11 of 16". A count, not a score.
  */
 
-// Requirements written as phrases, not skills: "Experience with distributed systems",
-// "Experience mentoring engineers", "Strong communication skills", "Ability to …", "Bachelor's
-// degree in CS", "5+ years of Go". Only the phrasing counts, so skills that start with the same
-// words stay ("Experience Design", "Strong typing", "Master Data Management", "Knowledge
-// Graphs", "Java 8+").
+// Requirements written as phrases, not skills: "Experience with distributed systems", "Hands-on
+// experience building APIs", "Strong knowledge of SQL", "Strong communication skills",
+// "Attention to detail", "Ability to …", "CS degree", "BS/MS in …", "5+ years of Go". Only the
+// phrasing counts, so skills with the same words stay ("Experience Design", "User Experience
+// Engineering", "Strong typing", "Master Data Management", "Knowledge Graphs", "360-degree
+// feedback", "MS SQL Server", "Java 8+").
 const REQUIREMENTS = [
-  /^(experience|knowledge|familiarity|understanding|proficiency|expertise)\s+(with|in|of|using)\b/i,
-  /\bexperience\s+(with|in|of|using|\p{L}{2,}ing)\b/iu,
+  // "Experience with …", "Knowledge of …", "Hands-on experience in …": first, or after one word.
+  /^([\p{L}-]+\s+)?(experience|knowledge|familiarity|understanding|proficiency|expertise)\s+(with|in|of|using)\b/iu,
+  // "Experience mentoring engineers": experience, a verb, and what it's done to.
+  /^([\p{L}-]+\s+)?experience\s+\p{L}{2,}ing\s+\S/iu,
+  // "Strong knowledge of …", "Deep understanding of …", "Working knowledge of …".
+  /\b(strong|solid|deep|working|good|excellent|thorough|in-depth|proven|hands-on|demonstrated)\s+(knowledge|understanding|experience|grasp|command|familiarity)\b/i,
   /^(excellent|strong|solid|proven|demonstrated|good|great)\b.*\b(skills?|abilit(y|ies)|record|communication|communicator)\b/i,
+  // Traits, not skills to list.
+  /\b(problem[- ]solving|attention to detail|work ethic|judge?ment|team player|self[- ]starter|interpersonal)\b/i,
   /^(ability|able)\s+to\b/i,
-  /\bbachelor|\bmaster'?s\b|\bph\.?\s?d\b|^(a\s+)?degree\b|\bdegree\s+(in|from)\b/i,
+  /\bbachelor|\bmaster'?s\b|\bph\.?\s?d\b|(?<![\d-])\bdegree\b|\b(bs|ms|ba|ma|bsc|msc)\s*(\/|\bin\b)/i,
   /\b\d+\+?\s*(years?|yrs)\b|\byears?\s+of\b/i,
 ];
 

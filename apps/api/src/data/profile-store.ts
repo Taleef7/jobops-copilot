@@ -132,6 +132,9 @@ export async function changeBaseResume(
     const client = await getPool()!.connect();
     try {
       await client.query('begin');
+      // A row to lock, even for a user without one yet (rolled back if nothing changes): runs at
+      // once then wait for each other instead of each starting from the fallback.
+      await client.query('insert into user_profiles (user_id) values ($1) on conflict (user_id) do nothing', [userId]);
       // The row stays locked until commit: a Settings save waits, then saves after this one.
       const { rows } = await client.query<ProfileRow>('select * from user_profiles where user_id = $1 for update', [userId]);
       const current = rows[0]?.base_resume ?? fallback;

@@ -417,4 +417,21 @@ describe('TailoredResumeReview', () => {
     await user.click(within(screen.getByTestId('change-c1')).getByRole('button', { name: 'Edit' }));
     expect(within(screen.getByTestId('change-c1')).getByRole('textbox')).toHaveValue('Built the billing API in Go serving 2,000 merchants');
   });
+
+  it('a download in progress still holds Download after a tab switch', async () => {
+    const user = userEvent.setup();
+    let approve: (result: { version: ResumeVersionRecord; approved: boolean }) => void = () => undefined;
+    approveResumeVersion.mockReturnValueOnce(new Promise((resolve) => (approve = resolve)));
+    downloadResumeVersion.mockResolvedValue(undefined);
+    const first = renderReview([draft]);
+    await user.click(screen.getByRole('button', { name: 'Download PDF' }));
+    first.unmount();
+
+    renderReview([draft]);
+    expect(screen.getByRole('button', { name: 'Download PDF' })).toBeDisabled();
+    approve({ version: { ...draft, approved: true, updatedAt: '2026-10-14T12:06:00.000Z' }, approved: true });
+    expect(await screen.findByText(/Downloaded\. To change it, tailor again\./)).toBeInTheDocument();
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Download PDF' })).toBeEnabled());
+    expect(approveResumeVersion).toHaveBeenCalledTimes(1);
+  });
 });

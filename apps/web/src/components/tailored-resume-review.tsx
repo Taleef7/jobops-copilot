@@ -55,12 +55,14 @@ interface TailorState {
   error: TailorError | null;
   /** A line of the review is being saved: Download waits, here too after a tab switch. */
   saving: boolean;
+  /** The draft is being approved and downloaded. */
+  downloading: boolean;
 }
 
 // A tailoring run takes 20 to 40 seconds. Its state is kept here, per job, not in the
 // component, so it carries on when the user switches to another tab of the job page and back,
 // and that tab shows the draft it made rather than the page's older list of versions.
-const EMPTY: TailorState = { version: null, run: null, error: null, saving: false };
+const EMPTY: TailorState = { version: null, run: null, error: null, saving: false, downloading: false };
 const tailorStates = new Map<string, TailorState>();
 const listeners = new Set<() => void>();
 
@@ -149,6 +151,8 @@ export function TailoredResumeReview({ jobId, jobCompany, initialVersions = [] }
           onChange={setVersion}
           saving={state.saving}
           onSaving={setSaving}
+          downloading={state.downloading}
+          onDownloading={(downloading) => setTailorState(jobId, { downloading })}
           onTailorAgain={openWindow}
         />
       ) : (
@@ -389,6 +393,8 @@ function VersionReview({
   onChange,
   saving,
   onSaving,
+  downloading,
+  onDownloading,
   onTailorAgain,
 }: {
   version: ResumeVersionRecord;
@@ -396,15 +402,17 @@ function VersionReview({
   /** One line at a time: each save changes the whole draft, and Download waits for it. */
   saving: boolean;
   onSaving: (saving: boolean) => void;
+  /** Approving and downloading: one at a time, here too after a tab switch. */
+  downloading: boolean;
+  onDownloading: (downloading: boolean) => void;
   onTailorAgain: () => void;
 }) {
-  const [downloading, setDownloading] = useState(false);
   const basis = version.basedOn ?? null;
   const editable = Boolean(basis) && !version.approved;
   const changes = version.changeDetails ?? [];
 
   async function download() {
-    setDownloading(true);
+    onDownloading(true);
     try {
       let current = version;
       // Downloading is the approval (#351): the draft becomes final.
@@ -417,7 +425,7 @@ function VersionReview({
     } catch (err: unknown) {
       toast.error(err instanceof Error ? err.message : "The PDF couldn't be downloaded.");
     } finally {
-      setDownloading(false);
+      onDownloading(false);
     }
   }
 

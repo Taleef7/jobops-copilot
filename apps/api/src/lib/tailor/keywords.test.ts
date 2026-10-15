@@ -24,6 +24,12 @@ test('skills are offered, with digits, short names and words requirements also s
     'Knowledge Graphs',
     'Experience Design',
     'Strong typing',
+    'User Experience Engineering',
+    'Customer Experience Marketing',
+    'Developer Experience Tooling',
+    '360-degree feedback',
+    'MS SQL Server',
+    'Unified Communications',
   ];
   assert.deepEqual(keywordTerms(skills), skills);
 });
@@ -46,6 +52,17 @@ test('requirements written as phrases are not offered', () => {
       'Ability to work independently',
       'Proven track record',
       'Building reliable services for millions of users',
+      'Strong knowledge of SQL',
+      'Solid understanding of algorithms',
+      'Deep understanding of Kubernetes',
+      'Working knowledge of Linux',
+      'Strong problem-solving',
+      'Excellent attention to detail',
+      'Strong work ethic',
+      'Good judgment',
+      'CS degree',
+      'BS/MS in Computer Science',
+      'MS in Data Science',
     ]),
     [],
   );
