@@ -234,27 +234,49 @@ function toSignal(value: unknown): number | null {
   return typeof value === 'number' && Number.isFinite(value) ? percent(value) : null;
 }
 
+/** What an agent from before #354 filled in for a sub-signal or confidence the model left out. */
+const OLD_AGENT_DEFAULT = 50;
+
+function signalFields(raw: unknown) {
+  const signals = isRecord(raw) ? raw : {};
+  return {
+    skillsMatch: signals.skillsMatch ?? signals.skills_match,
+    titleSeniority: signals.titleSeniority ?? signals.title_seniority,
+    salaryFit: signals.salaryFit ?? signals.salary_fit,
+    sponsorship: signals.sponsorshipLikelihood ?? signals.sponsorship_likelihood,
+  };
+}
+
 /**
- * Sub-signals on 0–100, or null when unknown (#354).
- * - Four 50s are the default an agent from before #354 gave a read without sub-signals, and
- *   that older rows still hold: not a reading.
- * - Salary fit and sponsorship are always unknown for now: they compare the posting with the
- *   user's salary floor and visa needs, which nobody can enter yet (C4, then E1), so a number
- *   there is the model's guess.
+ * Salary fit and sponsorship both exactly 50: what the agent before #354 gave a read whose model
+ * left them out, which its answers and older rows still hold. A skills or title 50 beside them,
+ * and a confidence of 50, are that default too, not a reading.
+ */
+function hasOldAgentDefaults(raw: unknown): boolean {
+  const { salaryFit, sponsorship } = signalFields(raw);
+  return salaryFit === OLD_AGENT_DEFAULT && sponsorship === OLD_AGENT_DEFAULT;
+}
+
+/**
+ * Sub-signals on 0–100, or null when unknown (#354). Salary fit and sponsorship are always
+ * unknown for now: they compare the posting with the user's salary floor and visa needs, which
+ * nobody can enter yet (C4, then E1), so a number there is the model's guess.
  */
 export function toSubSignals(raw: unknown): JobAnalysisSubSignals {
-  const signals = isRecord(raw) ? raw : {};
-  const skillsMatch = signals.skillsMatch ?? signals.skills_match;
-  const titleSeniority = signals.titleSeniority ?? signals.title_seniority;
-  const salaryFit = signals.salaryFit ?? signals.salary_fit;
-  const sponsorship = signals.sponsorshipLikelihood ?? signals.sponsorship_likelihood;
-  const oldDefault = [skillsMatch, titleSeniority, salaryFit, sponsorship].every((value) => value === 50);
+  const { skillsMatch, titleSeniority } = signalFields(raw);
+  const defaulted = hasOldAgentDefaults(raw);
+  const reading = (value: unknown) => (defaulted && value === OLD_AGENT_DEFAULT ? null : toSignal(value));
   return {
-    skillsMatch: oldDefault ? null : toSignal(skillsMatch),
-    titleSeniority: oldDefault ? null : toSignal(titleSeniority),
+    skillsMatch: reading(skillsMatch),
+    titleSeniority: reading(titleSeniority),
     salaryFit: null,
     sponsorshipLikelihood: null,
   };
+}
+
+/** A confidence on 0–100, or null when there is none or it is the old agent's default. */
+function readConfidence(value: unknown, subSignals: unknown): number | null {
+  return hasOldAgentDefaults(subSignals) && value === OLD_AGENT_DEFAULT ? null : toConfidence(value);
 }
 
 const loggedLongLabels = new Set<string>();
@@ -333,7 +355,7 @@ function skillKey(label: string): string {
 const IMPLIED_SKILLS: Array<[RegExp, string]> = [
   [/postgres|mysql|sql server/, 'sql'],
   [/typescript/, 'javascript'],
-  [/\bnext\b/, 'react'],
+  [/^next$/, 'react'],
 ];
 
 function coveredSkills(matched: MatchedSkill[]): Set<string> {
@@ -364,8 +386,9 @@ export function analysisFromFit(
   return {
     requiredSkills: unique(context.requiredSkills),
     preferredSkills: unique(context.preferredSkills),
-    matchedSkills: matchedSkillDetails.map(({ skill }) => skill),
-    missingSkills: missingSkillDetails.map(({ skill }) => skill),
+    // "Other" is not a skill: it stays in the details only.
+    matchedSkills: skillNames(matchedSkillDetails),
+    missingSkills: skillNames(missingSkillDetails),
     matchedSkillDetails,
     missingSkillDetails,
     atsKeywords: fit.ats_keywords,
@@ -377,7 +400,7 @@ export function analysisFromFit(
         : fit.apply_recommendation === 'review'
           ? 'Review manually before deciding whether to apply.'
           : 'Hold off unless you can make a stronger truthful case.',
-    confidenceScore: toConfidence(fit.confidence_score),
+    confidenceScore: readConfidence(fit.confidence_score, fit.sub_signals),
     modelUsed: fit.model_used,
     subSignals: toSubSignals(fit.sub_signals),
   };
@@ -408,16 +431,32 @@ export function fitAnswerFields(analysis: JobAnalysis) {
 }
 
 /**
- * The saved details while they still match the labels, else details read from the labels: a
- * row from before #354 has "label: why" strings and no details, and an API from before #354
- * rewrites the labels and leaves the old details behind.
+ * The saved details while the labels are exactly the ones saved with them (the labels leave
+ * "Other" out), else details read from the labels themselves. The labels change under the
+ * details in a row from before #354 ("label: why" strings, no details), and in one an API from
+ * before #354 rescored after a rollback: new strings or the agent's objects, with the old
+ * details left behind.
  */
 function detailsFor<T extends { skill: string }>(labels: unknown, details: unknown, read: (raw: unknown) => T[]): T[] {
-  const fromLabels = read(labels);
   const saved = read(details);
-  const same = saved.length === fromLabels.length && saved.every((item, index) => item.skill === fromLabels[index]?.skill);
-  return saved.length > 0 && same ? saved : fromLabels;
+  const savedLabels = skillNames(saved);
+  const unchanged =
+    Array.isArray(labels) &&
+    labels.length === savedLabels.length &&
+    labels.every((label, index) => label === savedLabels[index]);
+  return saved.length > 0 && unchanged ? saved : read(labels);
 }
+
+/** An analysis as any version stored it: its skill lists may hold strings or objects (#354). */
+export type StoredAnalysis = Omit<
+  JobAnalysis,
+  'matchedSkills' | 'missingSkills' | 'matchedSkillDetails' | 'missingSkillDetails'
+> & {
+  matchedSkills: unknown;
+  missingSkills: unknown;
+  matchedSkillDetails?: unknown;
+  missingSkillDetails?: unknown;
+};
 
 /**
  * A stored analysis in today's shape, so rows saved before #354 still render: short labels as
@@ -425,16 +464,16 @@ function detailsFor<T extends { skill: string }>(labels: unknown, details: unkno
  * job stores apply it on every read and write. `fitScore` is the job's: a pre-rank's skills
  * signal is its score.
  */
-export function normalizeAnalysis(analysis: JobAnalysis, fitScore?: number | null): JobAnalysis {
+export function normalizeAnalysis(analysis: StoredAnalysis, fitScore?: number | null): JobAnalysis {
   const matchedSkillDetails = detailsFor(analysis.matchedSkills, analysis.matchedSkillDetails, toMatchedSkills);
   const missingSkillDetails = detailsFor(analysis.missingSkills, analysis.missingSkillDetails, toMissingSkills);
   return {
     ...analysis,
-    matchedSkills: matchedSkillDetails.map(({ skill }) => skill),
-    missingSkills: missingSkillDetails.map(({ skill }) => skill),
+    matchedSkills: skillNames(matchedSkillDetails),
+    missingSkills: skillNames(missingSkillDetails),
     matchedSkillDetails,
     missingSkillDetails,
-    confidenceScore: toConfidence(analysis.confidenceScore),
+    confidenceScore: readConfidence(analysis.confidenceScore, analysis.subSignals),
     subSignals: analysis.subSignals ? storedSubSignals(analysis.subSignals, analysis.modelUsed, fitScore) : undefined,
   };
 }

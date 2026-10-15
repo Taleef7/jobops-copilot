@@ -162,6 +162,40 @@ test("an agent image from before #354 sends four 50s for a read without sub-sign
   });
 });
 
+test("the old agent's 50s for the fields the model left out are unknown, and so is its default confidence (#354)", () => {
+  // Salary fit and sponsorship both exactly 50: the old agent filled what the model left out.
+  const defaulted = { salary_fit: OLD_DEFAULT, sponsorship_likelihood: OLD_DEFAULT };
+  const titleDefault = analysisFromFit(
+    fit({ sub_signals: { ...defaulted, skills_match: 80, title_seniority: OLD_DEFAULT }, confidence_score: OLD_DEFAULT }),
+    context,
+  );
+  assert.deepEqual(titleDefault.subSignals, {
+    skillsMatch: 80,
+    titleSeniority: null,
+    salaryFit: null,
+    sponsorshipLikelihood: null,
+  });
+  assert.equal(titleDefault.confidenceScore, null);
+
+  const skillsDefault = analysisFromFit(
+    fit({ sub_signals: { ...defaulted, skills_match: OLD_DEFAULT, title_seniority: 70 } }),
+    context,
+  );
+  assert.equal(skillsDefault.subSignals?.skillsMatch, null);
+  assert.equal(skillsDefault.subSignals?.titleSeniority, 70);
+
+  // A salary or sponsorship the model did answer means its 50s are its own.
+  const answered = analysisFromFit(
+    fit({
+      sub_signals: { skills_match: 80, title_seniority: OLD_DEFAULT, salary_fit: 60, sponsorship_likelihood: OLD_DEFAULT },
+      confidence_score: OLD_DEFAULT,
+    }),
+    context,
+  );
+  assert.equal(answered.subSignals?.titleSeniority, OLD_DEFAULT);
+  assert.equal(answered.confidenceScore, OLD_DEFAULT);
+});
+
 test('salary fit and sponsorship are unknown whatever the model said, until preferences exist (#354)', () => {
   const analysis = analysisFromFit(
     fit({ sub_signals: { skills_match: 80, title_seniority: 70, salary_fit: 30, sponsorship_likelihood: 60 } }),
@@ -227,6 +261,17 @@ test('a matched skill drops only what it implies (#354)', () => {
   assert.deepEqual(analysis.missingSkills, ['SQL Server', 'MySQL']);
 });
 
+test('"Next" implies React only as Next.js, not inside another skill (#354)', () => {
+  const analysis = analysisFromFit(
+    fit({
+      matched_skills: [{ skill: 'Next-gen sequencing', evidence: '' }],
+      missing_skills: [{ skill: 'React', posting_quote: '' }],
+    }),
+    context,
+  );
+  assert.deepEqual(analysis.missingSkills, ['React']);
+});
+
 test('skills are short labels any web reads as strings, with the details apart, at most 8 each (#354)', () => {
   const analysis = analysisFromFit(
     fit({
@@ -261,15 +306,17 @@ test('no saved skill label is longer than four words (#354)', () => {
     }),
     context,
   );
-  for (const skill of [...analysis.matchedSkills, ...analysis.missingSkills]) {
+  for (const { skill } of [...(analysis.matchedSkillDetails ?? []), ...(analysis.missingSkillDetails ?? [])]) {
     assert.ok(skill.split(/\s+/).length <= 4, skill);
   }
-  assert.deepEqual(analysis.matchedSkills, ['Other', 'Data validation']);
+  // "Other" is not a skill: it stays out of the labels and lives only in the details.
+  assert.deepEqual(analysis.matchedSkills, ['Data validation']);
   assert.deepEqual(analysis.matchedSkillDetails, [
     { skill: 'Other', evidence: sentence },
     { skill: 'Data validation', evidence: 'checked every output Ran the QA reviews.' },
   ]);
-  assert.deepEqual(analysis.missingSkills, ['Other']);
+  assert.deepEqual(analysis.missingSkills, []);
+  assert.equal(analysis.missingSkillDetails?.[0]?.skill, 'Other');
 });
 
 test('an agent image from before #354 still scores: plain-string skills are read too', () => {
@@ -304,7 +351,7 @@ test('a stored analysis from before #354 reads with short labels and details (#3
     { skill: 'Python', evidence: 'built the ETL jobs in Python' },
     { skill: 'Go', evidence: '' },
   ]);
-  assert.deepEqual(analysis.missingSkills, ['Other']);
+  assert.deepEqual(analysis.missingSkills, []);
   assert.deepEqual(analysis.missingSkillDetails, [
     { skill: 'Other', postingQuote: 'Hands-on experience running large Kafka clusters in production' },
   ]);
@@ -336,6 +383,74 @@ test('saved details are used only while they match the labels (#354)', () => {
   assert.deepEqual(normalizeAnalysis({ ...base, matchedSkills: ['Rust'] }).matchedSkillDetails, [
     { skill: 'Rust', evidence: '' },
   ]);
+  // Same name, but the label carries its own, newer reason: that one is current.
+  assert.deepEqual(normalizeAnalysis({ ...base, matchedSkills: ['Go: wrote the payments service'] }).matchedSkillDetails, [
+    { skill: 'Go', evidence: 'wrote the payments service' },
+  ]);
+});
+
+test('labels saved as objects, by an API from before #354 with a newer agent, still read (#354)', () => {
+  const analysis = normalizeAnalysis({
+    requiredSkills: [],
+    preferredSkills: [],
+    matchedSkills: [{ skill: 'Go', evidence: 'Built the billing API in Go.' }],
+    missingSkills: [{ skill: 'Kafka', posting_quote: 'Experience with Kafka' }],
+    matchedSkillDetails: [{ skill: 'Go', evidence: 'An older reading.' }],
+    atsKeywords: [],
+    fitSummary: 'x',
+    recommendedResumeAngle: 'y',
+    applyRecommendation: 'z',
+    confidenceScore: 70,
+    modelUsed: 'openai:gpt-6-luna',
+  });
+  assert.deepEqual(analysis.matchedSkills, ['Go']);
+  assert.deepEqual(analysis.matchedSkillDetails, [{ skill: 'Go', evidence: 'Built the billing API in Go.' }]);
+  assert.deepEqual(analysis.missingSkills, ['Kafka']);
+  assert.deepEqual(analysis.missingSkillDetails, [{ skill: 'Kafka', postingQuote: 'Experience with Kafka' }]);
+});
+
+test('details saved with "Other" items line up with labels that leave "Other" out (#354)', () => {
+  const analysis = normalizeAnalysis({
+    requiredSkills: [],
+    preferredSkills: [],
+    matchedSkills: ['Go'],
+    missingSkills: [],
+    matchedSkillDetails: [
+      { skill: 'Other', evidence: 'A sentence the model wrote as a skill.' },
+      { skill: 'Go', evidence: 'Built the billing API in Go.' },
+    ],
+    atsKeywords: [],
+    fitSummary: 'x',
+    recommendedResumeAngle: 'y',
+    applyRecommendation: 'z',
+    confidenceScore: 70,
+    modelUsed: 'openai:gpt-6-luna',
+  });
+  assert.deepEqual(analysis.matchedSkills, ['Go']);
+  assert.equal(analysis.matchedSkillDetails?.length, 2);
+});
+
+test("an old row's defaulted title and confidence read as unknown (#354)", () => {
+  const analysis = normalizeAnalysis({
+    requiredSkills: [],
+    preferredSkills: [],
+    matchedSkills: [],
+    missingSkills: [],
+    atsKeywords: [],
+    fitSummary: 'x',
+    recommendedResumeAngle: 'y',
+    applyRecommendation: 'z',
+    confidenceScore: OLD_DEFAULT,
+    modelUsed: 'openai:gpt-5.4-nano',
+    subSignals: { skillsMatch: 80, titleSeniority: OLD_DEFAULT, salaryFit: OLD_DEFAULT, sponsorshipLikelihood: OLD_DEFAULT },
+  });
+  assert.deepEqual(analysis.subSignals, {
+    skillsMatch: 80,
+    titleSeniority: null,
+    salaryFit: null,
+    sponsorshipLikelihood: null,
+  });
+  assert.equal(analysis.confidenceScore, null);
 });
 
 test("an old row's default sub-signals read as unknown, and a pre-rank's skills signal is its score (#354)", () => {

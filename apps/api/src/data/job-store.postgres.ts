@@ -12,7 +12,7 @@ import type {
   UpdateJobBody,
   UpdateOutreachBody,
 } from '@/types';
-import { normalizeAnalysis, toMatchedSkills, toMissingSkills, validateJobAnalysis } from '@/lib/analysis-core';
+import { normalizeAnalysis, validateJobAnalysis } from '@/lib/analysis-core';
 import { deriveAnalyzedNextAction, UNSCORED_NEXT_ACTION } from '@/lib/analysis-workflow';
 import { getPool } from '@/lib/postgres';
 import type { PageParams } from '@/lib/pagination';
@@ -136,10 +136,11 @@ function mapAnalysis(row: JobAnalysisRow | undefined, fitScore: number | null): 
     {
       requiredSkills: toTextArray(row.required_skills),
       preferredSkills: toTextArray(row.preferred_skills),
-      matchedSkills: toTextArray(row.matched_skills),
-      missingSkills: toTextArray(row.missing_skills),
-      matchedSkillDetails: toMatchedSkills(row.matched_skill_details),
-      missingSkillDetails: toMissingSkills(row.missing_skill_details),
+      // As saved: strings, or the agent's objects when an API from before #354 saved them.
+      matchedSkills: row.matched_skills,
+      missingSkills: row.missing_skills,
+      matchedSkillDetails: row.matched_skill_details,
+      missingSkillDetails: row.missing_skill_details,
       atsKeywords: toTextArray(row.ats_keywords),
       fitSummary: row.fit_summary,
       recommendedResumeAngle: row.recommended_resume_angle,

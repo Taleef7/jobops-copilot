@@ -59,7 +59,7 @@ test(
       { skill: 'Go', evidence: 'built the billing API in Go' },
       { skill: 'Rust', evidence: '' },
     ]);
-    assert.deepEqual(old?.missingSkills, ['Other']);
+    assert.deepEqual(old?.missingSkills, []);
     assert.deepEqual(old?.missingSkillDetails, [
       { skill: 'Other', postingQuote: 'Hands-on experience running large Kafka clusters in production' },
     ]);
@@ -69,5 +69,33 @@ test(
       salaryFit: null,
       sponsorshipLikelihood: null,
     });
+  },
+);
+
+test(
+  'skills an API from before #354 saved as the agent objects still read, over stale details',
+  { skip: DB ? false : 'DATABASE_URL not set — Postgres integration test skipped' },
+  async () => {
+    const pool = getPool();
+    assert.ok(pool);
+    const userId = `itest_354_${randomUUID().slice(0, 8)}`;
+    const job = await createJob(userId, { company: 'Acme', title: 'Engineer', descriptionText: 'Go and Kafka.' });
+    await saveJobAnalysis(userId, job.id, sampleAnalysis(), 70);
+
+    // That API passes the new agent's skills through as they come, and leaves the details.
+    await pool.query(
+      'update job_analysis set matched_skills = $2::jsonb, missing_skills = $3::jsonb where job_id = $1',
+      [
+        job.id,
+        JSON.stringify([{ skill: 'Go', evidence: 'Wrote the payments service in Go.' }]),
+        JSON.stringify([{ skill: 'Kafka', posting_quote: 'Experience with Kafka' }]),
+      ],
+    );
+
+    const analysis = (await getJobById(userId, job.id))?.analysis;
+    assert.deepEqual(analysis?.matchedSkills, ['Go']);
+    assert.deepEqual(analysis?.matchedSkillDetails, [{ skill: 'Go', evidence: 'Wrote the payments service in Go.' }]);
+    assert.deepEqual(analysis?.missingSkills, ['Kafka']);
+    assert.deepEqual(analysis?.missingSkillDetails, [{ skill: 'Kafka', postingQuote: 'Experience with Kafka' }]);
   },
 );
