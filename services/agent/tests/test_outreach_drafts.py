@@ -83,8 +83,32 @@ def _last_prompt(structured: _FakeStructured) -> str:
 
 @pytest.mark.parametrize(
     "placeholder",
-    ["[Name]", "[First Name]", "{Name}", "<Name>", "__NAME__", "[Your Name]", "[Hiring Manager]",
-     "[Company]", "{{company}}", "[EMAIL]", "[PHONE]", "[URL]", "[Date]", "[Recipient]"],
+    [
+        "[Name]",
+        "[First Name]",
+        "{Name}",
+        "<Name>",
+        "__NAME__",
+        "[Your Name]",
+        "[Hiring Manager]",
+        "[Company]",
+        "{{company}}",
+        "[EMAIL]",
+        "[PHONE]",
+        "[URL]",
+        "[Date]",
+        "[Recipient]",
+        "[Recruiter's Name]",
+        "[Insert Name]",
+        "[Manager's Name]",
+        "[Previous Company]",
+        "[Specific Project]",
+        "[LinkedIn URL]",
+        "[Mr./Ms. Last Name]",
+        "{first_name}",
+        "[First_Name]",
+        "[X] years",
+    ],
 )
 def test_a_draft_that_keeps_a_placeholder_is_asked_again_then_rejected(fake_model, placeholder):
     structured = fake_model(
@@ -111,8 +135,15 @@ def test_a_placeholder_is_asked_again_once_and_the_fixed_draft_kept(fake_model):
     assert result.draft_text.startswith("Hi there,")
 
 
-@pytest.mark.parametrize("text", ["As the posting says [sic], it's remote.", "See my work [link]."])
-def test_ordinary_brackets_are_not_placeholders(fake_model, text):
+@pytest.mark.parametrize(
+    "text",
+    [
+        "As the posting says [sic], it's remote.",
+        "You wrote that the team [...] ships weekly.",
+        "You wrote that the team […] ships weekly.",
+    ],
+)
+def test_the_usual_editorial_brackets_are_not_placeholders(fake_model, text):
     structured = fake_model(text)
 
     result = outreach_module.draft_outreach(_request("recruiter_email"))
@@ -122,19 +153,30 @@ def test_ordinary_brackets_are_not_placeholders(fake_model, text):
 
 
 def test_bracketed_text_from_the_inputs_is_kept(fake_model):
-    # The posting itself says "[Company]" and "[Remote]"; repeating them is not a placeholder.
-    text = "I saw the Backend Engineer [Remote] role at [Company] and would like to connect."
+    # The posting's own title says "[Remote]"; repeating it is not a placeholder.
+    text = "I saw the Backend Engineer [Remote] role and would like to connect."
     structured = fake_model(text)
 
     result = outreach_module.draft_outreach(
-        _request(
-            "recruiter_email",
-            job_context="Backend Engineer [Remote]. Join [Company] to build Go services.",
-        )
+        _request("recruiter_email", job_context="Backend Engineer [Remote]. Build Go services.")
     )
 
     assert len(structured.calls) == 1
     assert result.draft_text == text
+
+
+def test_a_placeholder_from_a_posting_template_is_still_a_placeholder(fake_model):
+    structured = fake_model(
+        "I'd like to join [Company Name] as a backend engineer.",
+        "I'd like to join [Company Name] to build Go services.",
+    )
+
+    with pytest.raises(ValueError, match="placeholder"):
+        outreach_module.draft_outreach(
+            _request("recruiter_email", job_context="Join [Company Name] as a backend engineer.")
+        )
+
+    assert len(structured.calls) == 2
 
 
 def test_the_endpoint_answers_a_placeholder_draft_with_an_error(fake_model, monkeypatch):

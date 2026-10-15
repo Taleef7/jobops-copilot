@@ -24,31 +24,29 @@ logger = logging.getLogger("jobops.agent.draft_outreach")
 # (200 on a free account).
 CHARACTER_LIMITS = {"linkedin_connection": 300}
 
-# Text the user would have to fill in before sending (#354): a placeholder word in [], {}, <>
-# or __ __, like [Name], {Company}, <Your Name> or __NAME__, and the redaction tokens ([EMAIL],
-# [PHONE], [URL]) the model sees where contact details were removed. Other brackets ([sic],
-# [link], a job title's [Remote]) are ordinary text.
-_PLACEHOLDER_WORDS = (
-    r"your\s[^\[\]{}<>\n]{1,40}"
-    r"|(?:first|last|full|contact|recipient(?:'s)?|candidate(?:'s)?|company"
-    r"|hiring\s+manager(?:'s)?)?\s*name"
-    r"|company|hiring\s+manager|recipient|(?:job\s+)?title|role|position|date"
-    r"|e-?mail(?:\s+address)?|phone(?:\s+number)?|url|address|ssn"
-)
-_PLACEHOLDER = re.compile(
-    "|".join(
-        rf"{start}\s*(?:{_PLACEHOLDER_WORDS})\s*{end}"
-        for start, end in ((r"\[", r"\]"), (r"\{", r"\}"), ("<", ">"), ("__", "__"))
-    ),
+# Text the user would have to fill in before sending (#354). Every [...], {...}, <...> and
+# __X__ span is one, unless the inputs contain it word for word (a job title's [Remote]) or it
+# is an editorial [sic] or [...]. A span that names a placeholder ([Company Name] in a posting
+# template, or the [EMAIL], [PHONE] and [URL] the model sees where contact details were
+# removed) is one even when the inputs contain it.
+_SPAN = re.compile(r"\[[^\[\]\n]{1,80}\]|\{[^{}\n]{1,80}\}|<[^<>\n]{1,80}>|__[^_\s][^_\n]{0,78}__")
+_EDITORIAL = {"[sic]", "[...]", "[…]"}
+_PLACEHOLDER_WORD = re.compile(
+    r"(?<![a-z])(?:name|company|recipient|recruiter|manager|insert|your|date|e-?mail|phone|url"
+    r"|address)(?![a-z])",
     re.IGNORECASE,
 )
 
 
 def _placeholder(draft: OutreachDraftLLM, inputs: str) -> str | None:
-    """The draft's first placeholder that isn't in the inputs themselves, or None."""
-    for match in _PLACEHOLDER.finditer(f"{draft.subject}\n{draft.draft_text}"):
-        if match.group(0) not in inputs:
-            return match.group(0)
+    """The draft's first placeholder, or None."""
+    for match in _SPAN.finditer(f"{draft.subject}\n{draft.draft_text}"):
+        span = match.group(0)
+        if span.lower() in _EDITORIAL:
+            continue
+        if span in inputs and not _PLACEHOLDER_WORD.search(span):
+            continue
+        return span
     return None
 
 
