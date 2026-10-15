@@ -34,6 +34,7 @@ import { isDuplicateRemote, postingHref } from '@/lib/job-display';
 export const dynamic = 'force-dynamic';
 
 type JobDetailParams = { params: Promise<{ jobId: string }> };
+type JobDetailProps = JobDetailParams & { searchParams?: Promise<{ run?: string | string[] }> };
 
 export async function generateMetadata({ params }: JobDetailParams): Promise<Metadata> {
   const { jobId } = await params;
@@ -41,8 +42,10 @@ export async function generateMetadata({ params }: JobDetailParams): Promise<Met
   return { title: job ? `${job.company} · ${job.title}` : 'Job detail' };
 }
 
-export default async function JobDetailPage({ params }: JobDetailParams) {
+export default async function JobDetailPage({ params, searchParams }: JobDetailProps) {
   const { jobId } = await params;
+  // "Save and run fit" on the Add job form opens the job with ?run=fit (#355).
+  const runFit = (await searchParams)?.run === 'fit';
   // A malformed id names no job, so say so without asking the API (#353).
   if (!isJobId(jobId)) notFound();
   // Fetch the profile + persisted agent outputs alongside the job. Neither is
@@ -111,7 +114,7 @@ export default async function JobDetailPage({ params }: JobDetailParams) {
         </div>
         <div className="border-t pt-4">
           {/* Keyed so each job gets its own one-at-a-time Score fit guard (#353). */}
-          <JobAnalysisActions key={job.id} jobId={job.id} autoScore={autoScore} />
+          <JobAnalysisActions key={job.id} jobId={job.id} autoScore={autoScore} runFit={runFit} />
         </div>
       </Card>
 

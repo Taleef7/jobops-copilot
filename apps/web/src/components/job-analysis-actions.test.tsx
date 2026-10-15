@@ -1,6 +1,6 @@
 import '@testing-library/jest-dom/vitest';
 import { act, render, screen, waitFor } from '@testing-library/react';
-import type { ReactElement } from 'react';
+import { StrictMode, type ReactElement } from 'react';
 import { hydrateRoot } from 'react-dom/client';
 import { renderToString } from 'react-dom/server';
 import { afterEach, expect, it, vi } from 'vitest';
@@ -23,11 +23,13 @@ vi.mock('@/lib/api', () => ({
 }));
 
 import userEvent from '@testing-library/user-event';
+import { toast } from 'sonner';
 import { ApiRequestError } from '@/lib/api';
 import { JobAnalysisActions } from './job-analysis-actions';
 
 afterEach(() => {
   vi.clearAllMocks();
+  window.history.replaceState(null, '', '/');
 });
 
 it('offers a single "Score fit" action and no separate "Parse job" button', () => {
@@ -140,4 +142,52 @@ it('shows why scoring failed, inline, and retries from there', async () => {
   await userEvent.click(screen.getByRole('button', { name: 'Try again' }));
   await waitFor(() => expect(scoreFit).toHaveBeenCalledTimes(2));
   await waitFor(() => expect(screen.queryByRole('alert')).not.toBeInTheDocument());
+});
+
+// #355: "Save and run fit" on the Add job form opens the job with ?run=fit. The page starts
+// one fit run, as if Score fit were clicked: through the same one-at-a-time guard, with its
+// progress and result shown.
+it('runs one Score fit when the job opens with ?run=fit, and says when it is saved', async () => {
+  window.history.replaceState(null, '', '/jobs/job-1?run=fit');
+  let answer: (value: { fit_score: number }) => void = () => {};
+  scoreFit.mockImplementationOnce(() => new Promise((resolve) => (answer = resolve)));
+  // StrictMode runs effects twice in development, as `next dev` does.
+  const { rerender } = render(
+    <StrictMode>
+      <JobAnalysisActions jobId="job-1" runFit />
+    </StrictMode>,
+  );
+
+  await waitFor(() => expect(screen.getByRole('status')).toHaveTextContent(/scoring this job/i));
+  expect(screen.getByRole('button', { name: /scoring/i })).toBeDisabled();
+  await act(async () => answer({ fit_score: 80 }));
+  await waitFor(() => expect(vi.mocked(toast.success)).toHaveBeenCalledWith('Fit score saved: 80/100'));
+  expect(screen.getByRole('status')).toHaveTextContent('');
+  rerender(
+    <StrictMode>
+      <JobAnalysisActions jobId="job-1" runFit />
+    </StrictMode>,
+  );
+  await new Promise((resolve) => setTimeout(resolve, 0));
+
+  expect(scoreFit).toHaveBeenCalledTimes(1);
+  expect(scoreFit).toHaveBeenCalledWith({ jobId: 'job-1' });
+  // A reload, or Back to this page, doesn't pay for another run.
+  expect(window.location.pathname).toBe('/jobs/job-1');
+  expect(window.location.search).toBe('');
+});
+
+it('shows why the fit run from ?run=fit failed, inline, with a retry', async () => {
+  scoreFit.mockRejectedValueOnce(new ApiRequestError('Upload your résumé in Settings to get a fit read.', 400));
+  render(<JobAnalysisActions jobId="job-1" runFit />);
+
+  expect(await screen.findByRole('alert')).toHaveTextContent('Upload your résumé in Settings to get a fit read.');
+  expect(screen.getByRole('button', { name: 'Try again' })).toBeInTheDocument();
+  expect(scoreFit).toHaveBeenCalledTimes(1);
+});
+
+it('runs no Score fit on open without ?run=fit or an estimate', async () => {
+  render(<JobAnalysisActions jobId="job-1" runFit={false} />);
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  expect(scoreFit).not.toHaveBeenCalled();
 });
