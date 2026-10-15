@@ -165,6 +165,26 @@ it('says a job is not analysed yet when it has no analysis', () => {
   expect(screen.getByText('Not analysed yet')).toBeInTheDocument();
 });
 
+// #353: a search from the header says it is filtering, with a way back to every job.
+it('shows a "Filtered by" chip for a search from the URL, with Clear', async () => {
+  const user = userEvent.setup();
+  render(<JobsTable jobs={jobs} initialQuery="northwind" />);
+
+  const chip = screen.getByText(/filtered by/i).closest('p');
+  expect(chip).toHaveTextContent('Filtered by “northwind”');
+  expect(screen.getByRole('link', { name: 'Clear' })).toHaveAttribute('href', '/jobs?tab=pipeline');
+
+  // Once the search box says something else, the chip would be wrong.
+  await user.type(screen.getByRole('searchbox', { name: /search jobs/i }), ' labs');
+  expect(screen.queryByText(/filtered by/i)).not.toBeInTheDocument();
+});
+
+it('shows no chip without a search from the URL', () => {
+  render(<JobsTable jobs={jobs} initialQuery="" />);
+
+  expect(screen.queryByText(/filtered by/i)).not.toBeInTheDocument();
+});
+
 // #412: the server renders in UTC, where these are Oct 1 and Oct 16; in New York, the browser's
 // zone in these tests, they're the evenings of Sep 30 and Oct 15. Two days are a hydration error.
 it("shows the posted and follow-up days in the browser's time zone, without a hydration error", async () => {

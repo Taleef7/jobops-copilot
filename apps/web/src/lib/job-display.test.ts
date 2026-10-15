@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { isDuplicateRemote } from './job-display';
+import { isDuplicateRemote, postingHref } from './job-display';
 
 describe('isDuplicateRemote', () => {
   it('returns true when location is Remote and workplaceType is remote', () => {
@@ -17,5 +17,21 @@ describe('isDuplicateRemote', () => {
   });
   it('returns false when workplaceType is not remote', () => {
     expect(isDuplicateRemote('Remote', 'hybrid')).toBe(false);
+  });
+});
+
+// #353: the posting link opens only a web address, written out in full.
+describe('postingHref', () => {
+  it('returns an http or https address', () => {
+    expect(postingHref('https://jobs.lever.co/jobot/123')).toBe('https://jobs.lever.co/jobot/123');
+    expect(postingHref('http://boards.example.com/1')).toBe('http://boards.example.com/1');
+  });
+  it('writes out "http:host", which a page on http would resolve against itself', () => {
+    expect(postingHref('http:evil.com')).toBe('http://evil.com/');
+  });
+  it('returns null for anything else', () => {
+    expect(postingHref(undefined)).toBeNull();
+    expect(postingHref('javascript:alert(1)')).toBeNull();
+    expect(postingHref('not a url')).toBeNull();
   });
 });

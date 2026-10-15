@@ -121,6 +121,16 @@ it('calls onStatusChange and updates UI when shortlisting', async () => {
   expect(screen.getByText(/✓ Shortlisted/i)).toBeInTheDocument();
 });
 
+// #353: the Source link opens only a web address, like the job page's posting link.
+it('links Source only to a web address, written out in full', () => {
+  const { unmount } = render(<FeedCard item={makeFeedItem({ jobUrl: 'http:boards.example.com/jobs/1' })} />);
+  expect(screen.getByRole('link', { name: /source/i })).toHaveAttribute('href', 'http://boards.example.com/jobs/1');
+  unmount();
+
+  render(<FeedCard item={makeFeedItem({ jobUrl: 'javascript:alert(1)' })} />);
+  expect(screen.queryByRole('link', { name: /source/i })).not.toBeInTheDocument();
+});
+
 // #412: the server renders in UTC, where 1:30 am on Oct 1 is still 9:30 pm on Sep 30 in New
 // York, the browser's zone in these tests. Two different days are a hydration error (React #418).
 it("shows the posted day in the browser's time zone, without a hydration error", async () => {

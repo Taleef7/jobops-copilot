@@ -25,6 +25,7 @@ import { Card } from '@/components/ui/card';
 import { useHydrated } from '@/hooks/use-hydrated';
 import { updateJob } from '@/lib/api';
 import { postedDay } from '@/lib/format';
+import { postingHref } from '@/lib/job-display';
 import { cn } from '@/lib/utils';
 import type { FeedItem, JobStatus } from '@/types/job';
 
@@ -86,6 +87,7 @@ export function FeedCard({ item, onStatusChange, className }: FeedCardProps) {
   const salaryText = formatSalary(job.salaryMin, job.salaryMax, job.salaryCurrency);
   // "New today" depends on the time, which the browser reads after the server (#412).
   const freshnessBadge = hydrated ? getFreshnessBadge(job.datePosted ?? job.discoveredAt) : null;
+  const posting = postingHref(job.jobUrl);
 
   async function handleStatusUpdate(newStatus: JobStatus) {
     setIsUpdating(true);
@@ -299,11 +301,11 @@ export function FeedCard({ item, onStatusChange, className }: FeedCardProps) {
             </Badge>
           )}
 
-          {job.jobUrl && (
+          {posting && (
             <Button
               size="sm"
               variant="ghost"
-              render={<a href={job.jobUrl} target="_blank" rel="noopener noreferrer" />}
+              render={<a href={posting} target="_blank" rel="noopener noreferrer" />}
               className="gap-1 text-xs h-8 text-muted-foreground"
             >
               <ExternalLink className="size-3.5" /> Source

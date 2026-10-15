@@ -15,6 +15,7 @@ import type {
 import { normalizeAnalysis, validateJobAnalysis } from '@/lib/analysis-core';
 import { deriveAnalyzedNextAction, UNSCORED_NEXT_ACTION } from '@/lib/analysis-workflow';
 import { getPool } from '@/lib/postgres';
+import { isUuid } from '@/lib/uuid';
 import type { PageParams } from '@/lib/pagination';
 import { deriveOutreachJobUpdate } from '@/lib/outreach-workflow';
 import { seedJobs } from '@/data/mock-store';
@@ -313,9 +314,12 @@ export async function backfillCanonicalUrls(batchSize = 500): Promise<number> {
 
 export async function getJobById(userId: string, jobId: string): Promise<JobRecord | undefined> {
   const pool = poolOrThrow();
+  // `id = $1::uuid` uses the indexes; `id::text = $1` scanned job_analysis and outreach whole
+  // on every read. A non-UUID would be a cast error, and names no job (#353).
+  if (!isUuid(jobId)) return undefined;
 
   const { rows } = await pool.query<JobRow>(
-    'select * from jobs where id::text = $1 and user_id = $2 limit 1',
+    'select * from jobs where id = $1::uuid and user_id = $2 limit 1',
     [jobId, userId],
   );
   const job = rows[0] as JobRow | undefined;
@@ -325,10 +329,10 @@ export async function getJobById(userId: string, jobId: string): Promise<JobReco
   }
 
   const [analysisResult, outreachResult] = await Promise.all([
-    pool.query<JobAnalysisRow>('select * from job_analysis where job_id::text = $1 order by created_at desc limit 1', [
+    pool.query<JobAnalysisRow>('select * from job_analysis where job_id = $1::uuid order by created_at desc limit 1', [
       jobId,
     ]),
-    pool.query<OutreachRow>('select * from outreach where job_id::text = $1 order by created_at asc', [jobId]),
+    pool.query<OutreachRow>('select * from outreach where job_id = $1::uuid order by created_at asc', [jobId]),
   ]);
 
   return mapJob(job, analysisResult.rows[0] as JobAnalysisRow | undefined, outreachResult.rows as OutreachRow[]);
@@ -476,6 +480,7 @@ export async function updateJob(
   body: UpdateJobBody,
 ): Promise<JobRecord | undefined> {
   const pool = poolOrThrow();
+  if (!isUuid(jobId)) return undefined;
   const client = await pool.connect();
 
   try {
@@ -491,7 +496,7 @@ export async function updateJob(
           fit_score = coalesce($5, fit_score),
           next_action = case when $10::boolean then nullif($6::text, '') else next_action end,
           next_action_due = case when $11::boolean then $7::timestamptz else next_action_due end
-        where id::text = $1 and user_id = $8
+        where id = $1::uuid and user_id = $8
         returning *
       `,
       [
@@ -531,12 +536,13 @@ export async function appendOutreachDraft(
   draft: OutreachDraft,
 ): Promise<OutreachDraft | undefined> {
   const pool = poolOrThrow();
+  if (!isUuid(jobId)) return undefined;
   const client = await pool.connect();
 
   try {
     await client.query('begin');
 
-    const ownership = await client.query('select 1 from jobs where id::text = $1 and user_id = $2 limit 1', [
+    const ownership = await client.query('select 1 from jobs where id = $1::uuid and user_id = $2 limit 1', [
       jobId,
       userId,
     ]);
@@ -547,7 +553,7 @@ export async function appendOutreachDraft(
 
     // Replace only the superseded unsent draft; preserve approved/sent/skipped
     // rows, which carry real outreach history and dashboard/reporting state.
-    await client.query("delete from outreach where job_id::text = $1 and status = 'drafted'", [jobId]);
+    await client.query("delete from outreach where job_id = $1::uuid and status = 'drafted'", [jobId]);
 
     const { rows } = await client.query<OutreachRow>(
       `
@@ -587,12 +593,12 @@ export async function appendOutreachDraft(
       ],
     );
 
-    const jobResult = await client.query<JobStateRow>('select status, next_action from jobs where id::text = $1 limit 1', [
+    const jobResult = await client.query<JobStateRow>('select status, next_action from jobs where id = $1::uuid limit 1', [
       jobId,
     ]);
     const jobRow = jobResult.rows[0];
     const outreachResult = await client.query<OutreachRow>(
-      'select * from outreach where job_id::text = $1 order by created_at asc',
+      'select * from outreach where job_id = $1::uuid order by created_at asc',
       [jobId],
     );
     const jobUpdate = jobRow
@@ -610,7 +616,7 @@ export async function appendOutreachDraft(
             status = $2,
             next_action = $3,
             updated_at = now()
-          where id::text = $1
+          where id = $1::uuid
         `,
         [
           jobId,
@@ -673,12 +679,12 @@ export async function updateOutreachDraft(
       return undefined;
     }
 
-    const jobResult = await client.query<JobStateRow>('select status, next_action from jobs where id::text = $1 limit 1', [
+    const jobResult = await client.query<JobStateRow>('select status, next_action from jobs where id = $1::uuid limit 1', [
       outreach.job_id,
     ]);
     const jobRow = jobResult.rows[0];
     const outreachRows = await client.query<OutreachRow>(
-      'select * from outreach where job_id::text = $1 order by created_at asc',
+      'select * from outreach where job_id = $1::uuid order by created_at asc',
       [outreach.job_id],
     );
     const jobUpdate = jobRow
@@ -696,7 +702,7 @@ export async function updateOutreachDraft(
             status = $2,
             next_action = $3,
             updated_at = now()
-          where id::text = $1
+          where id = $1::uuid
         `,
         [
           outreach.job_id,
@@ -840,7 +846,7 @@ export async function saveJobAnalysis(
             else next_action
           end,
           updated_at = now()
-        where id::text = $1
+        where id = $1::uuid
       `,
       [jobId, fitScore, nextAction, UNSCORED_NEXT_ACTION],
     );
@@ -854,7 +860,7 @@ export async function saveJobAnalysis(
             else next_action
           end,
           updated_at = now()
-        where id::text = $1
+        where id = $1::uuid
       `,
       [jobId, nextAction, UNSCORED_NEXT_ACTION],
     );

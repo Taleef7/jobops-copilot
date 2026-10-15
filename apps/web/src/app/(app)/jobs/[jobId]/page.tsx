@@ -28,8 +28,8 @@ import {
 } from '@/lib/api';
 import { isPrerankAnalysis } from '@/lib/analysis-display';
 import { postedDay } from '@/lib/format';
-import { loadJob } from '@/lib/job-data';
-import { isDuplicateRemote } from '@/lib/job-display';
+import { isJobId, loadJob } from '@/lib/job-data';
+import { isDuplicateRemote, postingHref } from '@/lib/job-display';
 
 export const dynamic = 'force-dynamic';
 
@@ -37,12 +37,14 @@ type JobDetailParams = { params: Promise<{ jobId: string }> };
 
 export async function generateMetadata({ params }: JobDetailParams): Promise<Metadata> {
   const { jobId } = await params;
-  const { job } = await loadJob(jobId);
+  const { job } = isJobId(jobId) ? await loadJob(jobId) : { job: undefined };
   return { title: job ? `${job.company} · ${job.title}` : 'Job detail' };
 }
 
 export default async function JobDetailPage({ params }: JobDetailParams) {
   const { jobId } = await params;
+  // A malformed id names no job, so say so without asking the API (#353).
+  if (!isJobId(jobId)) notFound();
   // Fetch the profile + persisted agent outputs alongside the job. Neither is
   // load-bearing for the page, so a failure of either must not break it.
   const [{ job, error }, profile, agentOutputs, resumeVersions, applicationPack, contacts] = await Promise.all([
@@ -63,6 +65,7 @@ export default async function JobDetailPage({ params }: JobDetailParams) {
   // so auto-firing on every open would silently drain the daily AI budget.
   const estimated = isPrerankAnalysis(analysis?.modelUsed);
   const autoScore = estimated && profile?.hasResume === true;
+  const posting = postingHref(job.jobUrl);
 
   return (
     <div className="space-y-6">
@@ -76,6 +79,16 @@ export default async function JobDetailPage({ params }: JobDetailParams) {
           <div className="min-w-0 space-y-2">
             <h1 className="font-heading text-2xl font-bold tracking-tight">{job.title}</h1>
             <p className="text-muted-foreground">{job.company}</p>
+            {posting ? (
+              <a
+                href={posting}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-primary inline-block text-sm font-medium hover:underline"
+              >
+                Open posting <span aria-hidden="true">↗</span>
+              </a>
+            ) : null}
             <div className="flex flex-wrap items-center gap-2">
               <StatusPill status={job.status} />
               {!isDuplicateRemote(job.location, job.workplaceType) ? (
@@ -92,7 +105,8 @@ export default async function JobDetailPage({ params }: JobDetailParams) {
           </div>
         </div>
         <div className="border-t pt-4">
-          <JobAnalysisActions jobId={job.id} autoScore={autoScore} />
+          {/* Keyed so each job gets its own one-at-a-time Score fit guard (#353). */}
+          <JobAnalysisActions key={job.id} jobId={job.id} autoScore={autoScore} />
         </div>
       </Card>
 

@@ -6,7 +6,9 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import express from 'express';
 import { jobsRouter } from './jobs';
+import { createApp } from '@/app';
 import { resetJobStoreForTests } from '@/data/job-store';
+import { closePool } from '@/lib/postgres';
 import type { JobRecord } from '@/types';
 
 async function withServer(
@@ -147,6 +149,50 @@ test('POST /api/jobs answers 409 with the existing job when the posting is alrea
     process.chdir(originalCwd);
     resetJobStoreForTests();
     await rm(tempDir, { recursive: true, force: true });
+  }
+});
+
+// #353: `/api/jobs/not-a-real-id` went to the database as is, and the routes whose SQL
+// compares a uuid answered 500 for it (live took 12.5 s to show "not found"). A job id is a
+// UUID, so anything else is a 404 before any lookup. The database here is unreachable: a
+// route that queried would fail, not 404.
+test('a malformed job id is a 404 on every /api/jobs/:id route, without a lookup', async () => {
+  const savedUrl = process.env.DATABASE_URL;
+  process.env.DATABASE_URL = 'postgres://nobody:nothing@127.0.0.1:1/none';
+  const server = http.createServer(createApp());
+  await new Promise<void>((resolve) => server.listen(0, resolve));
+  const address = server.address();
+  if (!address || typeof address === 'string') throw new Error('no server address');
+  const send = (method: string, path: string) =>
+    fetch(`http://127.0.0.1:${address.port}${path}`, {
+      method,
+      headers: { 'X-User-Id': 'u_bad_id', 'Content-Type': 'application/json' },
+      body: method === 'GET' ? undefined : '{}',
+    });
+  try {
+    for (const [method, path] of [
+      ['GET', '/api/jobs/not-a-real-id'],
+      ['PATCH', '/api/jobs/not-a-real-id'],
+      ['GET', '/api/jobs/not-a-real-id/agent-outputs'],
+      ['GET', '/api/jobs/not-a-real-id/application-pack'],
+      ['POST', '/api/jobs/not-a-real-id/application-pack'],
+      ['GET', '/api/jobs/not-a-real-id/contacts'],
+      ['POST', '/api/jobs/not-a-real-id/contacts'],
+      ['POST', '/api/jobs/not-a-real-id/tailor'],
+      ['GET', '/api/jobs/not-a-real-id/tailor/keywords'],
+      ['GET', '/api/jobs/not-a-real-id/resume-versions'],
+      ['GET', '/api/jobs/11111111-1111-4111-8111-11111111111/contacts'],
+    ] as const) {
+      const response = await send(method, path);
+      assert.equal(response.status, 404, `${method} ${path}`);
+      assert.deepEqual(await response.json(), { error: 'Job not found' }, `${method} ${path}`);
+    }
+  } finally {
+    server.closeAllConnections();
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+    await closePool();
+    if (savedUrl === undefined) delete process.env.DATABASE_URL;
+    else process.env.DATABASE_URL = savedUrl;
   }
 });
 
