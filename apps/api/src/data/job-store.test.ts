@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
@@ -301,6 +301,48 @@ test('createJob bounds stored text for every writer, not just POST /api/jobs (#3
   } finally {
     process.chdir(originalCwd);
     await resetJobStoreForTests();
+    await rm(tempDir, { recursive: true, force: true });
+  }
+});
+
+test('the file store saves a 0–1 confidence as a percentage and reads old rows in the new shape (#354)', async () => {
+  const originalCwd = process.cwd();
+  const tempDir = await mkdtemp(join(tmpdir(), 'jobops-fit-output-'));
+  delete process.env.DATABASE_URL;
+  process.chdir(tempDir);
+  resetJobStoreForTests();
+  try {
+    const job = await createJob('user-1', { company: 'Acme', title: 'Engineer', descriptionText: 'Go and Kafka.' });
+    await saveJobAnalysis('user-1', job.id, sampleAnalysis({ confidenceScore: 0.65 }), 70);
+    const saved = (await getJobById('user-1', job.id))?.analysis;
+    assert.equal(saved?.confidenceScore, 65);
+    assert.deepEqual(saved?.matchedSkills, ['Go']);
+    assert.deepEqual(saved?.matchedSkillDetails, [{ skill: 'Go', evidence: 'Built the billing API in Go.' }]);
+
+    // A row written before #354: skills as "label: why" strings, no details, a 0–1 confidence.
+    const stored = JSON.parse(await readFile(join(tempDir, 'data', 'jobs.json'), 'utf8')) as Array<Record<string, unknown>>;
+    const row = stored.find((entry) => entry.id === job.id)!;
+    const old = { ...(row.analysis as Record<string, unknown>) };
+    delete old.matchedSkillDetails;
+    delete old.missingSkillDetails;
+    row.analysis = {
+      ...old,
+      matchedSkills: ['Go: built the billing API in Go'],
+      missingSkills: ['Kafka'],
+      confidenceScore: 0.8,
+    };
+    await writeFile(join(tempDir, 'data', 'jobs.json'), JSON.stringify(stored));
+    resetJobStoreForTests();
+
+    const analysis = (await getJobById('user-1', job.id))?.analysis;
+    assert.deepEqual(analysis?.matchedSkills, ['Go']);
+    assert.deepEqual(analysis?.matchedSkillDetails, [{ skill: 'Go', evidence: 'built the billing API in Go' }]);
+    assert.deepEqual(analysis?.missingSkills, ['Kafka']);
+    assert.deepEqual(analysis?.missingSkillDetails, [{ skill: 'Kafka', postingQuote: '' }]);
+    assert.equal(analysis?.confidenceScore, 80);
+  } finally {
+    process.chdir(originalCwd);
+    resetJobStoreForTests();
     await rm(tempDir, { recursive: true, force: true });
   }
 });

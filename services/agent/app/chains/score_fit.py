@@ -16,6 +16,9 @@ from app.schemas import FitScoreLLM, FitScoreResponse, ScoreFitRequest
 
 logger = logging.getLogger("jobops.agent.score_fit")
 
+# Matched and missing skills each (#354): more were the model listing everything it noticed.
+MAX_SKILLS = 8
+
 
 def score_fit(req: ScoreFitRequest, config: dict | None = None) -> FitScoreResponse:
     model, label = get_model()
@@ -26,7 +29,6 @@ def score_fit(req: ScoreFitRequest, config: dict | None = None) -> FitScoreRespo
     if injection_refused(verdict):
         return FitScoreResponse(
             fit_score=0,
-            confidence_score=0,
             fit_summary="Blocked: suspected prompt-injection in the job description.",
             apply_recommendation="pass",
             model_used=label,
@@ -64,16 +66,19 @@ def score_fit(req: ScoreFitRequest, config: dict | None = None) -> FitScoreRespo
     # Clamp rather than reject: a model that answers 105 has expressed a clear intent,
     # and failing the request over it would be a worse answer than 100.
     payload["fit_score"] = _clamp(payload.get("fit_score"))
-    payload["confidence_score"] = _clamp(payload.get("confidence_score"), default=50)
+    # A confidence or sub-signal the model didn't give stays unknown, never 50 (#354).
+    payload["confidence_score"] = _clamp(payload.get("confidence_score"), default=None)
     sub = payload.get("sub_signals")
     if isinstance(sub, dict):
         for k in ("skills_match", "title_seniority", "salary_fit", "sponsorship_likelihood"):
             if k in sub:
-                sub[k] = _clamp(sub[k], default=50)
+                sub[k] = _clamp(sub[k], default=None)
+    for key in ("matched_skills", "missing_skills"):
+        payload[key] = (payload.get(key) or [])[:MAX_SKILLS]
     return FitScoreResponse(**payload, model_used=label)
 
 
-def _clamp(value: object, default: int = 0, low: int = 0, high: int = 100) -> int:
+def _clamp(value: object, default: int | None = 0, low: int = 0, high: int = 100) -> int | None:
     """Coerce to an int inside ``[low, high]``; ``default`` when unusable."""
     try:
         number = int(value)  # type: ignore[arg-type]

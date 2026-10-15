@@ -12,7 +12,7 @@ import type {
   UpdateJobBody,
   UpdateOutreachBody,
 } from '@/types';
-import { validateJobAnalysis } from '@/lib/analysis-core';
+import { normalizeAnalysis, validateJobAnalysis } from '@/lib/analysis-core';
 import { deriveAnalyzedNextAction, UNSCORED_NEXT_ACTION } from '@/lib/analysis-workflow';
 import { getPool } from '@/lib/postgres';
 import type { PageParams } from '@/lib/pagination';
@@ -59,6 +59,8 @@ type JobAnalysisRow = {
   preferred_skills: unknown;
   matched_skills: unknown;
   missing_skills: unknown;
+  matched_skill_details?: unknown;
+  missing_skill_details?: unknown;
   ats_keywords: unknown;
   fit_summary: string;
   recommended_resume_angle: string;
@@ -118,7 +120,7 @@ function toTextArray(value: unknown): string[] {
 }
 
 /** The job's analysis, or null when it has none yet (#349: no made-up default). */
-function mapAnalysis(row: JobAnalysisRow | undefined): JobAnalysis | null {
+function mapAnalysis(row: JobAnalysisRow | undefined, fitScore: number | null): JobAnalysis | null {
   if (!row) {
     return null;
   }
@@ -128,19 +130,27 @@ function mapAnalysis(row: JobAnalysisRow | undefined): JobAnalysis | null {
       ? (row.sub_signals as JobAnalysis['subSignals'])
       : undefined;
 
-  const analysis = {
-    requiredSkills: toTextArray(row.required_skills),
-    preferredSkills: toTextArray(row.preferred_skills),
-    matchedSkills: toTextArray(row.matched_skills),
-    missingSkills: toTextArray(row.missing_skills),
-    atsKeywords: toTextArray(row.ats_keywords),
-    fitSummary: row.fit_summary,
-    recommendedResumeAngle: row.recommended_resume_angle,
-    applyRecommendation: row.apply_recommendation,
-    confidenceScore: row.confidence_score ?? null,
-    modelUsed: row.model_used,
-    subSignals,
-  } satisfies JobAnalysis;
+  // Rows saved before #354 hold skills as "label: why" strings, no details, and default
+  // sub-signals.
+  const analysis = normalizeAnalysis(
+    {
+      requiredSkills: toTextArray(row.required_skills),
+      preferredSkills: toTextArray(row.preferred_skills),
+      // As saved: strings, or the agent's objects when an API from before #354 saved them.
+      matchedSkills: row.matched_skills,
+      missingSkills: row.missing_skills,
+      matchedSkillDetails: row.matched_skill_details,
+      missingSkillDetails: row.missing_skill_details,
+      atsKeywords: toTextArray(row.ats_keywords),
+      fitSummary: row.fit_summary,
+      recommendedResumeAngle: row.recommended_resume_angle,
+      applyRecommendation: row.apply_recommendation,
+      confidenceScore: row.confidence_score ?? null,
+      modelUsed: row.model_used,
+      subSignals,
+    },
+    fitScore,
+  );
 
   return validateJobAnalysis(analysis) ? analysis : null;
 }
@@ -196,7 +206,7 @@ function mapJob(row: JobRow, analysisRow?: JobAnalysisRow, outreachRows: Outreac
     // Cleared reads back empty: a default here would be saved by the next edit as the user's own.
     nextAction: row.next_action ?? '',
     nextActionDue: toIsoString(row.next_action_due),
-    analysis: mapAnalysis(analysisRow),
+    analysis: mapAnalysis(analysisRow, row.fit_score),
     outreach: outreachRows.map(mapOutreach),
     salaryMin: row.salary_min ?? null,
     salaryMax: row.salary_max ?? null,
@@ -747,6 +757,9 @@ export async function saveJobAnalysis(
   }
 
   const timestamp = new Date().toISOString();
+  // Confidence on 0–100 (a 0.65 becomes 65; the column takes integers 0–100). Skills keep short
+  // labels as strings, which every API version reads, with their details alongside (#354).
+  const stored = normalizeAnalysis(analysis, fitScore === undefined ? job.fitScore : fitScore);
 
   await pool.query(
     `
@@ -764,9 +777,12 @@ export async function saveJobAnalysis(
         confidence_score,
         model_used,
         sub_signals,
-        created_at
+        created_at,
+        matched_skill_details,
+        missing_skill_details
       ) values (
-        $1, $2, $3::jsonb, $4::jsonb, $5::jsonb, $6::jsonb, $7::jsonb, $8, $9, $10, $11, $12, $13::jsonb, $14
+        $1, $2, $3::jsonb, $4::jsonb, $5::jsonb, $6::jsonb, $7::jsonb, $8, $9, $10, $11, $12, $13::jsonb, $14,
+        $15::jsonb, $16::jsonb
       )
       on conflict (job_id) do update set
         required_skills = excluded.required_skills,
@@ -780,23 +796,27 @@ export async function saveJobAnalysis(
         confidence_score = excluded.confidence_score,
         model_used = excluded.model_used,
         sub_signals = excluded.sub_signals,
-        created_at = excluded.created_at
+        created_at = excluded.created_at,
+        matched_skill_details = excluded.matched_skill_details,
+        missing_skill_details = excluded.missing_skill_details
     `,
     [
       randomUUID(),
       jobId,
-      JSON.stringify(analysis.requiredSkills),
-      JSON.stringify(analysis.preferredSkills),
-      JSON.stringify(analysis.matchedSkills),
-      JSON.stringify(analysis.missingSkills),
-      JSON.stringify(analysis.atsKeywords),
-      analysis.fitSummary,
-      analysis.recommendedResumeAngle,
-      analysis.applyRecommendation,
-      analysis.confidenceScore,
-      analysis.modelUsed,
-      JSON.stringify(analysis.subSignals ?? {}),
+      JSON.stringify(stored.requiredSkills),
+      JSON.stringify(stored.preferredSkills),
+      JSON.stringify(stored.matchedSkills),
+      JSON.stringify(stored.missingSkills),
+      JSON.stringify(stored.atsKeywords),
+      stored.fitSummary,
+      stored.recommendedResumeAngle,
+      stored.applyRecommendation,
+      stored.confidenceScore,
+      stored.modelUsed,
+      JSON.stringify(stored.subSignals ?? {}),
       timestamp,
+      JSON.stringify(stored.matchedSkillDetails ?? []),
+      JSON.stringify(stored.missingSkillDetails ?? []),
     ],
   );
 

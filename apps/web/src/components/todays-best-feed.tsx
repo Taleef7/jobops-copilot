@@ -6,6 +6,7 @@ import { EmptyState } from '@/components/empty-state';
 import { FeedCard } from '@/components/feed-card';
 import { FeedFilters, type FeedFilterState } from '@/components/feed-filters';
 import { Skeleton } from '@/components/ui/skeleton';
+import { skillNames } from '@/lib/analysis-display';
 import { fetchRankedFeed } from '@/lib/api';
 import type { FeedItem, FeedResult, JobSeniority, JobStatus, WorkplaceType } from '@/types/job';
 
@@ -94,7 +95,7 @@ export function TodaysBestFeed({ initialFeed }: TodaysBestFeedProps) {
           item.job.company,
           item.job.location,
           item.job.notes ?? '',
-          ...(item.job.analysis?.matchedSkills ?? []),
+          ...skillNames(item.job.analysis?.matchedSkills ?? []),
           ...(item.rankReasons ?? []),
         ]
           .join(' ')

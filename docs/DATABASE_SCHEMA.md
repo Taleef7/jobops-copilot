@@ -53,8 +53,8 @@ Important fields:
 - `job_id`: foreign key to `jobs.id`
 - `required_skills`
 - `preferred_skills`
-- `matched_skills`
-- `missing_skills`
+- `matched_skills`, `missing_skills`: short labels, as strings
+- `matched_skill_details`, `missing_skill_details`: the same skills with the résumé's evidence or the posting's words (null on rows from before #354)
 - `ats_keywords`
 - `fit_summary`
 - `recommended_resume_angle`

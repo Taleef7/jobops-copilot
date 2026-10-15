@@ -51,7 +51,7 @@ def test_score_fit_happy_path(monkeypatch):
         "score_fit",
         lambda req, config=None: FitScoreResponse(
             fit_score=88,
-            matched_skills=["Python"],
+            matched_skills=[{"skill": "Python", "evidence": "Built Python AI agents"}],
             missing_skills=[],
             ats_keywords=["Python"],
             fit_summary="Strong fit.",

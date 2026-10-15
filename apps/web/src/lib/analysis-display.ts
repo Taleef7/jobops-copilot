@@ -15,6 +15,47 @@ export function isPrerankAnalysis(modelUsed: string | null | undefined): boolean
   return modelUsed === PRERANK_MODEL;
 }
 
+/** "Confidence 65%", or null when there is none. A fraction is on a 0–1 scale; 1 is 1% (#354). */
+export function confidenceLabel(score: number | null | undefined): string | null {
+  if (typeof score !== 'number' || !Number.isFinite(score)) return null;
+  return `Confidence ${Math.round(score > 0 && score < 1 ? score * 100 : score)}%`;
+}
+
+/** A sub-signal as "80%", or "unknown" when nothing measured it (#354). */
+export function signalLabel(value: number | null | undefined): string {
+  return typeof value === 'number' && Number.isFinite(value) ? `${Math.round(value)}%` : 'unknown';
+}
+
+/** The API's label for an item that was a sentence, not a skill; the sentence is its evidence. */
+export const OTHER_SKILL = 'Other';
+
+/**
+ * A skill as the API sends it. Web and API deploy separately, so this takes the labels
+ * (strings) and the details (objects) alike (#354).
+ */
+type SkillItem = string | { skill: string; evidence?: string; postingQuote?: string };
+
+/** The labels of some skills, leaving out "Other", which is not a skill. */
+export function skillNames(items: ReadonlyArray<SkillItem>): string[] {
+  return items
+    .map((item) => (typeof item === 'string' ? item : item?.skill))
+    .filter((skill): skill is string => typeof skill === 'string' && skill !== OTHER_SKILL);
+}
+
+/** Chips for a skill list: the details when the API sends them, else the labels (#354). */
+export function skillChips(
+  labels: ReadonlyArray<SkillItem>,
+  details: ReadonlyArray<SkillItem> | undefined,
+): { label: string; detail?: string }[] {
+  const items = details?.length ? details : labels;
+  return items.flatMap((item) => {
+    if (typeof item === 'string') return item.trim() ? [{ label: item }] : [];
+    if (!item || typeof item.skill !== 'string') return [];
+    const detail = item.evidence ?? item.postingQuote;
+    return [detail ? { label: item.skill, detail } : { label: item.skill }];
+  });
+}
+
 /** Longest skill label we render inline before eliding. */
 const MAX_SKILL_LABEL = 48;
 

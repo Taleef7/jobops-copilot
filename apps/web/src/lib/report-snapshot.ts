@@ -1,3 +1,4 @@
+import { skillNames } from '@/lib/analysis-display';
 import type { Job } from '@/types/job';
 
 /**
@@ -55,7 +56,7 @@ export function getReportSnapshot(jobs: Job[]): ReportSnapshot {
 
   const skillCounts = new Map<string, number>();
   for (const job of jobs) {
-    for (const skill of job.analysis?.missingSkills ?? []) {
+    for (const skill of skillNames(job.analysis?.missingSkills ?? [])) {
       const key = skill.trim();
       if (!key) continue;
       skillCounts.set(key, (skillCounts.get(key) ?? 0) + 1);

@@ -1,3 +1,4 @@
+import { skillNames } from '@/lib/analysis-core';
 import { LLM_PROFILE_TEXT_MAX } from '@/lib/input-caps';
 import type { JobRecord, StructuredResume } from '@/types';
 import type { TailorAgentRequest } from './answer';
@@ -50,7 +51,7 @@ export function postingKeywords(job: JobRecord): string[] {
     ...analysis.requiredSkills,
     ...analysis.preferredSkills,
     ...analysis.atsKeywords,
-    ...analysis.missingSkills,
+    ...skillNames(analysis.missingSkills),
   ]).slice(0, MAX_POSTING_KEYWORDS);
 }
 

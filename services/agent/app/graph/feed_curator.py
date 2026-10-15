@@ -26,7 +26,7 @@ from app.schemas import FeedCuratorAnalysis, SubSignals
 logger = logging.getLogger("jobops.agent.feed_curator")
 
 
-def _clamp(value: object, default: int = 50, low: int = 0, high: int = 100) -> int:
+def _clamp(value: object, default: int | None = 50, low: int = 0, high: int = 100) -> int | None:
     try:
         number = int(value)  # type: ignore[arg-type]
     except (TypeError, ValueError):
@@ -70,7 +70,6 @@ def _build_curator_node():
                 fit_summary="Blocked: suspected prompt-injection in the job posting.",
                 recommended_resume_angle="N/A",
                 apply_recommendation="pass",
-                confidence_score=0,
             )
             payload = output.model_dump()
             payload["agent_id"] = "feed-curator"
@@ -104,7 +103,6 @@ def _build_curator_node():
                 fit_summary="Evaluated via local heuristic fallback (agent LLM unconfigured).",
                 recommended_resume_angle="Highlight core relevant competencies.",
                 apply_recommendation="review",
-                confidence_score=50,
             )
             payload = output.model_dump()
             payload["agent_id"] = "feed-curator"
@@ -159,14 +157,13 @@ def _build_curator_node():
         # Process payload & clamping
         payload = result.model_dump() if hasattr(result, "model_dump") else dict(result)
         payload["fit_score"] = _clamp(payload.get("fit_score"), default=50)
-        payload["confidence_score"] = _clamp(payload.get("confidence_score"), default=50)
+        # What the model didn't give stays unknown, never 50 (#354).
+        payload["confidence_score"] = _clamp(payload.get("confidence_score"), default=None)
 
         sub = payload.get("sub_signals") or {}
         payload["sub_signals"] = {
-            "skills_match": _clamp(sub.get("skills_match"), default=50),
-            "title_seniority": _clamp(sub.get("title_seniority"), default=50),
-            "salary_fit": _clamp(sub.get("salary_fit"), default=50),
-            "sponsorship_likelihood": _clamp(sub.get("sponsorship_likelihood"), default=50),
+            key: _clamp(sub.get(key), default=None)
+            for key in ("skills_match", "title_seniority", "salary_fit", "sponsorship_likelihood")
         }
         payload["agent_id"] = "feed-curator"
         payload["model_used"] = model_label

@@ -155,6 +155,27 @@ test('builds ownership-checked job context from jobId', async () => {
   assert.ok(captured.context?.includes('Missing skills: Rust'));
 });
 
+test('leaves out a skills line that would only list "Other" (#354)', async () => {
+  let captured: { context?: string } = {};
+  const job = fakeJob();
+  const router = createAssistantChatRouter({
+    getJob: async () => ({ ...job, analysis: { ...job.analysis!, matchedSkills: ['Other'] } }),
+    openUpstream: async (payload) => {
+      captured = payload as { context?: string };
+      return okStream();
+    },
+  });
+  await withServer(router, async (baseUrl) => {
+    await fetch(`${baseUrl}/chat`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-User-Id': 'u1' },
+      body: JSON.stringify({ messages: [{ role: 'user', content: 'what am I missing?' }], jobId: 'job-1' }),
+    });
+  });
+  assert.ok(captured.context?.includes('Missing skills: Rust'));
+  assert.ok(!captured.context?.includes('Matched skills'));
+});
+
 test('omits context when the job is not found / not owned', async () => {
   let captured: { context?: string } = { context: 'sentinel' };
   const router = createAssistantChatRouter({

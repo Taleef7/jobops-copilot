@@ -59,7 +59,7 @@ def _install(monkeypatch, outcomes):
 def _payload(**overrides) -> dict:
     base = {
         "fit_score": 70,
-        "matched_skills": ["Python"],
+        "matched_skills": [{"skill": "Python", "evidence": "Built Django services."}],
         "missing_skills": [],
         "ats_keywords": [],
         "fit_summary": "Good overlap.",
@@ -151,3 +151,36 @@ def test_sub_signals_are_clamped_and_returned(monkeypatch):
     assert result.sub_signals.title_seniority == 0
     assert result.sub_signals.salary_fit == 85
     assert result.sub_signals.sponsorship_likelihood == 100
+
+
+# --- #354: unknown stays unknown, at most 8 skills --------------------------------------
+
+
+def test_a_missing_confidence_stays_unknown(monkeypatch):
+    payload = _payload()
+    del payload["confidence_score"]
+    _install(monkeypatch, [payload])
+
+    assert score_fit_module.score_fit(_request()).confidence_score is None
+
+
+def test_unstated_sub_signals_stay_unknown(monkeypatch):
+    _install(monkeypatch, [_payload(sub_signals={"skills_match": 120, "salary_fit": None})])
+
+    result = score_fit_module.score_fit(_request())
+
+    assert result.sub_signals.skills_match == 100
+    assert result.sub_signals.title_seniority is None
+    assert result.sub_signals.salary_fit is None
+    assert result.sub_signals.sponsorship_likelihood is None
+
+
+def test_at_most_eight_skills_each(monkeypatch):
+    many = [{"skill": f"Skill {n}", "evidence": ""} for n in range(12)]
+    gaps = [{"skill": f"Gap {n}", "posting_quote": ""} for n in range(12)]
+    _install(monkeypatch, [_payload(matched_skills=many, missing_skills=gaps)])
+
+    result = score_fit_module.score_fit(_request())
+
+    assert len(result.matched_skills) == 8
+    assert len(result.missing_skills) == 8

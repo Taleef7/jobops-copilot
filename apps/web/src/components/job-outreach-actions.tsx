@@ -12,6 +12,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { OptionSelect } from '@/components/ui/option-select';
 import { CoverLetterDownloadButton } from '@/components/cover-letter-download-button';
+import { DraftLengthWarning } from '@/components/draft-length-warning';
 import { ErrorState } from '@/components/error-state';
 import { draftOutreach } from '@/lib/api';
 import type { OutreachMessageType } from '@/types/job';
@@ -200,6 +201,7 @@ export function JobOutreachActions({
             </div>
           </div>
           <p className="text-sm whitespace-pre-wrap">{result.draftText}</p>
+          <DraftLengthWarning messageType={result.messageType} text={result.draftText} />
           {result.safetyNotes.trim() ? (
             <details className="border-t pt-2">
               <summary className="text-muted-foreground cursor-pointer text-xs select-none">
