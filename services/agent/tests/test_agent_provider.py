@@ -357,8 +357,8 @@ def fresh_env_model():
 
 @pytest.mark.parametrize(
     ("llm_provider", "max_retries"),
-    # langchain-google-genai's max_retries counts attempts, and 0 can mean its default of 5
-    # retries; the others count retries.
+    # langchain-google-genai's max_retries counts attempts (older google-genai read 0 as its
+    # default of 5), so one attempt is 1; the others count retries.
     [("openai", 0), ("anthropic", 0), ("azure_openai", 0), ("google_genai", 1)],
 )
 def test_one_attempt_turns_off_the_retries_and_nothing_else(

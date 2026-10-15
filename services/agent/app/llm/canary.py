@@ -9,7 +9,9 @@ the agents depend on them.
 
 Each call is one attempt (#413). With the SDK's two retries, one call could take 3 times
 the 60 s request timeout, and the API (140 s) and the workflows (150 s) gave up first with
-"the agent timed out" instead of the provider's error. Now the worst case is two 60 s calls.
+"the agent timed out" instead of the provider's error. Now each call is one try, and an
+unresponsive provider is cut off after 60 s (the request timeout applies to each connect and
+each wait for data, so a reply that trickles in slowly can take longer).
 """
 
 from __future__ import annotations
