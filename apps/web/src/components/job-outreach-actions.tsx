@@ -12,6 +12,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { OptionSelect } from '@/components/ui/option-select';
 import { CoverLetterDownloadButton } from '@/components/cover-letter-download-button';
+import { DraftLengthWarning } from '@/components/draft-length-warning';
 import { ErrorState } from '@/components/error-state';
 import { draftOutreach } from '@/lib/api';
 import type { OutreachMessageType } from '@/types/job';
@@ -24,9 +25,6 @@ const messageTypeOptions: { label: string; value: OutreachMessageType }[] = [
   { label: 'Thank you', value: 'thank_you' },
   { label: 'Cover letter', value: 'cover_letter' },
 ];
-
-/** LinkedIn cuts a connection note at 300 characters, or 200 on a free account (#354). */
-const LINKEDIN_NOTE_LIMIT = 300;
 
 type FormState = {
   messageType: OutreachMessageType;
@@ -203,12 +201,7 @@ export function JobOutreachActions({
             </div>
           </div>
           <p className="text-sm whitespace-pre-wrap">{result.draftText}</p>
-          {result.messageType === 'linkedin_connection' && result.draftText.length > LINKEDIN_NOTE_LIMIT ? (
-            <p className="text-xs text-amber-700 dark:text-amber-400">
-              Over {LINKEDIN_NOTE_LIMIT} characters ({result.draftText.length}). LinkedIn allows{' '}
-              {LINKEDIN_NOTE_LIMIT}, or 200 on a free account. Shorten it before sending.
-            </p>
-          ) : null}
+          <DraftLengthWarning messageType={result.messageType} text={result.draftText} />
           {result.safetyNotes.trim() ? (
             <details className="border-t pt-2">
               <summary className="text-muted-foreground cursor-pointer text-xs select-none">

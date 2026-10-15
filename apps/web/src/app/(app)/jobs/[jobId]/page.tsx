@@ -2,7 +2,6 @@ import type { Metadata } from 'next';
 import { ArrowLeft } from 'lucide-react';
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
-import { CoverLetterDownloadButton } from '@/components/cover-letter-download-button';
 import { FitScoreRing } from '@/components/fit-score-ring';
 import { JobAgentsPanel } from '@/components/job-agents-panel';
 import { JobAnalysisCard } from '@/components/job-analysis-card';
@@ -10,6 +9,7 @@ import { JobAnalysisActions } from '@/components/job-analysis-actions';
 import { JobEditPanel } from '@/components/job-edit-panel';
 import { JobOutreachActions } from '@/components/job-outreach-actions';
 import { LoadFailure } from '@/components/load-failure';
+import { SavedOutreachDraft } from '@/components/saved-outreach-draft';
 import { StatusPill } from '@/components/status-pill';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -150,24 +150,12 @@ export default async function JobDetailPage({ params }: JobDetailParams) {
                   <h2 className="font-heading text-sm font-semibold">Saved draft</h2>
                   {/* Only the latest draft is kept; slice defends against any legacy rows. */}
                   {job.outreach.slice(-1).map((draft) => (
-                    <div key={draft.id} className="bg-muted/40 space-y-2 rounded-lg p-3">
-                      <div className="flex items-center justify-between gap-2">
-                        <p className="text-sm font-medium">
-                          {draft.contactName || 'Contact'} · {draft.contactRole || draft.messageType.replaceAll('_', ' ')}
-                        </p>
-                        <div className="flex items-center gap-2">
-                          {draft.messageType === 'cover_letter' ? (
-                            <CoverLetterDownloadButton
-                              outreachId={draft.id}
-                              company={job.company}
-                              candidateName={resumeVersions[0]?.structuredResume?.basics?.name}
-                            />
-                          ) : null}
-                          <StatusPill status={draft.status} />
-                        </div>
-                      </div>
-                      <p className="text-sm whitespace-pre-wrap">{draft.draftText}</p>
-                    </div>
+                    <SavedOutreachDraft
+                      key={draft.id}
+                      draft={draft}
+                      company={job.company}
+                      candidateName={resumeVersions[0]?.structuredResume?.basics?.name}
+                    />
                   ))}
                 </Card>
               ) : null}
