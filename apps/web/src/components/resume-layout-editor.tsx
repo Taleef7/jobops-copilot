@@ -33,6 +33,8 @@ interface ResumeLayoutEditorProps {
   initial: ResumeLayout | undefined;
   /** No résumé yet: there is nothing to lay out (the API answers 404). */
   disabled?: boolean;
+  /** A résumé save is on its way: changes wait, so the two can't cross. */
+  busy?: boolean;
   /** The layout as the API saved it. */
   onSaved?: (layout: ResumeLayout) => void;
   /** Settles once every change made so far is saved (or failed): a résumé save waits for it. */
@@ -44,7 +46,7 @@ interface ResumeLayoutEditorProps {
  * Every change saves at once; one that fails is put back, with a toast. Tailored résumés print
  * with this layout until they are downloaded.
  */
-export function ResumeLayoutEditor({ initial, disabled = false, onSaved, onPending }: ResumeLayoutEditorProps) {
+export function ResumeLayoutEditor({ initial, disabled = false, busy = false, onSaved, onPending }: ResumeLayoutEditorProps) {
   const [rows, setRows] = useState(() => layoutRows(initial));
   const [pageSize, setPageSize] = useState<PageSize>(initial?.pageSize ?? 'letter');
   // A heading being typed, saved on Enter or when the field is left; Escape drops it.
@@ -53,11 +55,13 @@ export function ResumeLayoutEditor({ initial, disabled = false, onSaved, onPendi
   const saved = useRef({ rows: layoutRows(initial), pageSize: initial?.pageSize ?? ('letter' as PageSize) });
   // Saves go one at a time, in order; each sends the whole of what it changes.
   const queue = useRef<Promise<void>>(Promise.resolve());
-  const latest = useRef(0);
-  const { container, message, move: moveAndSay, say } = useReorder();
+  const pending = useRef(0);
+  const failed = useRef(false);
+  const { container, list, message, move: moveAndSay, say } = useReorder();
+  const off = disabled || busy;
 
   function save(patch: ResumeLayout) {
-    const mine = (latest.current += 1);
+    pending.current += 1;
     queue.current = queue.current.then(async () => {
       try {
         const layout = await saveResumeLayout(patch);
@@ -68,8 +72,12 @@ export function ResumeLayoutEditor({ initial, disabled = false, onSaved, onPendi
         onSaved?.(layout);
       } catch (error) {
         toast.error(errorMessage(error, "Couldn't save the sections. Try again."));
-        // A later change is on its way with the whole list: it puts this one right.
-        if (mine === latest.current) {
+        failed.current = true;
+      } finally {
+        pending.current -= 1;
+        // Once every change made is answered, a failure puts the editor back to what was saved.
+        if (pending.current === 0 && failed.current) {
+          failed.current = false;
           setRows(saved.current.rows);
           setPageSize(saved.current.pageSize);
         }
@@ -128,16 +136,23 @@ export function ResumeLayoutEditor({ initial, disabled = false, onSaved, onPendi
             return (
               <li key={row.key} className="flex flex-wrap items-end gap-2 p-2">
                 <div className="min-w-40 flex-1 space-y-1">
-                  <Label htmlFor={id} className="text-muted-foreground text-xs font-normal">
-                    {DEFAULT_TITLES[row.key]}
-                    <span className="sr-only"> heading</span>
-                    {row.hidden ? <span className="ml-2 font-medium">Hidden</span> : null}
-                  </Label>
+                  <div className="flex items-baseline gap-2">
+                    <Label htmlFor={id} className="text-muted-foreground text-xs font-normal">
+                      {DEFAULT_TITLES[row.key]}
+                      <span className="sr-only"> heading</span>
+                    </Label>
+                    {row.hidden ? (
+                      <span id={`${id}-hidden`} className="text-xs font-medium">
+                        Hidden
+                      </span>
+                    ) : null}
+                  </div>
                   <Input
                     id={id}
                     value={typing[row.key] ?? heading}
                     maxLength={SECTION_TITLE_MAX}
-                    disabled={disabled}
+                    disabled={off}
+                    aria-describedby={row.hidden ? `${id}-hidden` : undefined}
                     className={row.hidden ? 'text-muted-foreground' : undefined}
                     onChange={(event) => setTyping((current) => ({ ...current, [row.key]: event.target.value }))}
                     onBlur={() => rename(row.key)}
@@ -154,10 +169,11 @@ export function ResumeLayoutEditor({ initial, disabled = false, onSaved, onPendi
                 </div>
                 <div className="flex items-center gap-1">
                   <MoveButtons
+                    list={list}
                     index={index}
                     count={rows.length}
                     label={heading}
-                    disabled={disabled}
+                    disabled={off}
                     onMove={(to, direction) => move(index, to, direction)}
                   />
                   <Button
@@ -165,7 +181,7 @@ export function ResumeLayoutEditor({ initial, disabled = false, onSaved, onPendi
                     variant="outline"
                     size="sm"
                     aria-label={`${row.hidden ? 'Show' : 'Hide'} ${heading}`}
-                    disabled={disabled}
+                    disabled={off}
                     onClick={() => toggle(row.key)}
                   >
                     {row.hidden ? 'Show' : 'Hide'}
@@ -183,7 +199,7 @@ export function ResumeLayoutEditor({ initial, disabled = false, onSaved, onPendi
           <select
             id="resume-layout-page-size"
             value={pageSize}
-            disabled={disabled}
+            disabled={off}
             className="border-input bg-background h-8 rounded-md border px-2 text-sm"
             onChange={(event) => {
               const next = event.target.value as PageSize;
@@ -195,7 +211,7 @@ export function ResumeLayoutEditor({ initial, disabled = false, onSaved, onPendi
             <option value="a4">A4</option>
           </select>
         </div>
-        <Button type="button" variant="ghost" size="sm" disabled={disabled} onClick={reset}>
+        <Button type="button" variant="ghost" size="sm" disabled={off} onClick={reset}>
           Reset to default
         </Button>
       </div>

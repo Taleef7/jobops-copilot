@@ -143,6 +143,37 @@ describe('ResumeLayoutEditor (#415)', () => {
     expect(rows()[2]).toBe('Skills');
   });
 
+  // Fixes from review.
+  it('after a failed save, shows what was saved even when another kind of change followed it', async () => {
+    // The move's save fails only once the page size has changed too.
+    let fail!: () => void;
+    saveResumeLayout.mockImplementationOnce(
+      () => new Promise<ResumeLayout>((_resolve, reject) => (fail = () => reject(new Error("The API couldn't be reached.")))),
+    );
+    saveResumeLayout.mockImplementationOnce(async () => ({ pageSize: 'a4' as const }));
+    const user = userEvent.setup();
+    render(<ResumeLayoutEditor initial={undefined} />);
+
+    await user.click(screen.getByRole('button', { name: 'Move Skills up' }));
+    await user.selectOptions(screen.getByLabelText('Page size'), 'A4');
+    fail();
+    await waitFor(() => expect(saveResumeLayout).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(rows()).toEqual(['Summary', 'Experience', 'Education', 'Skills', 'Projects', 'Certifications']));
+    expect(screen.getByLabelText('Page size')).toHaveValue('a4');
+    expect(toastFn.error).toHaveBeenCalledOnce();
+  });
+
+  it("names a hidden section's field plainly, and says it is hidden", () => {
+    render(<ResumeLayoutEditor initial={{ sections: [{ key: 'skills', hidden: true }] }} />);
+    expect(screen.getByLabelText('Skills heading')).toHaveAccessibleDescription('Hidden');
+  });
+
+  it('says the sections are busy while a résumé save is on its way', () => {
+    render(<ResumeLayoutEditor initial={undefined} busy />);
+    expect(screen.getByRole('button', { name: 'Move Education up' })).toBeDisabled();
+    expect(screen.queryByText(/save your résumé first/i)).not.toBeInTheDocument();
+  });
+
   it("can't be changed before there is a résumé", () => {
     render(<ResumeLayoutEditor initial={undefined} disabled />);
     expect(screen.getByRole('button', { name: 'Move Education up' })).toBeDisabled();

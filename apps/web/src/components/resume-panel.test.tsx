@@ -640,7 +640,8 @@ describe('ResumePanel editor (#415)', () => {
 
     const projects = section('Projects');
     await user.click(within(projects).getByRole('button', { name: /edit/i }));
-    await user.type(within(projects).getByLabelText('Keywords, separated by commas'), 'Go, Postgres');
+    await user.click(within(projects).getByRole('button', { name: 'Add a keyword' }));
+    await user.type(within(projects).getByLabelText('Keyword 1'), 'Go, Postgres');
     await user.click(within(projects).getByRole('button', { name: 'Add a bullet' }));
     await user.type(within(projects).getByLabelText('Bullet 1'), 'Handles 1M entries a day');
     await user.click(within(projects).getByRole('button', { name: /^save$/i }));
@@ -721,5 +722,107 @@ describe('ResumePanel editor (#415)', () => {
     render(<ResumePanel initial={null} updatedAt={null} resumeFileName={null} hasStoredText={false} />);
     expect(screen.getByRole('button', { name: 'Preview PDF' })).toBeDisabled();
     expect(screen.getByRole('button', { name: 'Reset to default' })).toBeDisabled();
+  });
+});
+
+// Fixes from review (#415).
+describe('ResumePanel editor review fixes (#415)', () => {
+  const saved = () => saveBaseResume.mock.calls.at(-1)![0] as StructuredResume;
+  const withBullets: StructuredResume = {
+    ...resume,
+    work: [
+      { company: 'Alpha', position: 'Engineer', startDate: '2020-01', highlights: ['a1', 'a2', 'a3'] },
+      { company: 'Beta', position: 'Engineer', startDate: '2021-01', highlights: ['b1', 'b2', 'b3'] },
+    ],
+  };
+
+  it("keeps focus on the moved role's own buttons, not a bullet's", async () => {
+    const user = userEvent.setup();
+    render(<ResumePanel initial={withBullets} updatedAt={null} resumeFileName="cv.pdf" hasStoredText />);
+    const experience = section('Experience');
+    await user.click(within(experience).getByRole('button', { name: /edit/i }));
+    within(experience).getByRole('button', { name: 'Move Beta up' }).focus();
+    await user.keyboard('{Enter}');
+    expect(within(experience).getByRole('button', { name: 'Move Beta down' })).toHaveFocus();
+    await user.keyboard('{Enter}');
+    expect(within(experience).getByRole('button', { name: 'Move Beta up' })).toHaveFocus();
+  });
+
+  it('an untouched section with commas or line breaks in its items is not a change, and a save leaves them whole', async () => {
+    const stored: StructuredResume = {
+      ...resume,
+      skills: [{ category: 'Cloud', skills: ['AWS (EC2, S3)', 'Docker'] }],
+      projects: [{ name: 'Ledger', description: '', highlights: [], keywords: [] }],
+      education: [{ institution: 'Purdue University', highlights: [] }],
+    };
+    const user = userEvent.setup();
+    render(<ResumePanel initial={stored} updatedAt={null} resumeFileName="cv.pdf" hasStoredText />);
+
+    for (const name of ['Skills', 'Projects', 'Education']) {
+      const region = section(name);
+      await user.click(within(region).getByRole('button', { name: /edit/i }));
+      expect(within(region).getByRole('button', { name: /^save$/i }), name).toBeDisabled();
+      await user.tab();
+      await user.tab();
+      expect(within(region).getByRole('button', { name: /^save$/i }), `${name} after tabbing`).toBeDisabled();
+      await user.click(within(region).getByRole('button', { name: /^cancel$/i }));
+    }
+
+    const skills = section('Skills');
+    await user.click(within(skills).getByRole('button', { name: /edit/i }));
+    await user.type(within(skills).getByLabelText('Skill 2'), ' Compose');
+    await user.click(within(skills).getByRole('button', { name: /^save$/i }));
+    expect(saved().skills).toEqual([{ category: 'Cloud', skills: ['AWS (EC2, S3)', 'Docker Compose'] }]);
+  });
+
+  it('a comma typed in a skill, or Enter in a bullet, starts the next one there', async () => {
+    const user = userEvent.setup();
+    render(<ResumePanel initial={resume} updatedAt={null} resumeFileName="cv.pdf" hasStoredText />);
+
+    const skills = section('Skills');
+    await user.click(within(skills).getByRole('button', { name: /edit/i }));
+    await user.click(within(skills).getByLabelText('Skill 1'));
+    await user.keyboard('{End}, Rust');
+    expect(within(skills).getByLabelText('Skill 1')).toHaveValue('Python');
+    expect(within(skills).getByLabelText('Skill 2')).toHaveValue(' Rust');
+    expect(within(skills).getByLabelText('Skill 2')).toHaveFocus();
+    await user.click(within(skills).getByRole('button', { name: /^save$/i }));
+    expect(saved().skills).toEqual([{ category: 'Languages', skills: ['Python', 'Rust', 'TypeScript'] }]);
+
+    const experience = section('Experience');
+    await user.click(within(experience).getByRole('button', { name: /edit/i }));
+    const bullets = within(experience).getAllByRole('group', { name: 'Bullets' })[0]!;
+    await user.click(within(bullets).getByLabelText('Bullet 1'));
+    await user.keyboard('{End}{Enter}Wrote the runbook');
+    expect(within(bullets).getByLabelText('Bullet 2')).toHaveValue('Wrote the runbook');
+    expect(within(bullets).getByLabelText('Bullet 2')).toHaveFocus();
+  });
+
+  it('a new line gets the focus, and removing one leaves the focus in the list', async () => {
+    const user = userEvent.setup();
+    render(<ResumePanel initial={resume} updatedAt={null} resumeFileName="cv.pdf" hasStoredText />);
+    const skills = section('Skills');
+    await user.click(within(skills).getByRole('button', { name: /edit/i }));
+    const list = within(skills).getAllByRole('group', { name: 'Skills' })[0]!;
+    await user.click(within(list).getByRole('button', { name: 'Add a skill' }));
+    expect(within(list).getByLabelText('Skill 3')).toHaveFocus();
+    await user.click(within(list).getByRole('button', { name: 'Remove skill 3' }));
+    expect(within(list).getByLabelText('Skill 2')).toHaveFocus();
+    await user.click(within(list).getByRole('button', { name: 'Remove skill 1' }));
+    expect(within(list).getByLabelText('Skill 1')).toHaveFocus();
+    await user.click(within(list).getByRole('button', { name: 'Remove skill 1' }));
+    expect(within(list).getByRole('button', { name: 'Add a skill' })).toHaveFocus();
+  });
+
+  it('says the sections are busy, not missing, while a section saves', async () => {
+    saveBaseResume.mockImplementationOnce(() => new Promise<StructuredResume>(() => {}));
+    const user = userEvent.setup();
+    render(<ResumePanel initial={resume} updatedAt={null} resumeFileName="cv.pdf" hasStoredText />);
+    const experience = section('Experience');
+    await user.click(within(experience).getByRole('button', { name: /edit/i }));
+    await user.type(within(experience).getByLabelText('Company', { selector: '#resume-work-1-company' }), ' Inc');
+    await user.click(within(experience).getByRole('button', { name: /^save$/i }));
+    expect(screen.getByLabelText('Skills heading')).toBeDisabled();
+    expect(screen.queryByText(/save your résumé first/i)).not.toBeInTheDocument();
   });
 });

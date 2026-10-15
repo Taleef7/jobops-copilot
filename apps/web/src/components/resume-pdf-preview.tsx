@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Loader2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
@@ -13,6 +13,8 @@ interface ResumePdfPreviewProps {
   disabled?: boolean;
   /** Goes up with every save: a preview of the résumé before it is dropped. */
   changes?: number;
+  /** Settles once changes still being saved (the layout's) are: the PDF waits for them. */
+  pending?: () => Promise<void>;
 }
 
 interface Preview {
@@ -28,7 +30,7 @@ const unprintable = (count: number) =>
  * The base résumé's PDF as saved (#415), in its layout: shown here with its page count, or
  * downloaded. The API renders it on the request and stores nothing.
  */
-export function ResumePdfPreview({ name, disabled = false, changes = 0 }: ResumePdfPreviewProps) {
+export function ResumePdfPreview({ name, disabled = false, changes = 0, pending }: ResumePdfPreviewProps) {
   const [preview, setPreview] = useState<Preview | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -47,13 +49,36 @@ export function ResumePdfPreview({ name, disabled = false, changes = 0 }: Resume
     const { url } = preview;
     return () => URL.revokeObjectURL(url);
   }, [preview]);
+  // For a render on its way: the latest save it has to include, and whether it's still wanted.
+  const latest = useRef(changes);
+  const mounted = useRef(true);
+  useEffect(() => {
+    latest.current = changes;
+  }, [changes]);
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+    };
+  }, []);
 
   async function show() {
     setLoading(true);
     setError(null);
     try {
-      const { blob, pages, unsupported } = await fetchBaseResumePdf();
-      setPreview({ url: URL.createObjectURL(blob), pages, unsupported });
+      // A save made while it renders makes it out of date: it renders again (a few times at most).
+      for (let attempt = 0; attempt < 3; attempt += 1) {
+        await pending?.();
+        const asOf = latest.current;
+        const { blob, pages, unsupported } = await fetchBaseResumePdf();
+        const url = URL.createObjectURL(blob);
+        if (mounted.current && asOf === latest.current) {
+          setPreview({ url, pages, unsupported });
+          return;
+        }
+        URL.revokeObjectURL(url);
+        if (!mounted.current) return;
+      }
     } catch (err) {
       setPreview(null);
       setError(errorMessage(err, "The PDF couldn't be made. Try again in a moment."));
@@ -65,6 +90,7 @@ export function ResumePdfPreview({ name, disabled = false, changes = 0 }: Resume
   async function download() {
     setDownloading(true);
     try {
+      await pending?.();
       const { unsupported } = await downloadBaseResumePdf(`${name.trim() || 'Resume'} – Résumé.pdf`);
       if (unsupported) toast.warning(unprintable(unsupported));
     } catch (err) {

@@ -1,7 +1,8 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
-import type { ReactNode } from 'react';
+import type { ChangeEvent, ClipboardEvent, KeyboardEvent, ReactNode } from 'react';
+import { flushSync } from 'react-dom';
 import { useRouter } from 'next/navigation';
 import { Loader2, X } from 'lucide-react';
 import { toast } from 'sonner';
@@ -69,13 +70,8 @@ const copy = <T,>(value: T): T => JSON.parse(JSON.stringify(value)) as T;
 
 const blank = (...values: Array<string | undefined>) => values.every((value) => !value?.trim());
 
-// A bullet holds one line, and a skill one skill: a pasted list becomes one item each.
-const LINE_BREAK = /\r?\n/;
-const COMMA = ',';
-
-/** Each item split at `separator`, trimmed, with the empty ones dropped. */
-const splitLines = (items: string[], separator: RegExp | string) =>
-  items.flatMap((item) => item.split(separator)).map((item) => item.trim()).filter(Boolean);
+/** Lines trimmed, with the empty ones dropped. */
+const tidyLines = (lines: string[]) => lines.map((line) => line.trim()).filter(Boolean);
 
 /** Drop the blank lines, and the items left empty, that editing leaves behind. */
 function tidy(key: SectionKey, value: SectionValue): SectionValue {
@@ -85,19 +81,19 @@ function tidy(key: SectionKey, value: SectionValue): SectionValue {
   }
   if (key === 'work') {
     return (value as ResumeWorkExperience[])
-      .map((role) => ({ ...role, highlights: splitLines(role.highlights, LINE_BREAK) }))
+      .map((role) => ({ ...role, highlights: tidyLines(role.highlights) }))
       .filter(
         (role) => !blank(role.company, role.position, role.startDate, role.endDate, role.location, role.summary) || role.highlights.length > 0,
       );
   }
   if (key === 'skills') {
     return (value as ResumeSkill[])
-      .map((group) => ({ ...group, skills: splitLines(group.skills, COMMA) }))
+      .map((group) => ({ ...group, skills: tidyLines(group.skills) }))
       .filter((group) => !blank(group.category) || group.skills.length > 0);
   }
   if (key === 'education') {
     return (value as ResumeEducation[])
-      .map((entry) => (entry.highlights ? { ...entry, highlights: splitLines(entry.highlights, LINE_BREAK) } : entry))
+      .map((entry) => (entry.highlights ? { ...entry, highlights: tidyLines(entry.highlights) } : entry))
       .filter(
         (entry) =>
           !blank(entry.institution, entry.studyType, entry.area, entry.startDate, entry.endDate, entry.gpa) ||
@@ -108,8 +104,8 @@ function tidy(key: SectionKey, value: SectionValue): SectionValue {
     return (value as ResumeProject[])
       .map((project) => ({
         ...project,
-        ...(project.highlights ? { highlights: splitLines(project.highlights, LINE_BREAK) } : {}),
-        ...(project.keywords ? { keywords: splitLines(project.keywords, COMMA) } : {}),
+        ...(project.highlights ? { highlights: tidyLines(project.highlights) } : {}),
+        ...(project.keywords ? { keywords: tidyLines(project.keywords) } : {}),
       }))
       .filter(
         (project) =>
@@ -192,7 +188,7 @@ export function ResumePanel({ initial, updatedAt, resumeFileName, hasStoredText,
   const dirty =
     editing !== null &&
     draft !== null &&
-    JSON.stringify(tidy(editing, draft)) !== JSON.stringify(sectionOf(saved, editing));
+    JSON.stringify(tidy(editing, draft)) !== JSON.stringify(tidy(editing, sectionOf(saved, editing)));
   // A résumé is saved whole, and the API needs a name on it.
   const nameMissing =
     editing === 'basics' ? !(draft as ResumeBasics | null)?.name.trim() : !saved.basics.name.trim();
@@ -576,15 +572,16 @@ export function ResumePanel({ initial, updatedAt, resumeFileName, hasStoredText,
       <div className="space-y-5 border-t pt-4">
         <ResumeLayoutEditor
           initial={initial?.layout}
+          disabled={!hasResume}
           // While a résumé save is on its way, so a layout change can't cross it.
-          disabled={!hasResume || saving || importSaving}
+          busy={saving || importSaving}
           onPending={(settled) => (layoutSaves.current = settled)}
           onSaved={(layout) => {
             setSaved((current) => ({ ...current, layout }));
             setChanges((count) => count + 1);
           }}
         />
-        <ResumePdfPreview name={saved.basics.name} disabled={!hasResume} changes={changes} />
+        <ResumePdfPreview name={saved.basics.name} disabled={!hasResume} changes={changes} pending={() => layoutSaves.current} />
       </div>
     </div>
   );
@@ -851,7 +848,6 @@ function SectionEditor({ sectionKey, value, onChange, onRemove }: EditorProps) {
               legend="Bullets"
               noun="bullet"
               lines={role.highlights}
-              separator={LINE_BREAK}
               multiline
               onChange={(lines) => set(index, 'highlights', lines)}
             />
@@ -900,7 +896,6 @@ function SectionEditor({ sectionKey, value, onChange, onRemove }: EditorProps) {
               legend="Bullets"
               noun="bullet"
               lines={entry.highlights ?? []}
-              separator={LINE_BREAK}
               multiline
               onChange={(lines) => set(index, 'highlights', lines)}
             />
@@ -931,7 +926,6 @@ function SectionEditor({ sectionKey, value, onChange, onRemove }: EditorProps) {
               legend="Skills"
               noun="skill"
               lines={group.skills}
-              separator={COMMA}
               onChange={(skills) => set(index, { ...group, skills })}
             />
           </div>
@@ -962,26 +956,23 @@ function SectionEditor({ sectionKey, value, onChange, onRemove }: EditorProps) {
                 <Input id={`resume-projects-${index}-url`} value={project.url ?? ''} onChange={(e) => set(index, 'url', e.target.value)} />
               </Field>
               <div className="sm:col-span-2">
-                <Field id={`resume-projects-${index}-keywords`} label="Keywords, separated by commas">
-                  <Input
-                    id={`resume-projects-${index}-keywords`}
-                    value={(project.keywords ?? []).join(', ')}
-                    onChange={(e) => set(index, 'keywords', e.target.value.split(',').map((keyword) => keyword.trimStart()))}
-                  />
-                </Field>
-              </div>
-              <div className="sm:col-span-2">
                 <Field id={`resume-projects-${index}-description`} label="Description">
                   <Textarea id={`resume-projects-${index}-description`} rows={2} value={project.description ?? ''} onChange={(e) => set(index, 'description', e.target.value)} />
                 </Field>
               </div>
             </div>
             <LineList
+              idPrefix={`resume-projects-${index}-keywords`}
+              legend="Keywords"
+              noun="keyword"
+              lines={project.keywords ?? []}
+              onChange={(keywords) => set(index, 'keywords', keywords)}
+            />
+            <LineList
               idPrefix={`resume-projects-${index}-highlights`}
               legend="Bullets"
               noun="bullet"
               lines={project.highlights ?? []}
-              separator={LINE_BREAK}
               multiline
               onChange={(lines) => set(index, 'highlights', lines)}
             />
@@ -1040,7 +1031,7 @@ interface ItemListProps<T> {
  * Add below.
  */
 function ItemList<T>({ items, addLabel, onAdd, onMove, render, itemLabel, onRemove }: ItemListProps<T>) {
-  const { container, message, move: moveAndSay } = useReorder();
+  const { container, list, message, move: moveAndSay } = useReorder();
   return (
     <div ref={container} className="space-y-3">
       <ol className="divide-y">
@@ -1051,6 +1042,7 @@ function ItemList<T>({ items, addLabel, onAdd, onMove, render, itemLabel, onRemo
               {render(item, index)}
               <div className="flex justify-end gap-1">
                 <MoveButtons
+                  list={list}
                   index={index}
                   count={items.length}
                   label={label}
@@ -1085,71 +1077,102 @@ interface LineListProps {
   /** "bullet", "skill": "Bullet 2", "Move bullet 2 up", "Add a bullet". */
   noun: string;
   lines: string[];
-  /** What splits a pasted list into lines: a line break for bullets, a comma for skills. */
-  separator: RegExp | string;
+  /** Bullets: a field of their own lines, where Enter starts the next one. Otherwise a comma does. */
   multiline?: boolean;
   onChange: (lines: string[]) => void;
 }
 
-/** One field per line (a bullet, a skill), each with Move up, Move down and Remove (#415). */
-function LineList({ idPrefix, legend, noun, lines, separator, multiline = false, onChange }: LineListProps) {
-  const { container, message, move: moveAndSay } = useReorder();
+type LineField = HTMLInputElement | HTMLTextAreaElement;
+
+/**
+ * One field per line (a bullet, a skill), each with Move up, Move down and Remove (#415).
+ * Enter in a bullet, or a comma in a skill, starts the next one after it; a pasted list
+ * becomes one line each. Lines already stored are never split.
+ */
+function LineList({ idPrefix, legend, noun, lines, multiline = false, onChange }: LineListProps) {
+  const { container, list, message, move: moveAndSay } = useReorder();
   const Noun = noun.charAt(0).toUpperCase() + noun.slice(1);
-  const set = (index: number, text: string) => onChange(lines.map((line, i) => (i === index ? text : line)));
-  // A pasted list is split when the field is left; a lone blank line stays until the save.
-  const split = (index: number) => {
-    const parts = lines[index]!.split(separator).map((part) => part.trim()).filter(Boolean);
-    if (parts.length > 1) onChange([...lines.slice(0, index), ...parts, ...lines.slice(index + 1)]);
+  const separator = multiline ? /\r?\n/ : ',';
+  const addId = `${idPrefix}-add`;
+
+  /** Change the lines now, then focus line `index` (the Add button when none are left). */
+  const changeAndFocus = (next: string[], index: number, caret?: number) => {
+    flushSync(() => onChange(next));
+    const target = document.getElementById(next.length > 0 ? `${idPrefix}-${Math.min(index, next.length - 1)}` : addId);
+    target?.focus();
+    if (caret !== undefined && (target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement)) {
+      target.setSelectionRange(caret, caret);
+    }
   };
+  const set = (index: number, text: string) => onChange(lines.map((line, i) => (i === index ? text : line)));
+  /** Line `index` cut at the selection: what's before stays, then `inserted`, then what's after. */
+  const cut = (index: number, field: LineField, inserted: string[]) => {
+    const value = field.value;
+    const from = field.selectionStart ?? value.length;
+    const to = field.selectionEnd ?? from;
+    const parts = [...inserted];
+    parts[0] = value.slice(0, from) + parts[0];
+    const caret = parts[parts.length - 1]!.length;
+    parts[parts.length - 1] += value.slice(to);
+    changeAndFocus([...lines.slice(0, index), ...parts, ...lines.slice(index + 1)], index + parts.length - 1, caret);
+  };
+  const fieldProps = (index: number) => ({
+    id: `${idPrefix}-${index}`,
+    value: lines[index],
+    onChange: (event: ChangeEvent<LineField>) => set(index, event.target.value),
+    onKeyDown: (event: KeyboardEvent<LineField>) => {
+      if (event.key !== (multiline ? 'Enter' : ',') || event.nativeEvent.isComposing) return;
+      event.preventDefault();
+      cut(index, event.currentTarget, ['', '']);
+    },
+    onPaste: (event: ClipboardEvent<LineField>) => {
+      const pasted = event.clipboardData.getData('text').split(separator);
+      if (pasted.length < 2) return;
+      event.preventDefault();
+      cut(index, event.currentTarget, [pasted[0]!, ...pasted.slice(1).map((part) => part.trim())]);
+    },
+  });
+
   return (
     <fieldset className="min-w-0 space-y-2">
       <legend className="text-sm font-medium">{legend}</legend>
       <div ref={container} className="space-y-2">
         {lines.length > 0 ? (
           <ol className="space-y-2">
-            {lines.map((line, index) => {
-              const id = `${idPrefix}-${index}`;
-              return (
-                <li key={index} className={`flex items-start gap-1 ${multiline ? 'flex-wrap sm:flex-nowrap' : ''}`}>
-                  <Label htmlFor={id} className="sr-only">
-                    {`${Noun} ${index + 1}`}
-                  </Label>
-                  {multiline ? (
-                    <Textarea
-                      id={id}
-                      rows={2}
-                      className="min-h-0 min-w-0 basis-full sm:basis-0 sm:flex-1"
-                      value={line}
-                      onChange={(e) => set(index, e.target.value)}
-                      onBlur={() => split(index)}
-                    />
-                  ) : (
-                    <Input id={id} className="min-w-0 flex-1" value={line} onChange={(e) => set(index, e.target.value)} onBlur={() => split(index)} />
-                  )}
-                  <div className="ml-auto flex shrink-0 gap-1">
-                    <MoveButtons
-                      index={index}
-                      count={lines.length}
-                      label={`${noun} ${index + 1}`}
-                      onMove={(to, direction) => moveAndSay(() => onChange(moveItem(lines, index, to)), Noun, to, lines.length, direction)}
-                    />
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="icon-sm"
-                      aria-label={`Remove ${noun} ${index + 1}`}
-                      title="Remove"
-                      onClick={() => onChange(lines.filter((_, i) => i !== index))}
-                    >
-                      <X aria-hidden="true" />
-                    </Button>
-                  </div>
-                </li>
-              );
-            })}
+            {lines.map((_line, index) => (
+              <li key={index} className={`flex items-start gap-1 ${multiline ? 'flex-wrap sm:flex-nowrap' : ''}`}>
+                <Label htmlFor={`${idPrefix}-${index}`} className="sr-only">
+                  {`${Noun} ${index + 1}`}
+                </Label>
+                {multiline ? (
+                  <Textarea rows={2} className="min-h-0 min-w-0 basis-full sm:basis-0 sm:flex-1" {...fieldProps(index)} />
+                ) : (
+                  <Input className="min-w-0 flex-1" {...fieldProps(index)} />
+                )}
+                <div className="ml-auto flex shrink-0 gap-1">
+                  <MoveButtons
+                    list={list}
+                    index={index}
+                    count={lines.length}
+                    label={`${noun} ${index + 1}`}
+                    onMove={(to, direction) => moveAndSay(() => onChange(moveItem(lines, index, to)), Noun, to, lines.length, direction)}
+                  />
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon-sm"
+                    aria-label={`Remove ${noun} ${index + 1}`}
+                    title="Remove"
+                    onClick={() => changeAndFocus(lines.filter((_kept, i) => i !== index), index)}
+                  >
+                    <X aria-hidden="true" />
+                  </Button>
+                </div>
+              </li>
+            ))}
           </ol>
         ) : null}
-        <Button type="button" variant="outline" size="sm" onClick={() => onChange([...lines, ''])}>
+        <Button id={addId} type="button" variant="outline" size="sm" onClick={() => changeAndFocus([...lines, ''], lines.length)}>
           {`Add a ${noun}`}
         </Button>
         <MoveMessage message={message} />

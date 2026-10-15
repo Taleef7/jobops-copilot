@@ -14,7 +14,8 @@ const REPORTED_CSP = [
   "img-src 'self' data: blob: https://img.clerk.com",
   "style-src 'self' 'unsafe-inline'",
   "font-src 'self' data:",
-  "frame-src 'self' https://challenges.cloudflare.com",
+  // blob: is the résumé's PDF preview in Settings (#415).
+  "frame-src 'self' blob: https://challenges.cloudflare.com",
   "worker-src 'self' blob:",
   "form-action 'self'",
   "frame-ancestors 'none'",

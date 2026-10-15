@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useId, useState } from 'react';
 import { flushSync } from 'react-dom';
 import { ArrowDown, ArrowUp } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -14,9 +14,12 @@ export function useReorder() {
   const [message, setMessage] = useState('');
   // The list's element, as a callback ref (`ref={reorder.container}`).
   const [container, setContainer] = useState<HTMLElement | null>(null);
+  // Its own buttons carry this, so a list inside one (an entry's bullets) isn't searched.
+  const list = useId();
 
   return {
     container: setContainer,
+    list,
     message,
     /**
      * Moves an item (`apply` changes the list) and says where it went. Focus stays on the
@@ -29,7 +32,7 @@ export function useReorder() {
         setMessage(`${label} moved to position ${to + 1} of ${count}`);
       });
       const find = (which: Direction) =>
-        container?.querySelector<HTMLButtonElement>(`[data-move="${which}"][data-move-index="${to}"]`);
+        container?.querySelector<HTMLButtonElement>(`[data-move-list="${list}"][data-move="${which}"][data-move-index="${to}"]`);
       const button = find(direction);
       (button && !button.disabled ? button : find(direction === 'up' ? 'down' : 'up'))?.focus();
     },
@@ -50,6 +53,8 @@ export function MoveMessage({ message }: { message: string }) {
 }
 
 interface MoveButtonsProps {
+  /** The list's id, from useReorder. */
+  list: string;
   index: number;
   count: number;
   /** What moves, as said in "Move … up". */
@@ -58,13 +63,14 @@ interface MoveButtonsProps {
   disabled?: boolean;
 }
 
-export function MoveButtons({ index, count, label, onMove, disabled = false }: MoveButtonsProps) {
+export function MoveButtons({ list, index, count, label, onMove, disabled = false }: MoveButtonsProps) {
   return (
     <>
       <Button
         type="button"
         variant="ghost"
         size="icon-sm"
+        data-move-list={list}
         data-move="up"
         data-move-index={index}
         aria-label={`Move ${label} up`}
@@ -78,6 +84,7 @@ export function MoveButtons({ index, count, label, onMove, disabled = false }: M
         type="button"
         variant="ghost"
         size="icon-sm"
+        data-move-list={list}
         data-move="down"
         data-move-index={index}
         aria-label={`Move ${label} down`}

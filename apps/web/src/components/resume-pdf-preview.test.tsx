@@ -73,6 +73,39 @@ describe('ResumePdfPreview (#415)', () => {
     expect(URL.revokeObjectURL).toHaveBeenCalledWith('blob:preview-1');
   });
 
+  // Fixes from review.
+  it('waits for layout changes still being saved before rendering', async () => {
+    let settle!: () => void;
+    const pending = new Promise<void>((resolve) => (settle = resolve));
+    fetchBaseResumePdf.mockResolvedValueOnce(pdf(1));
+    const user = userEvent.setup();
+    render(<ResumePdfPreview name="Zoë Núñez" pending={() => pending} />);
+    await user.click(screen.getByRole('button', { name: 'Preview PDF' }));
+    expect(fetchBaseResumePdf).not.toHaveBeenCalled();
+    settle();
+    expect(await screen.findByText('Your PDF is 1 page.')).toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: 'Download PDF' }));
+    expect(downloadBaseResumePdf).toHaveBeenCalledOnce();
+  });
+
+  it('never shows a PDF made before the latest change', async () => {
+    let answer!: (value: ReturnType<typeof pdf>) => void;
+    fetchBaseResumePdf.mockImplementationOnce(() => new Promise((resolve) => (answer = resolve)));
+    fetchBaseResumePdf.mockResolvedValueOnce(pdf(2));
+    const user = userEvent.setup();
+    const { rerender } = render(<ResumePdfPreview name="Zoë Núñez" changes={0} />);
+    await user.click(screen.getByRole('button', { name: 'Preview PDF' }));
+    rerender(<ResumePdfPreview name="Zoë Núñez" changes={1} />);
+    answer(pdf(1));
+
+    // The old one is dropped and the current one rendered.
+    expect(await screen.findByText('Your PDF is 2 pages.')).toBeInTheDocument();
+    expect(screen.queryByText('Your PDF is 1 page.')).not.toBeInTheDocument();
+    expect(URL.revokeObjectURL).toHaveBeenCalledWith('blob:preview-1');
+    expect(screen.getByTitle('Résumé PDF preview')).toHaveAttribute('src', 'blob:preview-2');
+  });
+
   it("can't be used before there is a résumé", () => {
     render(<ResumePdfPreview name="" disabled />);
     expect(screen.getByRole('button', { name: 'Preview PDF' })).toBeDisabled();

@@ -40,6 +40,8 @@ it('reports, without enforcing yet, the full policy Clerk needs', async () => {
   expect(directive('connect-src')).toContain('https://*.clerk.accounts.dev');
   expect(directive('img-src')).toContain('https://img.clerk.com');
   expect(directive('frame-src')).toContain('https://challenges.cloudflare.com');
+  // The résumé's PDF preview (#415) is a blob: frame.
+  expect(directive('frame-src')).toContain('blob:');
   expect(directive('worker-src')).toBe("worker-src 'self' blob:");
   expect(directive('report-uri')).toBe('report-uri /api/csp-report');
 });
