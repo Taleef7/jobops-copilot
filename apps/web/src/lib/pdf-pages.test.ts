@@ -23,3 +23,21 @@ it("reads the API's résumé PDF with pdf.js: its pages, fonts and text", async 
     await task.destroy();
   }
 });
+
+// Codex on #436: with no workerSrc, pdf.js needs `globalThis.pdfjsWorker` to run on the main
+// thread. The worker module sets it once, on its first import; loadPdf sets it every time.
+it('gives pdf.js its main-thread worker on every load', async () => {
+  const data = readFileSync(join(__dirname, '__fixtures__', 'resume.pdf'));
+  const scope = globalThis as { pdfjsWorker?: { WorkerMessageHandler?: unknown } };
+  const handler = () => scope.pdfjsWorker?.WorkerMessageHandler;
+  await (await loadPdf(new Uint8Array(data).buffer)).destroy();
+  delete scope.pdfjsWorker;
+
+  const task = await loadPdf(new Uint8Array(data).buffer);
+  try {
+    expect(handler()).toBeTruthy();
+    expect((await task.promise).numPages).toBe(1);
+  } finally {
+    await task.destroy();
+  }
+});
