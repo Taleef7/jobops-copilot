@@ -98,3 +98,17 @@ it('a changed follow-up is sent as the instant it is where the user is', async (
 
   expect(savedPayload().nextActionDue).toBe('2026-10-20T13:00:00.000Z');
 });
+
+// A field left out of the update keeps its value, so a cleared one has to be sent as null.
+it('clearing the notes, next action and follow-up sends null for each', async () => {
+  updateJob.mockResolvedValueOnce({});
+  const user = userEvent.setup();
+  render(<JobEditPanel job={{ ...dueJob, notes: 'Call Sam', nextAction: 'Send the follow-up' } as Job} />);
+
+  await user.clear(screen.getByLabelText('Notes'));
+  await user.clear(screen.getByLabelText('Next action'));
+  fireEvent.change(screen.getByLabelText('Follow-up due'), { target: { value: '' } });
+  await user.click(screen.getByRole('button', { name: /save changes/i }));
+
+  expect(savedPayload()).toMatchObject({ notes: null, nextAction: null, nextActionDue: null });
+});

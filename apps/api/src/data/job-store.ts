@@ -329,13 +329,13 @@ export async function updateJob(
       job.priority = body.priority;
     }
     if (typeof body.notes !== 'undefined') {
-      job.notes = body.notes.trim() || undefined;
+      job.notes = body.notes?.trim() || undefined;
     }
     if (typeof body.fitScore !== 'undefined') {
       job.fitScore = body.fitScore;
     }
     if (typeof body.nextAction !== 'undefined') {
-      job.nextAction = body.nextAction.trim();
+      job.nextAction = body.nextAction?.trim() ?? '';
     }
     if (typeof body.nextActionDue !== 'undefined') {
       job.nextActionDue = body.nextActionDue || undefined;

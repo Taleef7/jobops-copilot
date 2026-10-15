@@ -476,10 +476,10 @@ export async function updateJob(
         set
           status = coalesce($2, status),
           priority = coalesce($3, priority),
-          notes = case when $4::text is null then notes else nullif($4::text, '') end,
+          notes = case when $9::boolean then nullif($4::text, '') else notes end,
           fit_score = coalesce($5, fit_score),
-          next_action = case when $6::text is null then next_action else nullif($6::text, '') end,
-          next_action_due = case when $7::timestamptz is null then next_action_due else $7::timestamptz end
+          next_action = case when $10::boolean then nullif($6::text, '') else next_action end,
+          next_action_due = case when $11::boolean then $7::timestamptz else next_action_due end
         where id::text = $1 and user_id = $8
         returning *
       `,
@@ -492,6 +492,10 @@ export async function updateJob(
         body.nextAction ?? null,
         body.nextActionDue ?? null,
         userId,
+        // Set when given, null included (it clears); left out, unchanged.
+        body.notes !== undefined,
+        body.nextAction !== undefined,
+        body.nextActionDue !== undefined,
       ],
     );
 

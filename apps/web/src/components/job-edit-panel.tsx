@@ -83,8 +83,9 @@ export function JobEditPanel({ job }: { job: Job }) {
       await updateJob(job.id, {
         status: form.status,
         priority: form.priority,
-        notes: form.notes.trim() || undefined,
-        nextAction: form.nextAction.trim() || undefined,
+        // A field left out is unchanged, so a cleared one is sent as null.
+        notes: form.notes.trim() || null,
+        nextAction: form.nextAction.trim() || null,
         // Only when changed: when the clocks go back, an hour repeats and the input can't say
         // which, so reading it back could move the due date an hour.
         nextActionDue:
@@ -92,7 +93,7 @@ export function JobEditPanel({ job }: { job: Job }) {
             ? undefined
             : form.nextActionDue.trim()
               ? fromDatetimeLocalValue(form.nextActionDue)
-              : undefined,
+              : null,
       });
       toast.success('Job updated.');
       router.refresh();
