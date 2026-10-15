@@ -43,6 +43,7 @@ def test_parsed_job_workplace_is_one_the_api_knows():
         "100% remote": "remote",
         "remote or hybrid": "remote or hybrid",
         "flexible": "flexible",
+        "Flexible": "flexible",
         "  ": None,
         "": None,
         None: None,
@@ -172,3 +173,10 @@ def test_parsed_job_keeps_only_the_text_places_of_a_location_list():
     assert ParsedJob(location=[1, "NYC", {"city": "x"}]).location == "NYC"
     assert ParsedJob(location=[None]).location is None
     assert ParsedJob(location=5).location is None
+
+
+def test_the_workplace_field_names_the_values_the_api_knows():
+    # A free string now, so the structured-output schema guides the model by its description.
+    description = ParsedJob.model_json_schema()["properties"]["workplace_type"]["description"]
+    for value in ("remote", "hybrid", "onsite", "flexible"):
+        assert value in description

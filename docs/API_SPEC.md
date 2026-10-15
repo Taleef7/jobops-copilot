@@ -207,7 +207,7 @@ Response fields (every field except `source` is optional and omitted when not fo
 
 - `title`, `company`, `location`, `descriptionText` — extracted strings.
 - `workplaceType` — one of `remote`, `hybrid`, `onsite`, `flexible` (currently only set to `remote`, from a JSON-LD `TELECOMMUTE` location).
-- `salary` — as for `parse-job` (#355), read from `descriptionText`: `{ min, max, currency }`, `null` when it shows no sign of a salary, and left out when unknown, including when the description is only the page's meta description.
+- `salary` — as for `parse-job` (#355): the store's reading of `descriptionText`, or `null`; left out when there's no description or only the page's meta description.
 - `source` — the highest-priority tier that contributed at least one field: `jsonld`, `opengraph`, `heuristic`, or `none`.
 
 When nothing could be extracted the body is just `{ "source": "none" }`.
@@ -300,8 +300,8 @@ Current response fields:
 - `company`
 - `title`
 - `location`: where the job is based, as the posting says, or `null`. Left out when the agent doesn't read it (an image from before #355): unknown, not "not stated".
-- `workplace_type`: `remote`, `hybrid` or `onsite` when the posting says ("On-site", "in-office", "in-person", "fully remote", "100% remote" and a leading "remote" are read too), or `null` when it says nothing. Left out when the agent doesn't read it, or for a word the app doesn't know ("flexible", "remote or hybrid"), which the agent passes through as written.
-- `salary`: `{ min, max, currency }` for a yearly figure with its currency stated next to it, in a currency the parser reads correctly, read from the whole `description_text` as the store reads it on save; `null` when the posting shows no sign of a salary. Left out (unknown) for an hourly, daily, weekly or monthly figure, a figure with no currency next to it, another currency next to it ("A$", "$… CAD"), or pay the parser can't read.
+- `workplace_type`: `remote`, `hybrid`, `onsite` or `flexible` when the posting says ("On-site", "in-office", "in-person", "fully remote", "100% remote" and a leading "remote" are read too), or `null` when it says nothing. Left out when the agent doesn't read it, or for a word the app doesn't know ("remote or hybrid"), which the agent passes through as written.
+- `salary`: `{ min, max, currency }` as the store will save it from `description_text` (`parseSalaryFromText`: a yearly figure, an hourly rate made yearly), or `null` when it finds none. The Add job review shows it as what will be saved, not as what the posting says.
 
 Errors:
 - `400` when `description_text` is missing, empty or not a string.

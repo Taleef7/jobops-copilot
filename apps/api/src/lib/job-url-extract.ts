@@ -1,5 +1,5 @@
 import { parse, type HTMLElement } from 'node-html-parser';
-import { readSalaryForReview, type ParsedSalary } from '@/lib/job-enrich';
+import { parseSalaryFromText, type ParsedSalary } from '@/lib/job-enrich';
 
 export type WorkplaceType = 'remote' | 'hybrid' | 'onsite' | 'flexible';
 
@@ -10,9 +10,9 @@ export interface ExtractedJob {
   descriptionText?: string;
   workplaceType?: WorkplaceType;
   /**
-   * The salary the description states, for the Add job review (#355): null when it shows no
-   * sign of one, left out when it's unknown (no description, a metadata teaser, or a figure
-   * the review can only guess at). See readSalaryForReview.
+   * The salary as the store will save it from this description (parseSalaryFromText), for
+   * the Add job review (#355): null when it finds none, left out when there's no description
+   * or only the page's meta description.
    */
   salary?: ParsedSalary | null;
   /**
@@ -154,8 +154,7 @@ export function extractJobFromHtml(html: string): ExtractedJob {
   }
   // A meta description is a teaser: the salary it leaves out may be in the posting.
   if (result.descriptionText && descriptionTier !== 'opengraph') {
-    const salary = readSalaryForReview(result.descriptionText);
-    if (salary !== undefined) result.salary = salary;
+    result.salary = parseSalaryFromText(result.descriptionText);
   }
   return result;
 }

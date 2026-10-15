@@ -6,15 +6,19 @@ export function isDuplicateRemote(location: string, workplaceType: WorkplaceType
 
 const CURRENCY_SIGNS: Record<string, string> = { USD: '$', GBP: '£', EUR: '€' };
 
-/** A salary read from a posting, written out in full: "£80,000 – £95,000", "From $90,000" (#355). */
-export function salaryAsPosted(salary: { min: number | null; max: number | null; currency: string }): string | null {
-  const sign = CURRENCY_SIGNS[salary.currency];
-  const amount = (value: number) => `${sign ?? `${salary.currency} `}${value.toLocaleString('en-US')}`;
+/**
+ * A salary as the store saves it, written out in full with its basis and currency:
+ * "£80,000 – £95,000 a year (GBP)", "From $90,000 a year (USD)" (#355).
+ */
+export function salaryAsSaved(salary: { min: number | null; max: number | null; currency: string }): string | null {
+  const sign = CURRENCY_SIGNS[salary.currency] ?? '';
+  const amount = (value: number) => `${sign}${value.toLocaleString('en-US')}`;
   const { min, max } = salary;
-  if (min != null && max != null) return min === max ? amount(min) : `${amount(min)} – ${amount(max)}`;
-  if (min != null) return `From ${amount(min)}`;
-  if (max != null) return `Up to ${amount(max)}`;
-  return null;
+  let figure: string | null = null;
+  if (min != null && max != null) figure = min === max ? amount(min) : `${amount(min)} – ${amount(max)}`;
+  else if (min != null) figure = `From ${amount(min)}`;
+  else if (max != null) figure = `Up to ${amount(max)}`;
+  return figure ? `${figure} a year (${salary.currency})` : null;
 }
 
 /** "Company · Location" for a list row, or the company alone when the job states no location (#355). */

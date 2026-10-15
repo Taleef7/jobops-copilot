@@ -36,61 +36,7 @@ function isReasonable(min: number | null, max: number | null): boolean {
   return true;
 }
 
-type SalaryMatch = ParsedSalary & {
-  hourly: boolean;
-  /** A currency sign or code is part of the matched figure. */
-  explicitCurrency: boolean;
-  /** The matched figure with 30 characters either side, for the words around it. */
-  near: string;
-  /** The matched figure with what's right at it: a sign just before, a code just after. */
-  at: string;
-};
-
-/** The salary the store saves for a description: an hourly rate is made annual (x2080). */
 export function parseSalaryFromText(text: string): ParsedSalary | null {
-  const match = matchSalary(text);
-  return match ? { min: match.min, max: match.max, currency: match.currency } : null;
-}
-
-// Next to a figure, a sign of a currency the parser doesn't know: it reads "$120,000 CAD" or
-// "A$120,000" as USD. Checked near the figure only, so "AutoCAD" elsewhere doesn't count.
-// "US$" is US dollars: "S$" must start a word.
-const OTHER_CURRENCY = /\b(?:CAD|AUD|NZD|SGD|HKD|INR|JPY|CNY|RMB|CHF|SEK|NOK|DKK|MXN|BRL|ZAR|PLN)\b|\b(?:C|CA|A|AU|NZ|S|HK)\$/;
-// Next to a figure, a sign that it isn't per year.
-const NOT_YEARLY = /\b(?:month|monthly|months|mo|week|weekly|weeks|wk|day|daily|days|hour|hourly|hours|hr|hrs)\b|\/\s?(?:mo|month|wk|week|day|d|hr|hour|h)\b/i;
-// A sign that the posting talks about pay, whether or not a figure could be read. Every
-// repeat is bounded, as the text can be anything that was pasted.
-const CURRENCY_CODES = 'USD|GBP|EUR|CAD|AUD|NZD|SGD|HKD|INR|JPY|CNY|RMB|CHF|SEK|NOK|DKK|MXN|BRL|ZAR|PLN';
-const SALARY_SIGNS = new RegExp(
-  [
-    '[$£€¥₹]\\s?\\d',
-    '\\bkr\\.?\\s?\\d',
-    `\\b(?:${CURRENCY_CODES})\\s?\\d`,
-    `\\b\\d[\\d,.\\s]{0,15}(?:kr|${CURRENCY_CODES})\\b`,
-    '\\b\\d{1,4}\\s?k\\b',
-    '\\b(?:salary|salaries|compensation|pay range|pay rate|base pay|base salary|base|hourly rate|per hour|per annum|OTE|CTC|lakh|lakhs|LPA|remuneration|wage|wages|stipend)\\b',
-  ].join('|'),
-  'i',
-);
-
-/**
- * The salary for the Add job review (#355), as the posting states it: a yearly figure with
- * its currency stated next to it, in a currency the parser reads correctly. Undefined
- * (unknown) for an hourly, daily, weekly or monthly figure (the store makes an hourly rate
- * yearly), a figure with no currency next to it, another currency next to it, or pay the
- * parser can't read. Null only when the posting shows no sign of a salary.
- */
-export function readSalaryForReview(text: string): ParsedSalary | null | undefined {
-  const match = matchSalary(text);
-  if (match) {
-    if (match.hourly || !match.explicitCurrency) return undefined;
-    if (NOT_YEARLY.test(match.near) || OTHER_CURRENCY.test(match.at)) return undefined;
-    return { min: match.min, max: match.max, currency: match.currency };
-  }
-  return SALARY_SIGNS.test(text) ? undefined : null;
-}
-
-function matchSalary(text: string): SalaryMatch | null {
   if (!text || typeof text !== 'string') return null;
 
   // Mask 401(k) references so they aren't parsed as a $401k salary.
@@ -102,41 +48,33 @@ function matchSalary(text: string): SalaryMatch | null {
     .replace(/\s+/g, ' ')
     .replace(/\d{13,}/g, ' ');
   const currency = resolveCurrency(cleaned);
-  const around = (m: RegExpMatchArray) => {
-    const start = m.index ?? 0;
-    const end = start + m[0].length;
-    return {
-      near: cleaned.slice(Math.max(0, start - 30), end + 30),
-      at: cleaned.slice(Math.max(0, start - 4), end + 8),
-    };
-  };
 
   // 1. Hourly rate: e.g. "$45/hr contract" or "$40 - $60 / hour"
   const hourlyRangeMatches = cleaned.matchAll(
-    /(?:US\$|\$|£|€|USD|GBP|EUR)?\s*(\d{1,12}(?:\.\d{1,12})?)\s*(?:-|–|—|to)\s*(?:US\$|\$|£|€|USD|GBP|EUR)?\s*(\d{1,12}(?:\.\d{1,12})?)\s*(?:\/|\bper\s+)(?:hr|hour|hourly)\b/gi,
+    /(?:\$|£|€|USD|GBP|EUR)?\s*(\d{1,12}(?:\.\d{1,12})?)\s*(?:-|–|—|to)\s*(?:\$|£|€|USD|GBP|EUR)?\s*(\d{1,12}(?:\.\d{1,12})?)\s*(?:\/|\bper\s+)(?:hr|hour|hourly)\b/gi,
   );
   for (const m of hourlyRangeMatches) {
     const min = parseNumber(m[1]!, false, true);
     const max = parseNumber(m[2]!, false, true);
     if (isReasonable(min, max)) {
-      return { min, max, currency, hourly: true, explicitCurrency: false, ...around(m) };
+      return { min, max, currency };
     }
   }
 
   const singleHourlyMatches = cleaned.matchAll(
-    /(?:US\$|\$|£|€|USD|GBP|EUR)?\s*(\d{1,12}(?:\.\d{1,12})?)\s*(?:\/|\bper\s+)(?:hr|hour|hourly)\b/gi,
+    /(?:\$|£|€|USD|GBP|EUR)?\s*(\d{1,12}(?:\.\d{1,12})?)\s*(?:\/|\bper\s+)(?:hr|hour|hourly)\b/gi,
   );
   for (const m of singleHourlyMatches) {
     const rate = parseNumber(m[1]!, false, true);
     if (isReasonable(rate, rate)) {
-      return { min: rate, max: rate, currency, hourly: true, explicitCurrency: false, ...around(m) };
+      return { min: rate, max: rate, currency };
     }
   }
 
   // 2. Annual range: e.g. "$120,000 - $150,000", "$120k–$150K", "120,000 to 150,000 USD"
   // Prioritize matches with currency symbols or salary keywords, iterating all matches.
   const rangeRegex =
-    /(?:(US\$|\$|£|€|USD|GBP|EUR)\s*)?(\d{1,12}(?:,\d{3}){0,4}(?:\.\d{1,12})?)\s*(k)?\s*(?:-|–|—|to)\s*(?:(US\$|\$|£|€|USD|GBP|EUR)\s*)?(\d{1,12}(?:,\d{3}){0,4}(?:\.\d{1,12})?)\s*(k)?\s*(USD|GBP|EUR)?/gi;
+    /(?:(\$|£|€|USD|GBP|EUR)\s*)?(\d{1,12}(?:,\d{3}){0,4}(?:\.\d{1,12})?)\s*(k)?\s*(?:-|–|—|to)\s*(?:(\$|£|€|USD|GBP|EUR)\s*)?(\d{1,12}(?:,\d{3}){0,4}(?:\.\d{1,12})?)\s*(k)?\s*(USD|GBP|EUR)?/gi;
 
   for (const m of cleaned.matchAll(rangeRegex)) {
     const curr1 = m[1];
@@ -176,13 +114,13 @@ function matchSalary(text: string): SalaryMatch | null {
     if (isReasonable(min, max)) {
       const matchCurr = curr1 || curr2 || curr3;
       const effectiveCurr = matchCurr ? resolveCurrency(matchCurr) : currency;
-      return { min, max, currency: effectiveCurr, hourly: false, explicitCurrency: hasCurrency, ...around(m) };
+      return { min, max, currency: effectiveCurr };
     }
   }
 
   // 3. "up to" as max-only: e.g. "up to $95,000" or "up to $120k"
   const upToMatches = cleaned.matchAll(
-    /\b(?:up\s+to|max(?:imum)?)\s*(?:(US\$|\$|£|€|USD|GBP|EUR)\s*)?(\d{1,12}(?:,\d{3}){0,4}(?:\.\d{1,12})?)\s*(k)?\b/gi,
+    /\b(?:up\s+to|max(?:imum)?)\s*(?:(\$|£|€|USD|GBP|EUR)\s*)?(\d{1,12}(?:,\d{3}){0,4}(?:\.\d{1,12})?)\s*(k)?\b/gi,
   );
   for (const m of upToMatches) {
     const currSym = m[1];
@@ -193,13 +131,13 @@ function matchSalary(text: string): SalaryMatch | null {
     }
     if (isReasonable(null, val)) {
       const effectiveCurr = currSym ? resolveCurrency(currSym) : currency;
-      return { min: null, max: val, currency: effectiveCurr, hourly: false, explicitCurrency: Boolean(currSym), ...around(m) };
+      return { min: null, max: val, currency: effectiveCurr };
     }
   }
 
   // 4. "from" / "starting at" as min-only: e.g. "starting at $80,000"
   const fromMatches = cleaned.matchAll(
-    /\b(?:starting\s+at|from|min(?:imum)?)\s*(?:(US\$|\$|£|€|USD|GBP|EUR)\s*)?(\d{1,12}(?:,\d{3}){0,4}(?:\.\d{1,12})?)\s*(k)?\b/gi,
+    /\b(?:starting\s+at|from|min(?:imum)?)\s*(?:(\$|£|€|USD|GBP|EUR)\s*)?(\d{1,12}(?:,\d{3}){0,4}(?:\.\d{1,12})?)\s*(k)?\b/gi,
   );
   for (const m of fromMatches) {
     const currSym = m[1];
@@ -210,7 +148,7 @@ function matchSalary(text: string): SalaryMatch | null {
     }
     if (isReasonable(val, null)) {
       const effectiveCurr = currSym ? resolveCurrency(currSym) : currency;
-      return { min: val, max: null, currency: effectiveCurr, hourly: false, explicitCurrency: Boolean(currSym), ...around(m) };
+      return { min: val, max: null, currency: effectiveCurr };
     }
   }
 

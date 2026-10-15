@@ -124,7 +124,7 @@ test('parse-job reads a workplace in other words, and leaves out one it does not
     ['in-office', 'onsite'],
     [' HYBRID ', 'hybrid'],
     [null, null],
-    ['flexible', undefined],
+    ['flexible', 'flexible'],
     ['remote or hybrid', undefined],
     ['anywhere', undefined],
     [42, undefined],
@@ -153,10 +153,12 @@ test('parse-job reads a salary anywhere in the posting, as the store will on sav
   assert.deepEqual(late.body.salary, { min: 120000, max: 150000, currency: 'USD' });
 });
 
-test('parse-job leaves the salary out when it can only guess at it', async () => {
+// The review shows what the store will save, so parse-job returns the store's own reading:
+// here an hourly rate made yearly (x2080), mistakes included (#437).
+test('parse-job returns the salary as the store will save it', async () => {
   const { status, body } = await parseWith(FAKE_PARSED_JOB, 'Contract role. Pay is $45/hr.');
   assert.equal(status, 200);
-  assert.ok(!('salary' in body), 'unknown, not "not stated"');
+  assert.deepEqual(body.salary, { min: 93600, max: 93600, currency: 'USD' });
 });
 
 test('parse-job answers 400, not 500, when description_text is not text', async () => {
@@ -214,7 +216,7 @@ test('parse-job reads the workplace words the agent passes through', async () =>
     ['on  site', 'onsite'],
     ['in-person', 'onsite'],
     ['Remote or hybrid', undefined],
-    ['flexible', undefined],
+    ['flexible', 'flexible'],
   ];
   for (const [given, expected] of cases) {
     const { body } = await parseWith({ ...FAKE_PARSED_JOB, workplace_type: given }, 'Build APIs in Go.');

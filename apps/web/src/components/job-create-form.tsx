@@ -12,7 +12,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { ApiRequestError, createJob, extractJobFromUrl, parseJob, type PostedSalary } from '@/lib/api';
-import { salaryAsPosted } from '@/lib/job-display';
+import { salaryAsSaved } from '@/lib/job-display';
 import type { WorkplaceType } from '@/types/job';
 
 /**
@@ -22,17 +22,18 @@ import type { WorkplaceType } from '@/types/job';
  * as "Not stated" and saved as nothing, never as a default.
  */
 
-type Workplace = Extract<WorkplaceType, 'remote' | 'hybrid' | 'onsite'>;
+type Workplace = WorkplaceType;
 
 const WORKPLACE_CHOICES: Array<{ value: Workplace | null; label: string }> = [
   { value: 'remote', label: 'Remote' },
   { value: 'hybrid', label: 'Hybrid' },
   { value: 'onsite', label: 'On-site' },
+  { value: 'flexible', label: 'Flexible' },
   { value: null, label: 'Not stated' },
 ];
 
 function asWorkplace(value: string | null | undefined): Workplace | null {
-  return value === 'remote' || value === 'hybrid' || value === 'onsite' ? value : null;
+  return value === 'remote' || value === 'hybrid' || value === 'onsite' || value === 'flexible' ? value : null;
 }
 
 /** A single line that is a web address is a link to read; anything else is posting text. */
@@ -445,12 +446,12 @@ export function JobCreateForm() {
     location: hintFor(details.location, posted?.location, !posted || posted.location !== undefined),
   };
   const workplaceHint = posted?.workplaceType && details.workplaceType === posted.workplaceType ? 'from posting' : null;
-  // The store reads the salary from the saved description. The review shows the reading only
-  // while the description is the one it was read from and the reading could tell; otherwise
-  // it says the salary will be read on save, never "Not stated".
+  // The salary row says what will be saved, never what the posting said: the API reads it
+  // with the store's own parser, so it can't contradict the saved job. That holds only while
+  // the description is the one it was read from; otherwise it's read on save.
   const salaryRead =
     posted !== null && posted.salary !== undefined && details.descriptionText === posted.description;
-  const salaryText = salaryRead && posted?.salary ? salaryAsPosted(posted.salary) : null;
+  const salaryText = salaryRead && posted?.salary ? salaryAsSaved(posted.salary) : null;
   const characters = details.descriptionText.length.toLocaleString('en-US');
 
   return (
@@ -552,18 +553,15 @@ export function JobCreateForm() {
           </div>
         </fieldset>
 
-        {/* Read-only: the salary is what the posting states, not something to type in. */}
+        {/* Read-only: the salary is read from the description, not typed in. */}
         <div role="group" aria-labelledby="job-salary-label" className="space-y-1.5">
-          <div className="flex items-baseline justify-between gap-2">
-            <p id="job-salary-label" className="text-sm leading-none font-medium">
-              Salary
-            </p>
-            {salaryText ? <span className="text-muted-foreground text-xs">from posting</span> : null}
-          </div>
+          <p id="job-salary-label" className="text-sm leading-none font-medium">
+            Salary, as it will be saved
+          </p>
           <p className="text-sm">
             {salaryText ??
               (salaryRead ? (
-                <span className="text-muted-foreground">Not stated</span>
+                <span className="text-muted-foreground">No salary found in the description.</span>
               ) : (
                 <span className="text-muted-foreground">Read from the description when you save.</span>
               ))}

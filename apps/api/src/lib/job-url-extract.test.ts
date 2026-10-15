@@ -117,9 +117,9 @@ test('a description from the page metadata leaves the salary unknown', () => {
   assert.equal(result.salary, undefined);
 });
 
-test('a salary the review can only guess at is unknown, not none', () => {
+test('the salary is the one the store will save, an hourly rate made yearly', () => {
   const html = `<html><head><script type="application/ld+json">
     {"@type":"JobPosting","title":"Engineer","description":"<p>Pay is $45/hr.</p>"}
     </script></head><body></body></html>`;
-  assert.equal(extractJobFromHtml(html).salary, undefined);
+  assert.deepEqual(extractJobFromHtml(html).salary, { min: 93600, max: 93600, currency: 'USD' });
 });

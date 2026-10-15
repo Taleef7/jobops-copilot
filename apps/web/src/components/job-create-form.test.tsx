@@ -125,9 +125,10 @@ it('reads pasted posting text with parse-job, without a job id, and fills the re
   expect(screen.getByLabelText(/^Location/)).toHaveValue('London, United Kingdom');
   expect(screen.getByRole('radio', { name: 'Hybrid' })).toBeChecked();
   expect(screen.getByRole('group', { name: 'Workplace' })).toHaveAccessibleDescription(/from posting/);
-  const salary = screen.getByRole('group', { name: 'Salary' });
-  expect(salary).toHaveTextContent('£80,000 – £95,000');
-  expect(salary).toHaveTextContent('from posting');
+  // What the store will save, not what the posting said: it can't contradict the saved job.
+  const salary = screen.getByRole('group', { name: 'Salary, as it will be saved' });
+  expect(salary).toHaveTextContent('£80,000 – £95,000 a year (GBP)');
+  expect(salary).not.toHaveTextContent(/from posting|Not stated/);
   expect(screen.getByLabelText('Posting URL')).toHaveValue('');
 });
 
@@ -140,7 +141,9 @@ it('says "Not stated" for what the posting does not state, and fills in no defau
   expect(screen.getByLabelText(/^Location/)).toHaveAccessibleDescription(/Not stated/);
   expect(screen.getByRole('radio', { name: 'Not stated' })).toBeChecked();
   expect(screen.getByRole('radio', { name: 'Remote' })).not.toBeChecked();
-  expect(screen.getByRole('group', { name: 'Salary' })).toHaveTextContent('Not stated');
+  expect(screen.getByRole('group', { name: 'Salary, as it will be saved' })).toHaveTextContent(
+    'No salary found in the description.',
+  );
 });
 
 it('drops the "from posting" hint from a field the user changes', async () => {
@@ -187,7 +190,7 @@ it('opens an empty review to enter the details by hand', async () => {
   expect(screen.getByLabelText(/^Company/)).not.toHaveAccessibleDescription(/Not stated/);
   expect(screen.getByLabelText(/^Location/)).toHaveAccessibleDescription(/Not stated/);
   // Nothing was read, so the salary is whatever the store reads from the description on save.
-  expect(screen.getByRole('group', { name: 'Salary' })).toHaveTextContent('Read from the description when you save.');
+  expect(screen.getByRole('group', { name: 'Salary, as it will be saved' })).toHaveTextContent('Read from the description when you save.');
   // The empty description stays open; there's nothing to fold away.
   expect(screen.queryByRole('button', { name: /edit description|done editing/i })).not.toBeInTheDocument();
   expect(extractJobFromUrl).not.toHaveBeenCalled();
@@ -404,10 +407,10 @@ it('leaves what the reading could not tell blank, without "Not stated"', async (
 
   expect(screen.getByLabelText(/^Location/)).toHaveValue('');
   expect(screen.getByLabelText(/^Location/)).not.toHaveAccessibleDescription(/Not stated|from posting/);
-  for (const name of ['Remote', 'Hybrid', 'On-site', 'Not stated']) {
+  for (const name of ['Remote', 'Hybrid', 'On-site', 'Flexible', 'Not stated']) {
     expect(screen.getByRole('radio', { name })).not.toBeChecked();
   }
-  const salary = screen.getByRole('group', { name: 'Salary' });
+  const salary = screen.getByRole('group', { name: 'Salary, as it will be saved' });
   expect(salary).toHaveTextContent('Read from the description when you save.');
   expect(salary).not.toHaveTextContent('Not stated');
   expect(screen.getByLabelText(/^Title/)).toHaveAccessibleDescription(/from posting/);
@@ -477,12 +480,14 @@ it('says the salary will be read on save once the description is edited', async 
   parseJob.mockResolvedValue(parsed());
   const user = await paste(POSTING);
   await review();
-  expect(screen.getByRole('group', { name: 'Salary' })).toHaveTextContent('£80,000 – £95,000');
+  expect(screen.getByRole('group', { name: 'Salary, as it will be saved' })).toHaveTextContent(
+    '£80,000 – £95,000 a year (GBP)',
+  );
 
   await user.click(screen.getByRole('button', { name: 'Edit description' }));
   await user.type(screen.getByRole('textbox', { name: 'Description' }), ' Salary: $200,000 - $250,000.');
 
-  const salary = screen.getByRole('group', { name: 'Salary' });
+  const salary = screen.getByRole('group', { name: 'Salary, as it will be saved' });
   expect(salary).toHaveTextContent('Read from the description when you save.');
   expect(salary).not.toHaveTextContent('£80,000');
 });
@@ -497,4 +502,18 @@ it('shows why a posting was refused, with Enter details yourself', async () => {
   expect(alert).toHaveTextContent(reason);
   await user.click(within(alert).getByRole('button', { name: 'Enter details yourself' }));
   await review();
+});
+
+// "flexible" is a workplace the app stores; the review offers it like the others (#355).
+it('offers Flexible as a workplace, and saves it', async () => {
+  parseJob.mockResolvedValue(parsed({ workplace_type: 'flexible' }));
+  createJob.mockResolvedValue({ id: 'job-9' });
+  const user = await paste(POSTING);
+  await review();
+
+  expect(screen.getByRole('radio', { name: 'Flexible' })).toBeChecked();
+  await user.click(screen.getByRole('button', { name: 'Save only' }));
+
+  await waitFor(() => expect(createJob).toHaveBeenCalledTimes(1));
+  expect(createJob.mock.calls[0]![0]).toMatchObject({ workplaceType: 'flexible' });
 });

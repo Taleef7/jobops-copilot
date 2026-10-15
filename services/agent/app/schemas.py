@@ -15,9 +15,8 @@ from typing import Any, Literal
 from pydantic import BaseModel, Field, field_validator
 
 Seniority = Literal["junior", "mid", "senior", "lead", "unknown"]
-# The workplaces the app knows. Mirrors normalizeWorkplace in apps/api/src/lib/analysis-core.ts
+# The workplaces the app knows, as in normalizeWorkplace in apps/api/src/lib/analysis-core.ts
 # (#355): the same words map here, and the API calls anything else unknown.
-WorkplaceType = Literal["remote", "hybrid", "onsite"]
 _ONSITE = re.compile(r"on[-\s]*site|in[-\s]*(?:office|person)")
 _REMOTE = re.compile(r"(?:fully\s|100%\s?)?remote\b")
 _NAMES_AN_OFFICE = re.compile(r"hybrid|office|on[-\s]*site|in[-\s]*person")
@@ -28,7 +27,7 @@ def _workplace_word(value: str) -> str | None:
     word = " ".join(value.strip().lower().split())
     if not word:
         return None
-    if word in ("remote", "hybrid", "onsite"):
+    if word in ("remote", "hybrid", "onsite", "flexible"):
         return word
     if _ONSITE.fullmatch(word):
         return "onsite"
@@ -60,7 +59,10 @@ class ParsedJob(BaseModel):
     )
     workplace_type: str | None = Field(
         default=None,
-        description="remote, hybrid or onsite when the posting says which, otherwise null.",
+        description=(
+            "Where the work is done, as one of: remote, hybrid, onsite, flexible. "
+            "Null when the posting doesn't say."
+        ),
     )
 
     @field_validator("workplace_type", mode="before")

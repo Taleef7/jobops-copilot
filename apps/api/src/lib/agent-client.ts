@@ -138,7 +138,7 @@ async function callAgent<T>(path: string, payload: unknown, timeoutMs = AGENT_TI
     if (response.status === 422) {
       if (await refusedInput(response)) throw new AiRefusedInputError();
     } else {
-      await response.body?.cancel();
+      await response.body?.cancel().catch(() => undefined);
     }
     throw new AiUnavailableError(AI_NO_ANSWER);
   }

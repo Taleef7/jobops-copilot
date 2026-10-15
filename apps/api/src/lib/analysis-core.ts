@@ -3,7 +3,7 @@ import type { JobAnalysis, JobAnalysisSubSignals, MatchedSkill, MissingSkill } f
 export type ParsedJobSeniority = 'junior' | 'mid' | 'senior' | 'lead' | 'unknown';
 
 /** What the job parser can say about where the work is done (#355). */
-export const PARSED_WORKPLACE_TYPES = ['remote', 'hybrid', 'onsite'] as const;
+export const PARSED_WORKPLACE_TYPES = ['remote', 'hybrid', 'onsite', 'flexible'] as const;
 export type ParsedWorkplaceType = (typeof PARSED_WORKPLACE_TYPES)[number];
 
 /**
@@ -15,7 +15,7 @@ export function normalizeWorkplace(value: unknown): ParsedWorkplaceType | null |
   if (value === null) return null;
   if (typeof value !== 'string') return undefined;
   const word = value.trim().toLowerCase().replace(/\s+/g, ' ');
-  if (word === 'remote' || word === 'hybrid' || word === 'onsite') return word;
+  if (word === 'remote' || word === 'hybrid' || word === 'onsite' || word === 'flexible') return word;
   if (/^(?:on[-\s]*site|in[-\s]*(?:office|person))$/.test(word)) return 'onsite';
   // "remote-first", "Remote (US)", "fully remote", "100% remote", unless it also names an office.
   if (/^(?:fully\s|100%\s?)?remote\b/.test(word) && !/hybrid|office|on[-\s]*site|in[-\s]*person/.test(word)) {
