@@ -273,7 +273,7 @@ export interface ResumeVersionBasis {
   /** Posting requirements the base résumé doesn't support. */
   gaps?: string[];
   /** Posting keywords in the base résumé and in the draft. */
-  coverage?: { total: number; before: number; after: number };
+  coverage?: { total: number; before: number; after: number; terms?: string[] };
 }
 
 export interface ResumeVersionRecord {

@@ -379,4 +379,42 @@ describe('TailoredResumeReview', () => {
     expect(reviewResumeChange).toHaveBeenCalledWith('ver-1', 'c5', 'restore', undefined);
     expect(await within(screen.getByTestId('change-c5')).findByText('Removed')).toBeInTheDocument();
   });
+
+  it("reads the posting's keywords each time the window opens, and says when it can't", async () => {
+    const user = userEvent.setup();
+    getTailorKeywords.mockRejectedValueOnce(new Error('Network error'));
+    getTailorKeywords.mockResolvedValueOnce({ fitRead: true, keywords: [{ term: 'Kafka', onResume: false }] });
+    renderReview();
+    await user.click(screen.getByRole('button', { name: 'Tailor résumé' }));
+    expect(
+      await within(await screen.findByRole('dialog')).findByText("Couldn't read the posting's keywords. You can still add your own."),
+    ).toBeInTheDocument();
+    await user.keyboard('{Escape}');
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
+
+    await user.click(screen.getByRole('button', { name: 'Tailor résumé' }));
+    expect(await within(await screen.findByRole('dialog')).findByRole('button', { name: 'Kafka' })).toBeInTheDocument();
+    expect(getTailorKeywords).toHaveBeenCalledTimes(2);
+  });
+
+  it('a line being saved still holds Download after a tab switch', async () => {
+    const user = userEvent.setup();
+    let save: (version: ResumeVersionRecord) => void = () => undefined;
+    reviewResumeChange.mockReturnValueOnce(new Promise((resolve) => (save = resolve)));
+    const first = renderReview([draft]);
+    await user.click(within(screen.getByTestId('change-c2')).getByRole('button', { name: 'Keep' }));
+    first.unmount();
+
+    renderReview([draft]);
+    expect(screen.getByRole('button', { name: 'Download PDF' })).toBeDisabled();
+    save({ ...draft, updatedAt: '2026-10-14T12:05:00.000Z' });
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Download PDF' })).toBeEnabled());
+  });
+
+  it('editing a dropped suggestion starts from the original line, not the dropped text', async () => {
+    const user = userEvent.setup();
+    renderReview([draft]);
+    await user.click(within(screen.getByTestId('change-c1')).getByRole('button', { name: 'Edit' }));
+    expect(within(screen.getByTestId('change-c1')).getByRole('textbox')).toHaveValue('Built the billing API in Go serving 2,000 merchants');
+  });
 });

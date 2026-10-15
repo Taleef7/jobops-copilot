@@ -3,7 +3,8 @@ import test from 'node:test';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { getUserProfile, upsertUserProfile } from './profile-store';
+import { changeBaseResume, getUserProfile, upsertUserProfile } from './profile-store';
+import type { StructuredResume } from '@/types';
 
 async function withTempStore(run: () => Promise<void>) {
   const originalCwd = process.cwd();
@@ -45,5 +46,34 @@ test('a later upsert preserves prior fields (coalesce semantics)', async () => {
     assert.equal(got?.resumeText, 'R');
     assert.equal(got?.resumeFileName, 'cv.pdf');
     assert.equal(got?.profileText, 'P');
+  });
+});
+
+const resume: StructuredResume = {
+  basics: { name: 'Jordan Lee', email: 'jordan@example.com', summary: 'Engineer.' },
+  work: [],
+  education: [],
+  skills: [{ category: 'Languages', skills: ['Go'] }],
+};
+
+test('changeBaseResume changes the latest base résumé, one change at a time', async () => {
+  await withTempStore(async () => {
+    await upsertUserProfile('u1', { baseResume: resume, resumeText: 'text' });
+    const add = (skill: string) => (base: StructuredResume) => ({ ...base, skills: [...base.skills, { category: skill, skills: [skill] }] });
+    await Promise.all([changeBaseResume('u1', null, add('Kafka')), changeBaseResume('u1', null, add('Snowflake'))]);
+    const saved = await getUserProfile('u1');
+    assert.deepEqual(saved?.baseResume?.skills.map((g) => g.category).sort(), ['Kafka', 'Languages', 'Snowflake']);
+    assert.equal(saved?.resumeText, 'text');
+    // No change: nothing is written.
+    assert.equal(await changeBaseResume('u1', null, () => null), null);
+  });
+});
+
+test('changeBaseResume starts from the fallback when the profile has no base résumé', async () => {
+  await withTempStore(async () => {
+    const changed = await changeBaseResume('u2', resume, (base) => ({ ...base, basics: { ...base.basics, summary: 'Changed.' } }));
+    assert.equal(changed?.basics.summary, 'Changed.');
+    assert.equal((await getUserProfile('u2'))?.baseResume?.basics.summary, 'Changed.');
+    assert.equal(await changeBaseResume('u3', null, (base) => base), null);
   });
 });

@@ -34,7 +34,8 @@ interface Agent {
 async function withStudio(
   answer: unknown,
   run: (ctx: { agent: Agent; send: Send }) => Promise<void>,
-  options: { agentDown?: boolean } = {},
+  // duringAgent runs while the AI call is in flight, before the fake agent answers.
+  options: { agentDown?: boolean; duringAgent?: () => Promise<void> } = {},
 ) {
   const originalCwd = process.cwd();
   const originalAgent = process.env.AGENT_SERVICE_URL;
@@ -50,7 +51,9 @@ async function withStudio(
     request.on('data', (chunk) => (raw += chunk));
     request.on('end', () => {
       agent.calls.push({ path: request.url ?? '', body: JSON.parse(raw || '{}') as TailorAgentRequest });
-      response.writeHead(200, { 'Content-Type': 'application/json' }).end(JSON.stringify(answer));
+      void Promise.resolve(options.duringAgent?.()).then(() =>
+        response.writeHead(200, { 'Content-Type': 'application/json' }).end(JSON.stringify(answer)),
+      );
     });
   });
   await new Promise<void>((resolve) => agentServer.listen(0, resolve));
@@ -377,7 +380,7 @@ test('a draft records how many posting keywords the résumé has, before and aft
     const job = await setUp();
     await saveJobAnalysis('user-studio', job.id, sampleAnalysis(), 70);
     const version = await tailor(send, job.id, { confirmedKeywords: ['Kafka'] });
-    assert.deepEqual(version.basedOn!.coverage, { total: 3, before: 2, after: 3 });
+    assert.deepEqual(version.basedOn!.coverage, { total: 3, before: 2, after: 3, terms: ['Go', 'Postgres', 'Kafka'] });
   });
 });
 
@@ -564,11 +567,11 @@ test('the review only offers what can apply, and coverage follows the review', a
     assert.equal(dropped.dropped, true);
     const added = version.changeDetails!.find((d) => d.kind === 'skill-added')!;
     assert.equal((await send('PATCH', `/api/resume-versions/${version.id}/changes/${dropped.id}`, { action: 'keep' })).status, 400);
-    assert.deepEqual(version.basedOn!.coverage, { total: 3, before: 2, after: 3 });
+    assert.deepEqual(version.basedOn!.coverage, { total: 3, before: 2, after: 3, terms: ['Go', 'Postgres', 'Kafka'] });
     const removed = (await (await send('PATCH', `/api/resume-versions/${version.id}/changes/${added.id}`, { action: 'restore' })).json()) as {
       version: ResumeVersionRecord;
     };
-    assert.deepEqual(removed.version.basedOn!.coverage, { total: 3, before: 2, after: 2 });
+    assert.deepEqual(removed.version.basedOn!.coverage, { total: 3, before: 2, after: 2, terms: ['Go', 'Postgres', 'Kafka'] });
   });
 });
 
@@ -596,5 +599,93 @@ test('the window offers skills with digits and short names, not requirement sent
       { term: 'UX', onResume: true },
       { term: 'OAuth 2.0', onResume: false },
     ]);
+  });
+});
+
+test('adding keywords to the base résumé keeps a change saved during the run', async () => {
+  const answer = answerWith({ edits: [edit('work[0].highlights[2]', 'Mentored 2 interns')] });
+  await withStudio(
+    answer,
+    async ({ send }) => {
+      const job = await setUp();
+      const response = await send('POST', `/api/jobs/${job.id}/tailor`, { confirmedKeywords: ['Kafka'], addToBase: true });
+      assert.equal(response.status, 201);
+      const base = (await getUserProfile('user-studio'))!.baseResume!;
+      assert.equal(base.basics.summary, 'Edited in Settings during the run.');
+      assert.deepEqual(base.skills.at(-1), { category: 'Other', skills: ['Kafka'] });
+    },
+    {
+      // A Settings save while the AI is working.
+      duringAgent: async () => {
+        const base = (await getUserProfile('user-studio'))!.baseResume!;
+        await upsertUserProfile('user-studio', {
+          baseResume: { ...base, basics: { ...base.basics, summary: 'Edited in Settings during the run.' } },
+        });
+      },
+    },
+  );
+});
+
+test('two runs that add keywords to the base résumé at once keep both', async () => {
+  const answer = answerWith({ edits: [edit('work[0].highlights[2]', 'Mentored 2 interns')] });
+  let arrived = 0;
+  let release: () => void = () => undefined;
+  const bothArrived = new Promise<void>((resolve) => (release = resolve));
+  await withStudio(
+    answer,
+    async ({ send }) => {
+      const first = await setUp();
+      const second = await createJob('user-studio', { company: 'Globex', title: 'Backend Engineer', descriptionText: POSTING });
+      const responses = await Promise.all([
+        send('POST', `/api/jobs/${first.id}/tailor`, { confirmedKeywords: ['Kafka'], addToBase: true }),
+        send('POST', `/api/jobs/${second.id}/tailor`, { confirmedKeywords: ['Snowflake'], addToBase: true }),
+      ]);
+      assert.deepEqual(responses.map((r) => r.status), [201, 201]);
+      const other = (await getUserProfile('user-studio'))!.baseResume!.skills.find((g) => g.category === 'Other');
+      assert.deepEqual([...other!.skills].sort(), ['Kafka', 'Snowflake']);
+    },
+    {
+      // Both runs are in flight before either answers.
+      duringAgent: async () => {
+        arrived += 1;
+        if (arrived === 2) release();
+        await bothArrived;
+      },
+    },
+  );
+});
+
+test("a dropped suggestion can't be put back by editing it in unchanged", async () => {
+  const answer = answerWith({ edits: [edit('work[0].highlights[0]', 'Built the billing API in Go serving 9,000 merchants')] });
+  await withStudio(answer, async ({ send }) => {
+    const job = await setUp();
+    const version = await tailor(send, job.id);
+    const dropped = version.changeDetails!.find((d) => d.kind === 'rewrite')!;
+    assert.equal(dropped.dropped, true);
+    const path = `/api/resume-versions/${version.id}/changes/${dropped.id}`;
+    assert.equal((await send('PATCH', path, { action: 'edit', text: dropped.newText })).status, 400);
+    assert.equal((await send('PATCH', path, { action: 'edit', text: '  built the billing API in Go  serving 9,000 merchants ' })).status, 400);
+    assert.equal((await send('PATCH', path, { action: 'edit', text: 'Built the billing API in Go for 2,000 merchants' })).status, 200);
+  });
+});
+
+test('coverage keeps counting the keywords it started with after a new fit read', async () => {
+  const answer = answerWith({ edits: [edit('work[0].highlights[2]', 'Mentored 2 interns')] });
+  await withStudio(answer, async ({ send }) => {
+    const job = await setUp();
+    await saveJobAnalysis('user-studio', job.id, sampleAnalysis(), 70);
+    const version = await tailor(send, job.id, { confirmedKeywords: ['Kafka'] });
+    // Another fit read, with as many keywords but different ones.
+    await saveJobAnalysis(
+      'user-studio',
+      job.id,
+      sampleAnalysis({ requiredSkills: ['Rust', 'Elixir'], preferredSkills: ['Scala'], atsKeywords: [], missingSkills: [] }),
+      70,
+    );
+    const added = version.changeDetails!.find((d) => d.kind === 'skill-added')!;
+    const removed = (await (await send('PATCH', `/api/resume-versions/${version.id}/changes/${added.id}`, { action: 'restore' })).json()) as {
+      version: ResumeVersionRecord;
+    };
+    assert.deepEqual(removed.version.basedOn!.coverage, { total: 3, before: 2, after: 2, terms: ['Go', 'Postgres', 'Kafka'] });
   });
 });

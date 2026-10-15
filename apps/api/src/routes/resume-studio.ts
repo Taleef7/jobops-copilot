@@ -1,7 +1,7 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { Router } from 'express';
 import { getJobById } from '@/data/job-store';
-import { getUserProfile, upsertUserProfile } from '@/data/profile-store';
+import { changeBaseResume, getUserProfile } from '@/data/profile-store';
 import {
   getBaseResumeVersion,
   getResumeVersion,
@@ -108,6 +108,7 @@ resumeStudioRouter.post('/jobs/:id/tailor', async (request, response, next) => {
     }
 
     const now = new Date().toISOString();
+    const postingTerms = keywordTerms(postingKeywords(job));
     const version: ResumeVersionRecord = {
       id: randomUUID(),
       userId,
@@ -127,9 +128,7 @@ resumeStudioRouter.post('/jobs/:id/tailor', async (request, response, next) => {
         grounding: { version: GROUNDING_VERSION },
         confirmedKeywords,
         gaps: result.gaps,
-        ...(keywordTerms(postingKeywords(job)).length > 0
-          ? { coverage: keywordCoverage(keywordTerms(postingKeywords(job)), base, result.resume) }
-          : {}),
+        ...(postingTerms.length > 0 ? { coverage: keywordCoverage(postingTerms, base, result.resume) } : {}),
       },
       createdAt: now,
       updatedAt: now,
@@ -137,20 +136,29 @@ resumeStudioRouter.post('/jobs/:id/tailor', async (request, response, next) => {
     await insertResumeVersion(version);
 
     // "Also add them to my base résumé" in the tailor window: after the draft is saved, so a
-    // failed tailoring changes nothing.
+    // failed tailoring changes nothing. The keywords go on the base résumé as it is now: the
+    // user may have saved it in Settings, or another run added keywords, while the AI worked.
     // The draft is saved either way: a failure here mustn't send the user to tailor again (a
     // paid call), so it's reported, not thrown.
     let addedToBase = false;
     if (body.addToBase === true && confirmedKeywords.length > 0) {
+      let updatedBase: ReturnType<typeof normalizeStructuredResume> = null;
+      const currentBaseVersion = await getBaseResumeVersion(userId).catch(() => null);
       try {
-        const updatedBase = structuredClone(base);
-        if (addSkills(updatedBase, confirmedKeywords).length > 0) {
-          await upsertUserProfile(userId, { baseResume: updatedBase });
-          if (baseVersion) await updateResumeVersion(userId, baseVersion.id, { structuredResume: updatedBase });
-        }
+        updatedBase = await changeBaseResume(userId, currentBaseVersion?.structuredResume ?? null, (current) => {
+          const next = normalizeStructuredResume(current);
+          return next && addSkills(next, confirmedKeywords).length > 0 ? next : null;
+        });
         addedToBase = true;
       } catch (error) {
         console.error('[resume-studio] adding confirmed keywords to the base résumé failed', error);
+      }
+      // The base version's copy follows the profile's, which Settings shows. Failing here leaves
+      // the keywords on the base résumé, so it's only logged.
+      if (updatedBase && currentBaseVersion) {
+        await updateResumeVersion(userId, currentBaseVersion.id, { structuredResume: updatedBase }).catch((error: unknown) =>
+          console.error("[resume-studio] updating the base version's copy failed", error),
+        );
       }
     }
 
@@ -233,10 +241,16 @@ resumeStudioRouter.post('/resume-versions/:id/approve', async (request, response
 
     const pdfBuffer = renderAtsResumePdf(version.structuredResume);
     const { fileUrl } = await storeResumePdf(version, pdfBuffer);
-    const updated = await updateResumeVersion(userId, id!, {
-      approved: true,
-      tailoredResumeFileUrl: fileUrl,
-    });
+    // Approved as rendered: a line saved meanwhile (another tab) would make the PDF differ.
+    const updated = await updateResumeVersion(
+      userId,
+      id!,
+      { approved: true, tailoredResumeFileUrl: fileUrl },
+      { expect: { updatedAt: version.updatedAt } },
+    );
+    if (!updated) {
+      return response.status(409).json(VERSION_CHANGED);
+    }
 
     return response.json({
       version: updated,
@@ -248,6 +262,11 @@ resumeStudioRouter.post('/resume-versions/:id/approve', async (request, response
   }
 });
 
+const VERSION_CHANGED = {
+  code: 'VERSION_CHANGED',
+  error: 'This draft changed in another tab or was just downloaded. Reload the page to see it.',
+};
+
 const MAX_USER_LINE = 1_000;
 const MAX_USER_SUMMARY = 3_000;
 // One line of plain text (see request.ts): no control, format or separator characters.
@@ -258,8 +277,9 @@ const NOT_PLAIN = /[\p{Cc}\p{Cf}\p{Cs}\p{Co}\p{Zl}\p{Zp}]/u;
  *
  * The review's choice for one line of a draft (#351): keep the suggestion, restore the base
  * line, or use the user's own words. Their words are theirs: not checked, and marked as edited.
- * A dropped suggestion can't be kept, only edited. Bullet and skill orders can only be kept.
- * Once downloaded (approved) the version is final: 409 VERSION_FINAL.
+ * A dropped suggestion can't be kept, nor sent back unchanged as an edit; only edited. Bullet
+ * and skill orders can only be kept. Once downloaded (approved) the version is final: 409
+ * VERSION_FINAL. A draft that changed since it was read (another tab): 409 VERSION_CHANGED.
  */
 resumeStudioRouter.patch('/resume-versions/:id/changes/:changeId', async (request, response, next) => {
   try {
@@ -318,6 +338,11 @@ resumeStudioRouter.patch('/resume-versions/:id/changes/:changeId', async (reques
         if (!text || text.length > max || (path !== 'basics.summary' && /\n/.test(text)) || NOT_PLAIN.test(text.replace(/\n/g, ''))) {
           return response.status(400).json({ error: `text must be one line of up to ${max.toLocaleString('en-US')} characters.` });
         }
+        if (detail.dropped && norm(text) === norm(detail.newText)) {
+          return response.status(400).json({
+            error: "That's the suggestion that was dropped. Write the line in your own words, or restore the original.",
+          });
+        }
         setLine(resume, path, text);
         detail.userText = text;
       } else if (action === 'keep') {
@@ -344,20 +369,23 @@ resumeStudioRouter.patch('/resume-versions/:id/changes/:changeId', async (reques
     }
 
     detail.resolution = action === 'keep' ? 'kept' : action === 'restore' ? 'restored' : 'edited';
-    // "Posting keywords in your résumé: X of N → Y of N" follows the review, while the posting's
-    // keywords are still the ones it was counted against.
-    let basedOn = version.basedOn;
-    const coverage = basedOn?.coverage;
-    const job = coverage && version.jobId ? await getJobById(userId, version.jobId) : null;
-    const terms = job ? keywordTerms(postingKeywords(job)) : [];
-    if (basedOn && coverage && new Set(terms.map(norm)).size === coverage.total) {
-      basedOn = { ...basedOn, coverage: { ...coverage, after: keywordCount(terms, resume) } };
+    // "Posting keywords in your résumé: X of N → Y of N" follows the review, recounted against
+    // the keywords it was first counted against (a later fit read may list others).
+    const coverage = version.basedOn?.coverage;
+    const basedOn =
+      version.basedOn && coverage?.terms
+        ? { ...version.basedOn, coverage: { ...coverage, after: keywordCount(coverage.terms, resume) } }
+        : version.basedOn;
+    // Saved only onto the draft as it was read: still a draft, unchanged by another tab.
+    const updated = await updateResumeVersion(
+      userId,
+      id!,
+      { structuredResume: resume, changeDetails: details, ...(basedOn !== version.basedOn ? { basedOn } : {}) },
+      { expect: { updatedAt: version.updatedAt, approved: false } },
+    );
+    if (!updated) {
+      return response.status(409).json(VERSION_CHANGED);
     }
-    const updated = await updateResumeVersion(userId, id!, {
-      structuredResume: resume,
-      changeDetails: details,
-      ...(basedOn !== version.basedOn ? { basedOn } : {}),
-    });
     return response.json({ version: updated });
   } catch (error) {
     next(error);

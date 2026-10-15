@@ -53,6 +53,14 @@ async function writeFileProfiles(profiles: Record<string, UserProfile>) {
   await writeFile(dataFile(), `${JSON.stringify(profiles, null, 2)}\n`, 'utf8');
 }
 
+// File-mode writes one at a time: each reads the file, changes it and writes it back.
+let fileQueue: Promise<unknown> = Promise.resolve();
+function exclusive<T>(operation: () => Promise<T>): Promise<T> {
+  const run = fileQueue.then(operation, operation);
+  fileQueue = run.catch(() => undefined);
+  return run;
+}
+
 export async function getUserProfile(userId: string): Promise<UserProfile | undefined> {
   if (hasPostgresConnection()) {
     const pool = getPool()!;
@@ -94,17 +102,71 @@ export async function upsertUserProfile(
     return mapRow(rows[0]!);
   }
 
-  const profiles = await readFileProfiles();
-  const existing = profiles[userId] ?? { userId };
-  const merged: UserProfile = {
-    ...existing,
-    ...Object.fromEntries(Object.entries(patch).filter(([, value]) => value !== undefined)),
-    userId,
-    updatedAt: new Date().toISOString(),
-  };
-  profiles[userId] = merged;
-  await writeFileProfiles(profiles);
-  return merged;
+  return exclusive(async () => {
+    const profiles = await readFileProfiles();
+    const existing = profiles[userId] ?? { userId };
+    const merged: UserProfile = {
+      ...existing,
+      ...Object.fromEntries(Object.entries(patch).filter(([, value]) => value !== undefined)),
+      userId,
+      updatedAt: new Date().toISOString(),
+    };
+    profiles[userId] = merged;
+    await writeFileProfiles(profiles);
+    return merged;
+  });
+}
+
+/**
+ * Change the base résumé as it is now, not as it was read earlier (#351): read, change and
+ * write as one step, so a save made meanwhile (Settings, another tailoring) isn't overwritten.
+ * `fallback` is the résumé to start from when the profile has none (the base version's).
+ * `change` returns the new résumé, or null to change nothing. Returns what was saved, or null.
+ */
+export async function changeBaseResume(
+  userId: string,
+  fallback: StructuredResume | null,
+  change: (resume: StructuredResume) => StructuredResume | null,
+): Promise<StructuredResume | null> {
+  if (hasPostgresConnection()) {
+    const client = await getPool()!.connect();
+    try {
+      await client.query('begin');
+      // The row stays locked until commit: a Settings save waits, then saves after this one.
+      const { rows } = await client.query<ProfileRow>('select * from user_profiles where user_id = $1 for update', [userId]);
+      const current = rows[0]?.base_resume ?? fallback;
+      const changed = current ? change(structuredClone(current)) : null;
+      if (!changed) {
+        await client.query('rollback');
+        return null;
+      }
+      await client.query(
+        `
+          insert into user_profiles (user_id, base_resume) values ($1, $2)
+          on conflict (user_id) do update set base_resume = excluded.base_resume
+        `,
+        [userId, JSON.stringify(changed)],
+      );
+      await client.query('commit');
+      return changed;
+    } catch (error) {
+      await client.query('rollback').catch(() => undefined);
+      throw error;
+    } finally {
+      client.release();
+    }
+  }
+
+  return exclusive(async () => {
+    const profiles = await readFileProfiles();
+    const existing = profiles[userId] ?? { userId };
+    const current = existing.baseResume ?? fallback;
+    const changed = current ? change(structuredClone(current)) : null;
+    if (!changed) return null;
+    profiles[userId] = { ...existing, baseResume: changed, userId, updatedAt: new Date().toISOString() };
+    await writeFileProfiles(profiles);
+    return changed;
+  });
 }
 
 /** Deletes a user's stored profile (resume + profile text). */
@@ -115,9 +177,11 @@ export async function deleteUserProfile(userId: string): Promise<void> {
     return;
   }
 
-  const profiles = await readFileProfiles();
-  if (userId in profiles) {
-    delete profiles[userId];
-    await writeFileProfiles(profiles);
-  }
+  await exclusive(async () => {
+    const profiles = await readFileProfiles();
+    if (userId in profiles) {
+      delete profiles[userId];
+      await writeFileProfiles(profiles);
+    }
+  });
 }

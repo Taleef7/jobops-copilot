@@ -1,5 +1,6 @@
 import { getPool } from '@/lib/postgres';
 import type { ResumeVersionRecord } from '@/types';
+import type { UpdateOptions } from './resume-version-store';
 
 interface ResumeVersionRow {
   id: string;
@@ -122,6 +123,7 @@ export async function updateResumeVersion(
   userId: string,
   id: string,
   patch: Partial<ResumeVersionRecord>,
+  options: UpdateOptions = {},
 ): Promise<ResumeVersionRecord | null> {
   const pool = getPool()!;
   const sets: string[] = ['updated_at = now()'];
@@ -161,11 +163,22 @@ export async function updateResumeVersion(
     values.push(patch.basedOn ? JSON.stringify(patch.basedOn) : null);
   }
 
+  // Only while the row is as it was read (updatedAt is to the millisecond, as mapRow gives it).
+  const conditions = ['id = $1', 'user_id = $2'];
+  if (options.expect?.updatedAt !== undefined) {
+    conditions.push(`date_trunc('milliseconds', updated_at) = $${paramIdx++}::timestamptz`);
+    values.push(options.expect.updatedAt);
+  }
+  if (options.expect?.approved !== undefined) {
+    conditions.push(`approved = $${paramIdx++}`);
+    values.push(options.expect.approved);
+  }
+
   const { rows } = await pool.query<ResumeVersionRow>(
     `
       UPDATE resume_versions
       SET ${sets.join(', ')}
-      WHERE id = $1 AND user_id = $2
+      WHERE ${conditions.join(' AND ')}
       RETURNING *
     `,
     values,

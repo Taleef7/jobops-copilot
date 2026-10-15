@@ -452,8 +452,8 @@ export interface ResumeVersionBasis {
   confirmedKeywords?: string[];
   /** Posting requirements the base résumé doesn't support; shown, never put in the résumé. */
   gaps?: string[];
-  /** Posting keywords (from the fit read) found in the base résumé and in the draft. */
-  coverage?: { total: number; before: number; after: number };
+  /** Posting keywords (from the fit read) in the base résumé and the draft, and which were counted. */
+  coverage?: { total: number; before: number; after: number; terms?: string[] };
 }
 
 export interface ResumeVersionRecord {

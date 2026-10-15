@@ -53,12 +53,14 @@ interface TailorState {
   version: ResumeVersionRecord | null;
   run: { startedAt: number; options: TailorOptions } | null;
   error: TailorError | null;
+  /** A line of the review is being saved: Download waits, here too after a tab switch. */
+  saving: boolean;
 }
 
 // A tailoring run takes 20 to 40 seconds. Its state is kept here, per job, not in the
 // component, so it carries on when the user switches to another tab of the job page and back,
 // and that tab shows the draft it made rather than the page's older list of versions.
-const EMPTY: TailorState = { version: null, run: null, error: null };
+const EMPTY: TailorState = { version: null, run: null, error: null, saving: false };
 const tailorStates = new Map<string, TailorState>();
 const listeners = new Set<() => void>();
 
@@ -121,7 +123,16 @@ export function TailoredResumeReview({ jobId, jobCompany, initialVersions = [] }
   const startedAt = state.run?.startedAt ?? null;
   const error = state.error;
   const [windowOpen, setWindowOpen] = useState(false);
+  // A new window each time it opens: the keywords are read again (a run may have added some to
+  // the base résumé), with nothing picked.
+  const [windowKey, setWindowKey] = useState(0);
   const setVersion = (next: ResumeVersionRecord) => setTailorState(jobId, { version: next });
+  const setSaving = (saving: boolean) => setTailorState(jobId, { saving });
+
+  function openWindow() {
+    setWindowKey((key) => key + 1);
+    setWindowOpen(true);
+  }
 
   function tailor(options: TailorOptions) {
     setWindowOpen(false);
@@ -133,7 +144,13 @@ export function TailoredResumeReview({ jobId, jobCompany, initialVersions = [] }
       {startedAt !== null ? (
         <TailoringProgress startedAt={startedAt} />
       ) : version ? (
-        <VersionReview version={version} onChange={setVersion} onTailorAgain={() => setWindowOpen(true)} />
+        <VersionReview
+          version={version}
+          onChange={setVersion}
+          saving={state.saving}
+          onSaving={setSaving}
+          onTailorAgain={openWindow}
+        />
       ) : (
         <Card className="space-y-3 p-6">
           <h3 className="font-heading text-base font-semibold">Tailor your résumé to {jobCompany}</h3>
@@ -143,7 +160,7 @@ export function TailoredResumeReview({ jobId, jobCompany, initialVersions = [] }
           </p>
           <p className="text-muted-foreground text-xs">Single-column PDF with selectable text.</p>
           <div>
-            <Button onClick={() => setWindowOpen(true)}>Tailor résumé</Button>
+            <Button onClick={openWindow}>Tailor résumé</Button>
           </div>
         </Card>
       )}
@@ -166,7 +183,7 @@ export function TailoredResumeReview({ jobId, jobCompany, initialVersions = [] }
         </Card>
       ) : null}
 
-      <TailorWindow jobId={jobId} open={windowOpen} onOpenChange={setWindowOpen} onTailor={tailor} />
+      <TailorWindow key={windowKey} jobId={jobId} open={windowOpen} onOpenChange={setWindowOpen} onTailor={tailor} />
     </div>
   );
 }
@@ -199,7 +216,11 @@ function TailorWindow({
   onOpenChange: (open: boolean) => void;
   onTailor: (options: TailorOptions) => void;
 }) {
-  const [loaded, setLoaded] = useState<{ fitRead: boolean; keywords: Array<{ term: string; onResume: boolean }> } | null>(null);
+  const [loaded, setLoaded] = useState<{
+    fitRead: boolean;
+    keywords: Array<{ term: string; onResume: boolean }>;
+    failed?: boolean;
+  } | null>(null);
   const loading = open && loaded === null;
   const fitRead = loaded?.fitRead ?? true;
   const keywords = loaded?.keywords ?? [];
@@ -208,7 +229,7 @@ function TailorWindow({
   const [draft, setDraft] = useState('');
   const [addToBase, setAddToBase] = useState(false);
 
-  // The posting's keywords, read once when the window first opens.
+  // The posting's keywords, read when the window opens (it's a new window each time).
   useEffect(() => {
     if (!open || loaded) return;
     let cancelled = false;
@@ -217,7 +238,7 @@ function TailorWindow({
         if (!cancelled) setLoaded(result);
       })
       .catch(() => {
-        if (!cancelled) setLoaded({ fitRead: false, keywords: [] });
+        if (!cancelled) setLoaded({ fitRead: false, keywords: [], failed: true });
       });
     return () => {
       cancelled = true;
@@ -256,6 +277,8 @@ function TailorWindow({
         <div className="space-y-5 px-4 text-sm">
           {loading ? (
             <p className="text-muted-foreground">Reading the posting&apos;s keywords…</p>
+          ) : loaded?.failed ? (
+            <p className="text-muted-foreground">Couldn&apos;t read the posting&apos;s keywords. You can still add your own.</p>
           ) : !fitRead ? (
             <p className="text-muted-foreground">
               Run a fit read to see the posting&apos;s keywords here. You can still add keywords you have.
@@ -364,15 +387,18 @@ function TailorWindow({
 function VersionReview({
   version,
   onChange,
+  saving,
+  onSaving,
   onTailorAgain,
 }: {
   version: ResumeVersionRecord;
   onChange: (version: ResumeVersionRecord) => void;
+  /** One line at a time: each save changes the whole draft, and Download waits for it. */
+  saving: boolean;
+  onSaving: (saving: boolean) => void;
   onTailorAgain: () => void;
 }) {
   const [downloading, setDownloading] = useState(false);
-  // One line at a time: each save changes the whole draft, and Download waits for it.
-  const [saving, setSaving] = useState(false);
   const basis = version.basedOn ?? null;
   const editable = Boolean(basis) && !version.approved;
   const changes = version.changeDetails ?? [];
@@ -396,7 +422,7 @@ function VersionReview({
   }
 
   async function review(detail: ResumeChangeDetail, action: ReviewAction, text?: string): Promise<boolean> {
-    setSaving(true);
+    onSaving(true);
     try {
       onChange(await reviewResumeChange(version.id, detail.id!, action, text));
       return true;
@@ -404,7 +430,7 @@ function VersionReview({
       toast.error(err instanceof Error ? err.message : "That change couldn't be saved.");
       return false;
     } finally {
-      setSaving(false);
+      onSaving(false);
     }
   }
 
@@ -489,7 +515,8 @@ function ChangeCard({
   onReview: (detail: ResumeChangeDetail, action: ReviewAction, text?: string) => Promise<boolean>;
 }) {
   const [editing, setEditing] = useState(false);
-  const [text, setText] = useState(detail.userText ?? detail.newText);
+  // A dropped suggestion adds something the résumé lacks: editing starts from the base line.
+  const [text, setText] = useState(detail.userText ?? (detail.dropped ? (detail.oldText ?? '') : detail.newText));
   // A line of the base résumé; a suggestion that matched none has nothing to change.
   const isLine = detail.kind === 'rewrite' && Boolean(detail.sourcePath);
   const isAddedSkill = detail.kind === 'skill-added' && !detail.dropped;
