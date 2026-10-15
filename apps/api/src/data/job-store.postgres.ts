@@ -193,7 +193,8 @@ function mapJob(row: JobRow, analysisRow?: JobAnalysisRow, outreachRows: Outreac
     priority: row.priority as JobRecord['priority'],
     fitScore: row.fit_score,
     notes: row.notes ?? undefined,
-    nextAction: row.next_action ?? 'Review the job and decide on the next step.',
+    // Cleared reads back empty: a default here would be saved by the next edit as the user's own.
+    nextAction: row.next_action ?? '',
     nextActionDue: toIsoString(row.next_action_due),
     analysis: mapAnalysis(analysisRow),
     outreach: outreachRows.map(mapOutreach),

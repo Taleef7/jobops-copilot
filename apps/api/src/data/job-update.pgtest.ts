@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
 import test from 'node:test';
-import { createJob, updateJob } from './job-store';
+import { createJob, getJobById, updateJob } from './job-store';
 import { getPool } from '@/lib/postgres';
 
 // Runs only against a real, ephemeral Postgres (the `db` CI job). #412: null clears the notes,
@@ -37,5 +37,10 @@ test(
 
     await updateJob(userId, job.id, { notes: null, nextAction: null, nextActionDue: null });
     assert.deepEqual(await row(), { notes: null, next_action: null, next_action_due: null });
+    // A cleared next action reads back empty, not as a default the next save would store.
+    const cleared = await getJobById(userId, job.id);
+    assert.equal(cleared?.nextAction, '');
+    assert.equal(cleared?.notes, undefined);
+    assert.equal(cleared?.nextActionDue, undefined);
   },
 );

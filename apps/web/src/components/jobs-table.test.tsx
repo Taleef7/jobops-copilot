@@ -189,3 +189,9 @@ it('shows a posting day stored as UTC midnight as that day', () => {
   const { container } = render(<JobsTable jobs={[makeJob({ datePosted: '2026-06-01T00:00:00.000Z' })]} initialQuery="" />);
   expect(container).toHaveTextContent('Posted Jun 1, 2026');
 });
+
+// A cleared next action reads back as '': the column shows the follow-up date instead.
+it('shows the follow-up date when a job has no next action', () => {
+  render(<JobsTable jobs={[makeJob({ nextAction: '', nextActionDue: '2026-10-20T13:00:00.000Z' })]} initialQuery="" />);
+  expect(screen.getByText('Oct 20, 2026')).toBeInTheDocument();
+});

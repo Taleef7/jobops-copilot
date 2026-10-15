@@ -69,3 +69,11 @@ it('shows a posting day stored as UTC midnight as that day', async () => {
   const snapshot = screen.getByRole('heading', { name: 'Snapshot' }).parentElement!;
   expect(within(snapshot).getByText('Jun 1, 2026')).toBeInTheDocument();
 });
+
+// A cleared next action reads back as ''.
+it('shows a dash for a job with no next action', async () => {
+  loadJob.mockResolvedValue({ job: { ...job, nextAction: '' }, error: null });
+  render(await page());
+  const snapshot = screen.getByRole('heading', { name: 'Snapshot' }).parentElement!;
+  expect(within(snapshot).getByText('Next action').nextElementSibling).toHaveTextContent(/^—$/);
+});
