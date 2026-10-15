@@ -4,6 +4,7 @@ import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { changeBaseResume, getUserProfile, upsertUserProfile } from './profile-store';
+import { getBaseResumeVersion, insertResumeVersion, resetResumeVersionStore } from './resume-version-store';
 import type { StructuredResume } from '@/types';
 
 async function withTempStore(run: () => Promise<void>) {
@@ -75,5 +76,26 @@ test('changeBaseResume starts from the fallback when the profile has no base ré
     assert.equal(changed?.basics.summary, 'Changed.');
     assert.equal((await getUserProfile('u2'))?.baseResume?.basics.summary, 'Changed.');
     assert.equal(await changeBaseResume('u3', null, (base) => base), null);
+  });
+});
+
+test("changeBaseResume changes the base version's copy too (#408)", async () => {
+  await withTempStore(async () => {
+    await resetResumeVersionStore();
+    const now = new Date().toISOString();
+    await upsertUserProfile('u4', { baseResume: resume });
+    await insertResumeVersion({
+      id: 'v4',
+      userId: 'u4',
+      jobId: null,
+      changeSummary: 'Initial base resume created',
+      structuredResume: resume,
+      approved: true,
+      isBase: true,
+      createdAt: now,
+      updatedAt: now,
+    });
+    await changeBaseResume('u4', null, (base) => ({ ...base, basics: { ...base.basics, summary: 'Changed.' } }));
+    assert.equal((await getBaseResumeVersion('u4'))?.structuredResume.basics.summary, 'Changed.');
   });
 });

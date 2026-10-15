@@ -157,10 +157,10 @@ test('an unreachable agent fails the canary with a plain reason', async () => {
   });
 });
 
-// #410: the agent's canary makes two model calls (structured output, then a tool call), each
-// up to its 60 s request timeout, and the agent may be starting from zero. The API has to wait
-// for that, and still answer before the workflows that call it give up; deploy-agent.sh, which
-// calls the agent directly, has to wait as long.
+// #410: the agent's canary makes two model calls (structured output, then a tool call). Each is
+// one attempt with no retries (#413), so up to its 60 s request timeout, and the agent may be
+// starting from zero. The API has to wait for that, and still answer before the workflows that
+// call it give up; deploy-agent.sh, which calls the agent directly, has to wait as long.
 test('the canary waits for both model calls and a cold start, inside its callers\' limits', () => {
   const repo = join(__dirname, '..', '..', '..', '..');
   const maxTime = (file: string, near: RegExp) => {

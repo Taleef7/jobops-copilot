@@ -6,6 +6,12 @@ instead of by users.
 /health, which makes no model call, stayed green. Tool calls can fail on their own: on
 gpt-6-luna they take another route than structured output (#410), and the assistant and
 the agents depend on them.
+
+Each call is one attempt (#413). With the SDK's two retries, one call could take 3 times
+the 60 s request timeout, and the API (140 s) and the workflows (150 s) gave up first with
+"the agent timed out" instead of the provider's error. Now each call is one try, and an
+unresponsive provider is cut off after 60 s (the request timeout applies to each connect and
+each wait for data, so a reply that trickles in slowly can take longer).
 """
 
 from __future__ import annotations
@@ -26,7 +32,7 @@ def run_llm_canary() -> None:
 
     Raises on any provider error, an empty answer or a missing tool call.
     """
-    chat, _ = get_model()
+    chat, _ = get_model(one_attempt=True)
     model = chat.with_structured_output(_CanaryTitle)
     result = model.invoke(f"Extract the job title from this posting.\n\n{_POSTING}")
     if not isinstance(result, _CanaryTitle) or not result.title.strip():
