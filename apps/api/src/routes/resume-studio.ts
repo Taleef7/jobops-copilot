@@ -415,12 +415,14 @@ resumeStudioRouter.get('/resume-versions/:id/download', async (request, response
       return response.status(409).json({ code: 'NOT_APPROVED', error: 'Approve this draft before downloading it.' });
     }
 
-    const { pdf, pages } = await renderResumePdf(version.structuredResume);
+    const { pdf, pages, unsupported } = await renderResumePdf(version.structuredResume);
     const candidateName = version.structuredResume.basics?.name?.trim() || 'Resume';
     const job = version.jobId ? await getJobById(userId, version.jobId) : null;
 
     response.setHeader('Content-Type', 'application/pdf');
     response.setHeader('X-Page-Count', String(pages));
+    // Characters the font can't print (CJK, emoji), shown as "?" (#429): the web says so.
+    response.setHeader('X-Pdf-Unsupported-Characters', String(unsupported));
     response.setHeader(
       'Content-Disposition',
       // "First Last – Company.pdf" (no "Inc..pdf").

@@ -57,6 +57,26 @@ it('injects the Clerk bearer token + shared secret and forwards to the API, neve
   expect(response.headers.get('content-type')).toBe('application/json');
 });
 
+it("passes a PDF download's page count and unprintable-character count back (#352)", async () => {
+  vi.stubEnv('NEXT_PUBLIC_API_BASE_URL', 'http://api.internal:4000');
+  vi.resetModules();
+  vi.stubGlobal(
+    'fetch',
+    vi.fn().mockResolvedValue(
+      new Response('%PDF-1.7', {
+        status: 200,
+        headers: { 'content-type': 'application/pdf', 'x-page-count': '1', 'x-pdf-unsupported-characters': '3' },
+      }),
+    ),
+  );
+  const { GET } = await import('./[...path]/route');
+  const request = new NextRequest('http://localhost:3000/api/proxy/api/resume-versions/v1/download');
+  const response = await GET(request, { params: Promise.resolve({ path: ['api', 'resume-versions', 'v1', 'download'] }) });
+  expect(response.status).toBe(200);
+  expect(response.headers.get('x-page-count')).toBe('1');
+  expect(response.headers.get('x-pdf-unsupported-characters')).toBe('3');
+});
+
 // #347: the proxy is the browser's only way into the API, so it refuses cross-site writes,
 // forwards only the routes the client calls, and bounds what it buffers and waits for.
 async function callProxy(

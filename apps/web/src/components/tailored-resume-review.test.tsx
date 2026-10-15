@@ -468,4 +468,13 @@ describe('TailoredResumeReview', () => {
     expect(screen.getByRole('button', { name: 'v2 · Draft' })).toHaveAttribute('aria-pressed', 'true');
     expect(screen.getByRole('button', { name: 'v1 · Downloaded' })).toBeInTheDocument();
   });
+
+  it("says when the PDF has characters the font can't print", async () => {
+    const user = userEvent.setup();
+    approveResumeVersion.mockResolvedValueOnce({ version: { ...draft, approved: true }, approved: true });
+    downloadResumeVersion.mockResolvedValueOnce({ unsupported: 3 });
+    renderReview([draft]);
+    await user.click(screen.getByRole('button', { name: 'Download PDF' }));
+    await waitFor(() => expect(toast.warning).toHaveBeenCalledWith(expect.stringMatching(/3 characters/)));
+  });
 });

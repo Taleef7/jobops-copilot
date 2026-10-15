@@ -462,7 +462,12 @@ function VersionReview({
       }
       const name = current.structuredResume.basics?.name?.trim() || 'Resume';
       // "First Last – Company.pdf" (no "Inc..pdf").
-      await downloadResumeVersion(current.id, `${name} – ${company.trim().replace(/\.+$/, '') || 'Résumé'}.pdf`);
+      const result = await downloadResumeVersion(current.id, `${name} – ${company.trim().replace(/\.+$/, '') || 'Résumé'}.pdf`);
+      if (result?.unsupported) {
+        toast.warning(
+          `${result.unsupported} characters in your résumé can't be printed in its font (Chinese, Japanese, Korean, Arabic, emoji…) and show as "?".`,
+        );
+      }
     } catch (err: unknown) {
       toast.error(err instanceof Error ? err.message : "The PDF couldn't be downloaded.");
     } finally {

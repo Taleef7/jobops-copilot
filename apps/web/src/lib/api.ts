@@ -596,12 +596,17 @@ export async function reviewResumeChange(
 /**
  * Trigger gated browser download for an approved resume version PDF.
  */
-export async function downloadResumeVersion(versionId: string, filename?: string): Promise<void> {
+/**
+ * Downloads an approved tailored résumé. `unsupported`: characters the PDF's font can't print
+ * (CJK, emoji), shown as "?" (#429), so the page can say so.
+ */
+export async function downloadResumeVersion(versionId: string, filename?: string): Promise<{ unsupported: number }> {
   const res = await fetch(`/api/proxy/api/resume-versions/${versionId}/download`);
   if (!res.ok) {
     const errorData = await res.json().catch(() => ({ error: 'Download failed' }));
     throw new Error(errorData.error || `Download failed with status ${res.status}`);
   }
+  const unsupported = Number(res.headers.get('x-pdf-unsupported-characters') ?? 0) || 0;
   const blob = await res.blob();
   const url = window.URL.createObjectURL(blob);
   const a = document.createElement('a');
@@ -611,6 +616,7 @@ export async function downloadResumeVersion(versionId: string, filename?: string
   a.click();
   window.URL.revokeObjectURL(url);
   document.body.removeChild(a);
+  return { unsupported };
 }
 
 /**

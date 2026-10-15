@@ -41,9 +41,10 @@ interface Word {
   space: Run | null;
 }
 
-// A line break inside a field is a space; other control and zero-width characters go.
+// A line break inside a field is a space, as is a no-break or other wide space (so a line can
+// break there); other control and zero-width characters go.
 const clean = (text: string) =>
-  text.replace(/[\t\n\v\f\r\u0085\u2028\u2029]/g, ' ').replace(/[\p{Cc}\p{Cf}]/gu, '');
+  text.replace(/[\t\n\v\f\r\u0085\u2028\u2029\p{Zs}]/gu, ' ').replace(/[\p{Cc}\p{Cf}]/gu, '');
 
 /**
  * A link a PDF reader can follow safely: http, https or mailto only, as an ASCII URI (an
@@ -232,8 +233,12 @@ export class Flow {
     runs: Run[],
     options: { indent?: number; right?: Run[]; marker?: Run; hang?: number; align?: 'left' | 'center' | 'right' } = {},
   ) {
-    const { indent = 0, marker, hang = 0, align = 'left' } = options;
-    let right = options.right ?? [];
+    const { indent = 0, hang = 0, align = 'left' } = options;
+    // Right-hand text and the marker are drawn as they are, not wrapped: printable, one line.
+    const printable = (run: Run): Run => ({ ...run, text: this.printable(run.font, run.text) });
+    const marker = options.marker ? printable(options.marker) : undefined;
+    const fullRight = (options.right ?? []).map(printable);
+    let right = fullRight;
     const width = this.width - indent - hang;
     const rightWidth = right.length > 0 ? this.widthOf(right) + 8 : 0;
     const ownLine = rightWidth > width * 0.45;
@@ -262,7 +267,7 @@ export class Flow {
       }
       this.y -= height;
     });
-    if (ownLine) this.write(options.right!, { align: 'right' });
+    if (ownLine) this.write(fullRight, { align: 'right' });
   }
 
   /**

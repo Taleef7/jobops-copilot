@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import type { StructuredResume } from '@/types';
 import { renderAtsResumePdf, renderResumePdf } from './ats-resume-pdf';
+import { ResumeTooLargeError } from '@/lib/input-caps';
 import { flat, readPdf } from '@/test-support/pdf-read';
 
 /**
@@ -127,13 +128,13 @@ test('an empty résumé still renders a page', async () => {
 });
 
 test('a word longer than a line, or a huge field, renders fast and inside the page', async () => {
+  // One field over the 5,000 cap is refused at save; the renderer must still be linear.
   const token = 'x'.repeat(40_000);
-  const summary = Array.from({ length: 15_000 }, (_, i) => `word${i % 50}`).join(' ');
+  const summary = Array.from({ length: 2_500 }, (_, i) => `word${i % 50}`).join(' ').slice(0, 4_900);
   const start = Date.now();
-  const { pages } = await readPdf(
-    await renderAtsResumePdf(resume({ basics: { ...resume().basics, summary }, work: [{ company: 'Globex', position: 'Engineer', startDate: '2020-01', highlights: [token, `1,${'1,'.repeat(5000)}1 users`] }] })),
-  );
+  const pdf = await renderAtsResumePdf(resume({ basics: { ...resume().basics, summary }, work: [{ company: 'Globex', position: 'Engineer', startDate: '2020-01', highlights: [token, `1,${'1,'.repeat(4000)}1 users`] }] }));
   assert.ok(Date.now() - start < 5_000, `${Date.now() - start} ms`);
+  const { pages } = await readPdf(pdf);
   for (const page of pages) for (const item of page.items) assert.ok(item.x + item.width <= page.width - 36 + 0.5, `"${item.str.slice(0, 20)}" runs past the margin`);
   assert.ok(pages.flatMap((page) => page.lines).join('').includes('x'.repeat(40_000)), 'every character of the long word');
 });
@@ -272,4 +273,49 @@ test('a role summary that is a real sentence is kept, even with month-like words
     await renderAtsResumePdf(resume({ work: [{ company: 'Uniswap', position: 'Engineer', startDate: '2020-01', summary: 'Decentralized markets.', highlights: [] }] })),
   );
   assert.ok(text.includes('Decentralized markets.'));
+});
+
+test('a résumé bigger than any real one is refused before it is drawn', async () => {
+  const sentence = 'Shipped a careful change to a busy service and measured it. '.repeat(80);
+  const huge = resume({ work: Array.from({ length: 4 }, () => ({ company: 'Globex', position: 'Engineer', startDate: '2020-01', highlights: Array.from({ length: 20 }, () => sentence) })) });
+  const start = Date.now();
+  await assert.rejects(renderResumePdf(huge), ResumeTooLargeError);
+  assert.ok(Date.now() - start < 1_000, `${Date.now() - start} ms`);
+});
+
+test('a leading sign is part of the claim; only a pasted bullet is dropped', async () => {
+  const bullets = ['-40% p95 latency after the cache rewrite', '–30% cloud spend', '*nix fleet automation', '- Built the billing API', '•Shipped the ledger', '\uF0B7 Ran the migration'];
+  const { text } = await readPdf(await renderAtsResumePdf(resume({ work: [{ company: 'Globex', position: 'Engineer', startDate: '2020-01', highlights: bullets }] })));
+  const all = flat(text);
+  for (const kept of ['• -40% p95 latency', '• –30% cloud spend', '• *nix fleet automation', '• Built the billing API', '• Shipped the ledger', '• Ran the migration']) {
+    assert.ok(all.includes(kept), `${kept}\n${all}`);
+  }
+});
+
+test('right-hand text gets the same care: no missing glyphs past the margin, no line breaks', async () => {
+  const { pages } = await readPdf(
+    await renderAtsResumePdf(resume({ work: [{ company: 'Globex', position: 'Engineer', location: '東京都 渋谷区\nRemote', startDate: '2018-01\n2019-01', highlights: ['Built it'] }] })),
+  );
+  for (const item of pages[0]!.items) {
+    assert.ok(item.x + item.width <= pages[0]!.width - 28.8 + 0.5, `"${item.str}" runs past the margin`);
+    assert.ok(!item.str.includes('\u0000'), 'a missing glyph');
+  }
+  const position = pages[0]!.lines.find((l) => l.startsWith('Engineer'));
+  assert.ok(position && /Remote$/.test(position), `position line: ${position}`);
+});
+
+test('a non-breaking space is a place to break a line', async () => {
+  const words = Array.from({ length: 40 }, (_, i) => `term${i}`);
+  const bullet = words.join('\u00A0');
+  const { pages } = await readPdf(await renderAtsResumePdf(resume({ work: [{ company: 'Globex', position: 'Engineer', startDate: '2020-01', highlights: [bullet] }] })));
+  const lines = pages[0]!.lines.join(' ');
+  for (const word of words) assert.ok(new RegExp(`(^|\\s)${word}(\\s|$)`).test(lines), `${word} broken: ${lines}`);
+});
+
+test('a version before a noun is not bold; a count after a verb is', async () => {
+  const bullets = ['Built iOS 14+ apps and Java 17+ services', 'Managed 10+ engineers'];
+  const { pages } = await readPdf(await renderAtsResumePdf(resume({ work: [{ company: 'Globex', position: 'Engineer', startDate: '2020-01', highlights: bullets }] })));
+  const bold = pages[0]!.items.filter((item) => /Bold/.test(item.font)).map((item) => item.str.trim());
+  assert.ok(!bold.includes('14+') && !bold.includes('17+'), bold.join(' | '));
+  assert.ok(bold.includes('10+'), bold.join(' | '));
 });

@@ -9,7 +9,7 @@ import { resolveResumeParse } from '@/lib/agent-client';
 import { attachmentDisposition } from '@/lib/content-disposition';
 import { flagResume } from '@/lib/resume-flags';
 import { requireUser } from '@/lib/auth';
-import { isTooLong, RESUME_TOO_LONG_MESSAGE, resumeTooLarge, STORED_TEXT_MAX, TOO_LONG_MESSAGE } from '@/lib/input-caps';
+import { isTooLong, resumeProblem, STORED_TEXT_MAX, TOO_LONG_MESSAGE } from '@/lib/input-caps';
 import type { ResumeVersionRecord, StructuredResume } from '@/types';
 
 export const baseResumeRouter = Router();
@@ -64,8 +64,9 @@ baseResumeRouter.put('/', async (request, response, next) => {
         error: 'baseResume with at least basics.name is required.',
       });
     }
-    if (resumeTooLarge(body.baseResume)) {
-      return response.status(413).json({ error: RESUME_TOO_LONG_MESSAGE });
+    const tooLarge = resumeProblem(body.baseResume);
+    if (tooLarge) {
+      return response.status(413).json({ error: tooLarge });
     }
 
     let source: { resumeText: string; resumeFileName: string } | null = null;
@@ -176,8 +177,9 @@ baseResumeRouter.post('/render-pdf', async (request, response, next) => {
 
     const body = (request.body ?? {}) as { resume?: StructuredResume; versionId?: string };
     let resumeToRender = body.resume;
-    if (resumeTooLarge(body.resume)) {
-      return response.status(413).json({ error: RESUME_TOO_LONG_MESSAGE });
+    const tooLarge = resumeProblem(body.resume);
+    if (tooLarge) {
+      return response.status(413).json({ error: tooLarge });
     }
     let versionRecord: ResumeVersionRecord | null = null;
 
@@ -213,7 +215,7 @@ baseResumeRouter.post('/render-pdf', async (request, response, next) => {
     }
 
     const { renderResumePdf } = await import('@/lib/ats-resume-pdf');
-    const { pdf: pdfBuffer, pages } = await renderResumePdf(resumeToRender);
+    const { pdf: pdfBuffer, pages, unsupported } = await renderResumePdf(resumeToRender);
 
     if (!versionRecord) {
       versionRecord = {
@@ -244,6 +246,8 @@ baseResumeRouter.post('/render-pdf', async (request, response, next) => {
       fileUrl,
       fileName: `resume_${versionRecord.id}.pdf`,
       pages,
+      // Characters the font can't print (CJK, emoji), shown as "?" (#429).
+      unsupported,
     });
   } catch (error) {
     next(error);
@@ -271,10 +275,11 @@ baseResumeRouter.get('/versions/:id/download', async (request, response, next) =
     }
 
     const { renderResumePdf } = await import('@/lib/ats-resume-pdf');
-    const { pdf, pages } = await renderResumePdf(version.structuredResume);
+    const { pdf, pages, unsupported } = await renderResumePdf(version.structuredResume);
 
     response.setHeader('Content-Type', 'application/pdf');
     response.setHeader('X-Page-Count', String(pages));
+    response.setHeader('X-Pdf-Unsupported-Characters', String(unsupported));
     response.setHeader(
       'Content-Disposition',
       attachmentDisposition(`${version.structuredResume.basics?.name?.trim() || 'Resume'} – Résumé.pdf`),

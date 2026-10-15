@@ -2,6 +2,7 @@ import { PDFDocument } from 'pdf-lib';
 import type { StructuredResume } from '@/types';
 import { embedFonts, type Fonts } from '@/lib/pdf/fonts';
 import { Flow, PAGE_SIZES, safeLink, type Run } from '@/lib/pdf/flow';
+import { RESUME_TEXT_MAX, ResumeTooLargeError, resumeTextLength } from '@/lib/input-caps';
 import { resolveLayout, type ResolvedLayout } from '@/lib/resume-layout';
 
 /**
@@ -69,10 +70,19 @@ const METRIC = new RegExp(
   'g',
 );
 
+// A bare count ("14+") after a product name is a version ("iOS 14+ apps", "Java 17+
+// services"): the word before it has a capital, and isn't the bullet's first word (a verb).
+const BARE_COUNT = /^[\d,]+\+$/;
+const versionLike = (text: string, index: number) => {
+  const before = text.slice(0, index).trimEnd().split(/\s+/);
+  return before.length > 1 && /[A-Z]/.test(before[before.length - 1]!);
+};
+
 function withMetrics(text: string, size: number): Run[] {
   const runs: Run[] = [];
   let at = 0;
   for (const match of text.matchAll(METRIC)) {
+    if (BARE_COUNT.test(match[0]) && versionLike(text, match.index!)) continue;
     if (match.index! > at) runs.push({ text: text.slice(at, match.index), font: 'regular', size });
     runs.push({ text: match[0], font: 'bold', size });
     at = match.index! + match[0].length;
@@ -93,8 +103,9 @@ function repeatsHeader(summary: string, parts: string[]): boolean {
   return rest.trim().split(' ').filter((word) => word.length > 1).length === 0;
 }
 
-// A bullet character pasted with the text (from Word, a PDF, a website): we draw our own.
-const PASTED_BULLET = /^[\uF0B7\uF0A7\u2022\u25CF\u25AA\u25A0\u25C6\u25E6\u2023\u2043\u00B7*\u2013\u2014-]\s*/;
+// A bullet pasted with the text (from Word, a PDF, a website): we draw our own. A dash or "*"
+// only with a space after it, so "-40% latency" and "*nix" keep their first character.
+const PASTED_BULLET = /^(?:[\uF0B7\uF0A7\u2022\u25CF\u25AA\u25A0\u25C6\u25E6\u2023\u2043\u00B7]\s*|[-*\u2013\u2014]\s+)/;
 
 /** "https://www.linkedin.com/in/zoe/" → "linkedin.com/in/zoe". */
 const shortUrl = (url: string) => url.replace(/^[a-z]+:\/\//i, '').replace(/^www\./i, '').replace(/\/+$/, '');
@@ -251,6 +262,8 @@ export interface ResumePdf {
 }
 
 export async function renderResumePdf(resume: StructuredResume, options: { fit?: boolean } = {}): Promise<ResumePdf> {
+  // Drawn on the request: one bigger than any real résumé (saved before the caps, say) is refused.
+  if (resumeTextLength(resume) > RESUME_TEXT_MAX) throw new ResumeTooLargeError();
   const doc = await PDFDocument.create();
   const fonts = await embedFonts(doc);
   const layout = resolveLayout(resume);

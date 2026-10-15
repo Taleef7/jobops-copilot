@@ -31,21 +31,76 @@ function isPlainObject(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
-/** A structured résumé's field (a summary, a bullet) and list (roles, bullets, skills): #352. */
+/**
+ * A structured résumé's limits (#352): a field (a summary, a bullet), a list (roles, bullets,
+ * skills) and all its text together. A real résumé is under 20,000 characters. Its PDF is drawn
+ * on the request, so one the size of a book would hold the server up.
+ */
 export const RESUME_FIELD_MAX = 5_000;
 export const RESUME_LIST_MAX = 200;
-export const RESUME_TOO_LONG_MESSAGE = `A field of this résumé is too long (the limit is ${RESUME_FIELD_MAX.toLocaleString('en-US')} characters, and ${RESUME_LIST_MAX} entries in a list).`;
+export const RESUME_TEXT_MAX = 60_000;
 
-/**
- * Whether a structured résumé holds more than a résumé does. Its PDF is drawn on the request,
- * so a field the size of a book would hold the server up.
- */
-export function resumeTooLarge(value: unknown, depth = 0): boolean {
-  if (depth > 6) return false;
-  if (typeof value === 'string') return value.length > RESUME_FIELD_MAX;
-  if (Array.isArray(value)) return value.length > RESUME_LIST_MAX || value.some((item) => resumeTooLarge(item, depth + 1));
-  if (isPlainObject(value)) return Object.values(value).some((field) => resumeTooLarge(field, depth + 1));
-  return false;
+/** A résumé too big to save or draw: 413. */
+export class ResumeTooLargeError extends Error {
+  constructor(message = `This résumé is too long (the limit is ${RESUME_TEXT_MAX.toLocaleString('en-US')} characters in all).`) {
+    super(message);
+    this.name = 'ResumeTooLargeError';
+  }
+}
+
+/** All the text in a structured résumé, in characters. */
+export function resumeTextLength(value: unknown, depth = 0): number {
+  if (depth > 6) return 0;
+  if (typeof value === 'string') return value.length;
+  if (Array.isArray(value)) return value.reduce<number>((sum, item) => sum + resumeTextLength(item, depth + 1), 0);
+  if (isPlainObject(value)) return Object.values(value).reduce<number>((sum, field) => sum + resumeTextLength(field, depth + 1), 0);
+  return 0;
+}
+
+/** What makes a structured résumé too big, in words a user can act on; null when it isn't. */
+export function resumeProblem(value: unknown): string | null {
+  const walk = (node: unknown, where: string, depth: number): string | null => {
+    if (depth > 6) return null;
+    if (typeof node === 'string') {
+      return node.length > RESUME_FIELD_MAX
+        ? `${where} is longer than ${RESUME_FIELD_MAX.toLocaleString('en-US')} characters. Shorten it and save again.`
+        : null;
+    }
+    if (Array.isArray(node)) {
+      if (node.length > RESUME_LIST_MAX) return `${where} has more than ${RESUME_LIST_MAX} entries. Remove some and save again.`;
+      for (const item of node) {
+        const problem = walk(item, where, depth + 1);
+        if (problem) return problem;
+      }
+      return null;
+    }
+    if (isPlainObject(node)) {
+      for (const [key, field] of Object.entries(node)) {
+        const problem = walk(field, RESUME_PART_NAMES[key] ?? where, depth + 1);
+        if (problem) return problem;
+      }
+    }
+    return null;
+  };
+  const problem = walk(value, 'A field of this résumé', 0);
+  if (problem) return problem;
+  return resumeTextLength(value) > RESUME_TEXT_MAX ? new ResumeTooLargeError().message : null;
+}
+
+const RESUME_PART_NAMES: Record<string, string> = {
+  summary: 'The summary',
+  highlights: 'A bullet',
+  skills: 'A skill list',
+  work: 'Experience',
+  education: 'Education',
+  projects: 'Projects',
+  certificates: 'Certifications',
+  description: 'A description',
+};
+
+/** Whether a structured résumé holds more than a résumé does. */
+export function resumeTooLarge(value: unknown): boolean {
+  return resumeProblem(value) !== null;
 }
 
 // Specialist payloads nest the job (`input.job.description_text`), sometimes in arrays.
