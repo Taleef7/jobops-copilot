@@ -9,6 +9,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { OptionSelect } from '@/components/ui/option-select';
 import { Textarea } from '@/components/ui/textarea';
+import { useHydrated } from '@/hooks/use-hydrated';
 import { ApiRequestError, updateJob } from '@/lib/api';
 import { fromDatetimeLocalValue, toDatetimeLocalValue } from '@/lib/format';
 import type { Job } from '@/types/job';
@@ -59,6 +60,9 @@ export function JobEditPanel({ job }: { job: Job }) {
   });
   const [dateError, setDateError] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState(false);
+  // The follow-up is in the browser's time zone, so it's shown after hydration: the server's
+  // (UTC) would show another time until then (#412).
+  const hydrated = useHydrated();
 
   function updateField<K extends keyof FormState>(field: K, value: FormState[K]) {
     setForm((current) => ({ ...current, [field]: value }));
@@ -142,7 +146,7 @@ export function JobEditPanel({ job }: { job: Job }) {
         <Input
           id="job-followup"
           type="datetime-local"
-          value={form.nextActionDue}
+          value={hydrated ? form.nextActionDue : ''}
           onChange={(event) => updateField('nextActionDue', event.target.value)}
         />
         {dateError ? <p className="text-destructive text-xs">{dateError}</p> : null}

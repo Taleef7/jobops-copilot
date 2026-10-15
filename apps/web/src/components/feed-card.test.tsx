@@ -1,7 +1,8 @@
 import '@testing-library/jest-dom/vitest';
-import { render, screen } from '@testing-library/react';
+import { render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { expect, it, vi } from 'vitest';
+import { hydrateInBrowser, renderOnServer } from '@/test/time-zones';
 import type { FeedItem, Job } from '@/types/job';
 import { FeedCard } from './feed-card';
 
@@ -118,4 +119,32 @@ it('calls onStatusChange and updates UI when shortlisting', async () => {
 
   expect(onStatusChange).toHaveBeenCalledWith('test-job-1', 'shortlisted');
   expect(screen.getByText(/✓ Shortlisted/i)).toBeInTheDocument();
+});
+
+// #412: the server renders in UTC, where 1:30 am on Oct 1 is still 9:30 pm on Sep 30 in New
+// York, the browser's zone in these tests. Two different days are a hydration error (React #418).
+it("shows the posted day in the browser's time zone, without a hydration error", async () => {
+  const card = <FeedCard item={makeFeedItem({ datePosted: '2026-10-01T01:30:00.000Z' })} />;
+  const { container, hydrationErrors } = await hydrateInBrowser(renderOnServer(card), card);
+
+  expect(hydrationErrors).not.toHaveBeenCalled();
+  expect(within(container).getByText('Posted Sep 30, 2026')).toBeInTheDocument();
+});
+
+// The server and the browser read the clock seconds apart, either side of "New today"'s 24 hours.
+it('decides "New today" in the browser, without a hydration error', async () => {
+  vi.useFakeTimers({ toFake: ['Date'] });
+  try {
+    const card = <FeedCard item={makeFeedItem({ datePosted: '2026-10-14T12:00:00.000Z' })} />;
+    vi.setSystemTime(new Date('2026-10-15T11:59:58.000Z'));
+    const html = renderOnServer(card);
+    vi.setSystemTime(new Date('2026-10-15T12:00:03.000Z'));
+    const { container, hydrationErrors } = await hydrateInBrowser(html, card);
+
+    expect(hydrationErrors).not.toHaveBeenCalled();
+    expect(within(container).queryByText('New today')).not.toBeInTheDocument();
+    expect(within(container).getByText('Recent')).toBeInTheDocument();
+  } finally {
+    vi.useRealTimers();
+  }
 });

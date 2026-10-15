@@ -1,9 +1,10 @@
 import '@testing-library/jest-dom/vitest';
-import { render, screen } from '@testing-library/react';
+import { render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { expect, it } from 'vitest';
 import type { Job } from '@/types/job';
 import { chooseOption } from '@/test/select';
+import { hydrateInBrowser, renderOnServer } from '@/test/time-zones';
 import { JobsTable } from './jobs-table';
 
 function makeJob(overrides: Partial<Job>): Job {
@@ -162,4 +163,23 @@ it('says a job is not analysed yet when it has no analysis', () => {
 
   expect(screen.getByText('Fresh role')).toBeInTheDocument();
   expect(screen.getByText('Not analysed yet')).toBeInTheDocument();
+});
+
+// #412: the server renders in UTC, where these are Oct 1 and Oct 16; in New York, the browser's
+// zone in these tests, they're the evenings of Sep 30 and Oct 15. Two days are a hydration error.
+it("shows the posted and follow-up days in the browser's time zone, without a hydration error", async () => {
+  const table = (
+    <JobsTable
+      jobs={[
+        makeJob({ title: 'Posted late', datePosted: '2026-10-01T01:30:00.000Z' }),
+        makeJob({ title: 'Due late', nextActionDue: '2026-10-16T02:00:00.000Z' }),
+      ]}
+      initialQuery=""
+    />
+  );
+  const { container, hydrationErrors } = await hydrateInBrowser(renderOnServer(table), table);
+
+  expect(hydrationErrors).not.toHaveBeenCalled();
+  expect(within(container).getByText('Posted Sep 30, 2026')).toBeInTheDocument();
+  expect(within(container).getByText('Oct 15, 2026')).toBeInTheDocument();
 });
