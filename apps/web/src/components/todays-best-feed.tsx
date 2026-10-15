@@ -27,13 +27,16 @@ export function TodaysBestFeed({ initialFeed }: TodaysBestFeedProps) {
   const [feed, setFeed] = useState<FeedResult>(initialFeed);
   const [isPending, startTransition] = useTransition();
   const listRef = useRef<HTMLDivElement>(null);
-  // The card to focus once a removed one is gone (#353).
-  const focusJobId = useRef<string | null>(null);
+  // Where the removed card was, to focus the card now in its place, or the last one (#353).
+  // A position, not a job: when two Passes overlap, the job after the first may be gone too.
+  const focusIndex = useRef<number | null>(null);
 
   useEffect(() => {
-    if (!focusJobId.current) return;
-    listRef.current?.querySelector<HTMLElement>(`a[href="/jobs/${focusJobId.current}"]`)?.focus();
-    focusJobId.current = null;
+    const index = focusIndex.current;
+    if (index === null) return;
+    focusIndex.current = null;
+    const cards = listRef.current?.querySelectorAll<HTMLElement>(':scope > [data-slot="card"]') ?? [];
+    cards[Math.min(index, cards.length - 1)]?.querySelector<HTMLElement>('a')?.focus();
   }, [feed]);
 
   async function loadFeedWithFilters(newFilters: FeedFilterState) {
@@ -85,8 +88,7 @@ export function TodaysBestFeed({ initialFeed }: TodaysBestFeedProps) {
     // (#353). The feed omits archived jobs unless filtered to a status, so Pass removes it.
     const leavesFeed = filters.status === 'all' ? newStatus === 'archived' : newStatus !== filters.status;
     if (leavesFeed) {
-      const index = visibleItems.findIndex((item) => item.job.id === jobId);
-      focusJobId.current = (visibleItems[index + 1] ?? visibleItems[index - 1])?.job.id ?? null;
+      focusIndex.current = Math.max(0, visibleItems.findIndex((item) => item.job.id === jobId));
       setFeed((prev) => ({
         ...prev,
         items: prev.items.filter((item) => item.job.id !== jobId),

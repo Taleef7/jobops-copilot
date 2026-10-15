@@ -1,5 +1,5 @@
 import '@testing-library/jest-dom/vitest';
-import { render, screen, waitFor, within } from '@testing-library/react';
+import { act, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { expect, it, vi } from 'vitest';
 import { updateJob } from '@/lib/api';
@@ -128,4 +128,26 @@ it('keeps a shortlisted card in the feed', async () => {
   await waitFor(() => expect(within(first).getByText(/✓ Shortlisted/)).toBeInTheDocument());
   expect(screen.getByText('Senior Backend Engineer')).toBeInTheDocument();
   expect(screen.getByText(/2 curated opportunities/i)).toBeInTheDocument();
+});
+
+it('moves focus to a card still there when two Passes overlap', async () => {
+  const user = userEvent.setup();
+  const third: FeedItem = { ...mockFeedItems[1]!, job: makeJob('job-3', 'Figma', 'Platform Engineer') };
+  render(<TodaysBestFeed initialFeed={{ ...mockFeedResult, items: [...mockFeedItems, third], total: 3 }} />);
+  const answers: (() => void)[] = [];
+  vi.mocked(updateJob).mockImplementation(() => new Promise((resolve) => answers.push(() => resolve({} as never))));
+  const card = (title: string) => screen.getByRole('link', { name: title }).closest('[data-slot="card"]') as HTMLElement;
+
+  try {
+    // Pass the second card, then the third; the third one's answer comes back first.
+    await user.click(within(card('Staff Infrastructure Engineer')).getByRole('button', { name: /pass/i }));
+    await user.click(within(card('Platform Engineer')).getByRole('button', { name: /pass/i }));
+    await act(async () => answers[1]!());
+    await act(async () => answers[0]!());
+
+    expect(screen.getByText(/1 curated opportunity/i)).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Senior Backend Engineer' })).toHaveFocus();
+  } finally {
+    vi.mocked(updateJob).mockResolvedValue({} as never);
+  }
 });
