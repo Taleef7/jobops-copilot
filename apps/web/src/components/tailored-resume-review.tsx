@@ -183,6 +183,7 @@ export function TailoredResumeReview({ jobId, jobCompany, initialVersions = [] }
           ) : null}
           <VersionReview
             version={version}
+            company={jobCompany}
             onChange={setVersion}
             saving={state.saving}
             onSaving={setSaving}
@@ -426,6 +427,7 @@ function TailorWindow({
 
 function VersionReview({
   version,
+  company,
   onChange,
   saving,
   onSaving,
@@ -434,6 +436,8 @@ function VersionReview({
   onTailorAgain,
 }: {
   version: ResumeVersionRecord;
+  /** The job's company: the download is named "First Last – Company.pdf". */
+  company: string;
   onChange: (version: ResumeVersionRecord) => void;
   /** One line at a time: each save changes the whole draft, and Download waits for it. */
   saving: boolean;
@@ -456,8 +460,8 @@ function VersionReview({
         current = (await approveResumeVersion(current.id)).version;
         onChange(current);
       }
-      const name = current.structuredResume.basics?.name || 'Resume';
-      await downloadResumeVersion(current.id, `${name.replace(/\s+/g, '_')}_tailored.pdf`);
+      const name = current.structuredResume.basics?.name?.trim() || 'Resume';
+      await downloadResumeVersion(current.id, `${name} – ${company}.pdf`);
     } catch (err: unknown) {
       toast.error(err instanceof Error ? err.message : "The PDF couldn't be downloaded.");
     } finally {

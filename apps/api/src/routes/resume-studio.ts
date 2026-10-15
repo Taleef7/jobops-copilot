@@ -10,7 +10,7 @@ import {
   updateResumeVersion,
 } from '@/data/resume-version-store';
 import { AiUnavailableError, normalizeStructuredResume, resolveTailorResume } from '@/lib/agent-client';
-import { renderAtsResumePdf } from '@/lib/ats-resume-pdf';
+import { renderAtsResumePdf, renderResumePdf } from '@/lib/ats-resume-pdf';
 import { requireUser } from '@/lib/auth';
 import { storeResumePdf } from '@/lib/resume-storage';
 import { addSkills, GROUNDING_VERSION, isGrounded, skillGroup, tailorFromAnswer } from '@/lib/tailor/apply';
@@ -239,7 +239,7 @@ resumeStudioRouter.post('/resume-versions/:id/approve', async (request, response
       return response.status(422).json(NOT_GROUNDED);
     }
 
-    const pdfBuffer = renderAtsResumePdf(version.structuredResume);
+    const pdfBuffer = await renderAtsResumePdf(version.structuredResume);
     const { fileUrl } = await storeResumePdf(version, pdfBuffer);
     // Approved as rendered: a line saved meanwhile (another tab) would make the PDF differ.
     const updated = await updateResumeVersion(
@@ -415,15 +415,18 @@ resumeStudioRouter.get('/resume-versions/:id/download', async (request, response
       return response.status(409).json({ code: 'NOT_APPROVED', error: 'Approve this draft before downloading it.' });
     }
 
-    const pdfBuffer = renderAtsResumePdf(version.structuredResume);
-    const candidateName = version.structuredResume.basics?.name || 'Resume';
+    const { pdf, pages } = await renderResumePdf(version.structuredResume);
+    const candidateName = version.structuredResume.basics?.name?.trim() || 'Resume';
+    const job = version.jobId ? await getJobById(userId, version.jobId) : null;
 
     response.setHeader('Content-Type', 'application/pdf');
+    response.setHeader('X-Page-Count', String(pages));
     response.setHeader(
       'Content-Disposition',
-      attachmentDisposition(`${candidateName.replace(/\s+/g, '_')}_${version.id}.pdf`),
+      // "First Last – Company.pdf" (no "Inc..pdf").
+      attachmentDisposition(`${candidateName} – ${job?.company?.trim().replace(/\.+$/, '') || 'Résumé'}.pdf`),
     );
-    return response.send(pdfBuffer);
+    return response.send(pdf);
   } catch (error) {
     next(error);
   }

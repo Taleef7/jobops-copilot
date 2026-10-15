@@ -567,7 +567,7 @@ test('POST /api/profile/base-resume/render-pdf renders ATS PDF and stores versio
         assert.equal(downloadRes.status, 200);
         assert.equal(downloadRes.headers.get('content-type'), 'application/pdf');
         const buf = Buffer.from(await downloadRes.arrayBuffer());
-        assert.ok(buf.toString('utf-8', 0, 8).startsWith('%PDF-1.4'));
+        assert.ok(buf.toString('utf-8', 0, 8).startsWith('%PDF-'));
       },
     );
   } finally {

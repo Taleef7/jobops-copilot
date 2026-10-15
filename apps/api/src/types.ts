@@ -364,6 +364,14 @@ export interface ResumeCertificate {
   url?: string;
 }
 
+export type ResumeSectionKey = 'summary' | 'work' | 'education' | 'skills' | 'projects' | 'certificates';
+
+/** Section order, titles and visibility, and page size, for the PDF (#352; edited in #415). */
+export interface ResumeLayout {
+  sections?: Array<{ key: ResumeSectionKey; title?: string; hidden?: boolean }>;
+  pageSize?: 'letter' | 'a4';
+}
+
 export interface StructuredResume {
   basics: ResumeBasics;
   work: ResumeWorkExperience[];
@@ -371,6 +379,7 @@ export interface StructuredResume {
   skills: ResumeSkill[];
   projects?: ResumeProject[];
   certificates?: ResumeCertificate[];
+  layout?: ResumeLayout;
 }
 
 /**

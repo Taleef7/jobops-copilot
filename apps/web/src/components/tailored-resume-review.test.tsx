@@ -221,7 +221,7 @@ describe('TailoredResumeReview', () => {
     renderReview([draft]);
 
     await user.click(screen.getByRole('button', { name: 'Download PDF' }));
-    await waitFor(() => expect(downloadResumeVersion).toHaveBeenCalledWith('ver-1', expect.stringMatching(/Jordan_Lee/)));
+    await waitFor(() => expect(downloadResumeVersion).toHaveBeenCalledWith('ver-1', 'Jordan Lee – Acme Pay.pdf'));
     expect(approveResumeVersion).toHaveBeenCalledWith('ver-1');
     expect(await screen.findByText(/Downloaded\. To change it, tailor again\./)).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Restore original' })).not.toBeInTheDocument();
