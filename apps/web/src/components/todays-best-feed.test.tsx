@@ -1,7 +1,8 @@
 import '@testing-library/jest-dom/vitest';
-import { render, screen } from '@testing-library/react';
+import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { expect, it, vi } from 'vitest';
+import { updateJob } from '@/lib/api';
 import type { FeedItem, FeedResult, Job } from '@/types/job';
 import { TodaysBestFeed } from './todays-best-feed';
 
@@ -100,4 +101,31 @@ it('shows empty state when no items match the search', async () => {
   await user.type(searchInput, 'nonexistentcompanyname');
 
   expect(screen.getByText(/No curated jobs match these filters/i)).toBeInTheDocument();
+});
+
+// #353: Pass archived the job but left its card on top with an "Archived" chip, so the next
+// Shortlist or Pass on the "first" card hit the same job again.
+it('removes a passed card and moves focus to the next one', async () => {
+  const user = userEvent.setup();
+  render(<TodaysBestFeed initialFeed={mockFeedResult} />);
+
+  const first = screen.getByRole('link', { name: 'Senior Backend Engineer' }).closest('[data-slot="card"]') as HTMLElement;
+  await user.click(within(first).getByRole('button', { name: /pass/i }));
+
+  await waitFor(() => expect(screen.queryByText('Senior Backend Engineer')).not.toBeInTheDocument());
+  expect(updateJob).toHaveBeenCalledWith('job-1', { status: 'archived' });
+  expect(screen.getByText(/1 curated opportunity/i)).toBeInTheDocument();
+  expect(screen.getByRole('link', { name: 'Staff Infrastructure Engineer' })).toHaveFocus();
+});
+
+it('keeps a shortlisted card in the feed', async () => {
+  const user = userEvent.setup();
+  render(<TodaysBestFeed initialFeed={mockFeedResult} />);
+
+  const first = screen.getByRole('link', { name: 'Senior Backend Engineer' }).closest('[data-slot="card"]') as HTMLElement;
+  await user.click(within(first).getByRole('button', { name: /shortlist/i }));
+
+  await waitFor(() => expect(within(first).getByText(/✓ Shortlisted/)).toBeInTheDocument());
+  expect(screen.getByText('Senior Backend Engineer')).toBeInTheDocument();
+  expect(screen.getByText(/2 curated opportunities/i)).toBeInTheDocument();
 });

@@ -1,7 +1,7 @@
 'use client';
 
 import { Loader2, Sparkles } from 'lucide-react';
-import { useState, useTransition } from 'react';
+import { useEffect, useRef, useState, useTransition } from 'react';
 import { EmptyState } from '@/components/empty-state';
 import { FeedCard } from '@/components/feed-card';
 import { FeedFilters, type FeedFilterState } from '@/components/feed-filters';
@@ -26,6 +26,15 @@ export function TodaysBestFeed({ initialFeed }: TodaysBestFeedProps) {
   const [filters, setFilters] = useState<FeedFilterState>(defaultFilters);
   const [feed, setFeed] = useState<FeedResult>(initialFeed);
   const [isPending, startTransition] = useTransition();
+  const listRef = useRef<HTMLDivElement>(null);
+  // The card to focus once a removed one is gone (#353).
+  const focusJobId = useRef<string | null>(null);
+
+  useEffect(() => {
+    if (!focusJobId.current) return;
+    listRef.current?.querySelector<HTMLElement>(`a[href="/jobs/${focusJobId.current}"]`)?.focus();
+    focusJobId.current = null;
+  }, [feed]);
 
   async function loadFeedWithFilters(newFilters: FeedFilterState) {
     startTransition(async () => {
@@ -72,6 +81,19 @@ export function TodaysBestFeed({ initialFeed }: TodaysBestFeedProps) {
   }
 
   function handleStatusChange(jobId: string, newStatus: JobStatus) {
+    // A job the feed's filter no longer covers leaves it, and focus moves to the next card
+    // (#353). The feed omits archived jobs unless filtered to a status, so Pass removes it.
+    const leavesFeed = filters.status === 'all' ? newStatus === 'archived' : newStatus !== filters.status;
+    if (leavesFeed) {
+      const index = visibleItems.findIndex((item) => item.job.id === jobId);
+      focusJobId.current = (visibleItems[index + 1] ?? visibleItems[index - 1])?.job.id ?? null;
+      setFeed((prev) => ({
+        ...prev,
+        items: prev.items.filter((item) => item.job.id !== jobId),
+        total: Math.max(0, prev.total - 1),
+      }));
+      return;
+    }
     setFeed((prev) => ({
       ...prev,
       items: prev.items.map((item) =>
@@ -164,7 +186,7 @@ export function TodaysBestFeed({ initialFeed }: TodaysBestFeedProps) {
         />
       ) : (
         /* Ranked Feed Cards */
-        <div className="space-y-4">
+        <div ref={listRef} className="space-y-4">
           {visibleItems.map((item) => (
             <FeedCard
               key={item.job.id}
