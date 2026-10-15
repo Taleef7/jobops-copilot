@@ -9,9 +9,8 @@ import Link from 'next/link';
  * hosted login rather than part of this product — and it is the first screen a
  * visitor sees after clicking "Get started".
  *
- * Reuses the sidebar's brand lockup verbatim (same mark, same wordmark, same
- * "AI Operations" line) so the app doesn't introduce a second identity at its
- * own front door.
+ * Reuses the sidebar's brand lockup verbatim (same mark, same wordmark) so the
+ * app doesn't introduce a second identity at its own front door.
  *
  * Deliberately contributes no heading of its own. Clerk's card already renders
  * one ("Sign in to JobOps Copilot"), and suppressing it would mean betting on
@@ -32,10 +31,7 @@ export function AuthShell({ children }: { children: React.ReactNode }) {
           <span className="bg-primary text-primary-foreground flex size-9 shrink-0 items-center justify-center rounded-lg shadow-sm">
             <Sparkles className="size-4.5" />
           </span>
-          <span className="grid text-left leading-tight">
-            <span className="font-heading text-base font-bold">JobOps Copilot</span>
-            <span className="text-muted-foreground text-xs">AI Operations</span>
-          </span>
+          <span className="font-heading text-base font-bold">JobOps Copilot</span>
         </span>
       </Link>
 

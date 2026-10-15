@@ -185,6 +185,16 @@ describe('TailoredResumeReview', () => {
     expect(screen.queryByText(/Groundedness/)).not.toBeInTheDocument();
   });
 
+  // #412: the days are the user's, not UTC's. In New York, the browser's zone in these tests,
+  // 1:30 am UTC is the evening before.
+  it("dates the base résumé and the draft in the browser's time zone", () => {
+    const basedOn = { ...draft.basedOn!, baseUpdatedAt: '2026-10-01T01:00:00.000Z', createdAt: '2026-10-15T01:30:00.000Z' };
+    renderReview([{ ...draft, basedOn }]);
+    expect(screen.getByText(/^Based on your base résumé saved/)).toHaveTextContent(
+      'saved Sep 30, 2026 and this posting · gpt-6-luna · tailored Oct 14, 2026',
+    );
+  });
+
   it('each line can be kept, restored or edited, and a dropped one only edited', async () => {
     const user = userEvent.setup();
     reviewResumeChange.mockImplementation(async (_v: string, changeId: string, action: string, text?: string) => ({

@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { Router } from 'express';
-import { getUserProfile, upsertUserProfile } from '@/data/profile-store';
+import { getUserProfile, saveBaseResume } from '@/data/profile-store';
 import {
   getBaseResumeVersion,
   insertResumeVersion,
@@ -46,7 +46,8 @@ baseResumeRouter.get('/', async (request, response, next) => {
  * Save or update the canonical structured base resume.
  * Accepts a full `StructuredResume` in the request body.
  * Persists to both `user_profiles.base_resume` (denormalized) and
- * creates/updates a `resume_versions` row with `is_base = true`.
+ * creates/updates a `resume_versions` row with `is_base = true`, in one transaction in
+ * Postgres: a 500 means neither changed (#408).
  *
  * A résumé read from a replacement file comes with that file's text (`resumeText`, and
  * `resumeFileName`), stored in the same statement as the profile's résumé: the text
@@ -82,36 +83,7 @@ baseResumeRouter.put('/', async (request, response, next) => {
     }
 
     const baseResume = body.baseResume;
-
-    // Persist to the denormalized profile column, with the file's text when there is one.
-    await upsertUserProfile(userId, { baseResume, ...source });
-
-    // Also create/update the base resume version row.
-    const existingBase = await getBaseResumeVersion(userId);
-    if (existingBase) {
-      // Update the existing base version.
-      const { updateResumeVersion } = await import('@/data/resume-version-store');
-      await updateResumeVersion(userId, existingBase.id, {
-        structuredResume: baseResume,
-        changeSummary: 'Base resume updated via editor',
-        approved: true,
-      });
-    } else {
-      // Insert a new base version.
-      const versionRecord: ResumeVersionRecord = {
-        id: randomUUID(),
-        userId,
-        jobId: null,
-        changeSummary: 'Initial base resume created',
-        structuredResume: baseResume,
-        approved: true,
-        isBase: true,
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
-      };
-      await insertResumeVersion(versionRecord);
-    }
-
+    await saveBaseResume(userId, baseResume, source);
     return response.json({ baseResume });
   } catch (error) {
     next(error);

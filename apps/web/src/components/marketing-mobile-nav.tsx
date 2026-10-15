@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import Link from 'next/link';
-import { Menu, Sparkles, Layers, ArrowRight } from 'lucide-react';
+import { Menu, Layers, ArrowRight } from 'lucide-react';
 import { SignInButton, SignUpButton, UserButton } from '@clerk/nextjs';
 import { Button } from '@/components/ui/button';
 import { ModeToggle } from '@/components/mode-toggle';
@@ -43,14 +43,6 @@ export function MarketingMobileNav({ signedIn }: MarketingMobileNavProps) {
             <SheetTitle className="sr-only">Navigation Menu</SheetTitle>
           </SheetHeader>
           <div className="flex flex-col gap-3 pt-2">
-            <Link
-              href="/#features"
-              onClick={() => setOpen(false)}
-              className="flex items-center gap-2.5 rounded-lg px-3 py-2.5 text-sm font-medium text-foreground hover:bg-muted transition-colors"
-            >
-              <Sparkles className="size-4 text-primary" />
-              Features
-            </Link>
             <Link
               href="/architecture"
               onClick={() => setOpen(false)}

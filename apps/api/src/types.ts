@@ -196,10 +196,11 @@ export interface CreateJobBody {
 export interface UpdateJobBody {
   status?: JobStatus;
   priority?: JobPriority;
-  notes?: string;
+  /** null clears it, as for nextAction and nextActionDue; left out, it's unchanged. */
+  notes?: string | null;
   fitScore?: number | null;
-  nextAction?: string;
-  nextActionDue?: string;
+  nextAction?: string | null;
+  nextActionDue?: string | null;
 }
 
 export interface ParseJobBody {

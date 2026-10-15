@@ -4,6 +4,7 @@ import Link from 'next/link';
 import { useEffect, useState, useSyncExternalStore } from 'react';
 import { Loader2, Plus, X } from 'lucide-react';
 import { toast } from 'sonner';
+import { LocalDate } from '@/components/local-date';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
@@ -39,7 +40,6 @@ interface TailorOptions {
 const MAX_KEYWORDS = 25;
 const MAX_KEYWORD_LENGTH = 60;
 
-const day = (iso: string | null | undefined) => (iso ? iso.slice(0, 10) : 'unknown date');
 const modelName = (model: string) => model.split(':').pop() ?? model;
 
 interface TailorError {
@@ -496,8 +496,8 @@ function VersionReview({
             <h3 className="font-heading text-base font-semibold">Tailored résumé</h3>
             {basis ? (
               <p className="text-muted-foreground text-xs">
-                Based on your base résumé saved {day(basis.baseUpdatedAt)} and this posting · {modelName(basis.model)} ·
-                tailored {day(basis.createdAt)}
+                Based on your base résumé saved <LocalDate value={basis.baseUpdatedAt} fallback="unknown date" /> and
+                this posting · {modelName(basis.model)} · tailored <LocalDate value={basis.createdAt} />
               </p>
             ) : null}
           </div>

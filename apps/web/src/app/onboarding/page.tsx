@@ -269,7 +269,7 @@ export default function OnboardingPage() {
                 What roles are you targeting?
               </h1>
               <CardDescription>
-                We&apos;ll pull matching postings into your feed, already scored against your resume.
+                We&apos;ll pull matching postings into your feed. Open one to get a fit read.
               </CardDescription>
             </>
           )}
