@@ -165,6 +165,26 @@ def test_bracketed_text_from_the_inputs_is_kept(fake_model):
     assert result.draft_text == text
 
 
+@pytest.mark.parametrize(
+    "metavariable",
+    ["[X] years", "[Y]", "[N]", "[X1]", "[Role]", "[Position]", "[Title]", "[Company]", "[Date]",
+     "[Location]", "[Skill]", "[Skills]", "[Number]", "[Amount]", "[City]"],
+)
+def test_a_template_metavariable_from_the_inputs_is_still_a_placeholder(fake_model, metavariable):
+    # A posting template that says "[X] years" or "[Role]" doesn't make them real text.
+    structured = fake_model(
+        f"I have the {metavariable} experience you ask for.",
+        f"I'd like to talk about the {metavariable} role.",
+    )
+
+    with pytest.raises(ValueError, match="placeholder"):
+        outreach_module.draft_outreach(
+            _request("recruiter_email", job_context=f"We need {metavariable} of experience.")
+        )
+
+    assert len(structured.calls) == 2
+
+
 def test_a_placeholder_from_a_posting_template_is_still_a_placeholder(fake_model):
     structured = fake_model(
         "I'd like to join [Company Name] as a backend engineer.",

@@ -28,12 +28,17 @@ CHARACTER_LIMITS = {"linkedin_connection": 300}
 # __X__ span is one, unless the inputs contain it word for word (a job title's [Remote]) or it
 # is an editorial [sic] or [...]. A span that names a placeholder ([Company Name] in a posting
 # template, or the [EMAIL], [PHONE] and [URL] the model sees where contact details were
-# removed) is one even when the inputs contain it.
+# removed) is one even when the inputs contain it, and so is a template metavariable such as
+# [X] years or [Role].
 _SPAN = re.compile(r"\[[^\[\]\n]{1,80}\]|\{[^{}\n]{1,80}\}|<[^<>\n]{1,80}>|__[^_\s][^_\n]{0,78}__")
 _EDITORIAL = {"[sic]", "[...]", "[…]"}
 _PLACEHOLDER_WORD = re.compile(
     r"(?<![a-z])(?:name|company|recipient|recruiter|manager|insert|your|date|e-?mail|phone|url"
     r"|address)(?![a-z])",
+    re.IGNORECASE,
+)
+_METAVARIABLE = re.compile(
+    r"[a-z]\d*|role|position|title|company|date|location|skills?|number|amount|city",
     re.IGNORECASE,
 )
 
@@ -44,7 +49,8 @@ def _placeholder(draft: OutreachDraftLLM, inputs: str) -> str | None:
         span = match.group(0)
         if span.lower() in _EDITORIAL:
             continue
-        if span in inputs and not _PLACEHOLDER_WORD.search(span):
+        named = _PLACEHOLDER_WORD.search(span) or _METAVARIABLE.fullmatch(span.strip("[]{}<>_ "))
+        if span in inputs and not named:
             continue
         return span
     return None
