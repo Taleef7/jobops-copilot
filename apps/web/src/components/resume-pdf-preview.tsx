@@ -5,6 +5,7 @@ import { Loader2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { downloadBaseResumePdf, errorMessage, fetchBaseResumePdf } from '@/lib/api';
+import { renderPdfPages } from '@/lib/pdf-pages';
 
 interface ResumePdfPreviewProps {
   /** The name on the résumé, for "First Last – Résumé.pdf". */
@@ -18,7 +19,7 @@ interface ResumePdfPreviewProps {
 }
 
 interface Preview {
-  url: string;
+  data: ArrayBuffer;
   pages: number;
   unsupported: number;
 }
@@ -27,8 +28,10 @@ const unprintable = (count: number) =>
   `${count} characters in your résumé can't be printed in its font (Chinese, Japanese, Korean, Arabic, emoji…) and show as "?".`;
 
 /**
- * The base résumé's PDF as saved (#415), in its layout: shown here with its page count, or
- * downloaded. The API renders it on the request and stores nothing.
+ * The base résumé's PDF as saved (#415), in its layout: its pages drawn here, with the page
+ * count, or downloaded. The API renders it on the request and stores nothing. The pages are
+ * drawn with pdf.js, not shown in a frame: the app's CSP (`object-src 'none'`) can stop the
+ * browser's PDF viewer, and phones don't show a PDF inside a page.
  */
 export function ResumePdfPreview({ name, disabled = false, changes = 0, pending }: ResumePdfPreviewProps) {
   const [preview, setPreview] = useState<Preview | null>(null);
@@ -43,12 +46,6 @@ export function ResumePdfPreview({ name, disabled = false, changes = 0, pending 
     setError(null);
   }
 
-  // The PDF is held in memory until it's replaced or dropped.
-  useEffect(() => {
-    if (!preview) return;
-    const { url } = preview;
-    return () => URL.revokeObjectURL(url);
-  }, [preview]);
   // For a render on its way: the latest save it has to include, and whether it's still wanted.
   const latest = useRef(changes);
   const mounted = useRef(true);
@@ -71,13 +68,12 @@ export function ResumePdfPreview({ name, disabled = false, changes = 0, pending 
         await pending?.();
         const asOf = latest.current;
         const { blob, pages, unsupported } = await fetchBaseResumePdf();
-        const url = URL.createObjectURL(blob);
-        if (mounted.current && asOf === latest.current) {
-          setPreview({ url, pages, unsupported });
+        const data = await blob.arrayBuffer();
+        if (!mounted.current) return;
+        if (asOf === latest.current) {
+          setPreview({ data, pages, unsupported });
           return;
         }
-        URL.revokeObjectURL(url);
-        if (!mounted.current) return;
       }
     } catch (err) {
       setPreview(null);
@@ -120,17 +116,43 @@ export function ResumePdfPreview({ name, disabled = false, changes = 0, pending 
       ) : null}
       {preview ? (
         <div className="space-y-2">
-          <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1 text-sm">
-            <p role="status">{`Your PDF is ${preview.pages} ${preview.pages === 1 ? 'page' : 'pages'}.`}</p>
-            <a href={preview.url} target="_blank" rel="noopener noreferrer" className="underline underline-offset-2">
-              Open the PDF in a new tab
-            </a>
-          </div>
+          <p role="status" className="text-sm">{`Your PDF is ${preview.pages} ${preview.pages === 1 ? 'page' : 'pages'}.`}</p>
           {preview.unsupported ? <p className="text-xs text-amber-700 dark:text-amber-400">{unprintable(preview.unsupported)}</p> : null}
-          {/* Phones open the PDF in a tab instead: their browsers don't show one in a frame. */}
-          <iframe title="Résumé PDF preview" src={preview.url} className="hidden h-[42rem] w-full rounded-md border sm:block" />
+          <PdfPages data={preview.data} />
         </div>
       ) : null}
     </div>
   );
+}
+
+/** The PDF's pages, drawn one under the other at the width there is. */
+function PdfPages({ data }: { data: ArrayBuffer }) {
+  const [frame, setFrame] = useState<HTMLDivElement | null>(null);
+  const [failed, setFailed] = useState(false);
+
+  useEffect(() => {
+    if (!frame) return;
+    let current = true;
+    renderPdfPages(data, frame.clientWidth || 800)
+      .then((canvases) => {
+        if (!current) return;
+        canvases.forEach((canvas, index) => {
+          canvas.setAttribute('role', 'img');
+          canvas.setAttribute('aria-label', `Page ${index + 1} of ${canvases.length}`);
+          canvas.className = 'h-auto w-full rounded-md border bg-white shadow-sm';
+        });
+        frame.replaceChildren(...canvases);
+      })
+      .catch(() => {
+        if (current) setFailed(true);
+      });
+    return () => {
+      current = false;
+    };
+  }, [data, frame]);
+
+  if (failed) {
+    return <p className="text-muted-foreground text-sm">The pages couldn&apos;t be shown here. Download PDF has it.</p>;
+  }
+  return <div ref={setFrame} role="group" aria-label="Résumé PDF preview" className="max-w-3xl space-y-3" />;
 }

@@ -1,40 +1,48 @@
 import '@testing-library/jest-dom/vitest';
-import { render, screen } from '@testing-library/react';
+import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
-const { fetchBaseResumePdf, downloadBaseResumePdf } = vi.hoisted(() => ({
+const { fetchBaseResumePdf, downloadBaseResumePdf, renderPdfPages } = vi.hoisted(() => ({
   fetchBaseResumePdf: vi.fn(),
   downloadBaseResumePdf: vi.fn(async () => ({ pages: 1, unsupported: 0 })),
+  // pdf.js draws in a real browser; here each page is a blank canvas, as many as the stand-in
+  // PDF below says.
+  renderPdfPages: vi.fn(async (data: ArrayBuffer) =>
+    Array.from({ length: new TextDecoder().decode(data).length - 7 }, () => document.createElement('canvas')),
+  ),
 }));
 vi.mock('@/lib/api', () => ({
   fetchBaseResumePdf,
   downloadBaseResumePdf,
   errorMessage: (error: unknown, fallback: string) => (error instanceof Error ? error.message : fallback),
 }));
+vi.mock('@/lib/pdf-pages', () => ({ renderPdfPages }));
 
 import { ResumePdfPreview } from './resume-pdf-preview';
 
-const pdf = (pages: number, unsupported = 0) => ({ blob: new Blob(['%PDF-1.7'], { type: 'application/pdf' }), pages, unsupported });
-
-beforeEach(() => {
-  // jsdom has no object URLs.
-  let n = 0;
-  URL.createObjectURL = vi.fn(() => `blob:preview-${(n += 1)}`);
-  URL.revokeObjectURL = vi.fn();
+// A stand-in PDF: "%PDF-1." and one "x" per page.
+const pdf = (pages: number, unsupported = 0) => ({
+  blob: new Blob(['%PDF-1.' + 'x'.repeat(pages)], { type: 'application/pdf' }),
+  pages,
+  unsupported,
 });
+
 afterEach(() => vi.clearAllMocks());
 
 describe('ResumePdfPreview (#415)', () => {
-  it('shows the PDF of the saved résumé, and how many pages it has', async () => {
+  it("draws the saved résumé's pages here, with how many there are, and no frame", async () => {
     fetchBaseResumePdf.mockResolvedValueOnce(pdf(1));
     const user = userEvent.setup();
     render(<ResumePdfPreview name="Zoë Núñez" />);
 
     await user.click(screen.getByRole('button', { name: 'Preview PDF' }));
     expect(await screen.findByText('Your PDF is 1 page.')).toBeInTheDocument();
-    expect(screen.getByTitle('Résumé PDF preview')).toHaveAttribute('src', 'blob:preview-1');
-    expect(screen.getByRole('link', { name: /open the pdf in a new tab/i })).toHaveAttribute('href', 'blob:preview-1');
+    expect(await screen.findByRole('img', { name: 'Page 1 of 1' })).toBeInTheDocument();
+    expect(screen.getByRole('group', { name: 'Résumé PDF preview' })).toBeInTheDocument();
+    // A frame, or a link to a blob:, needs the browser's PDF viewer, which the CSP
+    // (object-src 'none') can block.
+    expect(document.querySelector('iframe, object, embed, a[href^="blob:"]')).toBeNull();
   });
 
   it('says when it runs to a second page, and when characters could not be printed', async () => {
@@ -43,6 +51,7 @@ describe('ResumePdfPreview (#415)', () => {
     render(<ResumePdfPreview name="Zoë Núñez" />);
     await user.click(screen.getByRole('button', { name: 'Preview PDF' }));
     expect(await screen.findByText('Your PDF is 2 pages.')).toBeInTheDocument();
+    expect(await screen.findByRole('img', { name: 'Page 2 of 2' })).toBeInTheDocument();
     expect(screen.getByText(/3 characters in your résumé can't be printed/)).toBeInTheDocument();
   });
 
@@ -52,6 +61,15 @@ describe('ResumePdfPreview (#415)', () => {
     render(<ResumePdfPreview name="Zoë Núñez" />);
     await user.click(screen.getByRole('button', { name: 'Preview PDF' }));
     expect(await screen.findByRole('alert')).toHaveTextContent('Too many requests, slow down.');
+  });
+
+  it("says so when the pages can't be drawn, and points to the download", async () => {
+    fetchBaseResumePdf.mockResolvedValueOnce(pdf(1));
+    renderPdfPages.mockRejectedValueOnce(new Error('canvas unavailable'));
+    const user = userEvent.setup();
+    render(<ResumePdfPreview name="Zoë Núñez" />);
+    await user.click(screen.getByRole('button', { name: 'Preview PDF' }));
+    expect(await screen.findByText(/couldn't be shown here\. Download PDF has it/)).toBeInTheDocument();
   });
 
   it('downloads the PDF as "First Last – Résumé.pdf"', async () => {
@@ -66,14 +84,13 @@ describe('ResumePdfPreview (#415)', () => {
     const user = userEvent.setup();
     const { rerender } = render(<ResumePdfPreview name="Zoë Núñez" changes={0} />);
     await user.click(screen.getByRole('button', { name: 'Preview PDF' }));
-    await screen.findByTitle('Résumé PDF preview');
+    await screen.findByRole('img', { name: 'Page 1 of 1' });
 
     rerender(<ResumePdfPreview name="Zoë Núñez" changes={1} />);
-    expect(screen.queryByTitle('Résumé PDF preview')).not.toBeInTheDocument();
-    expect(URL.revokeObjectURL).toHaveBeenCalledWith('blob:preview-1');
+    expect(screen.queryByRole('img', { name: 'Page 1 of 1' })).not.toBeInTheDocument();
+    expect(screen.queryByText('Your PDF is 1 page.')).not.toBeInTheDocument();
   });
 
-  // Fixes from review.
   it('waits for layout changes still being saved before rendering', async () => {
     let settle!: () => void;
     const pending = new Promise<void>((resolve) => (settle = resolve));
@@ -101,9 +118,9 @@ describe('ResumePdfPreview (#415)', () => {
 
     // The old one is dropped and the current one rendered.
     expect(await screen.findByText('Your PDF is 2 pages.')).toBeInTheDocument();
+    await waitFor(() => expect(screen.getAllByRole('img')).toHaveLength(2));
+    expect(fetchBaseResumePdf).toHaveBeenCalledTimes(2);
     expect(screen.queryByText('Your PDF is 1 page.')).not.toBeInTheDocument();
-    expect(URL.revokeObjectURL).toHaveBeenCalledWith('blob:preview-1');
-    expect(screen.getByTitle('Résumé PDF preview')).toHaveAttribute('src', 'blob:preview-2');
   });
 
   it("can't be used before there is a résumé", () => {
