@@ -8,6 +8,7 @@ import { createApp } from './app';
 import { listJobs, resetJobStoreForTests } from '@/data/job-store';
 import { resetUsageStoreForTests } from '@/data/usage-store';
 import { FAKE_PARSED_JOB } from '@/test-support/fake-agent';
+import { LLM_JOB_TEXT_MAX, STORED_TEXT_MAX, TOO_LONG_MESSAGE } from '@/lib/input-caps';
 
 /**
  * #355: the Add job form sends a pasted posting to parse-job and shows what comes back for
@@ -38,7 +39,9 @@ async function parseWith(agentAnswer: unknown, descriptionText: string) {
   process.chdir(tempDir);
   await resetJobStoreForTests();
   resetUsageStoreForTests();
+  let agentCalls = 0;
   const agent = await listen((request, response) => {
+    agentCalls += 1;
     request.resume();
     response.writeHead(200, { 'Content-Type': 'application/json' }).end(JSON.stringify(agentAnswer));
   });
@@ -52,7 +55,7 @@ async function parseWith(agentAnswer: unknown, descriptionText: string) {
     });
     const body = (await response.json()) as Record<string, unknown>;
     const jobs = await listJobs(USER);
-    return { status: response.status, body, jobs };
+    return { status: response.status, body, jobs, agentCalls };
   } finally {
     if (savedAgent === undefined) delete process.env.AGENT_SERVICE_URL;
     else process.env.AGENT_SERVICE_URL = savedAgent;
@@ -80,23 +83,64 @@ test('parse-job returns the location and workplace the posting states, and its s
   assert.deepEqual(jobs, [], 'reading a posting saves no job');
 });
 
-test('parse-job says null for what the posting does not state, also from an agent without those fields', async () => {
-  // FAKE_PARSED_JOB is the answer of an agent from before #355: no location, no workplace.
-  const older = await parseWith(FAKE_PARSED_JOB, 'Build APIs in Go.');
-  assert.equal(older.status, 200);
-  assert.equal(older.body.location, null);
-  assert.equal(older.body.workplace_type, null);
-  assert.equal(older.body.salary, null);
-
+test('parse-job says null for what the posting does not state', async () => {
   const blank = await parseWith({ ...FAKE_PARSED_JOB, location: '  ', workplace_type: null }, 'Build APIs in Go.');
   assert.equal(blank.status, 200);
   assert.equal(blank.body.location, null);
   assert.equal(blank.body.workplace_type, null);
+  assert.equal(blank.body.salary, null);
 });
 
-test('parse-job treats a workplace it does not know as an unusable answer', async () => {
-  const { status, body } = await parseWith({ ...FAKE_PARSED_JOB, workplace_type: 'anywhere' }, 'Build APIs in Go.');
+// An agent from before #355 doesn't read location or workplace, so they're unknown, not
+// "not stated": the answer leaves them out and the form shows a blank field without a hint.
+test('parse-job leaves out what an older agent did not read', async () => {
+  const older = await parseWith(FAKE_PARSED_JOB, 'Build APIs in Go.');
+  assert.equal(older.status, 200);
+  assert.ok(!('location' in older.body), 'no location key');
+  assert.ok(!('workplace_type' in older.body), 'no workplace_type key');
+  assert.equal(older.body.title, 'Engineer');
+});
 
-  assert.equal(status, 503);
-  assert.equal(body.retryable, true);
+// A workplace in other words is still the workplace; one the app doesn't know is unknown.
+// Rejecting them failed Score fit and the n8n intake, which parse the same way.
+test('parse-job reads a workplace in other words, and an unknown one as null', async () => {
+  const cases: Array<[unknown, string | null]> = [
+    ['Remote', 'remote'],
+    ['On-site', 'onsite'],
+    ['in-office', 'onsite'],
+    [' HYBRID ', 'hybrid'],
+    ['flexible', null],
+    ['anywhere', null],
+    [42, null],
+  ];
+  for (const [given, expected] of cases) {
+    const { status, body } = await parseWith({ ...FAKE_PARSED_JOB, workplace_type: given }, 'Build APIs in Go.');
+    assert.equal(status, 200, String(given));
+    assert.equal(body.workplace_type, expected, String(given));
+  }
+});
+
+// #355 review: the salary regexes ran on the whole body, which had no cap.
+test('parse-job refuses a posting longer than the stored limit, without asking the AI', async () => {
+  const { status, body, agentCalls } = await parseWith(FAKE_PARSED_JOB, 'x'.repeat(STORED_TEXT_MAX + 1));
+  assert.equal(status, 413);
+  assert.equal(body.error, TOO_LONG_MESSAGE);
+  assert.equal(agentCalls, 0);
+});
+
+test('parse-job reads the salary only from the part of the posting the AI reads', async () => {
+  const salary = ' The salary range is $120,000 - $150,000.';
+  const late = await parseWith(FAKE_PARSED_JOB, `${'Build APIs. '.repeat(Math.ceil(LLM_JOB_TEXT_MAX / 12))}${salary}`);
+  assert.equal(late.status, 200);
+  assert.equal(late.body.salary, null);
+
+  const early = await parseWith(FAKE_PARSED_JOB, `${salary}${'Build APIs. '.repeat(Math.ceil(LLM_JOB_TEXT_MAX / 12))}`);
+  assert.deepEqual(early.body.salary, { min: 120000, max: 150000, currency: 'USD' });
+});
+
+test('parse-job answers a long run of digits quickly', async () => {
+  const started = performance.now();
+  const { status } = await parseWith(FAKE_PARSED_JOB, '9'.repeat(40_000));
+  assert.equal(status, 200);
+  assert.ok(performance.now() - started < 2_000, 'the salary read does not stall the API');
 });

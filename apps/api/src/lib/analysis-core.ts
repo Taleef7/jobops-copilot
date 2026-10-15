@@ -6,6 +6,21 @@ export type ParsedJobSeniority = 'junior' | 'mid' | 'senior' | 'lead' | 'unknown
 export const PARSED_WORKPLACE_TYPES = ['remote', 'hybrid', 'onsite'] as const;
 export type ParsedWorkplaceType = (typeof PARSED_WORKPLACE_TYPES)[number];
 
+const WORKPLACE_WORDS: Record<string, ParsedWorkplaceType> = {
+  remote: 'remote',
+  hybrid: 'hybrid',
+  onsite: 'onsite',
+  'on-site': 'onsite',
+  'on site': 'onsite',
+  'in-office': 'onsite',
+  'in office': 'onsite',
+};
+
+/** The parser's workplace in the app's words, or null when it's one the app doesn't know. */
+export function normalizeWorkplace(value: unknown): ParsedWorkplaceType | null {
+  return typeof value === 'string' ? (WORKPLACE_WORDS[value.trim().toLowerCase()] ?? null) : null;
+}
+
 export interface ParsedJobOutput {
   company: string | null;
   title: string | null;
@@ -531,7 +546,6 @@ export function validateParsedJobOutput(value: unknown): value is ParsedJobOutpu
     (record.company === null || typeof record.company === 'string') &&
     (record.title === null || typeof record.title === 'string') &&
     (record.location == null || typeof record.location === 'string') &&
-    (record.workplace_type == null || (PARSED_WORKPLACE_TYPES as readonly unknown[]).includes(record.workplace_type)) &&
     Array.isArray(record.required_skills) &&
     Array.isArray(record.preferred_skills) &&
     Array.isArray(record.responsibilities) &&

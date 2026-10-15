@@ -11,11 +11,20 @@ from __future__ import annotations
 
 from typing import Any, Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 Seniority = Literal["junior", "mid", "senior", "lead", "unknown"]
 # Mirrors PARSED_WORKPLACE_TYPES in apps/api/src/lib/analysis-core.ts (#355).
 WorkplaceType = Literal["remote", "hybrid", "onsite"]
+_WORKPLACE_WORDS: dict[str, WorkplaceType] = {
+    "remote": "remote",
+    "hybrid": "hybrid",
+    "onsite": "onsite",
+    "on-site": "onsite",
+    "on site": "onsite",
+    "in-office": "onsite",
+    "in office": "onsite",
+}
 ApplyRecommendation = Literal["apply", "review", "pass"]
 MessageType = Literal[
     "recruiter_email",
@@ -43,6 +52,15 @@ class ParsedJob(BaseModel):
         default=None,
         description="remote, hybrid or onsite when the posting says which, otherwise null.",
     )
+
+    @field_validator("workplace_type", mode="before")
+    @classmethod
+    def _workplace_in_known_words(cls, value: object) -> WorkplaceType | None:
+        # "On-site" or "Remote" is still the workplace; one the app doesn't know is unknown,
+        # never a failed parse (#355).
+        if not isinstance(value, str):
+            return None
+        return _WORKPLACE_WORDS.get(value.strip().lower())
     required_skills: list[str] = Field(default_factory=list)
     preferred_skills: list[str] = Field(default_factory=list)
     responsibilities: list[str] = Field(default_factory=list)

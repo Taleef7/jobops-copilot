@@ -299,9 +299,11 @@ Current response fields:
 
 - `company`
 - `title`
-- `location`: where the job is based, as the posting says, or `null`.
-- `workplace_type`: `remote`, `hybrid` or `onsite` when the posting says, or `null`.
-- `salary`: `{ min, max, currency }` read from `description_text` the way the store reads it when a job is saved, or `null`.
+- `location`: where the job is based, as the posting says, or `null`. Left out when the agent doesn't read it (an image from before #355): unknown, not "not stated".
+- `workplace_type`: `remote`, `hybrid` or `onsite` when the posting says, or `null` (also for a workplace the app doesn't know). Left out like `location`.
+- `salary`: `{ min, max, currency }` read from the first 20,000 characters of `description_text` (what the agent reads) the way the store reads it when a job is saved, or `null`.
+
+A `description_text` longer than 100,000 characters is refused with `413`, before any AI call.
 - `required_skills`
 - `preferred_skills`
 - `responsibilities`

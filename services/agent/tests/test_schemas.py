@@ -23,15 +23,24 @@ def test_parsed_job_reads_location_and_workplace():
 
 
 def test_parsed_job_workplace_is_one_the_api_knows():
-    # Mirrors PARSED_WORKPLACE_TYPES in apps/api/src/lib/analysis-core.ts.
-    for value in ("remote", "hybrid", "onsite"):
-        assert ParsedJob(workplace_type=value).workplace_type == value
-    try:
-        ParsedJob(workplace_type="anywhere")
-    except ValueError:
-        pass
-    else:
-        raise AssertionError("an unknown workplace type must not validate")
+    # Mirrors PARSED_WORKPLACE_TYPES in apps/api/src/lib/analysis-core.ts. A workplace in other
+    # words is read; one the app doesn't know is None, never a failed parse (#355).
+    cases = {
+        "remote": "remote",
+        "Remote": "remote",
+        "hybrid": "hybrid",
+        "onsite": "onsite",
+        "Onsite": "onsite",
+        "on-site": "onsite",
+        "On-site": "onsite",
+        "in-office": "onsite",
+        "flexible": None,
+        "anywhere": None,
+        "": None,
+        None: None,
+    }
+    for given, expected in cases.items():
+        assert ParsedJob(workplace_type=given).workplace_type == expected, given
 
 
 def test_fit_score_clamps_range():

@@ -10,6 +10,7 @@
 
 import {
   validateFitScoreOutput,
+  normalizeWorkplace,
   validateParsedJobOutput,
   type FitScoreOutput,
   type ParsedJobOutput,
@@ -348,6 +349,9 @@ export async function resolveParsedJob(descriptionText: string): Promise<ParsedJ
     callAgent<ParsedJobOutput>('/parse-job', { description_text: descriptionText }, AGENT_TIMEOUT_MS),
   );
   if (!validateParsedJobOutput(parsed)) throw new AiUnavailableError(UNUSABLE_ANSWER);
+  // A workplace in other words ("On-site") is read, one the app doesn't know is null: an odd
+  // workplace mustn't fail Score fit or the n8n intake, which parse the same way (#355).
+  if ('workplace_type' in parsed) parsed.workplace_type = normalizeWorkplace(parsed.workplace_type);
   return parsed;
 }
 
