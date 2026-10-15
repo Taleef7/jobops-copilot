@@ -1,5 +1,7 @@
 import '@testing-library/jest-dom/vitest';
-import { render, screen, waitFor } from '@testing-library/react';
+import { act, render, screen, waitFor } from '@testing-library/react';
+import { hydrateRoot } from 'react-dom/client';
+import { renderToString } from 'react-dom/server';
 import { afterEach, expect, it, vi } from 'vitest';
 
 const { scoreFit } = vi.hoisted(() => ({
@@ -59,6 +61,48 @@ it('auto-scores again when the same instance is reused for a different job', asy
   rerender(<JobAnalysisActions jobId="job-2" autoScore />);
   await waitFor(() => expect(scoreFit).toHaveBeenCalledTimes(2));
   expect(scoreFit).toHaveBeenLastCalledWith({ jobId: 'job-2' });
+});
+
+// #353: `isScoring` disables the button only after a re-render, so it can't stop a second
+// call made in the same tick.
+it('sends one request for two clicks in the same tick', () => {
+  scoreFit.mockReturnValueOnce(new Promise(() => {}));
+  render(<JobAnalysisActions jobId="job-1" />);
+  const button = screen.getByRole('button', { name: /score fit/i });
+
+  act(() => {
+    button.click();
+    button.click();
+  });
+
+  expect(scoreFit).toHaveBeenCalledTimes(1);
+});
+
+// #353, the live double POST: the server renders an enabled "Score fit" for an estimated
+// job. A click while the page hydrated ran alongside the automatic score, and both called
+// the API.
+it('sends one request when Score fit is clicked while the page hydrates and auto-scores', async () => {
+  scoreFit.mockImplementation(() => new Promise(() => {}));
+  const ui = <JobAnalysisActions jobId="job-1" autoScore />;
+  const container = document.createElement('div');
+  container.innerHTML = renderToString(ui);
+  document.body.appendChild(container);
+  const button = container.querySelector('button')!;
+  expect(button).toBeEnabled();
+
+  let root: ReturnType<typeof hydrateRoot> | undefined;
+  try {
+    await act(async () => {
+      root = hydrateRoot(container, ui);
+      button.click();
+    });
+
+    expect(scoreFit).toHaveBeenCalledTimes(1);
+  } finally {
+    act(() => root?.unmount());
+    container.remove();
+    scoreFit.mockImplementation(() => Promise.resolve({ fit_score: 80 }));
+  }
 });
 
 // #349: when the AI can't score, the reason stays on the page with a way to retry. It used

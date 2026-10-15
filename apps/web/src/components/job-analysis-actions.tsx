@@ -27,8 +27,14 @@ export function JobAnalysisActions({ jobId, autoScore = false }: JobAnalysisActi
   // component instance (client-side nav to a different job) still upgrades the
   // new estimate exactly once.
   const autoScoredJobId = useRef<string | null>(null);
+  // One score at a time, for the button and the automatic upgrade alike (#353). `isScoring`
+  // disables the button only after a re-render: a click while the page hydrated ran
+  // alongside the automatic score and sent a second POST.
+  const scoring = useRef(false);
 
   async function handleScore({ silent = false }: { silent?: boolean } = {}) {
+    if (scoring.current) return;
+    scoring.current = true;
     setIsScoring(true);
     setFailure(null);
     try {
@@ -49,6 +55,7 @@ export function JobAnalysisActions({ jobId, autoScore = false }: JobAnalysisActi
         console.error('[JobAnalysisActions] auto-score failed unexpectedly', error);
       }
     } finally {
+      scoring.current = false;
       setIsScoring(false);
     }
   }
