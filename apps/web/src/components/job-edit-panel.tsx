@@ -51,14 +51,15 @@ type FormState = {
 
 export function JobEditPanel({ job }: { job: Job }) {
   const router = useRouter();
-  const [initial] = useState<FormState>(() => ({
+  // What the job holds as far as this panel knows: what it opened with, then each save.
+  const [saved, setSaved] = useState<FormState>(() => ({
     status: job.status,
     priority: job.priority,
     notes: job.notes ?? '',
     nextAction: job.nextAction ?? '',
     nextActionDue: toDatetimeLocalValue(job.nextActionDue),
   }));
-  const [form, setForm] = useState<FormState>(initial);
+  const [form, setForm] = useState<FormState>(saved);
   const [dateError, setDateError] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState(false);
   // The follow-up is in the browser's time zone, so it's shown after hydration: the server's
@@ -86,15 +87,16 @@ export function JobEditPanel({ job }: { job: Job }) {
         // A field left out is unchanged, so a cleared one is sent as null.
         notes: form.notes.trim() || null,
         nextAction: form.nextAction.trim() || null,
-        // Only when changed: when the clocks go back, an hour repeats and the input can't say
-        // which, so reading it back could move the due date an hour.
+        // Only when changed since the last save: when the clocks go back, an hour repeats and the
+        // input can't say which, so reading it back could move the due date an hour.
         nextActionDue:
-          form.nextActionDue === initial.nextActionDue
+          form.nextActionDue === saved.nextActionDue
             ? undefined
             : form.nextActionDue.trim()
               ? fromDatetimeLocalValue(form.nextActionDue)
               : null,
       });
+      setSaved(form);
       toast.success('Job updated.');
       router.refresh();
     } catch (error) {

@@ -112,3 +112,26 @@ it('clearing the notes, next action and follow-up sends null for each', async ()
 
   expect(savedPayload()).toMatchObject({ notes: null, nextAction: null, nextActionDue: null });
 });
+
+// "Changed" is against what was last saved, not what the panel opened with.
+it('a follow-up is sent when it differs from the last save', async () => {
+  updateJob.mockResolvedValue({});
+  const user = userEvent.setup();
+  render(<JobEditPanel job={dueJob} />);
+  const save = async () => {
+    await user.click(screen.getByRole('button', { name: /save changes/i }));
+    await screen.findByRole('button', { name: /save changes/i });
+  };
+
+  fireEvent.change(screen.getByLabelText('Follow-up due'), { target: { value: '2026-10-20T09:00' } });
+  await save();
+  await save();
+  fireEvent.change(screen.getByLabelText('Follow-up due'), { target: { value: '2026-10-15T22:00' } });
+  await save();
+
+  expect(updateJob.mock.calls.map(([, payload]) => payload.nextActionDue)).toEqual([
+    '2026-10-20T13:00:00.000Z',
+    undefined,
+    '2026-10-16T02:00:00.000Z',
+  ]);
+});
