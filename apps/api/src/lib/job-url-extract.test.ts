@@ -100,7 +100,9 @@ test('reads the salary the posting states', () => {
   assert.deepEqual(result.salary, { min: 80000, max: 95000, currency: 'GBP' });
 });
 
-test('a posting that states no salary has none', () => {
-  assert.equal(extractJobFromHtml(JSONLD).salary, undefined);
+// A description without a salary states none (null). With no description there's nothing
+// to read, so the salary is unknown and left out, as an API from before #355 leaves it out.
+test('a posting that states no salary has null, and a page with no description has none', () => {
+  assert.equal(extractJobFromHtml(JSONLD).salary, null);
   assert.equal(extractJobFromHtml('<html><head></head><body></body></html>').salary, undefined);
 });

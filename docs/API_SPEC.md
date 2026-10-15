@@ -207,7 +207,7 @@ Response fields (every field except `source` is optional and omitted when not fo
 
 - `title`, `company`, `location`, `descriptionText` — extracted strings.
 - `workplaceType` — one of `remote`, `hybrid`, `onsite`, `flexible` (currently only set to `remote`, from a JSON-LD `TELECOMMUTE` location).
-- `salary` — `{ min, max, currency }` read from `descriptionText` the way the store reads it when a job is saved (#355).
+- `salary` — `{ min, max, currency }` read from `descriptionText` the way the store reads it when a job is saved, or `null` when the description states none; left out when there is no description (#355).
 - `source` — the highest-priority tier that contributed at least one field: `jsonld`, `opengraph`, `heuristic`, or `none`.
 
 When nothing could be extracted the body is just `{ "source": "none" }`.

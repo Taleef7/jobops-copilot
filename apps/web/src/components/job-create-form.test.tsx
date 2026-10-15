@@ -124,6 +124,7 @@ it('reads pasted posting text with parse-job, without a job id, and fills the re
   expect(screen.getByLabelText(/^Company/)).toHaveValue('Acme');
   expect(screen.getByLabelText(/^Location/)).toHaveValue('London, United Kingdom');
   expect(screen.getByRole('radio', { name: 'Hybrid' })).toBeChecked();
+  expect(screen.getByRole('group', { name: 'Workplace' })).toHaveAccessibleDescription(/from posting/);
   const salary = screen.getByRole('group', { name: 'Salary' });
   expect(salary).toHaveTextContent('£80,000 – £95,000');
   expect(salary).toHaveTextContent('from posting');
@@ -249,6 +250,8 @@ it('Save and run fit saves the reviewed job once and opens it to run the fit', a
   await user.click(screen.getByRole('button', { name: 'Save and run fit' }));
 
   await waitFor(() => expect(push).toHaveBeenCalledWith('/jobs/job-9?run=fit'));
+  // The job page loads fresh; a refresh right after the push only fetched it again.
+  expect(refresh).not.toHaveBeenCalled();
   expect(createJob).toHaveBeenCalledTimes(1);
   expect(createJob).toHaveBeenCalledWith({
     company: 'Acme',
@@ -308,6 +311,8 @@ it('links to the job you already added when the URL is tracked (#346)', async ()
 
   expect(await screen.findByText('You already added this job.')).toBeInTheDocument();
   expect(screen.getByRole('link', { name: /open the job/i })).toHaveAttribute('href', '/jobs/job-123');
+  // Focus goes to the field the server named, so the message is read out.
+  await waitFor(() => expect(screen.getByLabelText('Posting URL')).toHaveFocus());
   expect(push).not.toHaveBeenCalled();
 });
 
@@ -344,4 +349,122 @@ it('works by keyboard alone, from the paste box to saving', async () => {
 
   await waitFor(() => expect(push).toHaveBeenCalledWith('/jobs/job-9?run=fit'));
   expect(createJob).toHaveBeenCalledTimes(1);
+});
+
+async function reviewByHand() {
+  const user = userEvent.setup();
+  render(<JobCreateForm />);
+  await user.click(screen.getByRole('button', { name: 'Enter details yourself' }));
+  await review();
+  await user.type(screen.getByLabelText(/^Title/), 'Engineer');
+  await user.type(screen.getByLabelText(/^Company/), 'Acme');
+  await user.type(screen.getByRole('textbox', { name: 'Description' }), 'Build APIs.');
+  return user;
+}
+
+// #355 review: a server error was a quiet line, and focus fell to the page.
+it('moves focus to the field the server says is wrong', async () => {
+  createJob.mockRejectedValue(new ApiRequestError('Invalid job payload', 400, { company: 'Company must be 300 characters or fewer.' }));
+  const user = await reviewByHand();
+
+  await user.click(screen.getByRole('button', { name: 'Save only' }));
+
+  expect(await screen.findByText('Company must be 300 characters or fewer.')).toBeInTheDocument();
+  await waitFor(() => expect(screen.getByLabelText(/^Company/)).toHaveFocus());
+});
+
+it('says in an alert what the server rejected when the form has no field for it', async () => {
+  createJob.mockRejectedValue(new ApiRequestError('Invalid job payload', 400, { priority: 'Priority must be high, medium, or low.' }));
+  const user = await reviewByHand();
+
+  await user.click(screen.getByRole('button', { name: 'Save only' }));
+
+  expect(await screen.findByRole('alert')).toHaveTextContent('Priority must be high, medium, or low.');
+});
+
+it('says in an alert why the job was not saved when the server names no field', async () => {
+  createJob.mockRejectedValue(new ApiRequestError('Internal server error', 500));
+  const user = await reviewByHand();
+
+  await user.click(screen.getByRole('button', { name: 'Save only' }));
+
+  expect(await screen.findByRole('alert')).toHaveTextContent('Internal server error');
+});
+
+// #355 review: with an agent or API from before #355, location, workplace and salary are
+// unknown (left out), not "not stated" (null). Unknown is a blank field with no claim.
+it('leaves what the reading could not tell blank, without "Not stated"', async () => {
+  const older: Record<string, unknown> = parsed();
+  delete older.location;
+  delete older.workplace_type;
+  delete older.salary;
+  parseJob.mockResolvedValue(older);
+  await paste(POSTING);
+  await review();
+
+  expect(screen.getByLabelText(/^Location/)).toHaveValue('');
+  expect(screen.getByLabelText(/^Location/)).not.toHaveAccessibleDescription(/Not stated|from posting/);
+  for (const name of ['Remote', 'Hybrid', 'On-site', 'Not stated']) {
+    expect(screen.getByRole('radio', { name })).not.toBeChecked();
+  }
+  expect(screen.queryByRole('group', { name: 'Salary' })).not.toBeInTheDocument();
+  expect(screen.getByLabelText(/^Title/)).toHaveAccessibleDescription(/from posting/);
+});
+
+// #355 review: "Enter details yourself" stayed live during a read, and the late answer
+// replaced what the user had typed.
+it('offers no way into the review while the posting is being read', async () => {
+  parseJob.mockReturnValue(new Promise(() => {}));
+  await paste(POSTING);
+
+  expect(await screen.findByRole('button', { name: /getting details/i })).toBeInTheDocument();
+  expect(screen.queryByRole('button', { name: 'Enter details yourself' })).not.toBeInTheDocument();
+});
+
+it('keeps focus on Try again while the posting is read again', async () => {
+  parseJob.mockRejectedValueOnce(new ApiRequestError("The AI couldn't answer this time.", 503));
+  parseJob.mockReturnValueOnce(new Promise(() => {}));
+  const user = await paste(POSTING);
+  const alert = await screen.findByRole('alert');
+
+  await user.click(within(alert).getByRole('button', { name: 'Try again' }));
+
+  expect(await screen.findByRole('button', { name: /getting details/i })).toBeInTheDocument();
+  expect(within(screen.getByRole('alert')).getByRole('button', { name: 'Try again' })).toHaveFocus();
+});
+
+it('ignores a reading that answers after the user chose to type the details', async () => {
+  let answer: (value: unknown) => void = () => {};
+  parseJob.mockRejectedValueOnce(new ApiRequestError("The AI couldn't answer this time.", 503));
+  parseJob.mockReturnValueOnce(new Promise((resolve) => (answer = resolve)));
+  const user = await paste(POSTING);
+  const alert = await screen.findByRole('alert');
+  await user.click(within(alert).getByRole('button', { name: 'Try again' }));
+
+  await user.click(within(screen.getByRole('alert')).getByRole('button', { name: 'Enter details yourself' }));
+  await review();
+  await user.type(screen.getByLabelText(/^Title/), 'My own title');
+  answer(parsed());
+  await new Promise((resolve) => setTimeout(resolve, 0));
+
+  expect(screen.getByLabelText(/^Title/)).toHaveValue('My own title');
+  expect(document.body.textContent).not.toMatch(/from posting/);
+});
+
+it('shows no stale error after Start over when an abandoned reading fails', async () => {
+  let fail: (error: Error) => void = () => {};
+  parseJob.mockRejectedValueOnce(new ApiRequestError("The AI couldn't answer this time.", 503));
+  parseJob.mockReturnValueOnce(new Promise((_resolve, reject) => (fail = reject)));
+  const user = await paste(POSTING);
+  const alert = await screen.findByRole('alert');
+  await user.click(within(alert).getByRole('button', { name: 'Try again' }));
+  await user.click(within(screen.getByRole('alert')).getByRole('button', { name: 'Enter details yourself' }));
+  await review();
+
+  await user.click(screen.getByRole('button', { name: 'Start over' }));
+  fail(new ApiRequestError('Late failure', 503));
+  await new Promise((resolve) => setTimeout(resolve, 0));
+
+  expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+  expect(screen.getByRole('button', { name: 'Get details' })).toBeInTheDocument();
 });

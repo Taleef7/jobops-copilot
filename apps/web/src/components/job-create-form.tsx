@@ -60,7 +60,8 @@ type Details = {
   title: string;
   company: string;
   location: string;
-  workplaceType: Workplace | null;
+  /** null is "Not stated"; undefined is unknown, with no choice made for the user. */
+  workplaceType: Workplace | null | undefined;
   jobUrl: string;
   descriptionText: string;
 };
@@ -74,22 +75,43 @@ const EMPTY_DETAILS: Details = {
   descriptionText: '',
 };
 
-/** What the posting said, to mark the fields it filled. Null when the user enters the job by hand. */
+/**
+ * What the reading said, to mark the fields it filled. Null when the user enters the job by
+ * hand. A field left out (undefined) is unknown, which an older agent or API leaves out;
+ * an empty or null one is "not stated" (#355).
+ */
 type Posted = {
-  title: string;
-  company: string;
-  location: string;
-  workplaceType: Workplace | null;
-  salary: PostedSalary | null;
+  title?: string;
+  company?: string;
+  location?: string;
+  workplaceType?: Workplace | null;
+  salary?: PostedSalary | null;
 };
+
+/** The review's starting values: what was read, and blank for the unknown. */
+function detailsFrom(from: Posted, jobUrl: string, descriptionText: string): Details {
+  return {
+    title: from.title ?? '',
+    company: from.company ?? '',
+    location: from.location ?? '',
+    workplaceType: from.workplaceType,
+    jobUrl,
+    descriptionText,
+  };
+}
+
+const SHOWN_FIELDS = ['title', 'company', 'jobUrl', 'descriptionText'] as const;
 
 const NOTHING_TO_READ = 'Couldn’t find a job on that page. Paste the posting’s text instead, or enter the details yourself.';
 const READ_FAILED = 'Something went wrong. Try again, or enter the details yourself.';
 
-/** "from posting" while a field still holds what the posting said, "Not stated" while it's empty. */
-function hintFor(value: string, posted: string | undefined): string | null {
-  if (!value.trim()) return 'Not stated';
-  if (posted !== undefined && posted.trim() && value === posted) return 'from posting';
+/**
+ * "from posting" while a field still holds what the posting said; "Not stated" while it's
+ * empty and the reading said it wasn't stated. An unknown field gets no hint.
+ */
+function hintFor(value: string, posted: string | undefined, known: boolean): string | null {
+  if (!value.trim()) return known ? 'Not stated' : null;
+  if (posted?.trim() && value === posted) return 'from posting';
   return null;
 }
 
@@ -137,6 +159,9 @@ export function JobCreateForm() {
   const [readError, setReadError] = useState<string | null>(null);
   const [isReading, setIsReading] = useState(false);
   const reading = useRef(false);
+  // Each reading's number. Entering the details by hand or starting over moves it on, so an
+  // answer that comes back after that is dropped instead of replacing what the user did.
+  const readSeq = useRef(0);
 
   // Step 2: the review.
   const [details, setDetails] = useState<Details>(EMPTY_DETAILS);
@@ -179,8 +204,16 @@ export function JobCreateForm() {
     setStep('review');
   }
 
+  /** Drop the reading on its way, if there is one. */
+  function abandonReading() {
+    readSeq.current += 1;
+    reading.current = false;
+    setIsReading(false);
+  }
+
   /** "Enter details yourself": an empty review, keeping what was pasted (a link or the text). */
   function enterByHand() {
+    abandonReading();
     const link = postingLink(pasteText);
     openReview({ ...EMPTY_DETAILS, jobUrl: link ?? '', descriptionText: link ? '' : pasteText.trim() }, null);
   }
@@ -193,46 +226,55 @@ export function JobCreateForm() {
       pasteRef.current?.focus();
       return;
     }
+    const id = ++readSeq.current;
     reading.current = true;
     setIsReading(true);
     setPasteError(null);
-    setReadError(null);
+    // A previous failure stays up while this reading runs, so focus stays on its Try again.
     try {
       const link = postingLink(text);
       if (link) {
         const data = await extractJobFromUrl(link);
+        if (id !== readSeq.current) return;
         if (!(data.title || data.company || data.location || data.descriptionText)) {
           setReadError(NOTHING_TO_READ);
           return;
         }
+        // The extractor leaves out what it couldn't find: unknown, not "not stated".
         const from: Posted = {
-          title: data.title ?? '',
-          company: data.company ?? '',
-          location: data.location ?? '',
-          workplaceType: asWorkplace(data.workplaceType),
-          salary: data.salary ?? null,
+          title: data.title,
+          company: data.company,
+          location: data.location,
+          workplaceType: data.workplaceType === undefined ? undefined : asWorkplace(data.workplaceType),
+          salary: data.salary,
         };
-        openReview({ ...from, jobUrl: link, descriptionText: data.descriptionText ?? '' }, from);
+        openReview(detailsFrom(from, link, data.descriptionText ?? ''), from);
       } else {
         const data = await parseJob({ descriptionText: text });
+        if (id !== readSeq.current) return;
         const from: Posted = {
           title: data.title ?? '',
           company: data.company ?? '',
-          location: data.location ?? '',
-          workplaceType: asWorkplace(data.workplace_type),
-          salary: data.salary ?? null,
+          location: data.location === undefined ? undefined : (data.location ?? ''),
+          workplaceType: data.workplace_type === undefined ? undefined : asWorkplace(data.workplace_type),
+          salary: data.salary,
         };
-        openReview({ ...from, jobUrl: '', descriptionText: text }, from);
+        openReview(detailsFrom(from, '', text), from);
       }
     } catch (error) {
+      if (id !== readSeq.current) return;
       setReadError(error instanceof ApiRequestError ? error.message : READ_FAILED);
     } finally {
-      reading.current = false;
-      setIsReading(false);
+      if (id === readSeq.current) {
+        reading.current = false;
+        setIsReading(false);
+      }
     }
   }
 
   function startOver() {
+    abandonReading();
+    setReadError(null);
     setDetails(EMPTY_DETAILS);
     setPosted(null);
     setErrors({});
@@ -268,16 +310,7 @@ export function JobCreateForm() {
     setSaveError(null);
     if (Object.keys(nextErrors).length > 0) {
       if (nextErrors.descriptionText) setDescriptionOpen(true);
-      // Focus the first field to fix, in page order, once React has drawn the messages.
-      setTimeout(() => {
-        const order = [
-          { key: 'title', ref: titleRef },
-          { key: 'company', ref: companyRef },
-          { key: 'jobUrl', ref: jobUrlRef },
-          { key: 'descriptionText', ref: descriptionRef },
-        ] as const;
-        order.find(({ key }) => nextErrors[key])?.ref.current?.focus();
-      }, 0);
+      focusFirstError(nextErrors);
       return;
     }
 
@@ -298,21 +331,45 @@ export function JobCreateForm() {
       });
       setSaving('done');
       toast.success('Job saved.');
-      // The job page starts the fit run once, through Score fit's own guard (#353).
+      // The job page starts the fit run once, through Score fit's own guard (#353). It's
+      // rendered on request, so there's nothing to refresh.
       router.push(runFit ? `/jobs/${job.id}?run=fit` : `/jobs/${job.id}`);
-      router.refresh();
     } catch (error) {
       savingRef.current = false;
       setSaving(null);
-      if (error instanceof ApiRequestError) {
-        const fields = error.fields ?? {};
-        setErrors(fields);
-        setExistingJobId(error.status === 409 ? (error.existingJobId ?? null) : null);
-        if (Object.keys(fields).length === 0) setSaveError(error.message);
-      } else {
+      if (!(error instanceof ApiRequestError)) {
         setSaveError(error instanceof Error ? error.message : 'The job wasn’t saved. Try again.');
+        return;
       }
+      const fields = error.fields ?? {};
+      const shown = Object.fromEntries(
+        Object.entries(fields).filter(([key, message]) => message && (SHOWN_FIELDS as readonly string[]).includes(key)),
+      );
+      const others = Object.entries(fields)
+        .filter(([key, message]) => message && !(SHOWN_FIELDS as readonly string[]).includes(key))
+        .map(([, message]) => message);
+      setErrors(shown);
+      setExistingJobId(error.status === 409 ? (error.existingJobId ?? null) : null);
+      // A field the form shows gets its message and focus, so it's read out; anything else
+      // goes in the alert.
+      if (others.length > 0) setSaveError(others.join(' '));
+      else if (Object.keys(shown).length === 0) setSaveError(error.message);
+      if (shown.descriptionText) setDescriptionOpen(true);
+      focusFirstError(shown);
     }
+  }
+
+  function focusFirstError(found: Record<string, string>) {
+    // In page order, once React has drawn the messages.
+    setTimeout(() => {
+      const order = [
+        { key: 'title', ref: titleRef },
+        { key: 'company', ref: companyRef },
+        { key: 'jobUrl', ref: jobUrlRef },
+        { key: 'descriptionText', ref: descriptionRef },
+      ] as const;
+      order.find(({ key }) => found[key])?.ref.current?.focus();
+    }, 0);
   }
 
   if (step === 'paste') {
@@ -367,7 +424,8 @@ export function JobCreateForm() {
             {isReading ? <Loader2 className="size-4 animate-spin" aria-hidden="true" /> : null}
             {isReading ? 'Getting details…' : 'Get details'}
           </Button>
-          {readError ? null : (
+          {/* Not while reading: the answer would land on top of what the user types. */}
+          {readError || isReading ? null : (
             <Button type="button" variant="link" onClick={enterByHand} className="w-full sm:w-auto">
               Enter details yourself
             </Button>
@@ -380,11 +438,13 @@ export function JobCreateForm() {
   // Title and Company must be filled in, so "Not stated" only says the posting left them
   // out; entered by hand, they need no hint. An empty Location is saved as not stated.
   const hints = {
-    title: posted ? hintFor(details.title, posted.title) : null,
-    company: posted ? hintFor(details.company, posted.company) : null,
-    location: hintFor(details.location, posted?.location),
+    title: posted ? hintFor(details.title, posted.title, posted.title !== undefined) : null,
+    company: posted ? hintFor(details.company, posted.company, posted.company !== undefined) : null,
+    location: hintFor(details.location, posted?.location, !posted || posted.location !== undefined),
   };
   const workplaceHint = posted?.workplaceType && details.workplaceType === posted.workplaceType ? 'from posting' : null;
+  // No row when nothing was read, or the reading couldn't tell (an API from before #355).
+  const showSalary = posted !== null && posted.salary !== undefined;
   const salaryText = posted?.salary ? salaryAsPosted(posted.salary) : null;
   const characters = details.descriptionText.length.toLocaleString('en-US');
 
@@ -459,15 +519,17 @@ export function JobCreateForm() {
           />
         </div>
 
-        <fieldset className="min-w-0 space-y-1.5" aria-describedby={describedBy(workplaceHint && 'job-workplace-hint')}>
-          <div className="flex items-baseline justify-between gap-2">
-            <legend className="text-sm leading-none font-medium">Workplace</legend>
-            {workplaceHint ? (
-              <span id="job-workplace-hint" className="text-muted-foreground text-xs">
-                {workplaceHint}
-              </span>
-            ) : null}
-          </div>
+        <fieldset
+          className="relative min-w-0 space-y-1.5"
+          aria-describedby={describedBy(workplaceHint && 'job-workplace-hint')}
+        >
+          {/* The legend is the fieldset's first child, or the group has no name. */}
+          <legend className="text-sm leading-none font-medium">Workplace</legend>
+          {workplaceHint ? (
+            <span id="job-workplace-hint" className="text-muted-foreground absolute top-0 right-0 text-xs">
+              {workplaceHint}
+            </span>
+          ) : null}
           <div className="flex flex-wrap gap-x-4 gap-y-2 pt-1">
             {WORKPLACE_CHOICES.map((choice) => (
               <label key={choice.label} className="flex items-center gap-2 text-sm">
@@ -485,7 +547,7 @@ export function JobCreateForm() {
           </div>
         </fieldset>
 
-        {posted ? (
+        {showSalary ? (
           // Read-only: the salary is what the posting states, not something to type in.
           <div role="group" aria-labelledby="job-salary-label" className="space-y-1.5">
             <div className="flex items-baseline justify-between gap-2">

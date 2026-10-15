@@ -44,3 +44,9 @@ it('shows another way forward beside Try again', async () => {
   expect(onManual).toHaveBeenCalledTimes(1);
   expect(screen.getByRole('button', { name: 'Try again' })).toBeInTheDocument();
 });
+
+// Inside a form, a button without a type submits it.
+it('gives Try again type="button"', () => {
+  render(<ErrorState title="Couldn't get the details" onRetry={vi.fn()} />);
+  expect(screen.getByRole('button', { name: 'Try again' })).toHaveAttribute('type', 'button');
+});

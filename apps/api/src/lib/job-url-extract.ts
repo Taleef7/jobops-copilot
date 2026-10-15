@@ -9,8 +9,11 @@ export interface ExtractedJob {
   location?: string;
   descriptionText?: string;
   workplaceType?: WorkplaceType;
-  /** The salary the description states, read as the store reads it when the job is saved (#355). */
-  salary?: ParsedSalary;
+  /**
+   * The salary the description states, read as the store reads it when the job is saved:
+   * null when the description states none, left out when there's no description (#355).
+   */
+  salary?: ParsedSalary | null;
   /**
    * Highest-priority tier that contributed at least one field (jsonld >
    * opengraph > heuristic), or 'none'. Individual fields may come from lower
@@ -146,7 +149,6 @@ export function extractJobFromHtml(html: string): ExtractedJob {
     }
     if (used && result.source === 'none') result.source = tier;
   }
-  const salary = result.descriptionText ? parseSalaryFromText(result.descriptionText) : null;
-  if (salary) result.salary = salary;
+  if (result.descriptionText) result.salary = parseSalaryFromText(result.descriptionText);
   return result;
 }

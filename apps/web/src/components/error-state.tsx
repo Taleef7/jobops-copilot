@@ -40,6 +40,7 @@ export function ErrorState({ title, message, onRetry, retryDisabled = false, chi
         </div>
         <div className="flex flex-wrap items-center gap-2">
           <Button
+            type="button"
             size="sm"
             variant="outline"
             className="gap-1.5"
