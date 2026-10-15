@@ -39,6 +39,8 @@ test('requirements written as phrases are not offered', () => {
       '5+ years of Go',
       '3 years experience',
       'Experience with distributed systems',
+      'Experience mentoring engineers',
+      'Hands-on experience building APIs',
       'Knowledge of payments',
       'Familiarity with Kafka',
       'Ability to work independently',

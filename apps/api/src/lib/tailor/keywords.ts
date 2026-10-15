@@ -8,12 +8,14 @@ import { escapeRegex, norm, plain } from './text';
  * how many, for "Posting keywords in your résumé: 6 of 16 → 11 of 16". A count, not a score.
  */
 
-// Requirements written as phrases, not skills: "Experience with distributed systems", "Strong
-// communication skills", "Ability to …", "Bachelor's degree in CS", "5+ years of Go". Only the
-// phrasing counts, so skills that start with the same words stay ("Experience Design", "Strong
-// typing", "Master Data Management", "Knowledge Graphs", "Java 8+").
+// Requirements written as phrases, not skills: "Experience with distributed systems",
+// "Experience mentoring engineers", "Strong communication skills", "Ability to …", "Bachelor's
+// degree in CS", "5+ years of Go". Only the phrasing counts, so skills that start with the same
+// words stay ("Experience Design", "Strong typing", "Master Data Management", "Knowledge
+// Graphs", "Java 8+").
 const REQUIREMENTS = [
   /^(experience|knowledge|familiarity|understanding|proficiency|expertise)\s+(with|in|of|using)\b/i,
+  /\bexperience\s+(with|in|of|using|\p{L}{2,}ing)\b/iu,
   /^(excellent|strong|solid|proven|demonstrated|good|great)\b.*\b(skills?|abilit(y|ies)|record|communication|communicator)\b/i,
   /^(ability|able)\s+to\b/i,
   /\bbachelor|\bmaster'?s\b|\bph\.?\s?d\b|^(a\s+)?degree\b|\bdegree\s+(in|from)\b/i,
