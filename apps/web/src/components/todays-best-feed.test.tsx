@@ -197,3 +197,24 @@ it('counts a passed job once when a reload already dropped it', async () => {
 
   expect(screen.getByText(/1 curated opportunity of 5 total/i)).toBeInTheDocument();
 });
+
+// Codex on #433: the Pass callback was the one from when the click began, so a filter changed
+// to Archived while the Pass was saving still read "All Statuses" and removed the job.
+it('judges a Pass against the filter in force when it is saved', async () => {
+  const user = userEvent.setup();
+  render(<TodaysBestFeed initialFeed={mockFeedResult} />);
+  let answer: () => void = () => {};
+  vi.mocked(updateJob).mockImplementationOnce(() => new Promise((resolve) => (answer = () => resolve({} as never))));
+  const passed = { ...mockFeedItems[0]!, job: { ...mockFeedItems[0]!.job, status: 'archived' as const } };
+  vi.mocked(fetchRankedFeed).mockResolvedValueOnce({ ...mockFeedResult, items: [passed], total: 1 });
+  const first = screen.getByRole('link', { name: 'Senior Backend Engineer' }).closest('[data-slot="card"]') as HTMLElement;
+
+  await user.click(within(first).getByRole('button', { name: /pass/i }));
+  await chooseOption(user, /filter by pipeline status/i, /^archived$/i);
+  await waitFor(() => expect(screen.getByText(/^1 curated opportunity$/i)).toBeInTheDocument());
+  await act(async () => answer());
+
+  expect(screen.getByRole('link', { name: 'Senior Backend Engineer' })).toBeInTheDocument();
+  expect(screen.getByText(/^1 curated opportunity$/i)).toBeInTheDocument();
+});
+

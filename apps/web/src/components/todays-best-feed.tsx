@@ -24,6 +24,9 @@ const defaultFilters: FeedFilterState = {
 
 export function TodaysBestFeed({ initialFeed }: TodaysBestFeedProps) {
   const [filters, setFilters] = useState<FeedFilterState>(defaultFilters);
+  // The filter in force when a status change is saved, not when its click began: the user can
+  // change it while the save is in flight (#353).
+  const currentFilters = useRef<FeedFilterState>(defaultFilters);
   const [feed, setFeed] = useState<FeedResult>(initialFeed);
   const [isPending, startTransition] = useTransition();
   const listRef = useRef<HTMLDivElement>(null);
@@ -71,6 +74,7 @@ export function TodaysBestFeed({ initialFeed }: TodaysBestFeedProps) {
   }
 
   function handleFilterChange(newFilters: FeedFilterState) {
+    currentFilters.current = newFilters;
     setFilters(newFilters);
     // Reload from server when server-filtered fields change
     if (
@@ -85,6 +89,7 @@ export function TodaysBestFeed({ initialFeed }: TodaysBestFeedProps) {
   }
 
   function handleResetFilters() {
+    currentFilters.current = defaultFilters;
     setFilters(defaultFilters);
     loadFeedWithFilters(defaultFilters);
   }
@@ -92,7 +97,8 @@ export function TodaysBestFeed({ initialFeed }: TodaysBestFeedProps) {
   function handleStatusChange(jobId: string, newStatus: JobStatus) {
     // A job the feed's filter no longer covers leaves it, and focus moves to the next card
     // (#353). The feed omits archived jobs unless filtered to a status, so Pass removes it.
-    const leavesFeed = filters.status === 'all' ? newStatus === 'archived' : newStatus !== filters.status;
+    const { status } = currentFilters.current;
+    const leavesFeed = status === 'all' ? newStatus === 'archived' : newStatus !== status;
     if (leavesFeed) {
       focusIndex.current = Math.max(0, visibleItems.findIndex((item) => item.job.id === jobId));
       setFeed((prev) =>
