@@ -87,7 +87,7 @@ describe('CoverLetterReview', () => {
     renderLetter();
 
     expect(await screen.findByText('I am applying for the Backend Engineer role at Acme Pay.')).toBeInTheDocument();
-    expect(screen.getByText(/Based on your base résumé saved 2026-10-01 and this posting · gpt-6-luna · written 2026-10-14/)).toBeInTheDocument();
+    expect(screen.getByText(/^Based on your base résumé saved/)).toBeInTheDocument();
     expect(screen.getByRole('heading', { name: 'Cover letter · Concise' })).toBeInTheDocument();
     const left = screen.getByRole('region', { name: 'Left out by the check' });
     expect(within(left).getByText('At Globex I cut p95 latency by 60% with Redis caching.')).toBeInTheDocument();
@@ -137,14 +137,31 @@ describe('CoverLetterReview', () => {
     expect(within(first).getByLabelText('Paragraph 1')).toHaveValue(`${letter.paragraphs[0]!.text} More.`);
   });
 
-  it('Download PDF downloads the letter with the local date', async () => {
-    const user = userEvent.setup();
-    getCoverLetter.mockResolvedValueOnce(letter);
-    downloadCoverLetter.mockResolvedValueOnce({ unsupported: 0 });
+  // #412: the days are the user's, not UTC's. In New York, the browser's zone in these tests,
+  // 1:30 am UTC is the evening before.
+  it("dates the letter's basis in the browser's time zone", async () => {
+    const basedOn = { ...letter.basedOn, baseUpdatedAt: '2026-10-01T01:00:00.000Z', createdAt: '2026-10-15T01:30:00.000Z' };
+    getCoverLetter.mockResolvedValueOnce({ ...letter, basedOn });
     renderLetter();
+    expect(await screen.findByText(/^Based on your base résumé saved/)).toHaveTextContent(
+      'saved Sep 30, 2026 and this posting · gpt-6-luna · written Oct 14, 2026',
+    );
+  });
 
-    await user.click(await screen.findByRole('button', { name: 'Download PDF' }));
-    expect(downloadCoverLetter).toHaveBeenCalledWith('job-1', expect.stringMatching(/^\d{4}-\d{2}-\d{2}$/));
+  it("Download PDF dates the letter with the browser's local date", async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(new Date('2026-10-15T01:30:00.000Z'));
+    try {
+      const user = userEvent.setup();
+      getCoverLetter.mockResolvedValueOnce(letter);
+      downloadCoverLetter.mockResolvedValueOnce({ unsupported: 0 });
+      renderLetter();
+
+      await user.click(await screen.findByRole('button', { name: 'Download PDF' }));
+      expect(downloadCoverLetter).toHaveBeenCalledWith('job-1', '2026-10-14');
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('a failed write says why with Try again, and keeps the letter there was', async () => {

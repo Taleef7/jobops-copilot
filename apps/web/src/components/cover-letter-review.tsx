@@ -4,6 +4,7 @@ import Link from 'next/link';
 import { useEffect, useState, useSyncExternalStore } from 'react';
 import { Loader2 } from 'lucide-react';
 import { toast } from 'sonner';
+import { LocalDate } from '@/components/local-date';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { Textarea } from '@/components/ui/textarea';
@@ -121,11 +122,10 @@ function loadCoverLetter(jobId: string) {
   );
 }
 
-const day = (iso: string | null | undefined) => (iso ? iso.slice(0, 10) : 'unknown date');
 const modelName = (model: string) => model.split(':').pop() ?? model;
 const countWords = (text: string) => text.split(/\s+/).filter(Boolean).length;
 
-/** Today in the user's time zone, for the letter's date. */
+/** Today in the browser's time zone (#412), for the letter's date: the API prints it as given. */
 function localDate(): string {
   const now = new Date();
   return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
@@ -328,8 +328,8 @@ function LetterView({
         <div className="space-y-1">
           <h3 className="font-heading text-base font-semibold">{`Cover letter · ${LENGTH_LABEL[letter.length]}`}</h3>
           <p className="text-muted-foreground text-xs">
-            Based on your base résumé saved {day(basis.baseUpdatedAt)} and this posting · {modelName(basis.model)} · written{' '}
-            {day(basis.createdAt)}
+            Based on your base résumé saved <LocalDate value={basis.baseUpdatedAt} fallback="unknown date" /> and this posting ·{' '}
+            {modelName(basis.model)} · written <LocalDate value={basis.createdAt} />
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
