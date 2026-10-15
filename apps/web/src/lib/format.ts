@@ -14,14 +14,16 @@ function parseDate(value: string): Date {
 }
 
 const DAY_MS = 24 * 3600_000;
+const ZONED = /(?:Z|[+-]\d{2}:\d{2})$/;
 
 /**
  * The day a job was posted. date_posted is timestamptz, so a source that gives only the day
  * reaches us as UTC midnight: exactly UTC midnight is that day ("2026-06-01"), not the evening
- * before in the Americas. Any other time is the instant it is. Only for posting dates.
+ * before in the Americas. Any other time, or one without its zone, is the instant it is. Only for
+ * posting dates.
  */
 export function postedDay(datePosted: string | undefined): string | undefined {
-  if (!datePosted) return datePosted;
+  if (!datePosted || !ZONED.test(datePosted)) return datePosted;
   const time = Date.parse(datePosted);
   return time % DAY_MS === 0 ? new Date(time).toISOString().slice(0, 10) : datePosted;
 }

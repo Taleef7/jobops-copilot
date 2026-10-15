@@ -1,4 +1,5 @@
 import { expect, it } from 'vitest';
+import { onServer } from '@/test/time-zones';
 import { formatDate, postedDay } from './format';
 
 // The tests run in New York (vitest.config.mts), where 1:30 am UTC on Oct 15 is 9:30 pm on Oct 14.
@@ -28,4 +29,12 @@ it('keeps any other posting time as the instant it is', () => {
   expect(formatDate(postedDay('2026-06-01T01:30:00.000Z'))).toBe('May 31, 2026');
   expect(postedDay(undefined)).toBeUndefined();
   expect(postedDay('not a date')).toBe('not a date');
+});
+
+// Only a time with its zone is UTC midnight for sure: a zoneless one is midnight where it's read,
+// which on the server (UTC) would look like a day.
+it('keeps a zoneless posting time as the instant it is, on the server too', () => {
+  expect(onServer(() => postedDay('2026-06-02T00:00:00'))).toBe('2026-06-02T00:00:00');
+  expect(postedDay('2026-06-02T00:00:00')).toBe('2026-06-02T00:00:00');
+  expect(onServer(() => postedDay('2026-06-01T00:00:00+00:00'))).toBe('2026-06-01');
 });

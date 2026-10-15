@@ -23,14 +23,19 @@ function switchToUtc() {
   return restore;
 }
 
-/** The HTML the server sends for a client component. */
-export function renderOnServer(ui: ReactNode): string {
+/** Runs `run` as the server would, in UTC. */
+export function onServer<T>(run: () => T): T {
   const restore = switchToUtc();
   try {
-    return renderToString(ui);
+    return run();
   } finally {
     restore();
   }
+}
+
+/** The HTML the server sends for a client component. */
+export function renderOnServer(ui: ReactNode): string {
+  return onServer(() => renderToString(ui));
 }
 
 /** The HTML the server sends for a server component, such as a page: it runs in UTC too. */
