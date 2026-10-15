@@ -64,6 +64,17 @@ export class AiUnavailableError extends Error {
   }
 }
 
+/**
+ * The agent refused to read the input: it looked like instructions to the AI (#355). Not a
+ * failure to retry: the API answers 422 with the reason.
+ */
+export class AiRefusedInputError extends Error {
+  constructor(message = 'This posting has text that reads like instructions to the AI, so it wasn’t read. Enter the details yourself.') {
+    super(message);
+    this.name = 'AiRefusedInputError';
+  }
+}
+
 /** Thrown when an agent call is requested but the service is not configured. */
 export class AgentDisabledError extends AiUnavailableError {
   constructor() {
@@ -122,6 +133,7 @@ async function callAgent<T>(path: string, payload: unknown, timeoutMs = AGENT_TI
   }
   if (!response.ok) {
     console.warn(`agent ${path} responded with ${response.status}`);
+    if (response.status === 422 && (await refusedInput(response))) throw new AiRefusedInputError();
     await response.body?.cancel();
     throw new AiUnavailableError(AI_NO_ANSWER);
   }
@@ -130,6 +142,12 @@ async function callAgent<T>(path: string, payload: unknown, timeoutMs = AGENT_TI
   } catch (error) {
     throw asAiUnavailable(error, path);
   }
+}
+
+/** True when a 422 is the agent refusing the input (`detail.code: "input_refused"`). */
+async function refusedInput(response: Response): Promise<boolean> {
+  const body = (await response.json().catch(() => null)) as { detail?: { code?: unknown } } | null;
+  return body?.detail?.code === 'input_refused';
 }
 
 /**
@@ -351,7 +369,11 @@ export async function resolveParsedJob(descriptionText: string): Promise<ParsedJ
   if (!validateParsedJobOutput(parsed)) throw new AiUnavailableError(UNUSABLE_ANSWER);
   // A workplace in other words ("On-site") is read, one the app doesn't know is null: an odd
   // workplace mustn't fail Score fit or the n8n intake, which parse the same way (#355).
-  if ('workplace_type' in parsed) parsed.workplace_type = normalizeWorkplace(parsed.workplace_type);
+  if ('workplace_type' in parsed) {
+    const workplace = normalizeWorkplace(parsed.workplace_type);
+    if (workplace === undefined) delete parsed.workplace_type;
+    else parsed.workplace_type = workplace;
+  }
   return parsed;
 }
 

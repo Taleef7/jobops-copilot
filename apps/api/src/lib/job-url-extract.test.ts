@@ -106,3 +106,20 @@ test('a posting that states no salary has null, and a page with no description h
   assert.equal(extractJobFromHtml(JSONLD).salary, null);
   assert.equal(extractJobFromHtml('<html><head></head><body></body></html>').salary, undefined);
 });
+
+// A meta description is a teaser, not the posting: a salary it leaves out is unknown.
+test('a description from the page metadata leaves the salary unknown', () => {
+  const html = `<html><head>
+    <meta property="og:title" content="Backend Engineer">
+    <meta property="og:description" content="Build APIs in Go."></head><body></body></html>`;
+  const result = extractJobFromHtml(html);
+  assert.equal(result.descriptionText, 'Build APIs in Go.');
+  assert.equal(result.salary, undefined);
+});
+
+test('a salary the review can only guess at is unknown, not none', () => {
+  const html = `<html><head><script type="application/ld+json">
+    {"@type":"JobPosting","title":"Engineer","description":"<p>Pay is $45/hr.</p>"}
+    </script></head><body></body></html>`;
+  assert.equal(extractJobFromHtml(html).salary, undefined);
+});

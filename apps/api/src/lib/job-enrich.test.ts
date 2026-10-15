@@ -1,6 +1,6 @@
 import { strict as assert } from 'node:assert';
 import { describe, it } from 'node:test';
-import { computeContentHash, parseSalaryFromText, parseSeniority } from './job-enrich';
+import { computeContentHash, parseSalaryFromText, parseSeniority, readSalaryForReview } from './job-enrich';
 
 describe('parseSalaryFromText', () => {
   it('parses a $ range with commas', () => {
@@ -82,5 +82,36 @@ describe('parseSalaryFromText on hostile input', () => {
       max: 150000,
       currency: 'USD',
     });
+  });
+});
+
+// #355: the Add job review shows a salary only as the posting states it. A figure the parser
+// converted (an hourly rate made annual) or whose currency it can't be sure of is unknown,
+// and so is a salary it couldn't read. Only a posting with no sign of a salary is "not stated".
+describe('readSalaryForReview', () => {
+  it('reads an annual range in a currency it knows', () => {
+    assert.deepEqual(readSalaryForReview('The salary range is £80,000 - £95,000.'), { min: 80000, max: 95000, currency: 'GBP' });
+    assert.deepEqual(readSalaryForReview('Pay: $120,000 - $150,000 per year'), { min: 120000, max: 150000, currency: 'USD' });
+  });
+  it('is unknown for an hourly rate, which the store makes annual', () => {
+    assert.equal(readSalaryForReview('Pay is $45/hr on contract.'), undefined);
+  });
+  it('is unknown for a rate it cannot read', () => {
+    assert.equal(readSalaryForReview('We pay $40 - $60 / hour depending on experience.'), undefined);
+  });
+  it('is unknown when the currency could be another dollar', () => {
+    assert.equal(readSalaryForReview('Salary: $120,000 - $150,000 CAD'), undefined);
+    assert.equal(readSalaryForReview('Salary: C$120,000 - C$150,000'), undefined);
+  });
+  it('is unknown when the posting talks about pay without a figure it can read', () => {
+    assert.equal(readSalaryForReview('Competitive salary and equity.'), undefined);
+  });
+  it('is not stated when the posting has no sign of a salary', () => {
+    assert.equal(readSalaryForReview('Build payment APIs in Go and Postgres.'), null);
+  });
+  it('reads a 100k-character posting quickly', () => {
+    const started = performance.now();
+    readSalaryForReview(`${'Build APIs in Go. '.repeat(5_500)}Salary: $120,000 - $150,000`);
+    assert.ok(performance.now() - started < 200);
   });
 });

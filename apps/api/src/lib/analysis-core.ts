@@ -16,9 +16,19 @@ const WORKPLACE_WORDS: Record<string, ParsedWorkplaceType> = {
   'in office': 'onsite',
 };
 
-/** The parser's workplace in the app's words, or null when it's one the app doesn't know. */
-export function normalizeWorkplace(value: unknown): ParsedWorkplaceType | null {
-  return typeof value === 'string' ? (WORKPLACE_WORDS[value.trim().toLowerCase()] ?? null) : null;
+/**
+ * The parser's workplace in the app's words. Null stays null ("not stated"); a word the app
+ * doesn't know is undefined (unknown). A leading "remote" ("remote-first", "Remote (US)") is
+ * remote unless it also names an office or hybrid.
+ */
+export function normalizeWorkplace(value: unknown): ParsedWorkplaceType | null | undefined {
+  if (value === null) return null;
+  if (typeof value !== 'string') return undefined;
+  const word = value.trim().toLowerCase();
+  const known = WORKPLACE_WORDS[word];
+  if (known) return known;
+  if (/^remote\b/.test(word) && !/hybrid|office|on-?\s?site/.test(word)) return 'remote';
+  return undefined;
 }
 
 export interface ParsedJobOutput {

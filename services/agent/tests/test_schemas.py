@@ -34,6 +34,9 @@ def test_parsed_job_workplace_is_one_the_api_knows():
         "on-site": "onsite",
         "On-site": "onsite",
         "in-office": "onsite",
+        "remote-first": "remote",
+        "Remote (US)": "remote",
+        "remote or hybrid": None,
         "flexible": None,
         "anywhere": None,
         "": None,
@@ -149,3 +152,10 @@ def test_the_outreach_prompt_forbids_placeholders_and_long_linkedin_notes():
     assert "bracketed placeholder" in prompt
     assert "neutral greeting" in prompt
     assert "300 characters" in prompt
+
+
+def test_parsed_job_joins_a_list_of_locations():
+    # A posting can name several places; the model may answer with a list (#355).
+    parsed = ParsedJob(location=["London, UK", " Berlin, Germany ", ""])
+    assert parsed.location == "London, UK; Berlin, Germany"
+    assert ParsedJob(location=[]).location is None

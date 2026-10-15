@@ -36,7 +36,36 @@ function isReasonable(min: number | null, max: number | null): boolean {
   return true;
 }
 
+type SalaryMatch = ParsedSalary & { hourly: boolean };
+
+/** The salary the store saves for a description: an hourly rate is made annual (x2080). */
 export function parseSalaryFromText(text: string): ParsedSalary | null {
+  const match = matchSalary(text);
+  return match ? { min: match.min, max: match.max, currency: match.currency } : null;
+}
+
+// Currencies the parser reads as one it knows: another dollar ("$120,000 CAD", "C$") is
+// read as USD, so the review can't trust the currency when one of these appears.
+const OTHER_CURRENCY = /\b(?:CAD|AUD|NZD|SGD|HKD|INR|JPY|CHF|SEK|NOK|DKK|MXN|BRL|ZAR|PLN)\b|\b(?:C|CA|A|AU|NZ|S|HK)\$/;
+// A sign that the posting talks about pay, whether or not a figure could be read.
+const SALARY_SIGNS = /[$£€]\s?\d|\b(?:salary|salaries|compensation|pay range|pay rate|base pay|hourly rate|per hour|per annum|OTE)\b/i;
+
+/**
+ * The salary for the Add job review (#355), as the posting states it: an annual figure in a
+ * currency the parser is sure of. Undefined (unknown) when the store would convert it (an
+ * hourly rate), when the currency could be another one, or when the posting talks about pay
+ * in a way the parser can't read. Null only when the posting shows no sign of a salary.
+ */
+export function readSalaryForReview(text: string): ParsedSalary | null | undefined {
+  const match = matchSalary(text);
+  if (match) {
+    if (match.hourly || OTHER_CURRENCY.test(text)) return undefined;
+    return { min: match.min, max: match.max, currency: match.currency };
+  }
+  return SALARY_SIGNS.test(text) ? undefined : null;
+}
+
+function matchSalary(text: string): SalaryMatch | null {
   if (!text || typeof text !== 'string') return null;
 
   // Mask 401(k) references so they aren't parsed as a $401k salary.
@@ -57,7 +86,7 @@ export function parseSalaryFromText(text: string): ParsedSalary | null {
     const min = parseNumber(m[1]!, false, true);
     const max = parseNumber(m[2]!, false, true);
     if (isReasonable(min, max)) {
-      return { min, max, currency };
+      return { min, max, currency, hourly: true };
     }
   }
 
@@ -67,7 +96,7 @@ export function parseSalaryFromText(text: string): ParsedSalary | null {
   for (const m of singleHourlyMatches) {
     const rate = parseNumber(m[1]!, false, true);
     if (isReasonable(rate, rate)) {
-      return { min: rate, max: rate, currency };
+      return { min: rate, max: rate, currency, hourly: true };
     }
   }
 
@@ -114,7 +143,7 @@ export function parseSalaryFromText(text: string): ParsedSalary | null {
     if (isReasonable(min, max)) {
       const matchCurr = curr1 || curr2 || curr3;
       const effectiveCurr = matchCurr ? resolveCurrency(matchCurr) : currency;
-      return { min, max, currency: effectiveCurr };
+      return { min, max, currency: effectiveCurr, hourly: false };
     }
   }
 
@@ -131,7 +160,7 @@ export function parseSalaryFromText(text: string): ParsedSalary | null {
     }
     if (isReasonable(null, val)) {
       const effectiveCurr = currSym ? resolveCurrency(currSym) : currency;
-      return { min: null, max: val, currency: effectiveCurr };
+      return { min: null, max: val, currency: effectiveCurr, hourly: false };
     }
   }
 
@@ -148,7 +177,7 @@ export function parseSalaryFromText(text: string): ParsedSalary | null {
     }
     if (isReasonable(val, null)) {
       const effectiveCurr = currSym ? resolveCurrency(currSym) : currency;
-      return { min: val, max: null, currency: effectiveCurr };
+      return { min: val, max: null, currency: effectiveCurr, hourly: false };
     }
   }
 

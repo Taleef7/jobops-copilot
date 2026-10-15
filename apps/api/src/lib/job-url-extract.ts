@@ -1,5 +1,5 @@
 import { parse, type HTMLElement } from 'node-html-parser';
-import { parseSalaryFromText, type ParsedSalary } from '@/lib/job-enrich';
+import { readSalaryForReview, type ParsedSalary } from '@/lib/job-enrich';
 
 export type WorkplaceType = 'remote' | 'hybrid' | 'onsite' | 'flexible';
 
@@ -10,8 +10,9 @@ export interface ExtractedJob {
   descriptionText?: string;
   workplaceType?: WorkplaceType;
   /**
-   * The salary the description states, read as the store reads it when the job is saved:
-   * null when the description states none, left out when there's no description (#355).
+   * The salary the description states, for the Add job review (#355): null when it shows no
+   * sign of one, left out when it's unknown (no description, a metadata teaser, or a figure
+   * the review can only guess at). See readSalaryForReview.
    */
   salary?: ParsedSalary | null;
   /**
@@ -134,6 +135,7 @@ export function extractJobFromHtml(html: string): ExtractedJob {
   ];
 
   const result: ExtractedJob = { source: 'none' };
+  let descriptionTier: ExtractedJob['source'] = 'none';
   for (const [tier, data] of tiers) {
     let used = false;
     if (result.title === undefined && data.title !== undefined) { result.title = data.title; used = true; }
@@ -141,6 +143,7 @@ export function extractJobFromHtml(html: string): ExtractedJob {
     if (result.location === undefined && data.location !== undefined) { result.location = data.location; used = true; }
     if (result.descriptionText === undefined && data.descriptionText !== undefined) {
       result.descriptionText = data.descriptionText;
+      descriptionTier = tier;
       used = true;
     }
     if (result.workplaceType === undefined && data.workplaceType !== undefined) {
@@ -149,6 +152,10 @@ export function extractJobFromHtml(html: string): ExtractedJob {
     }
     if (used && result.source === 'none') result.source = tier;
   }
-  if (result.descriptionText) result.salary = parseSalaryFromText(result.descriptionText);
+  // A meta description is a teaser: the salary it leaves out may be in the posting.
+  if (result.descriptionText && descriptionTier !== 'opengraph') {
+    const salary = readSalaryForReview(result.descriptionText);
+    if (salary !== undefined) result.salary = salary;
+  }
   return result;
 }

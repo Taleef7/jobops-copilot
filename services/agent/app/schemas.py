@@ -9,6 +9,7 @@ unavailable.
 
 from __future__ import annotations
 
+import re
 from typing import Any, Literal
 
 from pydantic import BaseModel, Field, field_validator
@@ -56,11 +57,26 @@ class ParsedJob(BaseModel):
     @field_validator("workplace_type", mode="before")
     @classmethod
     def _workplace_in_known_words(cls, value: object) -> WorkplaceType | None:
-        # "On-site" or "Remote" is still the workplace; one the app doesn't know is unknown,
-        # never a failed parse (#355).
+        # "On-site" or "Remote" is still the workplace, and a leading "remote" ("remote-first",
+        # "Remote (US)") is remote unless it also names an office or hybrid. Anything else is
+        # None, never a failed parse (#355).
         if not isinstance(value, str):
             return None
-        return _WORKPLACE_WORDS.get(value.strip().lower())
+        word = value.strip().lower()
+        if word in _WORKPLACE_WORDS:
+            return _WORKPLACE_WORDS[word]
+        if re.match(r"remote\b", word) and not re.search(r"hybrid|office|on-?\s?site", word):
+            return "remote"
+        return None
+
+    @field_validator("location", mode="before")
+    @classmethod
+    def _locations_in_one_line(cls, value: object) -> object:
+        # A posting can name several places, and the model may answer with a list (#355).
+        if isinstance(value, list):
+            places = [str(place).strip() for place in value if str(place).strip()]
+            return "; ".join(places) or None
+        return value
     required_skills: list[str] = Field(default_factory=list)
     preferred_skills: list[str] = Field(default_factory=list)
     responsibilities: list[str] = Field(default_factory=list)
