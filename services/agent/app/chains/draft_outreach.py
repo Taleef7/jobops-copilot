@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import re
 
 from app.llm.provider import get_model
@@ -17,19 +18,43 @@ from app.safety.moderation import moderate_text
 from app.safety.pii import maybe_redact
 from app.schemas import DraftOutreachRequest, OutreachDraftLLM, OutreachDraftResponse
 
+logger = logging.getLogger("jobops.agent.draft_outreach")
+
 # Hard limits by message type (#354). LinkedIn cuts a connection note at 300 characters
 # (200 on a free account).
 CHARACTER_LIMITS = {"linkedin_connection": 300}
 
-# "[Name]", "[Company]", "[Your Name]": text the user would have to fill in before sending.
-_PLACEHOLDER = re.compile(r"\[[^\[\]\n]+\]")
+# Text the user would have to fill in before sending (#354): a placeholder word in [], {}, <>
+# or __ __, like [Name], {Company}, <Your Name> or __NAME__, and the redaction tokens ([EMAIL],
+# [PHONE], [URL]) the model sees where contact details were removed. Other brackets ([sic],
+# [link], a job title's [Remote]) are ordinary text.
+_PLACEHOLDER_WORDS = (
+    r"your\s[^\[\]{}<>\n]{1,40}"
+    r"|(?:first|last|full|contact|recipient(?:'s)?|candidate(?:'s)?|company"
+    r"|hiring\s+manager(?:'s)?)?\s*name"
+    r"|company|hiring\s+manager|recipient|(?:job\s+)?title|role|position|date"
+    r"|e-?mail(?:\s+address)?|phone(?:\s+number)?|url|address|ssn"
+)
+_PLACEHOLDER = re.compile(
+    "|".join(
+        rf"{start}\s*(?:{_PLACEHOLDER_WORDS})\s*{end}"
+        for start, end in ((r"\[", r"\]"), (r"\{", r"\}"), ("<", ">"), ("__", "__"))
+    ),
+    re.IGNORECASE,
+)
 
 
-def _reject_placeholders(draft: OutreachDraftLLM) -> None:
-    """A draft with a placeholder is not a draft: fail, and the API saves nothing (#354)."""
-    found = _PLACEHOLDER.search(f"{draft.subject}\n{draft.draft_text}")
-    if found:
-        raise ValueError(f"The draft has a placeholder: {found.group(0)}")
+def _placeholder(draft: OutreachDraftLLM, inputs: str) -> str | None:
+    """The draft's first placeholder that isn't in the inputs themselves, or None."""
+    for match in _PLACEHOLDER.finditer(f"{draft.subject}\n{draft.draft_text}"):
+        if match.group(0) not in inputs:
+            return match.group(0)
+    return None
+
+
+def _length(text: str) -> int:
+    """Characters as LinkedIn and the web count them: UTF-16 code units."""
+    return len(text.encode("utf-16-le")) // 2
 
 
 def draft_outreach(req: DraftOutreachRequest, config: dict | None = None) -> OutreachDraftResponse:
@@ -82,36 +107,67 @@ def draft_outreach(req: DraftOutreachRequest, config: dict | None = None) -> Out
         parts.append("Relevant resume evidence to draw from:\n" + evidence)
 
     messages = [("system", OUTREACH_DRAFTER_SYSTEM), ("human", "\n\n".join(parts))]
+
+    def ask_again(draft: OutreachDraftLLM, request: str) -> OutreachDraftLLM:
+        follow_up = [*messages, ("ai", draft.draft_text), ("human", request)]
+        return structured.invoke(follow_up, config=config or None)
+
+    # The inputs as the user gave them: bracketed text from them is theirs, not a placeholder.
+    inputs = "\n".join(
+        part
+        for part in (
+            req.contact_name,
+            req.contact_role,
+            req.company,
+            req.job_context,
+            req.resume_summary,
+            *(req.retrieved_context or []),
+        )
+        if part
+    )
+
     result = structured.invoke(messages, config=config or None)
-    _reject_placeholders(result)
+    placeholder = _placeholder(result, inputs)
+    if placeholder:
+        # Ask once for the draft without it. A second one means there is no draft to give, so
+        # the request fails and the API saves nothing (#354).
+        result = ask_again(
+            result,
+            f"The draft has the placeholder {placeholder}. Rewrite it with no placeholders: use "
+            "the names given above, a neutral greeting, or leave the detail out.",
+        )
+        placeholder = _placeholder(result, inputs)
+        if placeholder:
+            raise ValueError(f"The draft has a placeholder: {placeholder}")
 
     limit = CHARACTER_LIMITS.get(req.message_type)
-    if limit and len(result.draft_text) > limit:
-        # Ask once for a shorter one. If it is still too long, the user is told, rather than
-        # sent a note cut off mid-sentence.
-        shorter = structured.invoke(
-            [
-                *messages,
-                ("ai", result.draft_text),
-                (
-                    "human",
-                    f"That is {len(result.draft_text)} characters. Rewrite it in at most "
-                    f"{limit} characters, spaces included, with the same true claims.",
-                ),
-            ],
-            config=config or None,
-        )
-        _reject_placeholders(shorter)
-        if shorter.draft_text.strip() and len(shorter.draft_text) < len(result.draft_text):
+    if limit and _length(result.draft_text) > limit:
+        # Ask once for a shorter one. If that fails or is no better, the first draft stays and
+        # the user is told it is too long, rather than sent a note cut off mid-sentence.
+        try:
+            shorter: OutreachDraftLLM | None = ask_again(
+                result,
+                f"That is {_length(result.draft_text)} characters. Rewrite it in at most "
+                f"{limit} characters, spaces included, with the same true claims.",
+            )
+        except Exception:  # noqa: BLE001 - the first draft is still usable
+            logger.warning("shortening the outreach draft failed; keeping the first", exc_info=True)
+            shorter = None
+        if (
+            shorter is not None
+            and shorter.draft_text.strip()
+            and _length(shorter.draft_text) < _length(result.draft_text)
+            and not _placeholder(shorter, inputs)
+        ):
             result = shorter
 
     # Output guardrails: moderate the draft for safety and check it is grounded in the
     # provided context (catches invented claims a moderation API would pass). Both surface
     # in safety_notes; a moderation block withholds the body for human review.
     notes = [result.safety_notes] if result.safety_notes else []
-    if limit and len(result.draft_text) > limit:
+    if limit and _length(result.draft_text) > limit:
         notes.append(
-            f"Over {limit} characters ({len(result.draft_text)}). "
+            f"Over {limit} characters ({_length(result.draft_text)}). "
             f"LinkedIn allows {limit}, or 200 on a free account."
         )
     ctx = "\n\n".join(

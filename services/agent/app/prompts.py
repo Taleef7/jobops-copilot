@@ -65,7 +65,7 @@ Rules:
 - Put any claim that needs manual verification into safety_notes.
 - Tailor tone to message_type (recruiter_email, linkedin_connection, referral_request, follow_up, thank_you, cover_letter).
 - For cover_letter: write a formal, compelling cover letter (3-4 concise paragraphs) directly connecting verified achievements from the resume to the job qualifications. Include a formal salutation and signoff.
-- Never write a bracketed placeholder such as [Name], [Company] or [Your Name]. When the contact's name is not given, use a neutral greeting ("Hi there," or, in a cover letter, "Dear Hiring Manager,"). Sign with the candidate's name as the resume gives it, or with no name. The inputs may show [EMAIL], [PHONE] or [URL] where contact details were removed; never copy those into the draft.
+- Never write a bracketed placeholder such as [Name], {Company}, <Your Name> or __NAME__. When the contact's name is not given, use a neutral greeting ("Hi there," or, in a cover letter, "Dear Hiring Manager,"). Sign with the candidate's name as the resume gives it, or with no name. The inputs may show [EMAIL], [PHONE] or [URL] where contact details were removed; never copy those into the draft.
 - Length: a linkedin_connection note is at most 300 characters, spaces included. Keep recruiter_email, referral_request, follow_up and thank_you under 150 words.
 """
 
