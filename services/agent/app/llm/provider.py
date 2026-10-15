@@ -73,11 +73,15 @@ def openai_call_kwargs(model_id: str, params: dict | None = None) -> dict:
     return kwargs
 
 
-@lru_cache(maxsize=1)
-def get_model():
+@lru_cache(maxsize=2)
+def get_model(one_attempt: bool = False):
     """Return ``(chat_model, model_label)`` for the active provider.
 
     ``model_label`` is recorded as ``model_used`` on responses for auditability.
+
+    The provider's SDK retries a failed or timed-out request (OpenAI and Anthropic twice).
+    ``one_attempt=True`` turns that off for the LLM canary (#413), so it reports the
+    provider's error before its callers give up; every other call keeps the retries.
     """
     provider = resolve_provider()
     if provider is None:
@@ -86,7 +90,14 @@ def get_model():
             "(ANTHROPIC_API_KEY, AZURE_OPENAI_*, OPENAI_API_KEY, or GOOGLE_GEMINI_API_KEY)."
         )
 
-    common = {"temperature": settings.llm_temperature, "timeout": settings.request_timeout}
+    # langchain-google-genai's max_retries counts attempts, so 1 is one request; the others
+    # count retries.
+    retries = {"max_retries": 1 if provider == "google_genai" else 0} if one_attempt else {}
+    common = {
+        "temperature": settings.llm_temperature,
+        "timeout": settings.request_timeout,
+        **retries,
+    }
 
     if provider == "anthropic":
         model = settings.anthropic_model
@@ -98,6 +109,7 @@ def get_model():
             api_key=settings.openai_api_key,
             timeout=settings.request_timeout,
             **openai_call_kwargs(model),
+            **retries,
         )
     elif provider == "azure_openai":
         model = settings.azure_openai_deployment or "gpt-4o-mini"
