@@ -27,6 +27,7 @@ export function TodaysBestFeed({ initialFeed }: TodaysBestFeedProps) {
   const [feed, setFeed] = useState<FeedResult>(initialFeed);
   const [isPending, startTransition] = useTransition();
   const listRef = useRef<HTMLDivElement>(null);
+  const countRef = useRef<HTMLSpanElement>(null);
   // Where the removed card was, to focus the card now in its place, or the last one (#353).
   // A position, not a job: when two Passes overlap, the job after the first may be gone too.
   const focusIndex = useRef<number | null>(null);
@@ -35,8 +36,13 @@ export function TodaysBestFeed({ initialFeed }: TodaysBestFeedProps) {
     const index = focusIndex.current;
     if (index === null) return;
     focusIndex.current = null;
+    // Only when focus went with the removed card: by the time the API answers, the user may
+    // be typing elsewhere.
+    const active = document.activeElement;
+    if (active && active !== document.body && active.isConnected) return;
     const cards = listRef.current?.querySelectorAll<HTMLElement>(':scope > [data-slot="card"]') ?? [];
-    cards[Math.min(index, cards.length - 1)]?.querySelector<HTMLElement>('a')?.focus();
+    // No card left: the count says so.
+    (cards[Math.min(index, cards.length - 1)]?.querySelector<HTMLElement>('a') ?? countRef.current)?.focus();
   }, [feed]);
 
   async function loadFeedWithFilters(newFilters: FeedFilterState) {
@@ -89,11 +95,12 @@ export function TodaysBestFeed({ initialFeed }: TodaysBestFeedProps) {
     const leavesFeed = filters.status === 'all' ? newStatus === 'archived' : newStatus !== filters.status;
     if (leavesFeed) {
       focusIndex.current = Math.max(0, visibleItems.findIndex((item) => item.job.id === jobId));
-      setFeed((prev) => ({
-        ...prev,
-        items: prev.items.filter((item) => item.job.id !== jobId),
-        total: Math.max(0, prev.total - 1),
-      }));
+      setFeed((prev) =>
+        // A reload after a filter change may have dropped it already: count it once.
+        prev.items.some((item) => item.job.id === jobId)
+          ? { ...prev, items: prev.items.filter((item) => item.job.id !== jobId), total: Math.max(0, prev.total - 1) }
+          : prev,
+      );
       return;
     }
     setFeed((prev) => ({
@@ -142,7 +149,7 @@ export function TodaysBestFeed({ initialFeed }: TodaysBestFeedProps) {
       <div className="flex flex-wrap items-center justify-between gap-2 px-1 text-xs text-muted-foreground">
         <div className="flex items-center gap-1.5 font-medium">
           <Sparkles className="size-3.5 text-primary" />
-          <span>
+          <span ref={countRef} tabIndex={-1} className="outline-none">
             {visibleItems.length === 1
               ? '1 curated opportunity'
               : `${visibleItems.length} curated opportunities`}

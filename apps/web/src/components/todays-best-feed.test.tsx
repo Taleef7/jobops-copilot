@@ -2,7 +2,8 @@ import '@testing-library/jest-dom/vitest';
 import { act, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { expect, it, vi } from 'vitest';
-import { updateJob } from '@/lib/api';
+import { fetchRankedFeed, updateJob } from '@/lib/api';
+import { chooseOption } from '@/test/select';
 import type { FeedItem, FeedResult, Job } from '@/types/job';
 import { TodaysBestFeed } from './todays-best-feed';
 
@@ -150,4 +151,49 @@ it('moves focus to a card still there when two Passes overlap', async () => {
   } finally {
     vi.mocked(updateJob).mockResolvedValue({} as never);
   }
+});
+
+it('leaves focus alone when the user has moved on before the Pass is saved', async () => {
+  const user = userEvent.setup();
+  render(<TodaysBestFeed initialFeed={mockFeedResult} />);
+  let answer: () => void = () => {};
+  vi.mocked(updateJob).mockImplementationOnce(() => new Promise((resolve) => (answer = () => resolve({} as never))));
+  const first = screen.getByRole('link', { name: 'Senior Backend Engineer' }).closest('[data-slot="card"]') as HTMLElement;
+  const search = screen.getByRole('searchbox', { name: /filter today's best/i });
+
+  await user.click(within(first).getByRole('button', { name: /pass/i }));
+  await user.type(search, 'e');
+  await act(async () => answer());
+  await user.keyboard('n');
+
+  expect(screen.queryByText('Senior Backend Engineer')).not.toBeInTheDocument();
+  expect(search).toHaveFocus();
+  expect(search).toHaveValue('en');
+});
+
+it('focuses the count when the last card is passed', async () => {
+  const user = userEvent.setup();
+  render(<TodaysBestFeed initialFeed={{ ...mockFeedResult, items: [mockFeedItems[0]!], total: 1 }} />);
+
+  await user.click(screen.getByRole('button', { name: /pass/i }));
+
+  await waitFor(() => expect(screen.queryByText('Senior Backend Engineer')).not.toBeInTheDocument());
+  expect(screen.getByText('0 curated opportunities')).toHaveFocus();
+});
+
+it('counts a passed job once when a reload already dropped it', async () => {
+  const user = userEvent.setup();
+  render(<TodaysBestFeed initialFeed={{ ...mockFeedResult, total: 6 }} />);
+  let answer: () => void = () => {};
+  vi.mocked(updateJob).mockImplementationOnce(() => new Promise((resolve) => (answer = () => resolve({} as never))));
+  // The reload after a filter change no longer has the job being passed.
+  vi.mocked(fetchRankedFeed).mockResolvedValueOnce({ ...mockFeedResult, items: [mockFeedItems[1]!], total: 5 });
+  const first = screen.getByRole('link', { name: 'Senior Backend Engineer' }).closest('[data-slot="card"]') as HTMLElement;
+
+  await user.click(within(first).getByRole('button', { name: /pass/i }));
+  await chooseOption(user, /filter by minimum score/i, /fit 80%\+/i);
+  await waitFor(() => expect(screen.getByText(/1 curated opportunity of 5 total/i)).toBeInTheDocument());
+  await act(async () => answer());
+
+  expect(screen.getByText(/1 curated opportunity of 5 total/i)).toBeInTheDocument();
 });
