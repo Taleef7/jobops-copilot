@@ -180,7 +180,7 @@ it("shows the posted and follow-up days in the browser's time zone, without a hy
   const { container, hydrationErrors } = await hydrateInBrowser(renderOnServer(table), table);
 
   expect(hydrationErrors).not.toHaveBeenCalled();
-  expect(within(container).getByText('Posted Sep 30, 2026')).toBeInTheDocument();
+  expect(container).toHaveTextContent('Posted Sep 30, 2026');
   expect(within(container).getByText('Oct 15, 2026')).toBeInTheDocument();
 });
 

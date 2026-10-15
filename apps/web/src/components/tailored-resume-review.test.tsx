@@ -190,8 +190,9 @@ describe('TailoredResumeReview', () => {
   it("dates the base résumé and the draft in the browser's time zone", () => {
     const basedOn = { ...draft.basedOn!, baseUpdatedAt: '2026-10-01T01:00:00.000Z', createdAt: '2026-10-15T01:30:00.000Z' };
     renderReview([{ ...draft, basedOn }]);
-    expect(screen.getByText(/saved Sep 30, 2026 and this posting/)).toBeInTheDocument();
-    expect(screen.getByText(/tailored Oct 14, 2026/)).toBeInTheDocument();
+    expect(screen.getByText(/^Based on your base résumé saved/)).toHaveTextContent(
+      'saved Sep 30, 2026 and this posting · gpt-6-luna · tailored Oct 14, 2026',
+    );
   });
 
   it('each line can be kept, restored or edited, and a dropped one only edited', async () => {

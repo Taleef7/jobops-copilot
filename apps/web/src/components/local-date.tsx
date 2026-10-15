@@ -9,5 +9,20 @@ import { formatDate } from '@/lib/format';
  */
 export function LocalDate({ value, fallback }: { value: string | null | undefined; fallback?: string }) {
   const hydrated = useHydrated();
-  return hydrated ? formatDate(value ?? undefined, fallback) : '…';
+  if (!value) return formatDate(undefined, fallback);
+  return (
+    <time dateTime={value} className="tabular-nums">
+      {hydrated ? (
+        formatDate(value, fallback)
+      ) : (
+        <>
+          {/* About a date's width, so the line moves less when the date comes. */}
+          <span aria-hidden="true" className="inline-block min-w-[10ch]">
+            …
+          </span>
+          <span className="sr-only">Loading date</span>
+        </>
+      )}
+    </time>
+  );
 }

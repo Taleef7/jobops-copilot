@@ -128,7 +128,7 @@ it("shows the posted day in the browser's time zone, without a hydration error",
   const { container, hydrationErrors } = await hydrateInBrowser(renderOnServer(card), card);
 
   expect(hydrationErrors).not.toHaveBeenCalled();
-  expect(within(container).getByText('Posted Sep 30, 2026')).toBeInTheDocument();
+  expect(container).toHaveTextContent('Posted Sep 30, 2026');
 });
 
 // The server and the browser read the clock seconds apart, either side of "New today"'s 24 hours.
