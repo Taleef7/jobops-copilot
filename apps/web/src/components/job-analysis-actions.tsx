@@ -20,6 +20,10 @@ type JobAnalysisActionsProps = {
 
 /** Drop `?run=fit` from the address once the run has started, so a reload or Back to the
  *  page doesn't start (and pay for) another. Next keeps its router in step with this. */
+/** Jobs already scored from `?run=fit` in this page load. Back or Forward can bring the
+ *  page back from the router's cache, still with `runFit`, after the address was cleaned. */
+const ranFromLink = new Set<string>();
+
 function forgetRunParam() {
   const url = new URL(window.location.href);
   if (!url.searchParams.has('run')) return;
@@ -80,12 +84,16 @@ export function JobAnalysisActions({ jobId, autoScore = false, runFit = false }:
   }
 
   useEffect(() => {
-    if ((autoScore || runFit) && autoScoredJobId.current !== jobId) {
+    const fromLink = runFit && !ranFromLink.has(jobId);
+    if ((autoScore || fromLink) && autoScoredJobId.current !== jobId) {
       autoScoredJobId.current = jobId;
-      if (runFit) forgetRunParam();
+      if (fromLink) {
+        ranFromLink.add(jobId);
+        forgetRunParam();
+      }
       // A run the user asked for (?run=fit) reports its result like a click; the
       // automatic upgrade of an estimate stays quiet.
-      void handleScore({ silent: !runFit });
+      void handleScore({ silent: !fromLink });
     }
     // Listing handleScore (defined inline, not memoised) would re-fire the effect
     // on every render; the autoScoredJobId ref is the real once-per-job guard. The
@@ -102,8 +110,8 @@ export function JobAnalysisActions({ jobId, autoScore = false, runFit = false }:
         </Button>
       </div>
       {/* Always present, so a screen reader hears the run start (#355). */}
-      <p role="status" className="text-muted-foreground text-sm empty:hidden">
-        {isScoring ? 'Scoring this job. It takes a few seconds.' : ''}
+      <p role="status" className="text-muted-foreground text-sm">
+        {isScoring ? 'Scoring this job. This can take a moment.' : ''}
       </p>
       {failure ? (
         <ErrorState title="Couldn't score this job" message={failure} onRetry={() => void handleScore()} />

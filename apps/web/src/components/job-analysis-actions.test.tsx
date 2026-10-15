@@ -148,38 +148,38 @@ it('shows why scoring failed, inline, and retries from there', async () => {
 // one fit run, as if Score fit were clicked: through the same one-at-a-time guard, with its
 // progress and result shown.
 it('runs one Score fit when the job opens with ?run=fit, and says when it is saved', async () => {
-  window.history.replaceState(null, '', '/jobs/job-1?run=fit');
+  window.history.replaceState(null, '', '/jobs/job-run-1?run=fit');
   let answer: (value: { fit_score: number }) => void = () => {};
   scoreFit.mockImplementationOnce(() => new Promise((resolve) => (answer = resolve)));
   // StrictMode runs effects twice in development, as `next dev` does.
   const { rerender } = render(
     <StrictMode>
-      <JobAnalysisActions jobId="job-1" runFit />
+      <JobAnalysisActions jobId="job-run-1" runFit />
     </StrictMode>,
   );
 
-  await waitFor(() => expect(screen.getByRole('status')).toHaveTextContent(/scoring this job/i));
+  await waitFor(() => expect(screen.getByRole('status')).toHaveTextContent('Scoring this job. This can take a moment.'));
   expect(screen.getByRole('button', { name: /scoring/i })).toBeDisabled();
   await act(async () => answer({ fit_score: 80 }));
   await waitFor(() => expect(vi.mocked(toast.success)).toHaveBeenCalledWith('Fit score saved: 80/100'));
   expect(screen.getByRole('status')).toHaveTextContent('');
   rerender(
     <StrictMode>
-      <JobAnalysisActions jobId="job-1" runFit />
+      <JobAnalysisActions jobId="job-run-1" runFit />
     </StrictMode>,
   );
   await new Promise((resolve) => setTimeout(resolve, 0));
 
   expect(scoreFit).toHaveBeenCalledTimes(1);
-  expect(scoreFit).toHaveBeenCalledWith({ jobId: 'job-1' });
+  expect(scoreFit).toHaveBeenCalledWith({ jobId: 'job-run-1' });
   // A reload, or Back to this page, doesn't pay for another run.
-  expect(window.location.pathname).toBe('/jobs/job-1');
+  expect(window.location.pathname).toBe('/jobs/job-run-1');
   expect(window.location.search).toBe('');
 });
 
 it('shows why the fit run from ?run=fit failed, inline, with a retry', async () => {
   scoreFit.mockRejectedValueOnce(new ApiRequestError('Upload your résumé in Settings to get a fit read.', 400));
-  render(<JobAnalysisActions jobId="job-1" runFit />);
+  render(<JobAnalysisActions jobId="job-run-2" runFit />);
 
   expect(await screen.findByRole('alert')).toHaveTextContent('Upload your résumé in Settings to get a fit read.');
   expect(screen.getByRole('button', { name: 'Try again' })).toBeInTheDocument();
@@ -190,4 +190,24 @@ it('runs no Score fit on open without ?run=fit or an estimate', async () => {
   render(<JobAnalysisActions jobId="job-1" runFit={false} />);
   await new Promise((resolve) => setTimeout(resolve, 0));
   expect(scoreFit).not.toHaveBeenCalled();
+});
+
+// #355 review: Back or Forward to /jobs/<id>?run=fit serves the cached page, still with
+// runFit, after the address was cleaned. A job runs from ?run=fit once per page load.
+it('runs ?run=fit once for a job, even when the page comes back from history', async () => {
+  const first = render(<JobAnalysisActions jobId="job-back" runFit />);
+  await waitFor(() => expect(scoreFit).toHaveBeenCalledTimes(1));
+  first.unmount();
+
+  render(<JobAnalysisActions jobId="job-back" runFit />);
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  expect(scoreFit).toHaveBeenCalledTimes(1);
+});
+
+// The live region stays in the accessibility tree when it's empty, so the first message is heard.
+it('keeps the status line in place while idle', () => {
+  render(<JobAnalysisActions jobId="job-1" />);
+  const status = screen.getByRole('status');
+  expect(status).toHaveTextContent('');
+  expect(status).not.toHaveClass('empty:hidden');
 });
