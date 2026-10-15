@@ -434,4 +434,38 @@ describe('TailoredResumeReview', () => {
     await waitFor(() => expect(screen.getByRole('button', { name: 'Download PDF' })).toBeEnabled());
     expect(approveResumeVersion).toHaveBeenCalledTimes(1);
   });
+
+  const earlier: ResumeVersionRecord = {
+    ...draft,
+    id: 'ver-0',
+    approved: true,
+    changeSummary: 'An earlier version.',
+    createdAt: '2026-10-13T12:00:00.000Z',
+    updatedAt: '2026-10-13T12:00:00.000Z',
+  };
+
+  it('earlier versions stay selectable', async () => {
+    const user = userEvent.setup();
+    renderReview([draft, earlier]);
+    expect(screen.getByText('Reworded 2 lines. 1 suggestion was dropped.')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'v2 · Draft' })).toHaveAttribute('aria-pressed', 'true');
+
+    await user.click(screen.getByRole('button', { name: 'v1 · Downloaded' }));
+    expect(screen.getByText('An earlier version.')).toBeInTheDocument();
+    expect(screen.getByText(/Downloaded\. To change it, tailor again\./)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'v1 · Downloaded' })).toHaveAttribute('aria-pressed', 'true');
+  });
+
+  it('a new draft shows first, and the earlier ones stay in the list', async () => {
+    const user = userEvent.setup();
+    getTailorKeywords.mockResolvedValueOnce({ fitRead: false, keywords: [] });
+    tailorResumeForJob.mockResolvedValueOnce({ version: draft });
+    renderReview([earlier]);
+    expect(screen.queryByRole('button', { name: /^v1/ })).not.toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Tailor again' }));
+    await user.click(within(await screen.findByRole('dialog')).getByRole('button', { name: 'Tailor résumé' }));
+    expect(await screen.findByText('Reworded 2 lines. 1 suggestion was dropped.')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'v2 · Draft' })).toHaveAttribute('aria-pressed', 'true');
+    expect(screen.getByRole('button', { name: 'v1 · Downloaded' })).toBeInTheDocument();
+  });
 });

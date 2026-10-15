@@ -49,8 +49,10 @@ interface TailorError {
 }
 
 interface TailorState {
-  /** The draft this session last saw: a new one, or one changed in the review. */
-  version: ResumeVersionRecord | null;
+  /** Versions this session made or changed (a new run, a line in the review), each at its latest. */
+  seen: ResumeVersionRecord[];
+  /** The version shown; null for the newest. */
+  selectedId: string | null;
   run: { startedAt: number; options: TailorOptions } | null;
   error: TailorError | null;
   /** A line of the review is being saved: Download waits, here too after a tab switch. */
@@ -62,13 +64,19 @@ interface TailorState {
 // A tailoring run takes 20 to 40 seconds. Its state is kept here, per job, not in the
 // component, so it carries on when the user switches to another tab of the job page and back,
 // and that tab shows the draft it made rather than the page's older list of versions.
-const EMPTY: TailorState = { version: null, run: null, error: null, saving: false, downloading: false };
+const EMPTY: TailorState = { seen: [], selectedId: null, run: null, error: null, saving: false, downloading: false };
 const tailorStates = new Map<string, TailorState>();
 const listeners = new Set<() => void>();
 
 function setTailorState(jobId: string, patch: Partial<TailorState>) {
   tailorStates.set(jobId, { ...(tailorStates.get(jobId) ?? EMPTY), ...patch });
   listeners.forEach((listener) => listener());
+}
+
+/** Remember a version this session made or changed. */
+function see(jobId: string, version: ResumeVersionRecord, patch: Partial<TailorState> = {}) {
+  const { seen } = tailorStates.get(jobId) ?? EMPTY;
+  setTailorState(jobId, { seen: [version, ...seen.filter((v) => v.id !== version.id)], ...patch });
 }
 
 function subscribe(listener: () => void) {
@@ -89,7 +97,8 @@ function startTailoring(jobId: string, options: TailorOptions) {
   // One handler per run, whichever tab is showing: one toast.
   tailorResumeForJob(jobId, options).then(
     ({ version, addedToBase }) => {
-      setTailorState(jobId, { version, run: null });
+      // The new draft is shown; earlier versions stay in the list.
+      see(jobId, version, { selectedId: version.id, run: null });
       toast.success('Your tailored résumé is ready to review.');
       if (addedToBase === false) {
         toast.warning("Your draft is ready, but the keywords couldn't be added to your base résumé. Add them in Settings → Résumé.");
@@ -109,10 +118,17 @@ function startTailoring(jobId: string, options: TailorOptions) {
   );
 }
 
-/** The newer of two drafts: the page's list can be older than what this session saw. */
-function newest(seen: ResumeVersionRecord | null, page: ResumeVersionRecord | null) {
-  if (!seen || !page) return seen ?? page;
-  return page.updatedAt > seen.updatedAt ? page : seen;
+/**
+ * The page's versions and the ones this session saw, each at its latest (the page's list can be
+ * older than what this session saw), newest first.
+ */
+function allVersions(seen: ResumeVersionRecord[], page: ResumeVersionRecord[]): ResumeVersionRecord[] {
+  const byId = new Map<string, ResumeVersionRecord>();
+  for (const version of [...page, ...seen]) {
+    const known = byId.get(version.id);
+    if (!known || version.updatedAt >= known.updatedAt) byId.set(version.id, version);
+  }
+  return [...byId.values()].sort((a, b) => b.createdAt.localeCompare(a.createdAt) || b.updatedAt.localeCompare(a.updatedAt));
 }
 
 export function TailoredResumeReview({ jobId, jobCompany, initialVersions = [] }: TailoredResumeReviewProps) {
@@ -121,14 +137,15 @@ export function TailoredResumeReview({ jobId, jobCompany, initialVersions = [] }
     () => tailorStates.get(jobId) ?? EMPTY,
     () => EMPTY,
   );
-  const version = newest(state.version, initialVersions[0] ?? null);
+  const versions = allVersions(state.seen, initialVersions);
+  const version = versions.find((v) => v.id === state.selectedId) ?? versions[0] ?? null;
   const startedAt = state.run?.startedAt ?? null;
   const error = state.error;
   const [windowOpen, setWindowOpen] = useState(false);
   // A new window each time it opens: the keywords are read again (a run may have added some to
   // the base résumé), with nothing picked.
   const [windowKey, setWindowKey] = useState(0);
-  const setVersion = (next: ResumeVersionRecord) => setTailorState(jobId, { version: next });
+  const setVersion = (next: ResumeVersionRecord) => see(jobId, next);
   const setSaving = (saving: boolean) => setTailorState(jobId, { saving });
 
   function openWindow() {
@@ -146,15 +163,34 @@ export function TailoredResumeReview({ jobId, jobCompany, initialVersions = [] }
       {startedAt !== null ? (
         <TailoringProgress startedAt={startedAt} />
       ) : version ? (
-        <VersionReview
-          version={version}
-          onChange={setVersion}
-          saving={state.saving}
-          onSaving={setSaving}
-          downloading={state.downloading}
-          onDownloading={(downloading) => setTailorState(jobId, { downloading })}
-          onTailorAgain={openWindow}
-        />
+        <>
+          {versions.length > 1 ? (
+            <div className="flex flex-wrap items-center gap-1.5" role="group" aria-label="Versions">
+              <span className="text-muted-foreground text-xs">Versions:</span>
+              {versions.map((v, index) => (
+                <Button
+                  key={v.id}
+                  size="sm"
+                  variant={v.id === version.id ? 'default' : 'outline'}
+                  aria-pressed={v.id === version.id}
+                  disabled={state.saving || state.downloading}
+                  onClick={() => setTailorState(jobId, { selectedId: v.id })}
+                >
+                  {`v${versions.length - index} · ${v.approved ? 'Downloaded' : 'Draft'}`}
+                </Button>
+              ))}
+            </div>
+          ) : null}
+          <VersionReview
+            version={version}
+            onChange={setVersion}
+            saving={state.saving}
+            onSaving={setSaving}
+            downloading={state.downloading}
+            onDownloading={(downloading) => setTailorState(jobId, { downloading })}
+            onTailorAgain={openWindow}
+          />
+        </>
       ) : (
         <Card className="space-y-3 p-6">
           <h3 className="font-heading text-base font-semibold">Tailor your résumé to {jobCompany}</h3>

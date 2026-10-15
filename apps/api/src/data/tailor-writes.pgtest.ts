@@ -46,6 +46,30 @@ test('a draft changes only while it is as it was read', { skip }, async () => {
   assert.equal((await getResumeVersion(userId, id))!.changeSummary, 'First');
 });
 
+test("each write moves a draft's updatedAt on by at least a millisecond", { skip }, async () => {
+  // A stale read must never match after a write, even one in the same millisecond, or the
+  // clock behind: here the row's time is ahead of now().
+  const userId = `itest_tick_${randomUUID().slice(0, 8)}`;
+  const id = randomUUID();
+  const ahead = new Date(Date.now() + 60 * 60 * 1000).toISOString();
+  await insertResumeVersion({
+    id,
+    userId,
+    jobId: null,
+    changeSummary: 'Tailored',
+    structuredResume: resume,
+    approved: false,
+    isBase: false,
+    createdAt: ahead,
+    updatedAt: ahead,
+  });
+  const first = (await updateResumeVersion(userId, id, { changeSummary: 'First' }, { expect: { updatedAt: ahead } }))!;
+  assert.ok(Date.parse(first.updatedAt) > Date.parse(ahead), `${first.updatedAt} should be after ${ahead}`);
+  const second = (await updateResumeVersion(userId, id, { changeSummary: 'Second' }))!;
+  assert.ok(Date.parse(second.updatedAt) > Date.parse(first.updatedAt));
+  assert.equal(await updateResumeVersion(userId, id, { changeSummary: 'Stale' }, { expect: { updatedAt: first.updatedAt } }), null);
+});
+
 test('confirmed keywords from runs at once all go on the latest base résumé', { skip }, async () => {
   const userId = `itest_base_${randomUUID().slice(0, 8)}`;
   await upsertUserProfile(userId, { baseResume: resume, resumeText: 'text' });

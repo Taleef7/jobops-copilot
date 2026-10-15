@@ -126,7 +126,9 @@ export async function updateResumeVersion(
   options: UpdateOptions = {},
 ): Promise<ResumeVersionRecord | null> {
   const pool = getPool()!;
-  const sets: string[] = ['updated_at = now()'];
+  // At least a millisecond on from before: updatedAt (to the millisecond) is what a conditional
+  // update matches, so a write in the same millisecond must still change it.
+  const sets: string[] = ["updated_at = greatest(now(), updated_at + interval '1 millisecond')"];
   const values: unknown[] = [id, userId];
   let paramIdx = 3;
 
