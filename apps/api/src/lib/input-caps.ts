@@ -31,6 +31,23 @@ function isPlainObject(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
+/** A structured résumé's field (a summary, a bullet) and list (roles, bullets, skills): #352. */
+export const RESUME_FIELD_MAX = 5_000;
+export const RESUME_LIST_MAX = 200;
+export const RESUME_TOO_LONG_MESSAGE = `A field of this résumé is too long (the limit is ${RESUME_FIELD_MAX.toLocaleString('en-US')} characters, and ${RESUME_LIST_MAX} entries in a list).`;
+
+/**
+ * Whether a structured résumé holds more than a résumé does. Its PDF is drawn on the request,
+ * so a field the size of a book would hold the server up.
+ */
+export function resumeTooLarge(value: unknown, depth = 0): boolean {
+  if (depth > 6) return false;
+  if (typeof value === 'string') return value.length > RESUME_FIELD_MAX;
+  if (Array.isArray(value)) return value.length > RESUME_LIST_MAX || value.some((item) => resumeTooLarge(item, depth + 1));
+  if (isPlainObject(value)) return Object.values(value).some((field) => resumeTooLarge(field, depth + 1));
+  return false;
+}
+
 // Specialist payloads nest the job (`input.job.description_text`), sometimes in arrays.
 const MAX_DEPTH = 4;
 

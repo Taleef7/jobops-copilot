@@ -44,8 +44,8 @@ function resume(overrides: Partial<StructuredResume> = {}): StructuredResume {
 
 test('a long résumé wraps every line, breaks pages, and keeps every character', async () => {
   const bullets = Array.from({ length: 40 }, (_, i) => `Bullet ${i}: ${words(18, `w${i}x`)}`);
-  bullets[7] = `Long bullet: ${words(60, 'longword').slice(0, 386)}`;
-  assert.ok(bullets[7]!.length >= 390);
+  bullets[7] = `Long bullet: ${words(60, 'longword')}`.slice(0, 400).trim();
+  assert.equal(bullets[7]!.length, 400);
   const long = resume({ work: [{ company: 'Globex', position: 'Engineer', startDate: '2020-01', highlights: bullets }] });
 
   const { pages, text } = await readPdf(await renderAtsResumePdf(long));
@@ -53,10 +53,11 @@ test('a long résumé wraps every line, breaks pages, and keeps every character'
   assert.ok(text.includes('Zoë Núñez – Ramírez'), 'the exact name');
   const all = flat(pages.flatMap((page) => page.lines).join(' '));
   for (const bullet of bullets) assert.ok(all.includes(flat(bullet)), `missing: ${bullet.slice(0, 40)}…`);
+  // Two pages are drawn at the regular size, with 0.5" margins.
   for (const page of pages) {
     for (const item of page.items) {
-      assert.ok(item.x + item.width <= page.width - 28.8 + 0.5, `"${item.str}" runs past the right margin`);
-      assert.ok(item.x >= 28.8 - 0.5, `"${item.str}" starts in the left margin`);
+      assert.ok(item.x + item.width <= page.width - 36 + 0.5, `"${item.str}" runs past the right margin`);
+      assert.ok(item.x >= 36 - 0.5, `"${item.str}" starts in the left margin`);
     }
   }
 });
@@ -72,8 +73,9 @@ test('a résumé a little over one page is fitted onto one, with all its text', 
   assert.equal(pages.length, 1);
   const all = flat(pages[0]!.lines.join(' '));
   for (const bullet of bullets) assert.ok(all.includes(flat(bullet)));
-  // Never below 9.5 pt.
-  assert.ok(pages[0]!.items.every((item) => item.str.trim() === '' || item.width > 0));
+  // Never below 9.5 pt, the contact line included.
+  const smallest = Math.min(...pages[0]!.items.filter((item) => item.str.trim()).map((item) => item.size));
+  assert.ok(smallest >= 9.5 - 0.01, `${smallest} pt`);
 });
 
 test('the reference look: human dates, no repeated role line, projects once, links', async () => {
@@ -122,4 +124,152 @@ test('an empty résumé still renders a page', async () => {
   const empty: StructuredResume = { basics: { name: 'A', email: '', summary: '' }, work: [], education: [], skills: [] };
   const { pages } = await readPdf(await renderAtsResumePdf(empty));
   assert.equal(pages.length, 1);
+});
+
+test('a word longer than a line, or a huge field, renders fast and inside the page', async () => {
+  const token = 'x'.repeat(40_000);
+  const summary = Array.from({ length: 15_000 }, (_, i) => `word${i % 50}`).join(' ');
+  const start = Date.now();
+  const { pages } = await readPdf(
+    await renderAtsResumePdf(resume({ basics: { ...resume().basics, summary }, work: [{ company: 'Globex', position: 'Engineer', startDate: '2020-01', highlights: [token, `1,${'1,'.repeat(5000)}1 users`] }] })),
+  );
+  assert.ok(Date.now() - start < 5_000, `${Date.now() - start} ms`);
+  for (const page of pages) for (const item of page.items) assert.ok(item.x + item.width <= page.width - 36 + 0.5, `"${item.str.slice(0, 20)}" runs past the margin`);
+  assert.ok(pages.flatMap((page) => page.lines).join('').includes('x'.repeat(40_000)), 'every character of the long word');
+});
+
+test('a heading is never left alone at the bottom of a page', async () => {
+  const summary = Array.from({ length: 47 }, (_, i) => `Summary line ${i}.`).join('\n');
+  const bullets = Array.from({ length: 30 }, (_, i) => `Shipped thing ${i}`);
+  // Every fill of the first page, so one of them puts "Experience" near its foot.
+  for (let lines = 40; lines <= 52; lines += 1) {
+    const one = resume({
+      basics: { ...resume().basics, summary: summary.split('\n').slice(0, lines).join('\n') },
+      work: [{ company: 'Globex', position: 'Engineer', startDate: '2020-01', endDate: '2022-01', highlights: bullets }],
+      education: [],
+      skills: [],
+      projects: [],
+    });
+    const { pages } = await readPdf((await renderResumePdf(one, { fit: false })).pdf);
+    for (const page of pages) assert.notEqual(page.lines.at(-1), 'Experience', `${lines} lines: "Experience" ends a page`);
+  }
+});
+
+test('a line break inside a field is a space, not glued words', async () => {
+  const { text } = await readPdf(
+    await renderAtsResumePdf(
+      resume({
+        work: [{ company: 'Globex', position: 'Engineer', startDate: '2020-01', summary: 'Owned the\r\nledger.', highlights: ['Built the ledger\nin Go'] }],
+        projects: [{ name: 'Ledger', description: 'A double-entry ledger\nwritten in Go.' }],
+      }),
+    ),
+  );
+  for (const words of ['Owned the ledger.', 'Built the ledger in Go', 'A double-entry ledger written in Go.']) assert.ok(flat(text).includes(words), words);
+});
+
+test('characters the font lacks are replaced, so the text stays on the page', async () => {
+  const pdf = await renderResumePdf(
+    resume({
+      basics: { ...resume().basics, name: '王小明', summary: '负责支付系统的设计与实现，'.repeat(12) },
+      work: [{ company: 'Globex', position: 'Engineer', startDate: '2020-01', highlights: ['\uF0B7 Built the billing API', '● Led the launch 🚀'] }],
+    }),
+  );
+  assert.ok(pdf.unsupported > 0);
+  const { pages, text } = await readPdf(pdf.pdf);
+  for (const page of pages) for (const item of page.items) assert.ok(item.x + item.width <= page.width - 28.8 + 0.5, `"${item.str.slice(0, 20)}" runs past the margin`);
+  // A bullet character from a pasted résumé is dropped; our own bullet is drawn.
+  assert.ok(flat(text).includes('• Built the billing API'), text);
+  assert.ok(flat(text).includes('• Led the launch'), text);
+  assert.ok(!text.includes('\u0000'));
+});
+
+test('links: only web and mail, valid URIs, and the rest is plain text', async () => {
+  const { pages, text } = await readPdf(
+    await renderAtsResumePdf(
+      resume({
+        basics: {
+          ...resume().basics,
+          url: 'javascript:alert(document.domain)',
+          profiles: [
+            { network: 'Site', url: 'https://łukasz.dev/' },
+            { network: 'Wiki', url: 'https://example.com/a)b' },
+            { network: 'Port', url: 'www.example.com:8080/x' },
+            { network: 'File', url: 'file:///C:/secret.txt' },
+          ],
+        },
+      }),
+    ),
+  );
+  const links = pages[0]!.links.map((l) => l.replace(/\/$/, ''));
+  assert.ok(links.includes('https://xn--ukasz-j7a.dev'), links.join(' '));
+  assert.ok(links.includes('https://example.com/a)b'), links.join(' '));
+  assert.ok(links.includes('https://www.example.com:8080/x'), links.join(' '));
+  assert.ok(!links.some((l) => /^(javascript|file):/i.test(l)), links.join(' '));
+  assert.ok(text.includes('łukasz.dev'));
+});
+
+test('a wide right-hand text gets its own line, and words are never split beside it', async () => {
+  const url = `https://github.com/zoe/${'ledger-'.repeat(17)}x`;
+  const { pages, text } = await readPdf(await renderAtsResumePdf(resume({ projects: [{ name: 'Ledger', url, highlights: ['Fast.'] }] })));
+  for (const item of pages[0]!.items) {
+    assert.ok(item.x >= 36 - 0.5, `"${item.str.slice(0, 20)}" starts off the page`);
+    assert.ok(item.x + item.width <= pages[0]!.width - 36 + 0.5, `"${item.str.slice(0, 20)}" runs past the margin`);
+  }
+  assert.ok(pages[0]!.lines.some((line) => line === 'Ledger' || line.startsWith('Ledger ')), text);
+});
+
+test('a line breaks only at a space, even beside a bold number', async () => {
+  const bullet = `${'word '.repeat(14)}${'x'.repeat(15)} (40%), then more text after it`;
+  const { pages } = await readPdf(await renderAtsResumePdf(resume({ work: [{ company: 'Globex', position: 'Engineer', startDate: '2020-01', highlights: [bullet] }] })));
+  assert.ok(!pages[0]!.lines.some((line) => line.startsWith('), then')), pages[0]!.lines.join('\n'));
+});
+
+test('the contact line wraps between items, never inside one or after a separator', async () => {
+  const { pages } = await readPdf(
+    await renderAtsResumePdf(
+      resume({
+        basics: {
+          ...resume().basics,
+          phone: '+1 (555) 014 2000',
+          email: 'zoe.nunez.ramirez@example.com',
+          location: { city: 'San Francisco', region: 'CA', countryCode: 'US' },
+          url: 'https://zoe-nunez-ramirez.dev',
+          profiles: [
+            { network: 'LinkedIn', url: 'https://www.linkedin.com/in/zoe-nunez-ramirez-backend' },
+            { network: 'GitHub', url: 'https://github.com/zoe-nunez-ramirez' },
+          ],
+        },
+      }),
+    ),
+  );
+  const contact = pages[0]!.lines.slice(2, 4);
+  assert.equal(contact.length, 2);
+  for (const line of contact) assert.ok(!/\|\s*$/.test(line) && !/^\s*\|/.test(line), line);
+  assert.ok(contact.join(' ').includes('+1 (555) 014 2000') && contact.join(' ').includes('San Francisco, CA, US'));
+});
+
+test('a layout or a field as stored, not as typed, still renders', async () => {
+  const raw = {
+    ...resume(),
+    layout: { sections: [null, { key: 'skills', hidden: 'false' }, { key: 'nope' }] },
+    work: [{ company: 'Globex', position: 'Engineer', startDate: '2020-01', highlights: [42, null, 'Real bullet'] }],
+  } as unknown as StructuredResume;
+  const { text } = await readPdf(await renderAtsResumePdf(raw));
+  assert.ok(text.includes('Skills'), 'a section hidden with "false" is not hidden');
+  assert.ok(text.includes('42') && text.includes('Real bullet'));
+});
+
+test('bold numbers: results, not versions, years or a bare count before a word like "and"', async () => {
+  const bullet = 'Grew to 10+ engineers and 1M+ users, 40%+ faster, $1.2M+ saved; ran Java 8+, Node 18+ and iOS 14+ since 2019+ with Python 3.11+ and v2.0+';
+  const { pages } = await readPdf(await renderAtsResumePdf(resume({ work: [{ company: 'Globex', position: 'Engineer', startDate: '2020-01', highlights: [bullet] }] })));
+  const bold = pages[0]!.items.filter((item) => /Bold/.test(item.font)).map((item) => item.str.trim());
+  for (const metric of ['10+', '1M+', '40%+', '$1.2M+']) assert.ok(bold.includes(metric), `${metric} bold: ${bold.join(' | ')}`);
+  for (const plain of ['8+', '18+', '14+', '2019+', '3.11+', '2.0+', '0+']) assert.ok(!bold.includes(plain), `${plain} not bold`);
+});
+
+test('a role summary that is a real sentence is kept, even with month-like words', async () => {
+  const { text } = await readPdf(
+    await renderAtsResumePdf(resume({ work: [{ company: 'Uniswap', position: 'Engineer', startDate: '2020-01', summary: 'Decentralized markets.', highlights: [] }] })),
+  );
+  assert.ok(text.includes('Decentralized markets.'));
 });

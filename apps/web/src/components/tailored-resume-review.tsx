@@ -461,7 +461,8 @@ function VersionReview({
         onChange(current);
       }
       const name = current.structuredResume.basics?.name?.trim() || 'Resume';
-      await downloadResumeVersion(current.id, `${name} – ${company}.pdf`);
+      // "First Last – Company.pdf" (no "Inc..pdf").
+      await downloadResumeVersion(current.id, `${name} – ${company.trim().replace(/\.+$/, '') || 'Résumé'}.pdf`);
     } catch (err: unknown) {
       toast.error(err instanceof Error ? err.message : "The PDF couldn't be downloaded.");
     } finally {

@@ -3,15 +3,15 @@ import type { FontName, Fonts } from './fonts';
 
 /**
  * A small text flow for the API's PDFs (#352): runs of styled text, measured with the embedded
- * font, wrapped to the page, and carried onto a new page at the bottom margin. It only lays
- * out (so a résumé can be tried at several sizes); draw() writes the chosen layout.
+ * font, wrapped to the page at spaces, and carried onto a new page at the bottom margin. It
+ * only lays out (so a résumé can be tried at several sizes); draw() writes the chosen layout.
  */
 
 export interface Run {
   text: string;
   font: FontName;
   size: number;
-  /** Makes the run a link (a URI annotation over it). */
+  /** Makes the run a link (a URI annotation over it). Use safeLink() to make one. */
   link?: string;
 }
 
@@ -34,15 +34,42 @@ interface RuleOp {
   y: number;
 }
 
-// Control characters and line separators never reach a line; tabs are spaces.
-const clean = (text: string) => text.replace(/\t/g, ' ').replace(/[\p{Cc}\p{Zl}\p{Zp}]/gu, '');
+/** A word: the pieces between two spaces (a bold "40%" and its ")," stay together). */
+interface Word {
+  pieces: Run[];
+  /** The space before it, in the style it was typed in. */
+  space: Run | null;
+}
+
+// A line break inside a field is a space; other control and zero-width characters go.
+const clean = (text: string) =>
+  text.replace(/[\t\n\v\f\r\u0085\u2028\u2029]/g, ' ').replace(/[\p{Cc}\p{Cf}]/gu, '');
+
+/**
+ * A link a PDF reader can follow safely: http, https or mailto only, as an ASCII URI (an
+ * international domain in punycode). Anything else is shown as plain text, without a link.
+ */
+export function safeLink(url: string): string | undefined {
+  const text = url.trim();
+  const withScheme = /^[a-z][a-z0-9+.-]*:\/\//i.test(text) || /^mailto:/i.test(text) ? text : `https://${text}`;
+  try {
+    const parsed = new URL(withScheme);
+    return ['http:', 'https:', 'mailto:'].includes(parsed.protocol) ? parsed.href : undefined;
+  } catch {
+    return undefined;
+  }
+}
 
 export class Flow {
   private readonly texts: TextOp[] = [];
   private readonly rules: RuleOp[] = [];
+  private readonly widths = new Map<string, number>();
+  private readonly glyphs = new Map<FontName, Set<number>>();
   private page = 0;
   /** The top of the next line. */
   private y: number;
+  /** Characters the font has no glyph for, printed as "?". */
+  unsupported = 0;
 
   constructor(
     private readonly fonts: Fonts,
@@ -65,12 +92,44 @@ export class Flow {
     return this.box.width - 2 * this.box.margin;
   }
 
+  /** Each width measured once: a résumé repeats words, and is laid out at several sizes. */
+  private measure(font: FontName, size: number, text: string): number {
+    const key = `${font}\u0000${size}\u0000${text}`;
+    let width = this.widths.get(key);
+    if (width === undefined) {
+      width = this.fonts[font].widthOfTextAtSize(text, size);
+      this.widths.set(key, width);
+    }
+    return width;
+  }
+
   widthOf(runs: Run[]): number {
-    return runs.reduce((sum, run) => sum + this.fonts[run.font].widthOfTextAtSize(run.text, run.size), 0);
+    return runs.reduce((sum, run) => sum + this.measure(run.font, run.size, run.text), 0);
   }
 
   lineHeight(runs: Run[]): number {
     return Math.max(...runs.map((run) => run.size), 1) * this.leading;
+  }
+
+  /**
+   * The text as the font can print it. A character it has no glyph for (CJK, emoji) would
+   * print as an empty box drawn wider than measured, so it becomes "?" and is counted.
+   */
+  private printable(font: FontName, text: string): string {
+    let glyphs = this.glyphs.get(font);
+    if (!glyphs) {
+      glyphs = new Set(this.fonts[font].getCharacterSet());
+      this.glyphs.set(font, glyphs);
+    }
+    let out = '';
+    for (const char of clean(text)) {
+      if (char === ' ' || glyphs.has(char.codePointAt(0)!)) out += char;
+      else {
+        out += '?';
+        this.unsupported += 1;
+      }
+    }
+    return out;
   }
 
   /** Room for `height` more points on this page, else the next page. */
@@ -92,15 +151,37 @@ export class Flow {
     this.rules.push({ page: this.page, x1: this.left, x2: this.left + this.width, y: this.y + gap });
   }
 
+  private words(runs: Run[]): Word[] {
+    const words: Word[] = [];
+    let space: Run | null = null;
+    let glued = false;
+    for (const run of runs) {
+      for (const token of this.printable(run.font, run.text).split(/( +)/)) {
+        if (!token) continue;
+        if (token.startsWith(' ')) {
+          space = { ...run, text: ' ' };
+          glued = false;
+          continue;
+        }
+        const piece = { ...run, text: token };
+        if (glued && words.length > 0) words[words.length - 1]!.pieces.push(piece);
+        else words.push({ pieces: [piece], space: words.length > 0 ? space : null });
+        space = null;
+        glued = true;
+      }
+    }
+    return words;
+  }
+
   /**
-   * Runs wrapped to `width`, word by word, keeping each run's style. A word too long for a line
-   * is broken across lines.
+   * Runs wrapped to `width` at spaces, keeping each run's style. The first line can be narrower
+   * (beside a right-aligned text); a word that doesn't fit there starts on the next line. Only a
+   * word too long for any line is broken, by characters.
    */
   wrap(runs: Run[], width: number, firstWidth = width): Run[][] {
     const lines: Run[][] = [];
     let line: Run[] = [];
     let used = 0;
-    let space: Run | null = null;
     const max = () => (lines.length === 0 ? firstWidth : width);
     const push = (piece: Run) => {
       const last = line[line.length - 1];
@@ -111,37 +192,31 @@ export class Flow {
       lines.push(line);
       line = [];
       used = 0;
-      space = null;
     };
-    for (const run of runs) {
-      for (const token of clean(run.text).split(/(\s+)/)) {
-        if (!token) continue;
-        const piece = { ...run, text: token };
-        if (/^\s+$/.test(token)) {
-          if (line.length > 0) space = { ...run, text: ' ' };
-          continue;
+    for (const word of this.words(runs)) {
+      const wordWidth = this.widthOf(word.pieces);
+      const spaceWidth = line.length > 0 && word.space ? this.widthOf([word.space]) : 0;
+      if (used + spaceWidth + wordWidth <= max()) {
+        if (spaceWidth > 0) push(word.space!);
+        word.pieces.forEach(push);
+        used += spaceWidth + wordWidth;
+        continue;
+      }
+      if (line.length > 0) breakLine();
+      if (lines.length === 0 && wordWidth > max() && wordWidth <= width) breakLine();
+      if (wordWidth <= max()) {
+        word.pieces.forEach(push);
+        used = wordWidth;
+        continue;
+      }
+      // Too long for any line: character by character, each measured once (linear, however long).
+      for (const piece of word.pieces) {
+        for (const char of piece.text) {
+          const charWidth = this.measure(piece.font, piece.size, char);
+          if (used > 0 && used + charWidth > max() - 0.5) breakLine();
+          push({ ...piece, text: char });
+          used += charWidth;
         }
-        const spaceWidth = space ? this.widthOf([space]) : 0;
-        const tokenWidth = this.widthOf([piece]);
-        if (used + spaceWidth + tokenWidth <= max()) {
-          if (space) push(space);
-          push(piece);
-          used += spaceWidth + tokenWidth;
-          space = null;
-          continue;
-        }
-        if (line.length > 0) breakLine();
-        // Too long for any line: break it by characters.
-        let rest = token;
-        while (this.widthOf([{ ...run, text: rest }]) > max()) {
-          let cut = 1;
-          while (cut < rest.length && this.widthOf([{ ...run, text: rest.slice(0, cut + 1) }]) <= max()) cut += 1;
-          push({ ...run, text: rest.slice(0, cut) });
-          breakLine();
-          rest = rest.slice(cut);
-        }
-        push({ ...run, text: rest });
-        used = this.widthOf([{ ...run, text: rest }]);
       }
     }
     if (line.length > 0) lines.push(line);
@@ -149,30 +224,63 @@ export class Flow {
   }
 
   /**
-   * Runs as wrapped lines from `indent`. `right` goes right-aligned on the first line; `marker`
-   * (a bullet) sits at `indent` with the text hanging after it; `center` centres each line.
+   * Runs as wrapped lines from `indent`. `right` goes right-aligned on the first line, or on a
+   * line of its own when it's too wide to share one; `marker` (a bullet) sits at `indent` with
+   * the text hanging after it; `align` centres or right-aligns each line.
    */
-  write(runs: Run[], options: { indent?: number; right?: Run[]; marker?: Run; hang?: number; center?: boolean } = {}) {
-    const { indent = 0, right = [], marker, hang = 0, center = false } = options;
-    const textLeft = this.left + indent + hang;
+  write(
+    runs: Run[],
+    options: { indent?: number; right?: Run[]; marker?: Run; hang?: number; align?: 'left' | 'center' | 'right' } = {},
+  ) {
+    const { indent = 0, marker, hang = 0, align = 'left' } = options;
+    let right = options.right ?? [];
     const width = this.width - indent - hang;
     const rightWidth = right.length > 0 ? this.widthOf(right) + 8 : 0;
-    const lines = this.wrap(runs, width, width - rightWidth);
+    const ownLine = rightWidth > width * 0.45;
+    if (ownLine) right = [];
+    const lines = this.wrap(runs, width, width - (ownLine ? 0 : rightWidth));
     if (lines.length === 0 && right.length > 0) lines.push([]);
     lines.forEach((line, index) => {
-      const height = this.lineHeight([...line, ...(index === 0 ? right : []), ...(index === 0 && marker ? [marker] : [])]);
+      const first = index === 0;
+      const shared = first ? [...right, ...(marker ? [marker] : [])] : [];
+      const height = this.lineHeight([...line, ...shared]);
       this.need(height);
-      const size = Math.max(...line.map((run) => run.size), ...(index === 0 ? right.map((run) => run.size) : []), 1);
+      const size = Math.max(...[...line, ...shared].map((run) => run.size), 1);
       const baseline = this.y - size * 0.92;
-      let x = center ? this.left + (this.width - this.widthOf(line)) / 2 : textLeft;
-      if (index === 0 && marker) this.put(marker, this.left + indent, baseline);
+      const lineWidth = this.widthOf(line);
+      let x =
+        align === 'center'
+          ? this.left + (this.width - lineWidth) / 2
+          : align === 'right'
+            ? this.left + this.width - lineWidth
+            : this.left + indent + hang;
+      if (first && marker) this.put(marker, this.left + indent, baseline);
       for (const run of line) x = this.put(run, x, baseline);
-      if (index === 0 && right.length > 0) {
+      if (first && right.length > 0) {
         let rx = this.left + this.width - this.widthOf(right);
         for (const run of right) rx = this.put(run, rx, baseline);
       }
       this.y -= height;
     });
+    if (ownLine) this.write(options.right!, { align: 'right' });
+  }
+
+  /**
+   * Items on as few lines as they fit, joined by `separator` and centred: a line breaks only
+   * between items, so no item is split and no line ends with a separator.
+   */
+  items(items: Run[][], separator: Run) {
+    const lines: Run[][] = [];
+    let line: Run[] = [];
+    for (const item of items) {
+      const candidate = line.length > 0 ? [...line, separator, ...item] : item;
+      if (line.length > 0 && this.widthOf(candidate) > this.width) {
+        lines.push(line);
+        line = item;
+      } else line = candidate;
+    }
+    if (line.length > 0) lines.push(line);
+    for (const runs of lines) this.write(runs, { align: 'center' });
   }
 
   private put(run: Run, x: number, y: number): number {
@@ -194,7 +302,8 @@ export class Flow {
           Subtype: 'Link',
           Rect: [op.x, op.y - op.size * 0.25, op.x + width, op.y + op.size * 0.8],
           Border: [0, 0, 0],
-          A: { Type: 'Action', S: 'URI', URI: PDFString.of(op.link) },
+          // A PDF string: its backslashes and parentheses escaped, so ")" can't end it early.
+          A: { Type: 'Action', S: 'URI', URI: PDFString.of(op.link.replace(/[\\()]/g, (char) => `\\${char}`)) },
         });
         page.node.addAnnot(doc.context.register(annotation));
       }

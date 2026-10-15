@@ -11,6 +11,8 @@ export interface PdfTextItem {
   x: number;
   y: number;
   width: number;
+  /** The text size in points. */
+  size: number;
   font: string;
 }
 
@@ -42,7 +44,8 @@ export async function readPdf(buffer: Uint8Array): Promise<{ pages: PdfPage[]; t
     for (const item of content.items) {
       if (!('str' in item) || !item.str) continue;
       const font = (page.commonObjs.get(item.fontName) as { name?: string } | undefined)?.name ?? item.fontName;
-      items.push({ str: item.str, x: item.transform[4], y: item.transform[5], width: item.width, font });
+      const size = Math.hypot(item.transform[0], item.transform[1]);
+      items.push({ str: item.str, x: item.transform[4], y: item.transform[5], width: item.width, size, font });
     }
     const byLine = new Map<number, PdfTextItem[]>();
     for (const item of items) {

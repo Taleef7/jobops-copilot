@@ -23,7 +23,9 @@ export interface ResolvedLayout {
 }
 
 export function resolveLayout(resume: Pick<StructuredResume, 'layout'>): ResolvedLayout {
-  const listed = Array.isArray(resume.layout?.sections) ? resume.layout.sections : [];
+  // As stored, a layout may hold anything: only known sections and real booleans count.
+  const stored = normalizeLayout(resume.layout);
+  const listed = stored?.sections ?? [];
   const seen = new Set<ResumeSectionKey>();
   const sections: ResolvedLayout['sections'] = [];
   for (const section of [...listed, ...SECTION_KEYS.map((key) => ({ key }))]) {
@@ -33,7 +35,7 @@ export function resolveLayout(resume: Pick<StructuredResume, 'layout'>): Resolve
     const title = 'title' in section && typeof section.title === 'string' ? section.title.trim() : '';
     sections.push({ key: section.key, title: title || DEFAULT_TITLES[section.key] });
   }
-  return { sections, pageSize: resume.layout?.pageSize === 'a4' ? 'a4' : 'letter' };
+  return { sections, pageSize: stored?.pageSize === 'a4' ? 'a4' : 'letter' };
 }
 
 /** A layout as stored: known sections and fields only. */

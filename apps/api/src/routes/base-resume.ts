@@ -9,7 +9,7 @@ import { resolveResumeParse } from '@/lib/agent-client';
 import { attachmentDisposition } from '@/lib/content-disposition';
 import { flagResume } from '@/lib/resume-flags';
 import { requireUser } from '@/lib/auth';
-import { isTooLong, STORED_TEXT_MAX, TOO_LONG_MESSAGE } from '@/lib/input-caps';
+import { isTooLong, RESUME_TOO_LONG_MESSAGE, resumeTooLarge, STORED_TEXT_MAX, TOO_LONG_MESSAGE } from '@/lib/input-caps';
 import type { ResumeVersionRecord, StructuredResume } from '@/types';
 
 export const baseResumeRouter = Router();
@@ -63,6 +63,9 @@ baseResumeRouter.put('/', async (request, response, next) => {
       return response.status(400).json({
         error: 'baseResume with at least basics.name is required.',
       });
+    }
+    if (resumeTooLarge(body.baseResume)) {
+      return response.status(413).json({ error: RESUME_TOO_LONG_MESSAGE });
     }
 
     let source: { resumeText: string; resumeFileName: string } | null = null;
@@ -173,6 +176,9 @@ baseResumeRouter.post('/render-pdf', async (request, response, next) => {
 
     const body = (request.body ?? {}) as { resume?: StructuredResume; versionId?: string };
     let resumeToRender = body.resume;
+    if (resumeTooLarge(body.resume)) {
+      return response.status(413).json({ error: RESUME_TOO_LONG_MESSAGE });
+    }
     let versionRecord: ResumeVersionRecord | null = null;
 
     if (body.versionId) {

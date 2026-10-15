@@ -1,7 +1,7 @@
 import { PDFDocument } from 'pdf-lib';
-import type { ResumeWorkExperience, StructuredResume } from '@/types';
+import type { StructuredResume } from '@/types';
 import { embedFonts, type Fonts } from '@/lib/pdf/fonts';
-import { Flow, PAGE_SIZES, type Run } from '@/lib/pdf/flow';
+import { Flow, PAGE_SIZES, safeLink, type Run } from '@/lib/pdf/flow';
 import { resolveLayout, type ResolvedLayout } from '@/lib/resume-layout';
 
 /**
@@ -33,25 +33,41 @@ const STEPS: Step[] = [
   { spacing: 0.7, margin: 28.8, size: 9.5 },
 ];
 
+/** No text is smaller than this (the owner's floor), the contact line included. */
+const MIN_SIZE = 9.5;
+
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
+/** A stored field as text: a résumé saved by hand can hold numbers or nulls where text goes. */
+const str = (value: unknown): string => (typeof value === 'string' ? value.trim() : typeof value === 'number' ? String(value) : '');
+const list = (value: unknown): unknown[] => (Array.isArray(value) ? value : []);
+
 /** "2026-05-01" → "May 2026"; "2019" stays; "present" → "Present"; anything else as written. */
-export function humanDate(value: string | undefined): string {
-  const text = value?.trim() ?? '';
+export function humanDate(value: unknown): string {
+  const text = str(value);
   const iso = /^(\d{4})-(\d{1,2})(?:-\d{1,2})?(?:T.*)?$/.exec(text);
   if (iso && Number(iso[2]) >= 1 && Number(iso[2]) <= 12) return `${MONTHS[Number(iso[2]) - 1]} ${iso[1]}`;
   if (/^(present|current|now)$/i.test(text)) return 'Present';
   return text;
 }
 
-function dateRange(start?: string, end?: string, current?: boolean): string {
+function dateRange(start: unknown, end: unknown, current?: unknown): string {
   const from = humanDate(start);
-  const to = current ? 'Present' : humanDate(end) || (from ? 'Present' : '');
+  const to = current === true ? 'Present' : humanDate(end) || (from ? 'Present' : '');
   return [from, to].filter(Boolean).join(' – ');
 }
 
-// Numbers that carry a result: 40%, $1.2M, 3×, 10k, 10+. Not years, versions or plain counts.
-const METRIC = /(?:[$€£]\s?\d[\d,]*(?:\.\d+)?(?:\s?(?:[kKmMbB]|million|billion)\b)?\+?|\b\d[\d,]*(?:\.\d+)?(?:\s?%|\s?×|x\b|[kKmM]\b|\+))/g;
+// Numbers that carry a result, bold: 40%, $1.2M, 3×, 10k, 1M+, and a count of 10 or more before
+// a noun ("10+ engineers"). Not years, versions ("Java 8+", "Python 3.11+", "Node 18+ and") or
+// plain counts. Every number is matched from its first digit, so the scan stays linear.
+const METRIC = new RegExp(
+  [
+    String.raw`[$€£]\s?\d+(?:,\d{3})*(?:\.\d+)?(?:\s?(?:[kKmMbB]|million|billion)\b)?\+?`,
+    String.raw`(?<![\w.])\d+(?:,\d{3})*(?:\.\d+)?(?:\s?%|\s?×|x\b|[kKmM]\b)\+?`,
+    String.raw`(?<![\w.$])(?:[1-9]\d{1,2}|\d{1,3}(?:,\d{3})+)\+(?=\s+(?!(?:and|or|since|with|to|in|on|at|of|for|the|a|an)\b)[a-z])`,
+  ].join('|'),
+  'g',
+);
 
 function withMetrics(text: string, size: number): Run[] {
   const runs: Run[] = [];
@@ -67,145 +83,157 @@ function withMetrics(text: string, size: number): Run[] {
 
 const norm = (text: string) => text.toLowerCase().replace(/\s+/g, ' ').trim();
 
+const MONTH_WORDS = /\b(jan(uary)?|feb(ruary)?|mar(ch)?|apr(il)?|may|june?|july?|aug(ust)?|sept?(ember)?|oct(ober)?|nov(ember)?|dec(ember)?|present|current|now)\b|\d+/g;
+
 /** A role summary that only repeats the role's header (the parse sometimes puts it there). */
-function repeatsHeader(summary: string, role: ResumeWorkExperience): boolean {
+function repeatsHeader(summary: string, parts: string[]): boolean {
   let rest = ` ${norm(summary)} `;
-  for (const part of [role.company, role.position, role.location]) if (part?.trim()) rest = rest.split(norm(part)).join(' ');
-  rest = rest
-    .replace(/\b(jan|feb|mar|apr|may|jun|jul|aug|sep|sept|oct|nov|dec)[a-z]*\b|\b(present|current|now)\b|\d+/g, ' ')
-    .replace(/[^\p{L}]+/gu, ' ');
+  for (const part of parts) if (part) rest = rest.split(norm(part)).join(' ');
+  rest = rest.replace(MONTH_WORDS, ' ').replace(/[^\p{L}]+/gu, ' ');
   return rest.trim().split(' ').filter((word) => word.length > 1).length === 0;
 }
 
+// A bullet character pasted with the text (from Word, a PDF, a website): we draw our own.
+const PASTED_BULLET = /^[\uF0B7\uF0A7\u2022\u25CF\u25AA\u25A0\u25C6\u25E6\u2023\u2043\u00B7*\u2013\u2014-]\s*/;
+
 /** "https://www.linkedin.com/in/zoe/" → "linkedin.com/in/zoe". */
 const shortUrl = (url: string) => url.replace(/^[a-z]+:\/\//i, '').replace(/^www\./i, '').replace(/\/+$/, '');
-const href = (url: string) => (/^[a-z][a-z0-9+.-]*:/i.test(url) ? url : `https://${url}`);
 
 function layoutResume(resume: StructuredResume, layout: ResolvedLayout, fonts: Fonts, step: Step): Flow {
   const { spacing, margin, size } = step;
   const flow = new Flow(fonts, { ...PAGE_SIZES[layout.pageSize], margin });
-  const small = size - 0.5;
-  const basics = resume.basics;
+  const small = Math.max(MIN_SIZE, size - 0.5);
+  const basics = (resume.basics ?? {}) as unknown as Record<string, unknown>;
+  const line = size * 1.2;
+  const linked = (text: string, url: string, at = small): Run => {
+    const link = safeLink(url);
+    return { text, font: 'regular', size: at, ...(link ? { link } : {}) };
+  };
 
-  flow.write([{ text: basics.name?.trim() || 'Résumé', font: 'boldCaps', size: size * 2.2 }], { center: true });
-  if (basics.label?.trim()) flow.write([{ text: basics.label.trim(), font: 'italic', size }], { center: true });
+  flow.write([{ text: str(basics.name) || 'Résumé', font: 'boldCaps', size: size * 2.2 }], { align: 'center' });
+  if (str(basics.label)) flow.write([{ text: str(basics.label), font: 'italic', size }], { align: 'center' });
   const contact: Run[][] = [];
-  if (basics.phone?.trim()) contact.push([{ text: basics.phone.trim(), font: 'regular', size: small }]);
-  if (basics.email?.trim()) contact.push([{ text: basics.email.trim(), font: 'regular', size: small, link: `mailto:${basics.email.trim()}` }]);
-  const place = [basics.location?.city, basics.location?.region, basics.location?.countryCode].filter((part) => part?.trim()).join(', ');
+  if (str(basics.phone)) contact.push([{ text: str(basics.phone), font: 'regular', size: small }]);
+  if (str(basics.email)) contact.push([linked(str(basics.email), `mailto:${str(basics.email)}`)]);
+  const location = (basics.location ?? {}) as Record<string, unknown>;
+  const place = [location.city, location.region, location.countryCode].map(str).filter(Boolean).join(', ');
   if (place) contact.push([{ text: place, font: 'regular', size: small }]);
-  for (const url of [basics.url, ...(basics.profiles ?? []).map((profile) => profile.url)]) {
-    if (url?.trim()) contact.push([{ text: shortUrl(url.trim()), font: 'regular', size: small, link: href(url.trim()) }]);
+  for (const url of [basics.url, ...list(basics.profiles).map((p) => (p as Record<string, unknown> | null)?.url)].map(str)) {
+    if (url) contact.push([linked(shortUrl(url), url)]);
   }
-  if (contact.length > 0) {
-    flow.write(contact.flatMap((item, i) => (i === 0 ? item : [{ text: '  |  ', font: 'regular' as const, size: small }, ...item])), { center: true });
-  }
+  if (contact.length > 0) flow.items(contact, { text: '  |  ', font: 'regular', size: small });
 
-  const heading = (title: string) => {
+  /** A heading, with room kept below it for the first `lines` of its section. */
+  const heading = (title: string, lines: number) => {
     flow.space(8 * spacing);
-    // Never alone at the bottom of a page: keep room for its first line.
-    flow.need(size * 1.25 * 1.2 + size * 1.2 * 2);
+    flow.need(size * 1.25 * 1.2 + 3 * spacing + lines * line + 1);
     flow.write([{ text: title, font: 'caps', size: size * 1.25 }]);
     flow.rule(2.5);
     flow.space(3 * spacing);
   };
-  const bullets = (items: string[] | undefined) => {
-    for (const item of items ?? []) {
-      if (!item?.trim()) continue;
-      flow.write(withMetrics(item.trim(), size), { indent: 8, hang: 10, marker: { text: '•', font: 'regular', size } });
+  const bullets = (items: unknown) => {
+    for (const item of list(items).map(str)) {
+      const text = item.replace(PASTED_BULLET, '');
+      if (text) flow.write(withMetrics(text, size), { indent: 8, hang: 10, marker: { text: '•', font: 'regular', size } });
     }
   };
   const entryGap = () => flow.space(4 * spacing);
+  const records = (value: unknown) => list(value).filter((v): v is Record<string, unknown> => Boolean(v && typeof v === 'object'));
 
   for (const section of layout.sections) {
     switch (section.key) {
       case 'summary': {
-        const paragraphs = (basics.summary ?? '').split(/\n\s*\n|\n/).map((p) => p.trim()).filter(Boolean);
+        const paragraphs = str(basics.summary).split(/\n\s*\n|\n/).map((p) => p.trim()).filter(Boolean);
         if (paragraphs.length === 0) break;
-        heading(section.title);
+        heading(section.title, 1);
         for (const paragraph of paragraphs) flow.write([{ text: paragraph, font: 'regular', size }]);
         break;
       }
       case 'work': {
-        const roles = (resume.work ?? []).filter((role) => role.company?.trim() || role.position?.trim());
+        const roles = records(resume.work).filter((role) => str(role.company) || str(role.position));
         if (roles.length === 0) break;
-        heading(section.title);
+        heading(section.title, 3);
         roles.forEach((role, i) => {
           if (i > 0) entryGap();
-          flow.need(size * 1.2 * 3);
-          flow.write([{ text: role.company?.trim() || role.position.trim(), font: 'bold', size }], {
+          const company = str(role.company);
+          const position = str(role.position);
+          flow.need(line * 3);
+          flow.write([{ text: company || position, font: 'bold', size }], {
             right: [{ text: dateRange(role.startDate, role.endDate, role.current), font: 'regular', size }],
           });
-          if (role.company?.trim() && role.position?.trim()) {
-            flow.write([{ text: role.position.trim(), font: 'italic', size }], {
-              right: role.location?.trim() ? [{ text: role.location.trim(), font: 'italic', size }] : [],
+          if (company && position) {
+            flow.write([{ text: position, font: 'italic', size }], {
+              right: str(role.location) ? [{ text: str(role.location), font: 'italic', size }] : [],
             });
           }
-          if (role.summary?.trim() && !repeatsHeader(role.summary, role)) flow.write([{ text: role.summary.trim(), font: 'regular', size }]);
+          const summary = str(role.summary);
+          if (summary && !repeatsHeader(summary, [company, position, str(role.location)])) flow.write([{ text: summary, font: 'regular', size }]);
           bullets(role.highlights);
         });
         break;
       }
       case 'education': {
-        const schools = (resume.education ?? []).filter((school) => school.institution?.trim());
+        const schools = records(resume.education).filter((school) => str(school.institution));
         if (schools.length === 0) break;
-        heading(section.title);
+        heading(section.title, 2);
         schools.forEach((school, i) => {
           if (i > 0) entryGap();
-          const dates = school.startDate ? dateRange(school.startDate, school.endDate) : humanDate(school.endDate);
-          flow.write([{ text: school.institution.trim(), font: 'bold', size }], { right: dates ? [{ text: dates, font: 'regular', size }] : [] });
-          const degree = [school.studyType?.trim(), school.area?.trim()].filter(Boolean).join(', ');
-          const detail = [degree, school.gpa?.trim() ? `GPA ${school.gpa.trim()}` : ''].filter(Boolean).join(' · ');
+          const dates = str(school.startDate) ? dateRange(school.startDate, school.endDate) : humanDate(school.endDate);
+          flow.write([{ text: str(school.institution), font: 'bold', size }], { right: dates ? [{ text: dates, font: 'regular', size }] : [] });
+          const degree = [str(school.studyType), str(school.area)].filter(Boolean).join(', ');
+          const detail = [degree, str(school.gpa) ? `GPA ${str(school.gpa)}` : ''].filter(Boolean).join(' · ');
           if (detail) flow.write([{ text: detail, font: 'italic', size }]);
           bullets(school.highlights);
         });
         break;
       }
       case 'skills': {
-        const groups = (resume.skills ?? []).filter((group) => group.skills?.some((skill) => skill?.trim()));
+        const groups = records(resume.skills)
+          .map((group) => ({ category: str(group.category), skills: list(group.skills).map(str).filter(Boolean) }))
+          .filter((group) => group.skills.length > 0);
         if (groups.length === 0) break;
-        heading(section.title);
+        heading(section.title, 1);
         for (const group of groups) {
-          const list = group.skills.map((skill) => skill.trim()).filter(Boolean).join(', ');
-          flow.write([...(group.category?.trim() ? [{ text: `${group.category.trim()}: `, font: 'bold' as const, size }] : []), { text: list, font: 'regular', size }]);
+          flow.write([
+            ...(group.category ? [{ text: `${group.category}: `, font: 'bold' as const, size }] : []),
+            { text: group.skills.join(', '), font: 'regular', size },
+          ]);
         }
         break;
       }
       case 'projects': {
-        const projects = (resume.projects ?? []).filter((project) => project.name?.trim());
+        const projects = records(resume.projects).filter((project) => str(project.name));
         if (projects.length === 0) break;
-        heading(section.title);
+        heading(section.title, 2);
         projects.forEach((project, i) => {
           if (i > 0) entryGap();
-          const keywords = (project.keywords ?? []).map((k) => k.trim()).filter(Boolean).join(', ');
+          const keywords = list(project.keywords).map(str).filter(Boolean).join(', ');
+          const url = str(project.url);
           flow.write(
-            [
-              { text: project.name.trim(), font: 'bold', size },
-              ...(keywords ? [{ text: ` | ${keywords}`, font: 'italic' as const, size }] : []),
-            ],
-            { right: project.url?.trim() ? [{ text: shortUrl(project.url.trim()), font: 'regular', size: small, link: href(project.url.trim()) }] : [] },
+            [{ text: str(project.name), font: 'bold', size }, ...(keywords ? [{ text: ` | ${keywords}`, font: 'italic' as const, size }] : [])],
+            { right: url ? [linked(shortUrl(url), url)] : [] },
           );
-          const highlights = (project.highlights ?? []).filter((h) => h?.trim());
+          const highlights = list(project.highlights).map(str).filter(Boolean);
+          const description = str(project.description);
           // The parse sometimes puts the same sentence in both.
-          if (project.description?.trim() && !highlights.some((h) => norm(h) === norm(project.description!))) {
-            flow.write([{ text: project.description.trim(), font: 'regular', size }]);
-          }
+          if (description && !highlights.some((h) => norm(h) === norm(description))) flow.write([{ text: description, font: 'regular', size }]);
           bullets(highlights);
         });
         break;
       }
       case 'certificates': {
-        const certificates = (resume.certificates ?? []).filter((c) => c.name?.trim());
+        const certificates = records(resume.certificates).filter((c) => str(c.name));
         if (certificates.length === 0) break;
-        heading(section.title);
+        heading(section.title, 1);
         for (const certificate of certificates) {
-          const issuer = certificate.issuer?.trim();
+          const issuer = str(certificate.issuer);
+          const link = safeLink(str(certificate.url));
           flow.write(
             [
-              { text: certificate.name.trim(), font: 'bold', size, ...(certificate.url?.trim() ? { link: href(certificate.url.trim()) } : {}) },
+              { text: str(certificate.name), font: 'bold', size, ...(str(certificate.url) && link ? { link } : {}) },
               ...(issuer ? [{ text: ` — ${issuer}`, font: 'regular' as const, size }] : []),
             ],
-            { right: certificate.date ? [{ text: humanDate(certificate.date), font: 'regular', size }] : [] },
+            { right: str(certificate.date) ? [{ text: humanDate(certificate.date), font: 'regular', size }] : [] },
           );
         }
         break;
@@ -218,6 +246,8 @@ function layoutResume(resume: StructuredResume, layout: ResolvedLayout, fonts: F
 export interface ResumePdf {
   pdf: Buffer;
   pages: number;
+  /** Characters the font has no glyph for (CJK, emoji), printed as "?". */
+  unsupported: number;
 }
 
 export async function renderResumePdf(resume: StructuredResume, options: { fit?: boolean } = {}): Promise<ResumePdf> {
@@ -225,7 +255,8 @@ export async function renderResumePdf(resume: StructuredResume, options: { fit?:
   const fonts = await embedFonts(doc);
   const layout = resolveLayout(resume);
   let flow = layoutResume(resume, layout, fonts, STEPS[0]!);
-  if (options.fit !== false && flow.pages > 1) {
+  // Fitting only ever saves a page's worth: past two pages it can't reach one.
+  if (options.fit !== false && flow.pages === 2) {
     for (const step of STEPS.slice(1)) {
       const tighter = layoutResume(resume, layout, fonts, step);
       if (tighter.pages === 1) {
@@ -235,13 +266,13 @@ export async function renderResumePdf(resume: StructuredResume, options: { fit?:
     }
   }
   flow.draw(doc);
-  const name = resume.basics?.name?.trim() || 'Résumé';
+  const name = str(resume.basics?.name) || 'Résumé';
   doc.setTitle(`${name} – Résumé`);
   doc.setAuthor(name);
   doc.setCreator('JobOps Copilot');
   doc.setProducer('JobOps Copilot');
   // Classic cross-reference tables: every reader, old parsers included, opens them.
-  return { pdf: Buffer.from(await doc.save({ useObjectStreams: false })), pages: flow.pages };
+  return { pdf: Buffer.from(await doc.save({ useObjectStreams: false })), pages: flow.pages, unsupported: flow.unsupported };
 }
 
 export async function renderAtsResumePdf(resume: StructuredResume): Promise<Buffer> {

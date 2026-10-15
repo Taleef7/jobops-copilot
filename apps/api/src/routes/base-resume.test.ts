@@ -690,3 +690,39 @@ test('the base-résumé PDF routes refuse a tailored version, and still render t
     process.chdir(originalCwd);
   }
 });
+
+test('a résumé with a field longer than a résumé has is refused, on save and on render', async () => {
+  const originalCwd = process.cwd();
+  delete process.env.DATABASE_URL;
+  const tempDir = await mkdtemp(join(tmpdir(), 'jobops-base-resume-caps-'));
+  try {
+    process.chdir(tempDir);
+    await resetResumeVersionStore();
+    const huge: StructuredResume = {
+      ...sampleResume,
+      work: [{ ...sampleResume.work[0]!, highlights: ['x'.repeat(5_001)] }],
+    };
+    const many: StructuredResume = { ...sampleResume, skills: [{ category: 'All', skills: Array.from({ length: 201 }, (_, i) => `s${i}`) }] };
+    await withServer(
+      (app) => app.use('/api/profile/base-resume', baseResumeRouter),
+      async (baseUrl) => {
+        const send = (method: string, path: string, body: unknown) =>
+          fetch(`${baseUrl}/api/profile/base-resume${path}`, {
+            method,
+            headers: { 'Content-Type': 'application/json', 'X-User-Id': 'user-br-caps' },
+            body: JSON.stringify(body),
+          });
+        for (const resume of [huge, many]) {
+          const saved = await send('PUT', '', { baseResume: resume });
+          assert.equal(saved.status, 413);
+          assert.match(((await saved.json()) as { error: string }).error, /too long/);
+          assert.equal((await send('POST', '/render-pdf', { resume })).status, 413);
+        }
+        assert.equal((await getUserProfile('user-br-caps'))?.baseResume, undefined, 'nothing was saved');
+        assert.equal((await send('PUT', '', { baseResume: sampleResume })).status, 200);
+      },
+    );
+  } finally {
+    process.chdir(originalCwd);
+  }
+});

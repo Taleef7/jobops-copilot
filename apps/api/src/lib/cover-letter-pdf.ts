@@ -30,9 +30,9 @@ export async function renderCoverLetterPdf(options: CoverLetterPdfOptions): Prom
   const text = (value: string, font: Run['font'] = 'regular', size = SIZE): Run => ({ text: value, font, size });
 
   const name = options.candidateName.trim() || 'Candidate';
-  flow.write([text(name, 'boldCaps', 20)], { center: true });
+  flow.write([text(name, 'boldCaps', 20)], { align: 'center' });
   const contact = [options.candidateEmail, options.candidatePhone, options.candidateLocation].map((part) => part?.trim()).filter(Boolean);
-  if (contact.length > 0) flow.write([text(contact.join('  |  '), 'regular', 9.5)], { center: true });
+  if (contact.length > 0) flow.write([text(contact.join('  |  '), 'regular', 9.5)], { align: 'center' });
   flow.space(4);
   flow.rule(0);
   flow.space(18);
