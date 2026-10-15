@@ -201,7 +201,7 @@ describe('TailoredResumeReview', () => {
     expect(screen.getByText(/uses the section order and headings set in Settings → Résumé until you download it/)).toBeInTheDocument();
     unmount();
     renderReview([{ ...draft, basedOn: { ...draft.basedOn!, layoutFrozenAt: '2026-10-15T00:00:00.000Z' } }]);
-    expect(screen.getByText(/keeps the section order and headings your résumé had when you marked this job applied/)).toBeInTheDocument();
+    expect(screen.getByText(/keeps the section order and headings your résumé had when this job moved to Applied or later/)).toBeInTheDocument();
   });
 
   it('each line can be kept, restored or edited, and a dropped one only edited', async () => {

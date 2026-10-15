@@ -61,6 +61,13 @@ function cleared(value: string | null | undefined) {
   return value === undefined ? undefined : value?.trim() || null;
 }
 
+/**
+ * Stages that mean the user applied (#415): a job moved into one from any other freezes the base
+ * résumé's layout on its tailored drafts ("until downloaded or applied"). Outreach and referrals
+ * can come before applying, and archiving says nothing about it.
+ */
+const APPLIED_STAGES = new Set<JobStatus>(['applied', 'follow_up_due', 'interview', 'offer', 'rejected']);
+
 function isValidUrl(value: string) {
   try {
     // Reject whitespace and malformed URLs while still allowing local/test URLs.
@@ -268,8 +275,8 @@ jobsRouter.patch('/:id', async (request, response, next) => {
   }
 
   try {
-    // Marking a job applied freezes the base résumé's layout on its tailored drafts (#415).
-    const before = body.status === 'applied' ? await getJobById(userId, request.params.id) : null;
+    // Marking a job applied, or a later stage, freezes the base résumé's layout on its drafts (#415).
+    const before = body.status && APPLIED_STAGES.has(body.status) ? await getJobById(userId, request.params.id) : null;
     const job = await updateJob(userId, request.params.id, {
       status: body.status,
       priority: body.priority,
@@ -283,7 +290,7 @@ jobsRouter.patch('/:id', async (request, response, next) => {
       response.status(404).json({ error: 'Job not found' });
       return;
     }
-    if (before && before.status !== 'applied' && job.status === 'applied') {
+    if (before && !APPLIED_STAGES.has(before.status) && APPLIED_STAGES.has(job.status)) {
       // The status is saved either way: a draft left unfrozen still prints, with the current layout.
       await freezeDraftLayouts(userId, job.id).catch((error: unknown) =>
         console.error("[jobs] freezing the layout of the job's drafts failed", error),

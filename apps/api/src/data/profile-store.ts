@@ -4,6 +4,7 @@ import { join } from 'node:path';
 import type { PoolClient } from 'pg';
 import { getBaseResumeVersion, insertResumeVersion, updateResumeVersion } from '@/data/resume-version-store';
 import { getPool, hasPostgresConnection } from '@/lib/postgres';
+import { normalizeLayout, withLayout } from '@/lib/resume-layout';
 import type { StructuredResume } from '@/types';
 
 export interface UserProfile {
@@ -126,24 +127,37 @@ export async function upsertUserProfile(
  * replacement file, and the base version's, which the résumé studio and outreach read first.
  * In Postgres one transaction, so a failed save changes neither. File mode has no
  * transactions: the profile is written first, then the version.
+ *
+ * The layout (section order, headings, page size) changes only through changeBaseResume
+ * (PATCH /layout, #415): the save keeps the stored one, whatever `baseResume` carries. In
+ * Postgres it's read under the profile row's lock, so a layout change can't land in between.
+ * Returns the résumé as saved.
  */
 export async function saveBaseResume(
   userId: string,
   baseResume: StructuredResume,
   source: { resumeText: string; resumeFileName: string } | null,
-): Promise<void> {
+): Promise<StructuredResume> {
   if (!hasPostgresConnection()) {
-    await upsertUserProfile(userId, { baseResume, ...source });
-    await saveBaseVersion(userId, baseResume);
-    return;
+    const stored = (await getUserProfile(userId))?.baseResume ?? (await getBaseResumeVersion(userId))?.structuredResume;
+    const saved = withLayout(baseResume, normalizeLayout(stored?.layout));
+    await upsertUserProfile(userId, { baseResume: saved, ...source });
+    await saveBaseVersion(userId, saved);
+    return saved;
   }
 
   const client = await getPool()!.connect();
   try {
     await client.query('begin');
-    await upsertUserProfile(userId, { baseResume, ...source }, client);
-    await saveBaseVersion(userId, baseResume, client);
+    // The same lock as changeBaseResume takes, in the same order (profile, then version).
+    await client.query('insert into user_profiles (user_id) values ($1) on conflict (user_id) do nothing', [userId]);
+    const { rows } = await client.query<ProfileRow>('select * from user_profiles where user_id = $1 for update', [userId]);
+    const stored = rows[0]?.base_resume ?? (await getBaseResumeVersion(userId, client))?.structuredResume;
+    const saved = withLayout(baseResume, normalizeLayout(stored?.layout));
+    await upsertUserProfile(userId, { baseResume: saved, ...source }, client);
+    await saveBaseVersion(userId, saved, client);
     await client.query('commit');
+    return saved;
   } catch (error) {
     await client.query('rollback').catch(() => undefined);
     throw error;

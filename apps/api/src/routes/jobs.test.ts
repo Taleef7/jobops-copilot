@@ -314,3 +314,62 @@ test("marking a job applied freezes the base résumé's layout on its drafts", a
     await rm(tempDir, { recursive: true, force: true });
   }
 });
+
+// The owner's rule: drafts follow the base layout "until downloaded or applied". A job moved
+// straight past applied (to an interview, an offer, a rejection) was applied to as well.
+test('moving a job straight to a stage after applied freezes its drafts too; outreach or archiving does not', async () => {
+  const originalCwd = process.cwd();
+  delete process.env.DATABASE_URL;
+  const tempDir = await mkdtemp(join(tmpdir(), 'jobops-route-jobs-stages-'));
+  const user = 'user-stages';
+  const layout: ResumeLayout = { sections: [{ key: 'education', title: 'Schooling' }] };
+  const resume: StructuredResume = { basics: { name: 'Jordan Lee', email: '', summary: 'Engineer.' }, work: [], education: [], skills: [] };
+
+  try {
+    process.chdir(tempDir);
+    resetJobStoreForTests();
+    await resetResumeVersionStore();
+    await upsertUserProfile(user, { baseResume: { ...resume, layout } });
+    const now = new Date().toISOString();
+
+    await withServer((app) => app.use('/api/jobs', jobsRouter), async (baseUrl) => {
+      const moveTo = async (from: string, to: string) => {
+        const job = await createJob(user, { company: `Acme ${from} ${to}`, title: 'Engineer', descriptionText: 'Go.' });
+        const id = `draft-${from}-${to}`;
+        await insertResumeVersion({
+          id,
+          userId: user,
+          jobId: job.id,
+          changeSummary: 'Tailored',
+          structuredResume: resume,
+          approved: false,
+          isBase: false,
+          basedOn: { baseVersionId: null, baseUpdatedAt: null, jobId: job.id, postingSha256: 'x', model: 'm', createdAt: now, grounding: { version: 1 } },
+          createdAt: now,
+          updatedAt: now,
+        });
+        const patch = (status: string) =>
+          fetch(`${baseUrl}/api/jobs/${job.id}`, {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json', 'X-User-Id': user },
+            body: JSON.stringify({ status }),
+          });
+        assert.equal((await patch(from)).status, 200);
+        assert.equal((await patch(to)).status, 200);
+        return Boolean((await getResumeVersion(user, id))!.basedOn?.layoutFrozenAt);
+      };
+
+      for (const stage of ['interview', 'offer', 'rejected', 'follow_up_due']) {
+        assert.equal(await moveTo('shortlisted', stage), true, `shortlisted → ${stage} freezes`);
+      }
+      for (const stage of ['outreach_sent', 'referral_requested', 'archived']) {
+        assert.equal(await moveTo('shortlisted', stage), false, `shortlisted → ${stage} doesn't`);
+      }
+    });
+  } finally {
+    process.chdir(originalCwd);
+    resetJobStoreForTests();
+    await resetResumeVersionStore();
+    await rm(tempDir, { recursive: true, force: true });
+  }
+});

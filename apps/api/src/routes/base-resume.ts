@@ -5,7 +5,6 @@ import { changeBaseResume, getUserProfile, saveBaseResume } from '@/data/profile
 import {
   getBaseResumeVersion,
   insertResumeVersion,
-  updateResumeVersion,
 } from '@/data/resume-version-store';
 import { resolveResumeParse } from '@/lib/agent-client';
 import { attachmentDisposition } from '@/lib/content-disposition';
@@ -89,9 +88,8 @@ baseResumeRouter.put('/', async (request, response, next) => {
       source = { resumeText: body.resumeText.trim(), resumeFileName: fileName || 'resume.txt' };
     }
 
-    const [profile, storedBase] = await Promise.all([getUserProfile(userId), getBaseResumeVersion(userId)]);
-    const baseResume = withLayout(body.baseResume, normalizeLayout((profile?.baseResume ?? storedBase?.structuredResume)?.layout));
-    await saveBaseResume(userId, baseResume, source);
+    // Keeps the stored layout (#415).
+    const baseResume = await saveBaseResume(userId, body.baseResume, source);
     return response.json({ baseResume });
   } catch (error) {
     next(error);
@@ -117,16 +115,13 @@ baseResumeRouter.patch('/layout', async (request, response, next) => {
       return response.status(400).json({ error: parsed.error });
     }
 
+    // Both copies, in one transaction under the profile row's lock (#408).
     const baseVersion = await getBaseResumeVersion(userId);
     const saved = await changeBaseResume(userId, baseVersion?.structuredResume ?? null, (current) =>
       withLayout(current, normalizeLayout({ ...normalizeLayout(current.layout), ...parsed.layout })),
     );
     if (!saved) {
       return response.status(404).json({ error: 'There is no résumé yet. Add yours in Settings → Résumé first.' });
-    }
-    // The base version's copy follows the profile's. (#408 puts both writes in one transaction.)
-    if (baseVersion) {
-      await updateResumeVersion(userId, baseVersion.id, { structuredResume: saved });
     }
 
     return response.json({ layout: saved.layout ?? {} });

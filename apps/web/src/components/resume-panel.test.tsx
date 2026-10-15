@@ -705,7 +705,8 @@ describe('ResumePanel editor (#415)', () => {
     for (const [body] of saveResumeLayout.mock.calls) walk(body, 'layout');
     expect(printed.length).toBeGreaterThan(30);
     expect(printed.filter((path) => !written.has(path))).toEqual([]);
-  });
+    // It fills in every field of every section: slow when the other test files run alongside.
+  }, 30_000);
 
   it('shows the sections in their saved order, and the PDF preview', () => {
     const layout: ResumeLayout = { sections: [{ key: 'education' }, { key: 'skills', title: 'Technical Skills' }] };
