@@ -7,6 +7,7 @@ import test from 'node:test';
 import { createApp } from '@/app';
 import { resetAgentOutputStoreForTests, saveAgentOutput } from '@/data/agent-output-store';
 import { _resetApplicationAnswerStoreForTests, upsertApplicationAnswer } from '@/data/application-answer-store';
+import { resetCoverLetterStoreForTests, saveCoverLetter } from '@/data/cover-letter-store';
 import { createJob, resetJobStoreForTests } from '@/data/job-store';
 import { upsertUserProfile } from '@/data/profile-store';
 import { insertResumeVersion, resetResumeVersionStore } from '@/data/resume-version-store';
@@ -334,5 +335,44 @@ test('GET serves the stored pack, and another user cannot read it', async () => 
       const other = await fetch(`${baseUrl}/api/jobs/${job.id}/application-pack`, { headers: hdrs('another_user') });
       assert.equal(other.status, 404);
     });
+  });
+});
+
+test("the pack's cover letter is the job's letter from the tailor window (#416)", async () => {
+  await withFreshStores(async () => {
+    await resetCoverLetterStoreForTests();
+    const job = await createJob(USER, { company: 'Acme', title: 'Engineer', descriptionText: 'Backend engineering role.' });
+    const now = new Date().toISOString();
+    await saveCoverLetter({
+      id: '7f9b962c-0000-4000-8000-000000000416',
+      userId: USER,
+      jobId: job.id,
+      length: 'concise',
+      paragraphs: [
+        { text: 'I build Kubernetes platforms in Go.', edited: false },
+        { text: 'Thank you for your time.', edited: true },
+      ],
+      checks: [],
+      basedOn: {
+        baseVersionId: null,
+        baseUpdatedAt: now,
+        jobId: job.id,
+        postingSha256: 'a'.repeat(64),
+        model: 'openai:gpt-6-luna',
+        createdAt: now,
+        grounding: { version: 1 },
+        confirmedKeywords: [],
+      },
+      createdAt: now,
+      updatedAt: now,
+    });
+    await withServer(async (baseUrl) => {
+      const res = await fetch(`${baseUrl}/api/jobs/${job.id}/application-pack`, { method: 'POST', headers: hdrs(USER) });
+      assert.equal(res.status, 201);
+      const { applicationPack } = (await res.json()) as { applicationPack: ApplicationPackPayload };
+      assert.equal(applicationPack.coverLetterId, '7f9b962c-0000-4000-8000-000000000416');
+      assert.equal(applicationPack.coverLetterText, 'I build Kubernetes platforms in Go.\n\nThank you for your time.');
+    });
+    await resetCoverLetterStoreForTests();
   });
 });

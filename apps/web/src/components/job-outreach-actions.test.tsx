@@ -12,7 +12,7 @@ vi.mock('@/lib/api', () => ({
 }));
 
 import { chooseOption } from '@/test/select';
-import { JobOutreachActions } from './job-outreach-actions';
+import { JobOutreachActions, messageTypeOptions } from './job-outreach-actions';
 
 afterEach(() => vi.clearAllMocks());
 
@@ -75,4 +75,10 @@ it('does not warn about length for a note within the limit', async () => {
 
   expect(await screen.findByText('Hi there, I would like to connect.')).toBeInTheDocument();
   expect(screen.queryByText(/over 300 characters/i)).not.toBeInTheDocument();
+});
+
+// #416: cover letters are written in the tailor window, with their own check and one-page PDF.
+it('has no cover letter message type', () => {
+  expect(messageTypeOptions.map((option) => option.value)).not.toContain('cover_letter');
+  expect(messageTypeOptions.length).toBeGreaterThan(0);
 });

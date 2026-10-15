@@ -4,13 +4,15 @@ import userEvent from '@testing-library/user-event';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { ResumeVersionRecord } from '@/types/job';
 
-const { tailorResumeForJob, getTailorKeywords, approveResumeVersion, reviewResumeChange, downloadResumeVersion } = vi.hoisted(() => ({
-  tailorResumeForJob: vi.fn(),
-  getTailorKeywords: vi.fn(),
-  approveResumeVersion: vi.fn(),
-  reviewResumeChange: vi.fn(),
-  downloadResumeVersion: vi.fn(),
-}));
+const { tailorResumeForJob, getTailorKeywords, approveResumeVersion, reviewResumeChange, downloadResumeVersion, writeCoverLetter } =
+  vi.hoisted(() => ({
+    tailorResumeForJob: vi.fn(),
+    getTailorKeywords: vi.fn(),
+    approveResumeVersion: vi.fn(),
+    reviewResumeChange: vi.fn(),
+    downloadResumeVersion: vi.fn(),
+    writeCoverLetter: vi.fn(),
+  }));
 
 const { toast } = vi.hoisted(() => ({ toast: { success: vi.fn(), error: vi.fn(), warning: vi.fn() } }));
 vi.mock('sonner', () => ({ toast }));
@@ -20,13 +22,16 @@ vi.mock('@/lib/api', () => ({
   approveResumeVersion,
   reviewResumeChange,
   downloadResumeVersion,
+  writeCoverLetter,
 }));
 
 import { TailoredResumeReview, resetTailorStoreForTests } from './tailored-resume-review';
+import { resetCoverLetterStoreForTests } from './cover-letter-review';
 
 afterEach(() => {
   vi.clearAllMocks();
   resetTailorStoreForTests();
+  resetCoverLetterStoreForTests();
 });
 
 const draft: ResumeVersionRecord = {
@@ -495,5 +500,38 @@ describe('TailoredResumeReview', () => {
     renderReview([draft]);
     await user.click(screen.getByRole('button', { name: 'Download PDF' }));
     await waitFor(() => expect(toast.warning).toHaveBeenCalledWith(expect.stringMatching(/3 characters/)));
+  });
+
+  it('the window can also write a cover letter, Concise or Full, with the same keywords (#416)', async () => {
+    const user = userEvent.setup();
+    getTailorKeywords.mockResolvedValueOnce({ fitRead: true, keywords: [{ term: 'Kafka', onResume: false }] });
+    tailorResumeForJob.mockReturnValueOnce(new Promise(() => undefined));
+    writeCoverLetter.mockReturnValueOnce(new Promise(() => undefined));
+    renderReview();
+
+    await user.click(screen.getByRole('button', { name: 'Tailor résumé' }));
+    const window = await screen.findByRole('dialog', { name: 'Tailor your résumé' });
+    await user.click(await within(window).findByRole('button', { name: 'Kafka' }));
+    expect(within(window).queryByRole('button', { name: /Full/ })).not.toBeInTheDocument();
+    await user.click(within(window).getByLabelText('Also write a cover letter'));
+    expect(within(window).getByText(/always one page/i)).toBeInTheDocument();
+    await user.click(within(window).getByRole('button', { name: /Full/ }));
+    await user.click(within(window).getByRole('button', { name: 'Tailor with 1 keyword' }));
+
+    expect(tailorResumeForJob).toHaveBeenCalledWith('job-1', { confirmedKeywords: ['Kafka'], addToBase: false });
+    expect(writeCoverLetter).toHaveBeenCalledWith('job-1', { length: 'full', confirmedKeywords: ['Kafka'] });
+  });
+
+  it('without the cover letter option, tailoring writes no letter', async () => {
+    const user = userEvent.setup();
+    getTailorKeywords.mockResolvedValueOnce({ fitRead: false, keywords: [] });
+    tailorResumeForJob.mockReturnValueOnce(new Promise(() => undefined));
+    renderReview();
+
+    await user.click(screen.getByRole('button', { name: 'Tailor résumé' }));
+    const window = await screen.findByRole('dialog', { name: 'Tailor your résumé' });
+    await user.click(within(window).getByRole('button', { name: 'Tailor résumé' }));
+    expect(tailorResumeForJob).toHaveBeenCalledTimes(1);
+    expect(writeCoverLetter).not.toHaveBeenCalled();
   });
 });

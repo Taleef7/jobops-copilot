@@ -19,6 +19,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { ApplicationPackView } from '@/components/application-pack-view';
 import { JobContactsPanel } from '@/components/job-contacts-panel';
 import { TailoredResumeReview } from '@/components/tailored-resume-review';
+import { CoverLetterReview } from '@/components/cover-letter-review';
 import {
   fetchAgentOutputs,
   fetchJobApplicationPack,
@@ -151,6 +152,11 @@ export default async function JobDetailPage({ params, searchParams }: JobDetailP
                 jobTitle={job.title}
                 jobCompany={job.company}
                 initialVersions={resumeVersions}
+              />
+              <CoverLetterReview
+                jobId={job.id}
+                jobCompany={job.company}
+                defaultKeywords={resumeVersions[0]?.basedOn?.confirmedKeywords ?? []}
               />
             </TabsContent>
 

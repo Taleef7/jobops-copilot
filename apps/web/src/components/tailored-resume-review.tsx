@@ -17,12 +17,14 @@ import {
   reviewResumeChange,
   tailorResumeForJob,
 } from '@/lib/api';
-import type { ResumeChangeDetail, ResumeVersionRecord } from '@/types/job';
+import type { CoverLetterLength, ResumeChangeDetail, ResumeVersionRecord } from '@/types/job';
+import { LENGTH_HINT, LengthToggle, startCoverLetter } from './cover-letter-review';
 
 /**
  * Tailoring a résumé to a job (#351): a window to confirm the posting's keywords the user has,
  * then a review of the AI's suggestions, each checked by the API against the base résumé. Each
- * line can be kept, restored or edited; one Download approves the draft and saves the PDF.
+ * line can be kept, restored or edited; one Download approves the draft and saves the PDF. The
+ * window can also write a cover letter (#416), shown by CoverLetterReview.
  */
 
 interface TailoredResumeReviewProps {
@@ -153,9 +155,11 @@ export function TailoredResumeReview({ jobId, jobCompany, initialVersions = [] }
     setWindowOpen(true);
   }
 
-  function tailor(options: TailorOptions) {
+  function tailor(options: TailorOptions, letter: CoverLetterLength | null = null) {
     setWindowOpen(false);
     startTailoring(jobId, options);
+    // The letter runs alongside, from the same keywords; it has its own progress and errors.
+    if (letter) startCoverLetter(jobId, { length: letter, confirmedKeywords: options.confirmedKeywords });
   }
 
   return (
@@ -255,7 +259,7 @@ function TailorWindow({
   jobId: string;
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  onTailor: (options: TailorOptions) => void;
+  onTailor: (options: TailorOptions, letter: CoverLetterLength | null) => void;
 }) {
   const [loaded, setLoaded] = useState<{
     fitRead: boolean;
@@ -269,6 +273,8 @@ function TailorWindow({
   const [custom, setCustom] = useState<string[]>([]);
   const [draft, setDraft] = useState('');
   const [addToBase, setAddToBase] = useState(false);
+  const [withLetter, setWithLetter] = useState(false);
+  const [letterLength, setLetterLength] = useState<CoverLetterLength>('concise');
 
   // The posting's keywords, read when the window opens (it's a new window each time).
   useEffect(() => {
@@ -411,10 +417,27 @@ function TailorWindow({
               Also add them to my base résumé
             </label>
           ) : null}
+
+          <div className="space-y-2">
+            <label className="flex items-center gap-2 text-sm">
+              <input type="checkbox" checked={withLetter} onChange={(event) => setWithLetter(event.target.checked)} />
+              Also write a cover letter
+            </label>
+            {withLetter ? (
+              <div className="space-y-1.5 pl-6">
+                <LengthToggle value={letterLength} onChange={setLetterLength} />
+                <p className="text-muted-foreground text-xs">{LENGTH_HINT}</p>
+              </div>
+            ) : null}
+          </div>
         </div>
 
         <SheetFooter>
-          <Button onClick={() => onTailor({ confirmedKeywords: confirmed, addToBase: confirmed.length > 0 && addToBase })}>
+          <Button
+            onClick={() =>
+              onTailor({ confirmedKeywords: confirmed, addToBase: confirmed.length > 0 && addToBase }, withLetter ? letterLength : null)
+            }
+          >
             {confirmed.length > 0
               ? `Tailor with ${confirmed.length} keyword${confirmed.length === 1 ? '' : 's'}`
               : 'Tailor résumé'}

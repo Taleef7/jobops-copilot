@@ -30,6 +30,7 @@ import { AiBudgetExceededError, beforeAgentCall } from '@/lib/ai-call-context';
 import { capAgentPayload } from '@/lib/input-caps';
 import { normalizeLayout } from '@/lib/resume-layout';
 import { isTailorAnswer, type TailorAgentRequest, type TailorAnswer } from '@/lib/tailor/answer';
+import { isCoverLetterAnswer, type CoverLetterAgentRequest, type CoverLetterAnswer } from '@/lib/cover-letter/answer';
 
 const AGENT_URL = process.env.AGENT_SERVICE_URL?.trim().replace(/\/$/, '');
 const AGENT_TIMEOUT_MS = Number(process.env.AGENT_TIMEOUT_MS ?? 60_000);
@@ -572,6 +573,19 @@ export async function resolveTailorResume(request: TailorAgentRequest): Promise<
   const answer = await withColdStartWake(() => callAgent<unknown>('/tailor-resume', request, AGENT_TIMEOUT_MS));
   if (!isTailorAnswer(answer)) {
     console.warn('agent /tailor-resume returned an unusable answer');
+    throw new AiUnavailableError(UNUSABLE_ANSWER);
+  }
+  return answer;
+}
+
+/**
+ * Ask the agent for a cover letter's body (#416). One paid call, never re-sent; an answer that
+ * isn't the expected shape is an `AiUnavailableError`.
+ */
+export async function resolveCoverLetter(request: CoverLetterAgentRequest): Promise<CoverLetterAnswer> {
+  const answer = await withColdStartWake(() => callAgent<unknown>('/cover-letter', request, AGENT_TIMEOUT_MS));
+  if (!isCoverLetterAnswer(answer)) {
+    console.warn('agent /cover-letter returned an unusable answer');
     throw new AiUnavailableError(UNUSABLE_ANSWER);
   }
   return answer;

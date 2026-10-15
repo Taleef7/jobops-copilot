@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { listAgentOutputs, saveAgentOutput } from '@/data/agent-output-store';
 import { hashQuestion, listApplicationAnswers } from '@/data/application-answer-store';
+import { getCoverLetter } from '@/data/cover-letter-store';
 import { getJobById } from '@/data/job-store';
 import { getUserProfile } from '@/data/profile-store';
 import { getBaseResumeVersion, listResumeVersionsForJob } from '@/data/resume-version-store';
@@ -71,7 +72,8 @@ export async function buildApplicationPack(userId: string, job: JobRecord): Prom
   const resumeVersions = await listResumeVersionsForJob(userId, jobId);
   const selectedResume = resumeVersions.find((v) => v.approved) || resumeVersions[0];
 
-  // 3. Load cover letter if any
+  // 3. The job's cover letter, written in the tailor window (#416); an older outreach row otherwise.
+  const coverLetter = await getCoverLetter(userId, jobId);
   const coverLetterDraft = job.outreach?.find((o) => o.messageType === 'cover_letter');
 
   // 4. Load Q&A memory: the only source for legal, money and narrative answers.
@@ -194,8 +196,10 @@ export async function buildApplicationPack(userId: string, job: JobRecord): Prom
     title: job.title,
     resumeVersionId: selectedResume?.id ?? null,
     resumeFileUrl: selectedResume?.tailoredResumeFileUrl ?? null,
-    coverLetterId: coverLetterDraft?.id ?? null,
-    coverLetterText: coverLetterDraft?.draftText ?? null,
+    coverLetterId: coverLetter?.id ?? coverLetterDraft?.id ?? null,
+    coverLetterText: coverLetter
+      ? coverLetter.paragraphs.map((paragraph) => paragraph.text).join('\n\n')
+      : (coverLetterDraft?.draftText ?? null),
     contactBlock: buildContactBlock(baseResume),
     answers,
     flaggedQuestions,

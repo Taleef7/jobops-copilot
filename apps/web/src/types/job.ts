@@ -325,6 +325,48 @@ export interface ResumeVersionRecord {
   updatedAt: string;
 }
 
+export type CoverLetterLength = 'concise' | 'full';
+
+/** A cover letter's paragraph: as the check kept it, or the user's own words (`edited`). */
+export interface CoverLetterParagraph {
+  text: string;
+  edited: boolean;
+}
+
+/** A sentence of the AI's letter that the check dropped or marked (#416). */
+export interface CoverLetterCheck {
+  /** The kept paragraph it is in; null when its whole paragraph was dropped. */
+  paragraph: number | null;
+  text: string;
+  dropped: boolean;
+  dropReason?: string;
+  issues: Array<{ code: string; term?: string; message: string }>;
+  /** Confirmed keywords it uses ("uses Kafka, which you added"). */
+  confirmedTerms?: string[];
+}
+
+/** One cover letter per job (#416): its body; the PDF adds the letterhead, greeting and sign-off. */
+export interface CoverLetterRecord {
+  id: string;
+  userId: string;
+  jobId: string;
+  length: CoverLetterLength;
+  paragraphs: CoverLetterParagraph[];
+  checks: CoverLetterCheck[];
+  basedOn: {
+    baseVersionId: string | null;
+    baseUpdatedAt: string | null;
+    jobId: string;
+    postingSha256: string;
+    model: string;
+    createdAt: string;
+    grounding: { version: number };
+    confirmedKeywords: string[];
+  };
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface ApplicationPackContactBlock {
   name?: string;
   email?: string;

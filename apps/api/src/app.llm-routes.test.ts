@@ -53,6 +53,8 @@ const LLM_ROUTES: Array<[string, string, 'guard' | 'own']> = [
   ['POST', '/api/Contacts/00000000-0000-0000-0000-000000000000/Draft-Outreach', 'guard'],
   ['POST', '/api/jobs/00000000-0000-0000-0000-000000000000/tailor', 'guard'],
   ['POST', '/api/Jobs/00000000-0000-0000-0000-000000000000/Tailor/', 'guard'],
+  ['POST', '/api/jobs/00000000-0000-0000-0000-000000000000/cover-letter', 'guard'],
+  ['POST', '/api/Jobs/00000000-0000-0000-0000-000000000000/Cover-Letter/', 'guard'],
   ['GET', '/api/telemetry/insights', 'own'],
   ['GET', '/api/telemetry/ev-demo', 'own'],
   ['POST', '/api/discovery/run', 'own'],
@@ -108,7 +110,7 @@ test('every route module that can call the AI agent is in the inventory above', 
   // sweep (which scores jobs through it). Exceptions are listed with the reason.
   const covered = new Set([
     'ai.ts', 'assistant.ts', 'assistant-chat.ts', 'agents.ts', 'base-resume.ts', 'contacts.ts',
-    'telemetry.ts', 'discovery.ts', 'resume-studio.ts',
+    'telemetry.ts', 'discovery.ts', 'resume-studio.ts', 'cover-letter.ts',
   ]);
   const exempt: Record<string, string> = {
     'health.ts': 'pings the agent /health for /api/status; no LLM call (A00 #348 makes it private)',

@@ -110,6 +110,28 @@ Important fields:
 - `approved`
 - `created_at`
 
+## `cover_letters`
+
+One cover letter per job and user (#416, migration 031), written in the tailor window and
+checked sentence by sentence against the base résumé. Outreach drafts never touch it.
+
+Important fields:
+
+- `id`: UUID primary key
+- `user_id`: the owner (not null)
+- `job_id`: foreign key to `jobs.id`, deleted with the job
+- `length`: `concise` or `full`
+- `paragraphs` (`jsonb`): the letter's body, `[{ text, edited }]`; `edited` marks the user's own words
+- `checks` (`jsonb`): the sentences the check dropped or marked, with why
+- `based_on` (`jsonb`): the base résumé version, a hash of the posting, the model, the confirmed keywords
+- `created_at`, `updated_at`
+
+Constraints and indexes:
+
+- unique `(user_id, job_id)`: writing the letter again replaces it
+- length check constraint for `concise` and `full`
+- index on `job_id`
+
 ## `weekly_reports`
 
 Stores weekly analytics and strategy outputs for the saved report dashboard.
