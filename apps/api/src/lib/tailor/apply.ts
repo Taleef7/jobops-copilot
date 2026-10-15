@@ -13,7 +13,10 @@ import { contentTokens, norm, wordStems } from './text';
  * change. A suggestion that fails is dropped (the base line stays) and shown as dropped.
  */
 
-/** Set on a version by this check; approve and download require it. */
+/**
+ * Set on a version by this check; approve and download require it. The database requires it
+ * too (migration 029's resume_versions_tailored_is_grounded): changing it means a migration.
+ */
 export const GROUNDING_VERSION = 1;
 
 export function isGrounded(version: Pick<ResumeVersionRecord, 'basedOn'>): boolean {

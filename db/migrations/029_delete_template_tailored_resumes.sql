@@ -36,9 +36,11 @@ WHERE kind = 'application_pack'
 DELETE FROM resume_versions
 WHERE is_base = false AND (based_on -> 'grounding' ->> 'version') IS DISTINCT FROM '1';
 
--- From now on a tailored version carries the grounding marker, whoever writes it. Safe to run
+-- From now on a tailored version carries the grounding marker (version 1, GROUNDING_VERSION in
+-- lib/tailor/apply.ts: a new version means a migration to this constraint), whoever writes it. Safe to run
 -- again, like the migrations before it (the runner can re-run them after a lost history).
 ALTER TABLE resume_versions DROP CONSTRAINT IF EXISTS resume_versions_tailored_is_grounded;
 ALTER TABLE resume_versions
   ADD CONSTRAINT resume_versions_tailored_is_grounded
-  CHECK (is_base OR (based_on -> 'grounding' ->> 'version') IS NOT NULL);
+  -- IS NOT DISTINCT FROM: a missing basis is NULL, and a CHECK lets NULL through.
+  CHECK (is_base OR (based_on -> 'grounding' ->> 'version') IS NOT DISTINCT FROM '1');

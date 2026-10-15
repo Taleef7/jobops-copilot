@@ -100,6 +100,8 @@ test(
       await client.query('savepoint refused');
       await assert.rejects(insert({}), /resume_versions_tailored_is_grounded/);
       await client.query('rollback to savepoint refused');
+      await assert.rejects(insert({ basedOn: { grounding: { version: 0 } } }), /resume_versions_tailored_is_grounded/);
+      await client.query('rollback to savepoint refused');
       await insert({ isBase: true, jobId: null });
       await insert({ basedOn: grounded });
     } finally {
