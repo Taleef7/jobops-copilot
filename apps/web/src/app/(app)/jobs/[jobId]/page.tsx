@@ -27,7 +27,7 @@ import {
 } from '@/lib/api';
 import { isPrerankAnalysis } from '@/lib/analysis-display';
 import { formatDate } from '@/lib/format';
-import { loadJob } from '@/lib/job-data';
+import { isJobId, loadJob } from '@/lib/job-data';
 import { isDuplicateRemote } from '@/lib/job-display';
 
 export const dynamic = 'force-dynamic';
@@ -36,12 +36,14 @@ type JobDetailParams = { params: Promise<{ jobId: string }> };
 
 export async function generateMetadata({ params }: JobDetailParams): Promise<Metadata> {
   const { jobId } = await params;
-  const { job } = await loadJob(jobId);
+  const { job } = isJobId(jobId) ? await loadJob(jobId) : { job: undefined };
   return { title: job ? `${job.company} · ${job.title}` : 'Job detail' };
 }
 
 export default async function JobDetailPage({ params }: JobDetailParams) {
   const { jobId } = await params;
+  // A malformed id names no job, so say so without asking the API (#353).
+  if (!isJobId(jobId)) notFound();
   // Fetch the profile + persisted agent outputs alongside the job. Neither is
   // load-bearing for the page, so a failure of either must not break it.
   const [{ job, error }, profile, agentOutputs, resumeVersions, applicationPack, contacts] = await Promise.all([

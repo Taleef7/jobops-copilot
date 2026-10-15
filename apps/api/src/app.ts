@@ -14,7 +14,7 @@ import { agentConfigRouter } from '@/routes/agent-config';
 import { agentsRouter } from '@/routes/agents';
 import { agentOutputsRouter } from '@/routes/agent-outputs';
 import { jobExtractRouter } from '@/routes/job-extract';
-import { jobsRouter } from '@/routes/jobs';
+import { jobsRouter, rejectMalformedJobId } from '@/routes/jobs';
 import { n8nRouter } from '@/routes/n8n';
 import { profileRouter } from '@/routes/profile';
 import { reportsRouter } from '@/routes/reports';
@@ -98,6 +98,8 @@ export function createApp(dependencies: AppDependencies = {}) {
   // The extract endpoint makes an outbound fetch per call, so it gets the strict
   // limiter (like AI/discovery) — scoped to /extract only, not the jobs CRUD.
   app.use('/api/jobs/extract', runLimiter, jobExtractRouter);
+  // Every /api/jobs/:id… route, including those mounted on /api below (#353).
+  app.use('/api/jobs/:id', rejectMalformedJobId);
   // Tailoring a résumé calls the LLM (#351); the route is in resumeStudioRouter below.
   app.post('/api/jobs/:id/tailor', runLimiter, runBudget);
   app.use('/api/jobs', agentOutputsRouter);

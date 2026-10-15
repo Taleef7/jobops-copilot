@@ -1,4 +1,4 @@
-import { Router, type Response } from 'express';
+import { Router, type NextFunction, type Request, type Response } from 'express';
 import { DuplicateJobError } from '@/data/duplicate-job';
 import {
   countJobs,
@@ -11,6 +11,7 @@ import {
 import { requireUser } from '@/lib/auth';
 import { parsePageParams } from '@/lib/pagination';
 import { isTooLong, JOB_FIELD_MAX, JOB_NOTE_MAX, STORED_TEXT_MAX, TOO_LONG_MESSAGE } from '@/lib/input-caps';
+import { isUuid } from '@/lib/uuid';
 import type {
   CreateJobBody,
   JobLiveness,
@@ -22,6 +23,19 @@ import type {
 } from '@/types';
 
 export const jobsRouter = Router();
+
+/**
+ * Mounted on `/api/jobs/:id` ahead of every job route (#353): an id that isn't a UUID is a
+ * 404 before any lookup or budget check. It used to reach Postgres, where the routes that
+ * compare a uuid answered 500.
+ */
+export function rejectMalformedJobId(request: Request, response: Response, next: NextFunction) {
+  if (isUuid(String(request.params.id))) {
+    next();
+    return;
+  }
+  response.status(404).json({ error: 'Job not found' });
+}
 
 const allowedPriorities = new Set<JobPriority>(['high', 'medium', 'low']);
 const allowedSeniorities = new Set<JobSeniority>(['junior', 'mid', 'senior', 'lead', 'unknown']);
