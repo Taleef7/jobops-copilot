@@ -133,8 +133,13 @@ async function callAgent<T>(path: string, payload: unknown, timeoutMs = AGENT_TI
   }
   if (!response.ok) {
     console.warn(`agent ${path} responded with ${response.status}`);
-    if (response.status === 422 && (await refusedInput(response))) throw new AiRefusedInputError();
-    await response.body?.cancel();
+    // A 422 is read to tell a refusal from FastAPI's validation error; anything else is
+    // dropped unread. The body is read once: cancelling it after reading throws.
+    if (response.status === 422) {
+      if (await refusedInput(response)) throw new AiRefusedInputError();
+    } else {
+      await response.body?.cancel();
+    }
     throw new AiUnavailableError(AI_NO_ANSWER);
   }
   try {
@@ -144,10 +149,16 @@ async function callAgent<T>(path: string, payload: unknown, timeoutMs = AGENT_TI
   }
 }
 
-/** True when a 422 is the agent refusing the input (`detail.code: "input_refused"`). */
+/** True when a 422 is the agent refusing the input (`detail.code: "input_refused"`). Reads the body. */
 async function refusedInput(response: Response): Promise<boolean> {
-  const body = (await response.json().catch(() => null)) as { detail?: { code?: unknown } } | null;
-  return body?.detail?.code === 'input_refused';
+  const text = await response.text().catch(() => '');
+  try {
+    const body = JSON.parse(text) as { detail?: unknown } | null;
+    const detail = body && typeof body === 'object' ? body.detail : undefined;
+    return Boolean(detail && typeof detail === 'object' && (detail as { code?: unknown }).code === 'input_refused');
+  } catch {
+    return false;
+  }
 }
 
 /**
@@ -367,8 +378,8 @@ export async function resolveParsedJob(descriptionText: string): Promise<ParsedJ
     callAgent<ParsedJobOutput>('/parse-job', { description_text: descriptionText }, AGENT_TIMEOUT_MS),
   );
   if (!validateParsedJobOutput(parsed)) throw new AiUnavailableError(UNUSABLE_ANSWER);
-  // A workplace in other words ("On-site") is read, one the app doesn't know is null: an odd
-  // workplace mustn't fail Score fit or the n8n intake, which parse the same way (#355).
+  // A workplace in other words ("On-site") is read; one the app doesn't know is left out
+  // (unknown). An odd word mustn't fail Score fit or the n8n intake, which parse the same way (#355).
   if ('workplace_type' in parsed) {
     const workplace = normalizeWorkplace(parsed.workplace_type);
     if (workplace === undefined) delete parsed.workplace_type;

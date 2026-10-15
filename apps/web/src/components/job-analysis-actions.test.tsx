@@ -211,3 +211,13 @@ it('keeps the status line in place while idle', () => {
   expect(status).toHaveTextContent('');
   expect(status).not.toHaveClass('empty:hidden');
 });
+
+// #355: Score fit on a posting the agent refused says so, inline, on the job page.
+it('shows why the fit run from ?run=fit was refused', async () => {
+  const reason = 'This posting has text that reads like instructions to the AI, so it wasn’t scored.';
+  scoreFit.mockRejectedValueOnce(new ApiRequestError(reason, 422));
+  render(<JobAnalysisActions jobId="job-run-refused" runFit />);
+
+  expect(await screen.findByRole('alert')).toHaveTextContent(reason);
+  expect(scoreFit).toHaveBeenCalledTimes(1);
+});

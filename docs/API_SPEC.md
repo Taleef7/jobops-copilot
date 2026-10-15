@@ -300,13 +300,13 @@ Current response fields:
 - `company`
 - `title`
 - `location`: where the job is based, as the posting says, or `null`. Left out when the agent doesn't read it (an image from before #355): unknown, not "not stated".
-- `workplace_type`: `remote`, `hybrid` or `onsite` when the posting says ("On-site", "in-office" and a leading "remote" are read too), or `null` when it says nothing. Left out when the agent doesn't read it or uses a word the app doesn't know.
-- `salary`: `{ min, max, currency }` for an annual salary in a currency the parser is sure of, read from the whole `description_text` as the store reads it on save; `null` when the posting shows no sign of a salary. Left out (unknown) for an hourly rate (the store makes it annual), a currency that could be another dollar, or pay the parser can't read.
+- `workplace_type`: `remote`, `hybrid` or `onsite` when the posting says ("On-site", "in-office", "in-person", "fully remote", "100% remote" and a leading "remote" are read too), or `null` when it says nothing. Left out when the agent doesn't read it, or for a word the app doesn't know ("flexible", "remote or hybrid"), which the agent passes through as written.
+- `salary`: `{ min, max, currency }` for a yearly figure with its currency stated next to it, in a currency the parser reads correctly, read from the whole `description_text` as the store reads it on save; `null` when the posting shows no sign of a salary. Left out (unknown) for an hourly, daily, weekly or monthly figure, a figure with no currency next to it, another currency next to it ("A$", "$… CAD"), or pay the parser can't read.
 
 Errors:
 - `400` when `description_text` is missing, empty or not a string.
 - `413` when it is longer than 100,000 characters, before any AI call.
-- `422` `{ "error": "This posting has text that reads like instructions to the AI, so it wasn’t read. Enter the details yourself." }` when the agent refuses it (`INJECTION_ACTION=refuse`).
+- `422` `{ "error": "This posting has text that reads like instructions to the AI, so it wasn’t read. Enter the details yourself." }` when the agent refuses it (`INJECTION_ACTION=refuse`). Score fit answers `422` "…so it wasn’t scored." for the same posting, and the n8n intake keeps the job and skips enrichment (201). Any other 422 from the agent is a `503` like other agent failures.
 - `required_skills`
 - `preferred_skills`
 - `responsibilities`

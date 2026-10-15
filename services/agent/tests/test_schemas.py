@@ -23,8 +23,9 @@ def test_parsed_job_reads_location_and_workplace():
 
 
 def test_parsed_job_workplace_is_one_the_api_knows():
-    # Mirrors PARSED_WORKPLACE_TYPES in apps/api/src/lib/analysis-core.ts. A workplace in other
-    # words is read; one the app doesn't know is None, never a failed parse (#355).
+    # Mirrors normalizeWorkplace in apps/api/src/lib/analysis-core.ts. A workplace in other
+    # words is read; any other word goes through as written, for the API to call unknown.
+    # None is only for a posting that says nothing (#355).
     cases = {
         "remote": "remote",
         "Remote": "remote",
@@ -33,14 +34,19 @@ def test_parsed_job_workplace_is_one_the_api_knows():
         "Onsite": "onsite",
         "on-site": "onsite",
         "On-site": "onsite",
+        "on  site": "onsite",
         "in-office": "onsite",
+        "in-person": "onsite",
         "remote-first": "remote",
         "Remote (US)": "remote",
-        "remote or hybrid": None,
-        "flexible": None,
-        "anywhere": None,
+        "Fully remote": "remote",
+        "100% remote": "remote",
+        "remote or hybrid": "remote or hybrid",
+        "flexible": "flexible",
+        "  ": None,
         "": None,
         None: None,
+        42: None,
     }
     for given, expected in cases.items():
         assert ParsedJob(workplace_type=given).workplace_type == expected, given
@@ -159,3 +165,10 @@ def test_parsed_job_joins_a_list_of_locations():
     parsed = ParsedJob(location=["London, UK", " Berlin, Germany ", ""])
     assert parsed.location == "London, UK; Berlin, Germany"
     assert ParsedJob(location=[]).location is None
+
+
+def test_parsed_job_keeps_only_the_text_places_of_a_location_list():
+    assert ParsedJob(location=["NYC", None]).location == "NYC"
+    assert ParsedJob(location=[1, "NYC", {"city": "x"}]).location == "NYC"
+    assert ParsedJob(location=[None]).location is None
+    assert ParsedJob(location=5).location is None

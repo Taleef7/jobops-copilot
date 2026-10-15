@@ -15,17 +15,26 @@ from typing import Any, Literal
 from pydantic import BaseModel, Field, field_validator
 
 Seniority = Literal["junior", "mid", "senior", "lead", "unknown"]
-# Mirrors PARSED_WORKPLACE_TYPES in apps/api/src/lib/analysis-core.ts (#355).
+# The workplaces the app knows. Mirrors normalizeWorkplace in apps/api/src/lib/analysis-core.ts
+# (#355): the same words map here, and the API calls anything else unknown.
 WorkplaceType = Literal["remote", "hybrid", "onsite"]
-_WORKPLACE_WORDS: dict[str, WorkplaceType] = {
-    "remote": "remote",
-    "hybrid": "hybrid",
-    "onsite": "onsite",
-    "on-site": "onsite",
-    "on site": "onsite",
-    "in-office": "onsite",
-    "in office": "onsite",
-}
+_ONSITE = re.compile(r"on[-\s]*site|in[-\s]*(?:office|person)")
+_REMOTE = re.compile(r"(?:fully\s|100%\s?)?remote\b")
+_NAMES_AN_OFFICE = re.compile(r"hybrid|office|on[-\s]*site|in[-\s]*person")
+
+
+def _workplace_word(value: str) -> str | None:
+    """The workplace in the app's words, the word as written when it isn't one, or None."""
+    word = " ".join(value.strip().lower().split())
+    if not word:
+        return None
+    if word in ("remote", "hybrid", "onsite"):
+        return word
+    if _ONSITE.fullmatch(word):
+        return "onsite"
+    if _REMOTE.match(word) and not _NAMES_AN_OFFICE.search(word):
+        return "remote"
+    return value.strip()
 ApplyRecommendation = Literal["apply", "review", "pass"]
 MessageType = Literal[
     "recruiter_email",
@@ -49,34 +58,28 @@ class ParsedJob(BaseModel):
         default=None,
         description="Where the job is based, in the posting's words, or null if it doesn't say.",
     )
-    workplace_type: WorkplaceType | None = Field(
+    workplace_type: str | None = Field(
         default=None,
         description="remote, hybrid or onsite when the posting says which, otherwise null.",
     )
 
     @field_validator("workplace_type", mode="before")
     @classmethod
-    def _workplace_in_known_words(cls, value: object) -> WorkplaceType | None:
-        # "On-site" or "Remote" is still the workplace, and a leading "remote" ("remote-first",
-        # "Remote (US)") is remote unless it also names an office or hybrid. Anything else is
-        # None, never a failed parse (#355).
-        if not isinstance(value, str):
-            return None
-        word = value.strip().lower()
-        if word in _WORKPLACE_WORDS:
-            return _WORKPLACE_WORDS[word]
-        if re.match(r"remote\b", word) and not re.search(r"hybrid|office|on-?\s?site", word):
-            return "remote"
-        return None
+    def _workplace_in_known_words(cls, value: object) -> str | None:
+        # "On-site", "Fully remote" or "Remote (US)" is still the workplace. Any other word goes
+        # through as written, for the API to call unknown; None is only for a posting that says
+        # nothing. Never a failed parse (#355).
+        return _workplace_word(value) if isinstance(value, str) else None
 
     @field_validator("location", mode="before")
     @classmethod
-    def _locations_in_one_line(cls, value: object) -> object:
-        # A posting can name several places, and the model may answer with a list (#355).
+    def _locations_in_one_line(cls, value: object) -> str | None:
+        # A posting can name several places, and the model may answer with a list: its text
+        # items, joined. Anything that isn't text is None, never a failed parse (#355).
         if isinstance(value, list):
-            places = [str(place).strip() for place in value if str(place).strip()]
+            places = [place.strip() for place in value if isinstance(place, str) and place.strip()]
             return "; ".join(places) or None
-        return value
+        return value if isinstance(value, str) else None
     required_skills: list[str] = Field(default_factory=list)
     preferred_skills: list[str] = Field(default_factory=list)
     responsibilities: list[str] = Field(default_factory=list)

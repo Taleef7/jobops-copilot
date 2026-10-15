@@ -6,28 +6,21 @@ export type ParsedJobSeniority = 'junior' | 'mid' | 'senior' | 'lead' | 'unknown
 export const PARSED_WORKPLACE_TYPES = ['remote', 'hybrid', 'onsite'] as const;
 export type ParsedWorkplaceType = (typeof PARSED_WORKPLACE_TYPES)[number];
 
-const WORKPLACE_WORDS: Record<string, ParsedWorkplaceType> = {
-  remote: 'remote',
-  hybrid: 'hybrid',
-  onsite: 'onsite',
-  'on-site': 'onsite',
-  'on site': 'onsite',
-  'in-office': 'onsite',
-  'in office': 'onsite',
-};
-
 /**
- * The parser's workplace in the app's words. Null stays null ("not stated"); a word the app
- * doesn't know is undefined (unknown). A leading "remote" ("remote-first", "Remote (US)") is
- * remote unless it also names an office or hybrid.
+ * The parser's workplace in the app's words. Null stays null ("not stated"). The agent
+ * passes a word it doesn't map through as written; one the app doesn't know is undefined
+ * (unknown). Mirrors ParsedJob's validator in services/agent/app/schemas.py (#355).
  */
 export function normalizeWorkplace(value: unknown): ParsedWorkplaceType | null | undefined {
   if (value === null) return null;
   if (typeof value !== 'string') return undefined;
-  const word = value.trim().toLowerCase();
-  const known = WORKPLACE_WORDS[word];
-  if (known) return known;
-  if (/^remote\b/.test(word) && !/hybrid|office|on-?\s?site/.test(word)) return 'remote';
+  const word = value.trim().toLowerCase().replace(/\s+/g, ' ');
+  if (word === 'remote' || word === 'hybrid' || word === 'onsite') return word;
+  if (/^(?:on[-\s]*site|in[-\s]*(?:office|person))$/.test(word)) return 'onsite';
+  // "remote-first", "Remote (US)", "fully remote", "100% remote", unless it also names an office.
+  if (/^(?:fully\s|100%\s?)?remote\b/.test(word) && !/hybrid|office|on[-\s]*site|in[-\s]*person/.test(word)) {
+    return 'remote';
+  }
   return undefined;
 }
 
