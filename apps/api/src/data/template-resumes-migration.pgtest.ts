@@ -79,6 +79,8 @@ test(
       );
 
       await client.query(sql);
+      // Safe to run again (the runner re-runs migrations after a lost history).
+      await client.query(sql);
 
       const { rows } = await client.query<{ id: string; is_base: boolean; based_on: ResumeVersionRecord['basedOn'] }>(
         'select id, is_base, based_on from resume_versions where user_id = $1',

@@ -13,6 +13,10 @@
 --
 -- Dry run on live, read-only: DRY_RUN_PLACEHOLDER
 
+-- The whole table, first: no lock upgrade later (a deadlock with a delete at boot), and no
+-- new row slipping in before the constraint. It's a small table; the lock lasts milliseconds.
+LOCK TABLE resume_versions IN ACCESS EXCLUSIVE MODE;
+
 DELETE FROM notifications
 WHERE dedupe_key IN (
   SELECT 'approval_needed:resume:' || id
@@ -32,7 +36,9 @@ WHERE kind = 'application_pack'
 DELETE FROM resume_versions
 WHERE is_base = false AND (based_on -> 'grounding' ->> 'version') IS DISTINCT FROM '1';
 
--- From now on a tailored version carries the grounding marker, whoever writes it.
+-- From now on a tailored version carries the grounding marker, whoever writes it. Safe to run
+-- again, like the migrations before it (the runner can re-run them after a lost history).
+ALTER TABLE resume_versions DROP CONSTRAINT IF EXISTS resume_versions_tailored_is_grounded;
 ALTER TABLE resume_versions
   ADD CONSTRAINT resume_versions_tailored_is_grounded
   CHECK (is_base OR (based_on -> 'grounding' ->> 'version') IS NOT NULL);
