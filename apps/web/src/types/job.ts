@@ -129,9 +129,12 @@ export interface Job {
   source: string;
   company: string;
   title: string;
+  /** Empty when the posting doesn't say (#355). */
   location: string;
+  /** Empty when the posting doesn't say (#355). */
   employmentType: string;
-  workplaceType: WorkplaceType;
+  /** Null when the posting doesn't say (#355). */
+  workplaceType: WorkplaceType | null;
   datePosted?: string;
   discoveredAt: string;
   descriptionText: string;

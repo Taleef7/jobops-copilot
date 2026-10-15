@@ -1,7 +1,13 @@
-import type { WorkplaceType } from '@/types/job';
+import type { Job, WorkplaceType } from '@/types/job';
 
-export function isDuplicateRemote(location: string, workplaceType: WorkplaceType): boolean {
+export function isDuplicateRemote(location: string, workplaceType: WorkplaceType | null): boolean {
   return location.trim().toLowerCase() === 'remote' && workplaceType === 'remote';
+}
+
+/** "Company · Location" for a list row, or the company alone when the job states no location (#355). */
+export function companyAndLocation(job: Pick<Job, 'company' | 'location'>): string {
+  const location = job.location.trim();
+  return location ? `${job.company} · ${location}` : job.company;
 }
 
 /**

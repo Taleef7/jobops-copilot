@@ -48,7 +48,7 @@ async function buildJobContext(
     `Job ID: ${job.id}`,
     `Title: ${job.title}`,
     `Company: ${job.company}`,
-    `Location: ${job.location} (${job.workplaceType})`,
+    `Location: ${job.location || 'not stated'} (${job.workplaceType ?? 'workplace not stated'})`,
     job.fitScore != null ? `Fit score: ${job.fitScore}` : null,
     analysis?.fitSummary ? `Fit summary: ${analysis.fitSummary}` : null,
     matched.length ? `Matched skills: ${matched.join(', ')}` : null,

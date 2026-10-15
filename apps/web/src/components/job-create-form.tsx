@@ -17,7 +17,7 @@ import type { Job } from '@/types/job';
 const capitalise = (value: string) => value.charAt(0).toUpperCase() + value.slice(1);
 
 const workplaceTypeOptions = (
-  ['remote', 'hybrid', 'onsite', 'flexible'] as const satisfies readonly Job['workplaceType'][]
+  ['remote', 'hybrid', 'onsite', 'flexible'] as const satisfies readonly NonNullable<Job['workplaceType']>[]
 ).map((value) => ({ value, label: capitalise(value) }));
 
 const priorityOptions = (
@@ -40,7 +40,7 @@ type FormState = {
   source: string;
   location: string;
   employmentType: string;
-  workplaceType: Job['workplaceType'];
+  workplaceType: NonNullable<Job['workplaceType']>;
   priority: Job['priority'];
   notes: string;
   descriptionText: string;

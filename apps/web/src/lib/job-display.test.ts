@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { isDuplicateRemote, postingHref } from './job-display';
+import { companyAndLocation, isDuplicateRemote, postingHref } from './job-display';
 
 describe('isDuplicateRemote', () => {
   it('returns true when location is Remote and workplaceType is remote', () => {
@@ -17,6 +17,20 @@ describe('isDuplicateRemote', () => {
   });
   it('returns false when workplaceType is not remote', () => {
     expect(isDuplicateRemote('Remote', 'hybrid')).toBe(false);
+  });
+  it('returns false when the workplace is not stated (#355)', () => {
+    expect(isDuplicateRemote('Remote', null)).toBe(false);
+  });
+});
+
+// #355: a job can state no location; the list line is then the company alone.
+describe('companyAndLocation', () => {
+  it('joins the company and the location', () => {
+    expect(companyAndLocation({ company: 'Acme', location: 'London, United Kingdom' })).toBe('Acme · London, United Kingdom');
+  });
+  it('is the company alone when the location is not stated', () => {
+    expect(companyAndLocation({ company: 'Acme', location: '' })).toBe('Acme');
+    expect(companyAndLocation({ company: 'Acme', location: '  ' })).toBe('Acme');
   });
 });
 

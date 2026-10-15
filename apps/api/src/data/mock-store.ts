@@ -67,7 +67,8 @@ function extractKeywords(text: string): string[] {
 
 function createBaseJob(body: CreateJobBody): JobRecord {
   const timestamp = now();
-  const workplaceType = body.workplaceType ?? 'remote';
+  // What the posting doesn't state stays unstated, not "Remote" (#355).
+  const workplaceType = body.workplaceType ?? null;
   const parsedSalary =
     body.salaryMin == null && body.salaryMax == null
       ? parseSalaryFromText(body.descriptionText)
@@ -93,8 +94,8 @@ function createBaseJob(body: CreateJobBody): JobRecord {
     source: body.source ?? 'manual',
     company: body.company.trim(),
     title: body.title.trim(),
-    location: body.location?.trim() ?? 'Remote',
-    employmentType: body.employmentType?.trim() ?? 'Full-time',
+    location: body.location?.trim() ?? '',
+    employmentType: body.employmentType?.trim() ?? '',
     workplaceType,
     datePosted: body.datePosted,
     discoveredAt: timestamp,

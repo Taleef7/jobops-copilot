@@ -346,3 +346,38 @@ test('the file store saves a 0–1 confidence as a percentage and reads old rows
     await rm(tempDir, { recursive: true, force: true });
   }
 });
+
+// #355: a job added without a location, workplace or employment type was stored as
+// "Remote", "remote" and "Full-time". What the posting doesn't state stays unstated.
+test('createJob stores no location, workplace or employment type it was not given', async () => {
+  const originalCwd = process.cwd();
+  const tempDir = await mkdtemp(join(tmpdir(), 'jobops-unstated-'));
+  delete process.env.DATABASE_URL;
+  process.chdir(tempDir);
+  await resetJobStoreForTests();
+  try {
+    const unstated = await createJob('u_unstated', { company: 'Acme', title: 'Engineer', descriptionText: 'Build APIs.' });
+    for (const job of [unstated, await getJobById('u_unstated', unstated.id)]) {
+      assert.equal(job?.location, '');
+      assert.equal(job?.workplaceType, null);
+      assert.equal(job?.employmentType, '');
+    }
+
+    const stated = await createJob('u_unstated', {
+      company: 'Globex',
+      title: 'Engineer',
+      descriptionText: 'Build APIs in London.',
+      location: 'London, United Kingdom',
+      workplaceType: 'hybrid',
+      employmentType: 'Contract',
+    });
+    const fetched = await getJobById('u_unstated', stated.id);
+    assert.equal(fetched?.location, 'London, United Kingdom');
+    assert.equal(fetched?.workplaceType, 'hybrid');
+    assert.equal(fetched?.employmentType, 'Contract');
+  } finally {
+    process.chdir(originalCwd);
+    await resetJobStoreForTests();
+    await rm(tempDir, { recursive: true, force: true });
+  }
+});

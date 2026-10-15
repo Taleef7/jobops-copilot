@@ -108,6 +108,7 @@ Validation rules:
 - `jobUrl`, when provided, must be a valid URL and unique.
 - `priority`, when provided, must be `high`, `medium`, or `low`.
 - `workplaceType`, when provided, must be `remote`, `hybrid`, `onsite`, or `flexible`.
+- `location`, `employmentType` and `workplaceType` are stored as given. Left out, they stay unstated: a job reads back with `location` and `employmentType` empty and `workplaceType` `null`, never a default such as "Remote" (#355).
 
 Example response:
 

@@ -91,11 +91,16 @@ export default async function JobDetailPage({ params }: JobDetailParams) {
             ) : null}
             <div className="flex flex-wrap items-center gap-2">
               <StatusPill status={job.status} />
-              {!isDuplicateRemote(job.location, job.workplaceType) ? (
+              {/* What the posting doesn't state is left out, not filled in (#355). */}
+              {job.location.trim() && !isDuplicateRemote(job.location, job.workplaceType) ? (
                 <Badge variant="outline" className="capitalize">{job.location}</Badge>
               ) : null}
-              <Badge variant="outline" className="capitalize">{job.workplaceType}</Badge>
-              <Badge variant="outline" className="capitalize">{job.employmentType}</Badge>
+              {job.workplaceType ? (
+                <Badge variant="outline" className="capitalize">{job.workplaceType}</Badge>
+              ) : null}
+              {job.employmentType.trim() ? (
+                <Badge variant="outline" className="capitalize">{job.employmentType}</Badge>
+              ) : null}
               <Badge variant="outline" className="capitalize">{job.priority} priority</Badge>
             </div>
           </div>

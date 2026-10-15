@@ -118,6 +118,29 @@ it('has no posting link without a web address to open', async () => {
   }
 });
 
+// #355: what the posting doesn't state is not shown as a value, nor as an empty badge.
+it('shows no location, workplace or employment type the job does not state', async () => {
+  loadJob.mockResolvedValueOnce({
+    job: makeJob({ location: '', workplaceType: null, employmentType: '' }),
+    error: null,
+  });
+  const { container } = render(await JobDetailPage(params(ID)));
+
+  const badges = [...container.querySelectorAll('.rounded-4xl')];
+  expect(badges.length).toBeGreaterThan(0);
+  for (const badge of badges) expect(badge.textContent?.trim()).not.toBe('');
+  expect(container.textContent).not.toMatch(/null|Remote|Full-time/i);
+});
+
+it('shows the location, workplace and employment type the job states', async () => {
+  loadJob.mockResolvedValueOnce({ job: makeJob(), error: null });
+  render(await JobDetailPage(params(ID)));
+
+  expect(screen.getByText('Austin, TX')).toBeInTheDocument();
+  expect(screen.getByText('hybrid')).toBeInTheDocument();
+  expect(screen.getByText('Full-time')).toBeInTheDocument();
+});
+
 // Score fit's one-at-a-time guard belongs to one job: another job gets its own instance,
 // so a run for the last job can't block the next one's (#353).
 it('gives each job its own Score fit', async () => {
