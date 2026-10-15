@@ -100,3 +100,10 @@ it('shows the reason and a retry when an agent run fails', async () => {
   expect(await screen.findByText('Tell me about a hard bug')).toBeInTheDocument();
   expect(screen.queryByRole('alert')).not.toBeInTheDocument();
 });
+
+// #356: the panel says what it does, not which framework or service runs it.
+it('does not describe how the agents are built', () => {
+  const { container } = render(<JobAgentsPanel jobId="job-1" />);
+
+  expect(container.textContent).not.toMatch(/LangChain|Python|auditable/i);
+});

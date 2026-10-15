@@ -1,10 +1,11 @@
 import type { MetadataRoute } from 'next';
+import { PRODUCT_SENTENCE } from '@/lib/product';
 
 export default function manifest(): MetadataRoute.Manifest {
   return {
     name: 'JobOps Copilot',
     short_name: 'JobOps',
-    description: 'AI Job Search Platform and Application Operations',
+    description: PRODUCT_SENTENCE,
     start_url: '/',
     display: 'standalone',
     background_color: '#0b0e14',

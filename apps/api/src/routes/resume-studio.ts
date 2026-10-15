@@ -138,27 +138,20 @@ resumeStudioRouter.post('/jobs/:id/tailor', async (request, response, next) => {
     // "Also add them to my base résumé" in the tailor window: after the draft is saved, so a
     // failed tailoring changes nothing. The keywords go on the base résumé as it is now: the
     // user may have saved it in Settings, or another run added keywords, while the AI worked.
-    // The draft is saved either way: a failure here mustn't send the user to tailor again (a
-    // paid call), so it's reported, not thrown.
+    // Both copies, the profile's and the base version's, change together (#408). The draft is
+    // saved either way: a failure here mustn't send the user to tailor again (a paid call), so
+    // it's reported, not thrown.
     let addedToBase = false;
     if (body.addToBase === true && confirmedKeywords.length > 0) {
-      let updatedBase: ReturnType<typeof normalizeStructuredResume> = null;
       const currentBaseVersion = await getBaseResumeVersion(userId).catch(() => null);
       try {
-        updatedBase = await changeBaseResume(userId, currentBaseVersion?.structuredResume ?? null, (current) => {
+        await changeBaseResume(userId, currentBaseVersion?.structuredResume ?? null, (current) => {
           const next = normalizeStructuredResume(current);
           return next && addSkills(next, confirmedKeywords).length > 0 ? next : null;
         });
         addedToBase = true;
       } catch (error) {
         console.error('[resume-studio] adding confirmed keywords to the base résumé failed', error);
-      }
-      // The base version's copy follows the profile's, which Settings shows. Failing here leaves
-      // the keywords on the base résumé, so it's only logged.
-      if (updatedBase && currentBaseVersion) {
-        await updateResumeVersion(userId, currentBaseVersion.id, { structuredResume: updatedBase }).catch((error: unknown) =>
-          console.error("[resume-studio] updating the base version's copy failed", error),
-        );
       }
     }
 

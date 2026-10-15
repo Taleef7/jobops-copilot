@@ -1,3 +1,4 @@
+import type { PoolClient } from 'pg';
 import { getPool } from '@/lib/postgres';
 import type { ResumeVersionRecord } from '@/types';
 import type { UpdateOptions } from './resume-version-store';
@@ -52,9 +53,9 @@ function mapRow(row: ResumeVersionRow): ResumeVersionRecord {
   };
 }
 
-export async function insertResumeVersion(record: ResumeVersionRecord): Promise<ResumeVersionRecord> {
-  const pool = getPool()!;
-  const { rows } = await pool.query<ResumeVersionRow>(
+export async function insertResumeVersion(record: ResumeVersionRecord, client?: PoolClient): Promise<ResumeVersionRecord> {
+  const db = client ?? getPool()!;
+  const { rows } = await db.query<ResumeVersionRow>(
     `
       INSERT INTO resume_versions (
         id, user_id, job_id, base_resume_file_url, tailored_resume_file_url,
@@ -110,9 +111,9 @@ export async function listResumeVersionsForUser(userId: string): Promise<ResumeV
   return rows.map(mapRow);
 }
 
-export async function getBaseResumeVersion(userId: string): Promise<ResumeVersionRecord | null> {
-  const pool = getPool()!;
-  const { rows } = await pool.query<ResumeVersionRow>(
+export async function getBaseResumeVersion(userId: string, client?: PoolClient): Promise<ResumeVersionRecord | null> {
+  const db = client ?? getPool()!;
+  const { rows } = await db.query<ResumeVersionRow>(
     `SELECT * FROM resume_versions WHERE user_id = $1 AND is_base = true ORDER BY created_at DESC LIMIT 1`,
     [userId],
   );
@@ -124,8 +125,9 @@ export async function updateResumeVersion(
   id: string,
   patch: Partial<ResumeVersionRecord>,
   options: UpdateOptions = {},
+  client?: PoolClient,
 ): Promise<ResumeVersionRecord | null> {
-  const pool = getPool()!;
+  const db = client ?? getPool()!;
   // At least a millisecond on from before: updatedAt (to the millisecond) is what a conditional
   // update matches, so a write in the same millisecond must still change it.
   const sets: string[] = ["updated_at = greatest(now(), updated_at + interval '1 millisecond')"];
@@ -176,7 +178,7 @@ export async function updateResumeVersion(
     values.push(options.expect.approved);
   }
 
-  const { rows } = await pool.query<ResumeVersionRow>(
+  const { rows } = await db.query<ResumeVersionRow>(
     `
       UPDATE resume_versions
       SET ${sets.join(', ')}

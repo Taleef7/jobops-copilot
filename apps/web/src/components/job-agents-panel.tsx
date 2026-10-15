@@ -183,11 +183,6 @@ export function JobAgentsPanel({
 
   return (
     <div className="space-y-4">
-      <p className="text-muted-foreground text-sm">
-        Real LangChain agents in the Python service. The research agent uses a web-search tool; all
-        return structured, auditable output. Each agent has its own tab.
-      </p>
-
       <Tabs defaultValue="interview">
         <TabsList>
           <TabsTrigger value="interview">Interview prep</TabsTrigger>

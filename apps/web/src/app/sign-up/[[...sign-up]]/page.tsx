@@ -4,7 +4,7 @@ import { AuthShell } from '@/components/auth-shell';
 
 export const metadata: Metadata = {
   title: 'Create your account',
-  description: 'Create a JobOps Copilot workspace and start tracking roles with AI.',
+  description: 'Create your JobOps Copilot account.',
 };
 
 export default function SignUpPage() {

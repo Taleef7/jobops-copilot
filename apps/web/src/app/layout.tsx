@@ -5,15 +5,15 @@ import { ThemeProvider } from '@/components/theme-provider';
 import { Toaster } from '@/components/ui/sonner';
 import { TooltipProvider } from '@/components/ui/tooltip';
 import { PwaRegister } from '@/components/pwa-register';
+import { PRODUCT_SENTENCE } from '@/lib/product';
 import './globals.css';
 
 const geistSans = Geist({ subsets: ['latin'], variable: '--font-sans', display: 'swap' });
 const geistMono = Geist_Mono({ subsets: ['latin'], variable: '--font-mono', display: 'swap' });
 
 const siteUrl = process.env.NEXT_PUBLIC_SITE_URL ?? 'https://jobops-web.azurewebsites.net';
-const siteTitle = 'JobOps Copilot — AI Job Search Platform';
-const siteDescription =
-  'An AI-agent operations platform for the job search: track roles, analyze fit with RAG, run multi-step agents, and surface time-series insights — human-approved at every step.';
+const siteTitle = 'JobOps Copilot';
+const siteDescription = PRODUCT_SENTENCE;
 
 export const metadata: Metadata = {
   metadataBase: new URL(siteUrl),
