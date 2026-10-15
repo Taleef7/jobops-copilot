@@ -34,10 +34,7 @@ function makeFeedItem(overrides?: Partial<Job>): FeedItem {
     analysis: {
       requiredSkills: ['Kubernetes', 'Go'],
       preferredSkills: ['Terraform'],
-      matchedSkills: [
-        { skill: 'Kubernetes', evidence: '' },
-        { skill: 'Go', evidence: '' },
-      ],
+      matchedSkills: ['Kubernetes', 'Go'],
       missingSkills: [],
       atsKeywords: [],
       fitSummary: 'Great role fit',

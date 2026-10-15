@@ -54,10 +54,7 @@ function makeJob(overrides: Partial<JobRecord> = {}): JobRecord {
       requiredSkills: ['TypeScript', 'Azure Functions'],
       preferredSkills: ['n8n'],
       matchedSkills: [],
-      missingSkills: [
-        { skill: 'TypeScript', postingQuote: '' },
-        { skill: 'Azure Functions', postingQuote: '' },
-      ],
+      missingSkills: ['TypeScript', 'Azure Functions'],
       atsKeywords: ['TypeScript', 'Azure Functions', 'n8n'],
       fitSummary: 'Initial placeholder analysis waiting for AI processing.',
       recommendedResumeAngle: 'Emphasize truthful, relevant experience from the current resume.',
@@ -232,11 +229,8 @@ test('creates and enriches a job-intake webhook payload', async () => {
     analysis: {
       requiredSkills: ['TypeScript', 'Azure Functions', 'n8n'],
       preferredSkills: ['PostgreSQL'],
-      matchedSkills: [
-        { skill: 'TypeScript', evidence: '' },
-        { skill: 'n8n', evidence: '' },
-      ],
-      missingSkills: [{ skill: 'Azure Functions', postingQuote: '' }],
+      matchedSkills: ['TypeScript', 'n8n'],
+      missingSkills: ['Azure Functions'],
       atsKeywords: ['TypeScript', 'Azure Functions', 'n8n', 'PostgreSQL'],
       fitSummary: 'Matched core automation skills and should stay a human-reviewed shortlist.',
       recommendedResumeAngle: 'Lead with truthful automation and serverless delivery examples.',

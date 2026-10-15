@@ -59,6 +59,8 @@ type JobAnalysisRow = {
   preferred_skills: unknown;
   matched_skills: unknown;
   missing_skills: unknown;
+  matched_skill_details?: unknown;
+  missing_skill_details?: unknown;
   ats_keywords: unknown;
   fit_summary: string;
   recommended_resume_angle: string;
@@ -118,7 +120,7 @@ function toTextArray(value: unknown): string[] {
 }
 
 /** The job's analysis, or null when it has none yet (#349: no made-up default). */
-function mapAnalysis(row: JobAnalysisRow | undefined): JobAnalysis | null {
+function mapAnalysis(row: JobAnalysisRow | undefined, fitScore: number | null): JobAnalysis | null {
   if (!row) {
     return null;
   }
@@ -128,20 +130,26 @@ function mapAnalysis(row: JobAnalysisRow | undefined): JobAnalysis | null {
       ? (row.sub_signals as JobAnalysis['subSignals'])
       : undefined;
 
-  // Rows saved before #354 hold skills as "label: why" strings and default sub-signals.
-  const analysis = normalizeAnalysis({
-    requiredSkills: toTextArray(row.required_skills),
-    preferredSkills: toTextArray(row.preferred_skills),
-    matchedSkills: toMatchedSkills(row.matched_skills),
-    missingSkills: toMissingSkills(row.missing_skills),
-    atsKeywords: toTextArray(row.ats_keywords),
-    fitSummary: row.fit_summary,
-    recommendedResumeAngle: row.recommended_resume_angle,
-    applyRecommendation: row.apply_recommendation,
-    confidenceScore: row.confidence_score ?? null,
-    modelUsed: row.model_used,
-    subSignals,
-  });
+  // Rows saved before #354 hold skills as "label: why" strings, no details, and default
+  // sub-signals.
+  const analysis = normalizeAnalysis(
+    {
+      requiredSkills: toTextArray(row.required_skills),
+      preferredSkills: toTextArray(row.preferred_skills),
+      matchedSkills: toTextArray(row.matched_skills),
+      missingSkills: toTextArray(row.missing_skills),
+      matchedSkillDetails: toMatchedSkills(row.matched_skill_details),
+      missingSkillDetails: toMissingSkills(row.missing_skill_details),
+      atsKeywords: toTextArray(row.ats_keywords),
+      fitSummary: row.fit_summary,
+      recommendedResumeAngle: row.recommended_resume_angle,
+      applyRecommendation: row.apply_recommendation,
+      confidenceScore: row.confidence_score ?? null,
+      modelUsed: row.model_used,
+      subSignals,
+    },
+    fitScore,
+  );
 
   return validateJobAnalysis(analysis) ? analysis : null;
 }
@@ -196,7 +204,7 @@ function mapJob(row: JobRow, analysisRow?: JobAnalysisRow, outreachRows: Outreac
     notes: row.notes ?? undefined,
     nextAction: row.next_action ?? 'Review the job and decide on the next step.',
     nextActionDue: toIsoString(row.next_action_due),
-    analysis: mapAnalysis(analysisRow),
+    analysis: mapAnalysis(analysisRow, row.fit_score),
     outreach: outreachRows.map(mapOutreach),
     salaryMin: row.salary_min ?? null,
     salaryMax: row.salary_max ?? null,
@@ -743,8 +751,9 @@ export async function saveJobAnalysis(
   }
 
   const timestamp = new Date().toISOString();
-  // Confidence on 0–100 (a 0.65 becomes 65; the column takes integers 0–100), skills short (#354).
-  const stored = normalizeAnalysis(analysis);
+  // Confidence on 0–100 (a 0.65 becomes 65; the column takes integers 0–100). Skills keep short
+  // labels as strings, which every API version reads, with their details alongside (#354).
+  const stored = normalizeAnalysis(analysis, fitScore === undefined ? job.fitScore : fitScore);
 
   await pool.query(
     `
@@ -762,9 +771,12 @@ export async function saveJobAnalysis(
         confidence_score,
         model_used,
         sub_signals,
-        created_at
+        created_at,
+        matched_skill_details,
+        missing_skill_details
       ) values (
-        $1, $2, $3::jsonb, $4::jsonb, $5::jsonb, $6::jsonb, $7::jsonb, $8, $9, $10, $11, $12, $13::jsonb, $14
+        $1, $2, $3::jsonb, $4::jsonb, $5::jsonb, $6::jsonb, $7::jsonb, $8, $9, $10, $11, $12, $13::jsonb, $14,
+        $15::jsonb, $16::jsonb
       )
       on conflict (job_id) do update set
         required_skills = excluded.required_skills,
@@ -778,7 +790,9 @@ export async function saveJobAnalysis(
         confidence_score = excluded.confidence_score,
         model_used = excluded.model_used,
         sub_signals = excluded.sub_signals,
-        created_at = excluded.created_at
+        created_at = excluded.created_at,
+        matched_skill_details = excluded.matched_skill_details,
+        missing_skill_details = excluded.missing_skill_details
     `,
     [
       randomUUID(),
@@ -795,6 +809,8 @@ export async function saveJobAnalysis(
       stored.modelUsed,
       JSON.stringify(stored.subSignals ?? {}),
       timestamp,
+      JSON.stringify(stored.matchedSkillDetails ?? []),
+      JSON.stringify(stored.missingSkillDetails ?? []),
     ],
   );
 

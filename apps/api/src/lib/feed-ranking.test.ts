@@ -27,10 +27,7 @@ function createMockJob(overrides: Partial<JobRecord> = {}): JobRecord {
     analysis: {
       requiredSkills: ['TypeScript', 'Node.js'],
       preferredSkills: ['PostgreSQL'],
-      matchedSkills: [
-        { skill: 'TypeScript', evidence: '' },
-        { skill: 'Node.js', evidence: '' },
-      ],
+      matchedSkills: ['TypeScript', 'Node.js'],
       missingSkills: [],
       atsKeywords: ['TypeScript', 'Node.js'],
       fitSummary: 'Strong match',

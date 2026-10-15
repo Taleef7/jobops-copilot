@@ -28,10 +28,7 @@ function makeJob(id: string, company: string, title: string): Job {
     analysis: {
       requiredSkills: [],
       preferredSkills: [],
-      matchedSkills: [
-        { skill: 'Python', evidence: '' },
-        { skill: 'TypeScript', evidence: '' },
-      ],
+      matchedSkills: ['Python', 'TypeScript'],
       missingSkills: [],
       atsKeywords: [],
       fitSummary: 'Summary',

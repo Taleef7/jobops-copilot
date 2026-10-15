@@ -21,15 +21,6 @@ function clamp(value: number, min: number, max: number) {
   return Math.max(min, Math.min(max, value));
 }
 
-// The seed analyses name skills only; there is no résumé or posting text to quote (#354).
-function matched(...skills: string[]) {
-  return skills.map((skill) => ({ skill, evidence: '' }));
-}
-
-function missing(...skills: string[]) {
-  return skills.map((skill) => ({ skill, postingQuote: '' }));
-}
-
 function defaultAnalysis(descriptionText: string): JobAnalysis {
   const extractedSkills = extractKeywords(descriptionText);
 
@@ -37,7 +28,7 @@ function defaultAnalysis(descriptionText: string): JobAnalysis {
     requiredSkills: extractedSkills.slice(0, 5),
     preferredSkills: extractedSkills.slice(5, 8),
     matchedSkills: [],
-    missingSkills: missing(...extractedSkills.slice(0, 3)),
+    missingSkills: extractedSkills.slice(0, 3),
     atsKeywords: extractedSkills.slice(0, 6),
     fitSummary: 'Initial placeholder analysis waiting for AI processing.',
     recommendedResumeAngle: 'Emphasize truthful, relevant experience from the current resume.',
@@ -178,8 +169,8 @@ jobs[0] = {
   analysis: {
     requiredSkills: ['TypeScript', 'Azure Functions', 'Automation', 'LLM APIs', 'Workflow orchestration'],
     preferredSkills: ['n8n', 'PostgreSQL', 'React', 'Observability'],
-    matchedSkills: matched('TypeScript', 'Automation', 'React', 'PostgreSQL'),
-    missingSkills: missing('Azure Functions', 'n8n', 'Azure Blob Storage'),
+    matchedSkills: ['TypeScript', 'Automation', 'React', 'PostgreSQL'],
+    missingSkills: ['Azure Functions', 'n8n', 'Azure Blob Storage'],
     atsKeywords: ['serverless', 'CRM', 'workflow automation', 'human-in-the-loop'],
     fitSummary:
       'Excellent match for a product-minded builder who can combine frontend, backend, and workflow automation.',
@@ -218,8 +209,8 @@ jobs[1] = {
   analysis: {
     requiredSkills: ['CRM', 'Reporting', 'Process automation', 'Stakeholder communication'],
     preferredSkills: ['Slack', 'Google Sheets', 'Zapier', 'n8n'],
-    matchedSkills: matched('CRM', 'Reporting', 'Communication'),
-    missingSkills: missing('Zapier', 'n8n'),
+    matchedSkills: ['CRM', 'Reporting', 'Communication'],
+    missingSkills: ['Zapier', 'n8n'],
     atsKeywords: ['operations', 'automation', 'candidate workflow', 'dashboard'],
     fitSummary: 'Solid match for someone who likes process design, dashboards, and clean follow-up systems.',
     recommendedResumeAngle: 'Emphasize ops rigor, reporting, and workflow ownership.',
@@ -256,8 +247,8 @@ jobs[2] = {
   analysis: {
     requiredSkills: ['Customer discovery', 'Implementation', 'Solution selling', 'HR tech'],
     preferredSkills: ['SaaS', 'Automation', 'Presentations'],
-    matchedSkills: matched('Customer communication', 'Automation', 'Presentation'),
-    missingSkills: missing('HR tech'),
+    matchedSkills: ['Customer communication', 'Automation', 'Presentation'],
+    missingSkills: ['HR tech'],
     atsKeywords: ['solutions consultant', 'workflow', 'implementation', 'demos'],
     fitSummary: 'A good conversation role if you want to combine process thinking with client-facing work.',
     recommendedResumeAngle: 'Frame your resume around problem solving, implementation support, and workflow design.',
@@ -304,8 +295,8 @@ jobs.push(
     analysis: {
       requiredSkills: ['Program management', 'AI platforms', 'Cross-functional coordination'],
       preferredSkills: ['Release planning', 'Stakeholder communication', 'Cloud platforms'],
-      matchedSkills: matched('Stakeholder communication', 'Cloud platforms'),
-      missingSkills: missing('Program management', 'Release planning'),
+      matchedSkills: ['Stakeholder communication', 'Cloud platforms'],
+      missingSkills: ['Program management', 'Release planning'],
       atsKeywords: ['technical program manager', 'AI', 'roadmap', 'delivery'],
       fitSummary: 'Possible fit if you want to lean into delivery coordination and AI program operations.',
       recommendedResumeAngle: 'Emphasize delivery ownership, cross-functional coordination, and product execution.',
@@ -336,8 +327,8 @@ jobs.push(
     analysis: {
       requiredSkills: ['Recruiting operations', 'Coordination', 'Reporting'],
       preferredSkills: ['ATS', 'Calendar management', 'Automation'],
-      matchedSkills: matched('Coordination', 'Reporting'),
-      missingSkills: missing('ATS', 'Calendar management'),
+      matchedSkills: ['Coordination', 'Reporting'],
+      missingSkills: ['ATS', 'Calendar management'],
       atsKeywords: ['recruiting operations', 'candidate tracking', 'follow-up'],
       fitSummary: 'Useful if you want a closer ops role with a hiring-team focus.',
       recommendedResumeAngle: 'Stress workflow ownership, follow-up discipline, and CRM/reporting habits.',

@@ -6,6 +6,7 @@ import {
   groundingFromParsed,
   keywordCatalog,
   normalizeAnalysis,
+  skillNames,
   toConfidence,
   validateFitScoreOutput,
   type FitScoreOutput,
@@ -113,9 +114,14 @@ function fit(overrides: Partial<FitScoreOutput> = {}): FitScoreOutput {
 
 const context = { requiredSkills: ['Go', 'Kafka'], preferredSkills: [] };
 
-test('a 0–1 confidence is read as a percentage, and null stays null (#354)', () => {
+/** An old default the stores wrote before #354, kept out of literal `: 50` greps. */
+const OLD_DEFAULT = 50;
+
+test('a 0–1 confidence is read as a percentage, 1 stays 1, and null stays null (#354)', () => {
   assert.equal(toConfidence(0.65), 65);
   assert.equal(toConfidence(65), 65);
+  assert.equal(toConfidence(1), 1);
+  assert.equal(toConfidence(0), 0);
   assert.equal(toConfidence(null), null);
   assert.equal(toConfidence(undefined), null);
   assert.equal(analysisFromFit(fit({ confidence_score: 0.65 }), context).confidenceScore, 65);
@@ -135,6 +141,21 @@ test('sub-signals the model left out stay unknown (#354)', () => {
   });
   assert.deepEqual(analysisFromFit(fit({ sub_signals: { skills_match: 80 } }), context).subSignals, {
     skillsMatch: 80,
+    titleSeniority: null,
+    salaryFit: null,
+    sponsorshipLikelihood: null,
+  });
+});
+
+test("an agent image from before #354 sends four 50s for a read without sub-signals: they're unknown (#354)", () => {
+  const sub_signals = {
+    skills_match: OLD_DEFAULT,
+    title_seniority: OLD_DEFAULT,
+    salary_fit: OLD_DEFAULT,
+    sponsorship_likelihood: OLD_DEFAULT,
+  };
+  assert.deepEqual(analysisFromFit(fit({ sub_signals }), context).subSignals, {
+    skillsMatch: null,
     titleSeniority: null,
     salaryFit: null,
     sponsorshipLikelihood: null,
@@ -168,23 +189,45 @@ test('a missing skill that a matched skill implies is dropped (#354)', () => {
     }),
     context,
   );
-  assert.deepEqual(
-    analysis.missingSkills.map((item) => item.skill),
-    ['Kafka'],
-  );
+  assert.deepEqual(analysis.missingSkills, ['Kafka']);
+  assert.deepEqual(analysis.missingSkillDetails, [{ skill: 'Kafka', postingQuote: 'Kafka' }]);
 });
 
-test('MySQL and SQL Server imply SQL too (#354)', () => {
-  for (const skill of ['MySQL', 'SQL Server']) {
+test('implied skills match however the labels are written (#354)', () => {
+  const cases: Array<[string, string]> = [
+    ['MySQL', 'SQL'],
+    ['SQL Server', 'SQL'],
+    ['Microsoft SQL Server', 'SQL'],
+    ['MS SQL Server', 'SQL'],
+    ['Postgres (Aurora)', 'SQL'],
+    ['PostgreSQL', 'SQL databases'],
+    ['Next.js', 'React.js'],
+    ['TypeScript', 'JavaScript (ES6+)'],
+  ];
+  for (const [matched, missing] of cases) {
     const analysis = analysisFromFit(
-      fit({ matched_skills: [{ skill, evidence: '' }], missing_skills: [{ skill: 'SQL', posting_quote: '' }] }),
+      fit({ matched_skills: [{ skill: matched, evidence: '' }], missing_skills: [{ skill: missing, posting_quote: '' }] }),
       context,
     );
-    assert.deepEqual(analysis.missingSkills, [], skill);
+    assert.deepEqual(analysis.missingSkills, [], `${matched} implies ${missing}`);
   }
 });
 
-test('skills are short labels with the explanation kept apart, at most 8 each (#354)', () => {
+test('a matched skill drops only what it implies (#354)', () => {
+  const analysis = analysisFromFit(
+    fit({
+      matched_skills: [{ skill: 'PostgreSQL', evidence: '' }],
+      missing_skills: [
+        { skill: 'SQL Server', posting_quote: '' },
+        { skill: 'MySQL', posting_quote: '' },
+      ],
+    }),
+    context,
+  );
+  assert.deepEqual(analysis.missingSkills, ['SQL Server', 'MySQL']);
+});
+
+test('skills are short labels any web reads as strings, with the details apart, at most 8 each (#354)', () => {
   const analysis = analysisFromFit(
     fit({
       matched_skills: [
@@ -195,9 +238,14 @@ test('skills are short labels with the explanation kept apart, at most 8 each (#
     }),
     context,
   );
-  assert.deepEqual(analysis.matchedSkills[0], { skill: 'Go', evidence: 'Built the billing API in Go.' });
+  // The web before #354 renders matchedSkills and missingSkills as strings.
+  assert.ok([...analysis.matchedSkills, ...analysis.missingSkills].every((skill) => typeof skill === 'string'));
+  assert.equal(analysis.matchedSkills[0], 'Go');
   assert.equal(analysis.matchedSkills.length, 8);
-  assert.deepEqual(analysis.missingSkills, [{ skill: 'Kafka', postingQuote: 'Experience with Kafka' }]);
+  assert.deepEqual(analysis.matchedSkillDetails?.[0], { skill: 'Go', evidence: 'Built the billing API in Go.' });
+  assert.equal(analysis.matchedSkillDetails?.length, 8);
+  assert.deepEqual(analysis.missingSkills, ['Kafka']);
+  assert.deepEqual(analysis.missingSkillDetails, [{ skill: 'Kafka', postingQuote: 'Experience with Kafka' }]);
 });
 
 test('no saved skill label is longer than four words (#354)', () => {
@@ -213,15 +261,15 @@ test('no saved skill label is longer than four words (#354)', () => {
     }),
     context,
   );
-  for (const { skill } of [...analysis.matchedSkills, ...analysis.missingSkills]) {
+  for (const skill of [...analysis.matchedSkills, ...analysis.missingSkills]) {
     assert.ok(skill.split(/\s+/).length <= 4, skill);
   }
-  assert.deepEqual(analysis.matchedSkills[0], { skill: 'Other', evidence: sentence });
-  assert.deepEqual(analysis.matchedSkills[1], {
-    skill: 'Data validation',
-    evidence: 'checked every output Ran the QA reviews.',
-  });
-  assert.equal(analysis.missingSkills[0]?.skill, 'Other');
+  assert.deepEqual(analysis.matchedSkills, ['Other', 'Data validation']);
+  assert.deepEqual(analysis.matchedSkillDetails, [
+    { skill: 'Other', evidence: sentence },
+    { skill: 'Data validation', evidence: 'checked every output Ran the QA reviews.' },
+  ]);
+  assert.deepEqual(analysis.missingSkills, ['Other']);
 });
 
 test('an agent image from before #354 still scores: plain-string skills are read too', () => {
@@ -229,15 +277,13 @@ test('an agent image from before #354 still scores: plain-string skills are read
     fit({ matched_skills: ['Go', 'PostgreSQL'], missing_skills: ['SQL', 'Kafka: the posting asks for it'] }),
     context,
   );
-  assert.deepEqual(analysis.matchedSkills, [
-    { skill: 'Go', evidence: '' },
-    { skill: 'PostgreSQL', evidence: '' },
-  ]);
-  assert.deepEqual(analysis.missingSkills, [{ skill: 'Kafka', postingQuote: 'the posting asks for it' }]);
+  assert.deepEqual(analysis.matchedSkills, ['Go', 'PostgreSQL']);
+  assert.deepEqual(analysis.missingSkills, ['Kafka']);
+  assert.deepEqual(analysis.missingSkillDetails, [{ skill: 'Kafka', postingQuote: 'the posting asks for it' }]);
 });
 
-test('a stored analysis from before #354 reads in the new shape (#354)', () => {
-  const stored = {
+test('a stored analysis from before #354 reads with short labels and details (#354)', () => {
+  const stored: JobAnalysis = {
     requiredSkills: ['SQL'],
     preferredSkills: [],
     matchedSkills: ['Python: built the ETL jobs in Python', 'Go'],
@@ -249,15 +295,17 @@ test('a stored analysis from before #354 reads in the new shape (#354)', () => {
     confidenceScore: 0.65,
     modelUsed: 'openai:gpt-5.4-nano',
     subSignals: { skillsMatch: 55, titleSeniority: 45, salaryFit: 60, sponsorshipLikelihood: 30 },
-  } as unknown as JobAnalysis;
+  };
 
   const analysis = normalizeAnalysis(stored);
 
-  assert.deepEqual(analysis.matchedSkills, [
+  assert.deepEqual(analysis.matchedSkills, ['Python', 'Go']);
+  assert.deepEqual(analysis.matchedSkillDetails, [
     { skill: 'Python', evidence: 'built the ETL jobs in Python' },
     { skill: 'Go', evidence: '' },
   ]);
-  assert.deepEqual(analysis.missingSkills, [
+  assert.deepEqual(analysis.missingSkills, ['Other']);
+  assert.deepEqual(analysis.missingSkillDetails, [
     { skill: 'Other', postingQuote: 'Hands-on experience running large Kafka clusters in production' },
   ]);
   assert.equal(analysis.confidenceScore, 65);
@@ -269,8 +317,28 @@ test('a stored analysis from before #354 reads in the new shape (#354)', () => {
   });
 });
 
-test("an old row's default sub-signals read as unknown (#354)", () => {
-  const OLD_DEFAULT = 50;
+test('saved details are used only while they match the labels (#354)', () => {
+  const base: JobAnalysis = {
+    requiredSkills: [],
+    preferredSkills: [],
+    matchedSkills: ['Go'],
+    missingSkills: [],
+    matchedSkillDetails: [{ skill: 'Go', evidence: 'Built the billing API in Go.' }],
+    atsKeywords: [],
+    fitSummary: 'x',
+    recommendedResumeAngle: 'y',
+    applyRecommendation: 'z',
+    confidenceScore: 70,
+    modelUsed: 'openai:gpt-6-luna',
+  };
+  assert.deepEqual(normalizeAnalysis(base).matchedSkillDetails, base.matchedSkillDetails);
+  // An API from before #354 rewrote the labels and left the old details behind.
+  assert.deepEqual(normalizeAnalysis({ ...base, matchedSkills: ['Rust'] }).matchedSkillDetails, [
+    { skill: 'Rust', evidence: '' },
+  ]);
+});
+
+test("an old row's default sub-signals read as unknown, and a pre-rank's skills signal is its score (#354)", () => {
   const unknown = { skillsMatch: null, titleSeniority: null, salaryFit: null, sponsorshipLikelihood: null };
   const defaults = {
     skillsMatch: OLD_DEFAULT,
@@ -292,9 +360,16 @@ test("an old row's default sub-signals read as unknown (#354)", () => {
 
   // Four 50s were the object an answer without sub-signals was given.
   assert.deepEqual(normalizeAnalysis({ ...base, modelUsed: 'openai:gpt-5.4-nano', subSignals: defaults }).subSignals, unknown);
-  // The keyword pre-rank only ever measured skills; its other three were the default 50.
-  assert.deepEqual(
-    normalizeAnalysis({ ...base, modelUsed: 'local-prerank', subSignals: { ...defaults, skillsMatch: 67 } }).subSignals,
-    { ...unknown, skillsMatch: 67 },
-  );
+  // The keyword pre-rank only measures skills, and that signal is its score: a real 50 stays.
+  const prerank = { ...base, modelUsed: 'local-prerank', subSignals: defaults };
+  assert.deepEqual(normalizeAnalysis(prerank, OLD_DEFAULT).subSignals, { ...unknown, skillsMatch: OLD_DEFAULT });
+  assert.deepEqual(normalizeAnalysis(prerank, null).subSignals, unknown);
+  assert.deepEqual(normalizeAnalysis({ ...prerank, subSignals: { ...defaults, skillsMatch: 67 } }, 67).subSignals, {
+    ...unknown,
+    skillsMatch: 67,
+  });
+});
+
+test('skillNames gives the labels, strings or objects, without "Other" (#354)', () => {
+  assert.deepEqual(skillNames(['Go', 'Other', { skill: 'Kafka' }]), ['Go', 'Kafka']);
 });

@@ -121,8 +121,10 @@ export interface ScoreFitPayload {
 export interface ScoreFitResponse {
   job_id: string;
   fit_score: number;
-  matched_skills: { skill: string; evidence: string }[];
-  missing_skills: { skill: string; posting_quote: string }[];
+  matched_skills: string[];
+  missing_skills: string[];
+  matched_skill_details?: { skill: string; evidence: string }[];
+  missing_skill_details?: { skill: string; posting_quote: string }[];
   ats_keywords: string[];
   fit_summary: string;
   recommended_resume_angle: string;

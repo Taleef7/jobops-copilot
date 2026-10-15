@@ -221,10 +221,13 @@ function percent(value: number): number {
   return Math.round(Math.min(100, Math.max(0, value)));
 }
 
-/** A confidence on the 0–100 scale, or null. A value of 1 or less is on a 0–1 scale (#354). */
+/**
+ * A confidence on the 0–100 scale, or null (#354). A fraction is on a 0–1 scale (the file
+ * store used to save 0.65); 0 and 1 are already percentages.
+ */
 export function toConfidence(value: unknown): number | null {
   if (typeof value !== 'number' || !Number.isFinite(value)) return null;
-  return percent(value <= 1 ? value * 100 : value);
+  return percent(value > 0 && value < 1 ? value * 100 : value);
 }
 
 function toSignal(value: unknown): number | null {
@@ -232,15 +235,23 @@ function toSignal(value: unknown): number | null {
 }
 
 /**
- * Sub-signals on 0–100, or null when unknown (#354). Salary fit and sponsorship are always
- * unknown for now: they compare the posting with the user's salary floor and visa needs, which
- * nobody can enter yet (C4, then E1), so a number there is the model's guess.
+ * Sub-signals on 0–100, or null when unknown (#354).
+ * - Four 50s are the default an agent from before #354 gave a read without sub-signals, and
+ *   that older rows still hold: not a reading.
+ * - Salary fit and sponsorship are always unknown for now: they compare the posting with the
+ *   user's salary floor and visa needs, which nobody can enter yet (C4, then E1), so a number
+ *   there is the model's guess.
  */
 export function toSubSignals(raw: unknown): JobAnalysisSubSignals {
   const signals = isRecord(raw) ? raw : {};
+  const skillsMatch = signals.skillsMatch ?? signals.skills_match;
+  const titleSeniority = signals.titleSeniority ?? signals.title_seniority;
+  const salaryFit = signals.salaryFit ?? signals.salary_fit;
+  const sponsorship = signals.sponsorshipLikelihood ?? signals.sponsorship_likelihood;
+  const oldDefault = [skillsMatch, titleSeniority, salaryFit, sponsorship].every((value) => value === 50);
   return {
-    skillsMatch: toSignal(signals.skillsMatch ?? signals.skills_match),
-    titleSeniority: toSignal(signals.titleSeniority ?? signals.title_seniority),
+    skillsMatch: oldDefault ? null : toSignal(skillsMatch),
+    titleSeniority: oldDefault ? null : toSignal(titleSeniority),
     salaryFit: null,
     sponsorshipLikelihood: null,
   };
@@ -269,7 +280,7 @@ function shortSkill(raw: string, detail: string): { skill: string; detail: strin
   return { skill: OTHER_SKILL, detail: [text, detail].filter(Boolean).join(' ') };
 }
 
-/** Skills from a fit read or a stored row, objects or (before #354) plain strings. */
+/** Skills from a fit read or a stored row: objects, or plain strings from before #354. */
 function toSkillNotes(raw: unknown, detailOf: (item: Record<string, unknown>) => unknown) {
   if (!Array.isArray(raw)) return [];
   return raw.flatMap((item) => {
@@ -295,24 +306,42 @@ export function toMissingSkills(raw: unknown): MissingSkill[] {
   }));
 }
 
-/** The labels of some skills, leaving out "Other", which is not a skill. */
-export function skillNames(items: Array<{ skill: string }>): string[] {
-  return items.map(({ skill }) => skill).filter((skill) => skill !== OTHER_SKILL);
+/** The labels of some skills, strings or objects, leaving out "Other", which is not a skill. */
+export function skillNames(items: ReadonlyArray<string | { skill: string }>): string[] {
+  return items
+    .map((item) => (typeof item === 'string' ? item : item?.skill))
+    .filter((skill): skill is string => typeof skill === 'string' && skill !== OTHER_SKILL);
+}
+
+/**
+ * A skill label reduced to what names the skill, so "Microsoft SQL Server", "Postgres (Aurora)",
+ * "React.js" and "SQL databases" compare as "sql server", "postgres", "react" and "sql".
+ */
+function skillKey(label: string): string {
+  return label
+    .toLowerCase()
+    .replace(/\([^)]*\)/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .replace(/^(microsoft|ms) /, '')
+    .replace(/ (databases?|language)$/, '')
+    .replace(/\.?js$/, '')
+    .trim();
 }
 
 /** A matched skill that implies another, so one read can't list that one as missing (#354). */
 const IMPLIED_SKILLS: Array<[RegExp, string]> = [
-  [/^(postgres(ql)?|mysql|sql server)$/, 'sql'],
-  [/^typescript$/, 'javascript'],
-  [/^next\.?js$/, 'react'],
+  [/postgres|mysql|sql server/, 'sql'],
+  [/typescript/, 'javascript'],
+  [/\bnext\b/, 'react'],
 ];
 
 function coveredSkills(matched: MatchedSkill[]): Set<string> {
   const covered = new Set<string>();
-  for (const name of skillNames(matched).map((skill) => skill.toLowerCase())) {
-    covered.add(name);
+  for (const key of skillNames(matched).map(skillKey)) {
+    covered.add(key);
     for (const [pattern, implied] of IMPLIED_SKILLS) {
-      if (pattern.test(name)) covered.add(implied);
+      if (pattern.test(key)) covered.add(implied);
     }
   }
   return covered;
@@ -326,17 +355,19 @@ export function analysisFromFit(
   fit: FitScoreOutput,
   context: { requiredSkills: string[]; preferredSkills: string[] },
 ): JobAnalysis {
-  const matchedSkills = toMatchedSkills(fit.matched_skills).slice(0, MAX_SKILLS);
-  const covered = coveredSkills(matchedSkills);
-  const missingSkills = toMissingSkills(fit.missing_skills)
-    .filter(({ skill }) => !covered.has(skill.toLowerCase()))
+  const matchedSkillDetails = toMatchedSkills(fit.matched_skills).slice(0, MAX_SKILLS);
+  const covered = coveredSkills(matchedSkillDetails);
+  const missingSkillDetails = toMissingSkills(fit.missing_skills)
+    .filter(({ skill }) => !covered.has(skillKey(skill)))
     .slice(0, MAX_SKILLS);
 
   return {
     requiredSkills: unique(context.requiredSkills),
     preferredSkills: unique(context.preferredSkills),
-    matchedSkills,
-    missingSkills,
+    matchedSkills: matchedSkillDetails.map(({ skill }) => skill),
+    missingSkills: missingSkillDetails.map(({ skill }) => skill),
+    matchedSkillDetails,
+    missingSkillDetails,
     atsKeywords: fit.ats_keywords,
     fitSummary: fit.fit_summary,
     recommendedResumeAngle: fit.recommended_resume_angle,
@@ -353,27 +384,75 @@ export function analysisFromFit(
 }
 
 /**
- * A stored analysis in today's shape, so rows saved before #354 still render: skills as short
- * labels with their explanation, confidence on 0–100, and no default sub-signals. The job
- * stores apply it on every read and write.
+ * A saved fit read in the agent's snake_case, for the Score fit answer: what was saved, not the
+ * model's raw answer (#354).
  */
-export function normalizeAnalysis(analysis: JobAnalysis): JobAnalysis {
+export function fitAnswerFields(analysis: JobAnalysis) {
+  const signals = analysis.subSignals ?? {};
   return {
-    ...analysis,
-    matchedSkills: toMatchedSkills(analysis.matchedSkills),
-    missingSkills: toMissingSkills(analysis.missingSkills),
-    confidenceScore: toConfidence(analysis.confidenceScore),
-    subSignals: analysis.subSignals ? storedSubSignals(analysis.subSignals, analysis.modelUsed) : undefined,
+    matched_skills: analysis.matchedSkills,
+    missing_skills: analysis.missingSkills,
+    matched_skill_details: analysis.matchedSkillDetails ?? [],
+    missing_skill_details: (analysis.missingSkillDetails ?? []).map(({ skill, postingQuote }) => ({
+      skill,
+      posting_quote: postingQuote,
+    })),
+    sub_signals: {
+      skills_match: signals.skillsMatch ?? null,
+      title_seniority: signals.titleSeniority ?? null,
+      salary_fit: signals.salaryFit ?? null,
+      sponsorship_likelihood: signals.sponsorshipLikelihood ?? null,
+    },
+    confidence_score: analysis.confidenceScore,
   };
 }
 
-function storedSubSignals(raw: JobAnalysisSubSignals, modelUsed: string): JobAnalysisSubSignals {
-  // Before #354 a read without sub-signals was given four 50s, and the pre-rank, which only
-  // measures skills, a 50 for the others. Those are defaults, not readings.
-  const values = [raw.skillsMatch, raw.titleSeniority, raw.salaryFit, raw.sponsorshipLikelihood];
-  if (values.every((value) => value === 50)) return toSubSignals({});
+/**
+ * The saved details while they still match the labels, else details read from the labels: a
+ * row from before #354 has "label: why" strings and no details, and an API from before #354
+ * rewrites the labels and leaves the old details behind.
+ */
+function detailsFor<T extends { skill: string }>(labels: unknown, details: unknown, read: (raw: unknown) => T[]): T[] {
+  const fromLabels = read(labels);
+  const saved = read(details);
+  const same = saved.length === fromLabels.length && saved.every((item, index) => item.skill === fromLabels[index]?.skill);
+  return saved.length > 0 && same ? saved : fromLabels;
+}
+
+/**
+ * A stored analysis in today's shape, so rows saved before #354 still render: short labels as
+ * strings with their details alongside, confidence on 0–100, and no default sub-signals. The
+ * job stores apply it on every read and write. `fitScore` is the job's: a pre-rank's skills
+ * signal is its score.
+ */
+export function normalizeAnalysis(analysis: JobAnalysis, fitScore?: number | null): JobAnalysis {
+  const matchedSkillDetails = detailsFor(analysis.matchedSkills, analysis.matchedSkillDetails, toMatchedSkills);
+  const missingSkillDetails = detailsFor(analysis.missingSkills, analysis.missingSkillDetails, toMissingSkills);
+  return {
+    ...analysis,
+    matchedSkills: matchedSkillDetails.map(({ skill }) => skill),
+    missingSkills: missingSkillDetails.map(({ skill }) => skill),
+    matchedSkillDetails,
+    missingSkillDetails,
+    confidenceScore: toConfidence(analysis.confidenceScore),
+    subSignals: analysis.subSignals ? storedSubSignals(analysis.subSignals, analysis.modelUsed, fitScore) : undefined,
+  };
+}
+
+function storedSubSignals(
+  raw: JobAnalysisSubSignals,
+  modelUsed: string,
+  fitScore: number | null | undefined,
+): JobAnalysisSubSignals {
   const signals = toSubSignals(raw);
-  return modelUsed === PRERANK_MODEL ? { ...signals, titleSeniority: null } : signals;
+  if (modelUsed !== PRERANK_MODEL) return signals;
+  // The pre-rank only measures skills, and that signal is its score; before #354 it saved a 50
+  // for the other three.
+  return {
+    ...signals,
+    skillsMatch: fitScore === undefined ? signals.skillsMatch : toSignal(fitScore),
+    titleSeniority: null,
+  };
 }
 
 export function parseJobDescription(descriptionText: string): ParsedJobOutput {

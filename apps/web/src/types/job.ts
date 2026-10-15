@@ -65,8 +65,12 @@ export interface MissingSkill {
 export interface JobAnalysis {
   requiredSkills: string[];
   preferredSkills: string[];
-  matchedSkills: MatchedSkill[];
-  missingSkills: MissingSkill[];
+  /** Short labels. */
+  matchedSkills: string[];
+  missingSkills: string[];
+  /** The same skills with their evidence; an API from before #354 doesn't send these. */
+  matchedSkillDetails?: MatchedSkill[];
+  missingSkillDetails?: MissingSkill[];
   atsKeywords: string[];
   fitSummary: string;
   recommendedResumeAngle: string;

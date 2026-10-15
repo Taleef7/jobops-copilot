@@ -63,8 +63,12 @@ export interface MissingSkill {
 export interface JobAnalysis {
   requiredSkills: string[];
   preferredSkills: string[];
-  matchedSkills: MatchedSkill[];
-  missingSkills: MissingSkill[];
+  /** Short labels, as strings: every web version reads these (#354). */
+  matchedSkills: string[];
+  missingSkills: string[];
+  /** The same skills with their evidence, in the same order; absent on rows from before #354. */
+  matchedSkillDetails?: MatchedSkill[];
+  missingSkillDetails?: MissingSkill[];
   atsKeywords: string[];
   fitSummary: string;
   recommendedResumeAngle: string;

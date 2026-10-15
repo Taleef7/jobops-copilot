@@ -1,7 +1,7 @@
 import { SkillChipList } from '@/components/skill-chip';
 import { Badge } from '@/components/ui/badge';
 import { Card } from '@/components/ui/card';
-import { confidenceLabel, signalLabel } from '@/lib/analysis-display';
+import { confidenceLabel, signalLabel, skillChips } from '@/lib/analysis-display';
 import { cn } from '@/lib/utils';
 import type { JobAnalysis } from '@/types/job';
 
@@ -66,7 +66,7 @@ export function JobAnalysisCard({ analysis }: { analysis: JobAnalysis }) {
             Matched skills
           </p>
           <SkillChipList
-            items={analysis.matchedSkills.map(({ skill, evidence }) => ({ label: skill, detail: evidence }))}
+            items={skillChips(analysis.matchedSkills, analysis.matchedSkillDetails)}
             variant="matched"
             empty="None matched yet."
           />
@@ -76,7 +76,7 @@ export function JobAnalysisCard({ analysis }: { analysis: JobAnalysis }) {
             Missing skills
           </p>
           <SkillChipList
-            items={analysis.missingSkills.map(({ skill, postingQuote }) => ({ label: skill, detail: postingQuote }))}
+            items={skillChips(analysis.missingSkills, analysis.missingSkillDetails)}
             variant="missing"
             empty="None missing."
           />

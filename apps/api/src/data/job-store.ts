@@ -126,7 +126,7 @@ async function loadJobs(): Promise<JobRecord[]> {
 
     // Rows saved before #354 hold a 0–1 confidence and skills as "label: why" strings.
     jobsCache = (parsed as JobRecord[]).map((job) =>
-      job.analysis ? { ...job, analysis: normalizeAnalysis(job.analysis) } : job,
+      job.analysis ? { ...job, analysis: normalizeAnalysis(job.analysis, job.fitScore) } : job,
     );
   } catch {
     jobsCache = seedState();
@@ -525,10 +525,10 @@ export async function saveJobAnalysis(
       throw new Error('Invalid job analysis payload');
     }
 
-    job.analysis = clone(normalizeAnalysis(analysis));
     if (fitScore !== undefined) {
       job.fitScore = fitScore;
     }
+    job.analysis = clone(normalizeAnalysis(analysis, job.fitScore));
     // A scored job must stop telling you to score it. Null means "leave it" —
     // a pre-rank, or a next action that is no longer the creation-time prompt.
     const nextAction = deriveAnalyzedNextAction(job.nextAction, analysis.modelUsed, fitScore);

@@ -68,11 +68,9 @@ export function prerankAnalysis(
     analysis: {
       requiredSkills: parsed.required_skills,
       preferredSkills: parsed.preferred_skills,
-      matchedSkills: matchedSkills.map((skill) => ({ skill, evidence: '' })),
+      matchedSkills,
       // Required minus matched, so the same skill is never both matched and missing.
-      missingSkills: parsed.required_skills
-        .filter((skill) => !matched.has(skill))
-        .map((skill) => ({ skill, postingQuote: '' })),
+      missingSkills: parsed.required_skills.filter((skill) => !matched.has(skill)),
       atsKeywords: [...new Set([...parsed.required_skills, ...parsed.preferred_skills])].slice(0, 6),
       fitSummary: parsed.summary,
       recommendedResumeAngle: 'Review the job description and map it to truthful résumé evidence before applying.',

@@ -314,13 +314,19 @@ test('the file store saves a 0–1 confidence as a percentage and reads old rows
   try {
     const job = await createJob('user-1', { company: 'Acme', title: 'Engineer', descriptionText: 'Go and Kafka.' });
     await saveJobAnalysis('user-1', job.id, sampleAnalysis({ confidenceScore: 0.65 }), 70);
-    assert.equal((await getJobById('user-1', job.id))?.analysis?.confidenceScore, 65);
+    const saved = (await getJobById('user-1', job.id))?.analysis;
+    assert.equal(saved?.confidenceScore, 65);
+    assert.deepEqual(saved?.matchedSkills, ['Go']);
+    assert.deepEqual(saved?.matchedSkillDetails, [{ skill: 'Go', evidence: 'Built the billing API in Go.' }]);
 
-    // A row written before #354: skills as "label: why" strings and a 0–1 confidence.
+    // A row written before #354: skills as "label: why" strings, no details, a 0–1 confidence.
     const stored = JSON.parse(await readFile(join(tempDir, 'data', 'jobs.json'), 'utf8')) as Array<Record<string, unknown>>;
     const row = stored.find((entry) => entry.id === job.id)!;
+    const old = { ...(row.analysis as Record<string, unknown>) };
+    delete old.matchedSkillDetails;
+    delete old.missingSkillDetails;
     row.analysis = {
-      ...(row.analysis as object),
+      ...old,
       matchedSkills: ['Go: built the billing API in Go'],
       missingSkills: ['Kafka'],
       confidenceScore: 0.8,
@@ -329,8 +335,10 @@ test('the file store saves a 0–1 confidence as a percentage and reads old rows
     resetJobStoreForTests();
 
     const analysis = (await getJobById('user-1', job.id))?.analysis;
-    assert.deepEqual(analysis?.matchedSkills, [{ skill: 'Go', evidence: 'built the billing API in Go' }]);
-    assert.deepEqual(analysis?.missingSkills, [{ skill: 'Kafka', postingQuote: '' }]);
+    assert.deepEqual(analysis?.matchedSkills, ['Go']);
+    assert.deepEqual(analysis?.matchedSkillDetails, [{ skill: 'Go', evidence: 'built the billing API in Go' }]);
+    assert.deepEqual(analysis?.missingSkills, ['Kafka']);
+    assert.deepEqual(analysis?.missingSkillDetails, [{ skill: 'Kafka', postingQuote: '' }]);
     assert.equal(analysis?.confidenceScore, 80);
   } finally {
     process.chdir(originalCwd);

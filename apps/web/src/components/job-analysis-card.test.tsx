@@ -9,8 +9,10 @@ function analysis(overrides: Partial<JobAnalysis> = {}): JobAnalysis {
   return {
     requiredSkills: ['Go', 'Kafka'],
     preferredSkills: [],
-    matchedSkills: [{ skill: 'Go', evidence: 'Built the billing API in Go.' }],
-    missingSkills: [{ skill: 'Kafka', postingQuote: 'Experience running Kafka in production' }],
+    matchedSkills: ['Go'],
+    missingSkills: ['Kafka'],
+    matchedSkillDetails: [{ skill: 'Go', evidence: 'Built the billing API in Go.' }],
+    missingSkillDetails: [{ skill: 'Kafka', postingQuote: 'Experience running Kafka in production' }],
     atsKeywords: ['Go', 'Kafka'],
     fitSummary: 'You build Go services.',
     recommendedResumeAngle: 'Lead with the Go services.',
@@ -30,6 +32,29 @@ it('shows the confidence as a percentage, reading a 0–1 value as one', () => {
 
   render(<JobAnalysisCard analysis={analysis({ confidenceScore: 65 })} />);
   expect(screen.getByText('Confidence 65%')).toBeInTheDocument();
+});
+
+it('keeps a confidence of 1 as 1%', () => {
+  render(<JobAnalysisCard analysis={analysis({ confidenceScore: 1 })} />);
+  expect(screen.getByText('Confidence 1%')).toBeInTheDocument();
+});
+
+// #354: web and API deploy separately, so this web may get an API's answer from before #354.
+it('shows the skill labels from an API that sends no details', () => {
+  render(
+    <JobAnalysisCard
+      analysis={analysis({
+        matchedSkillDetails: undefined,
+        missingSkillDetails: undefined,
+        subSignals: undefined,
+        atsKeywords: [],
+      })}
+    />,
+  );
+
+  expect(screen.getByText('Go')).toBeInTheDocument();
+  expect(screen.getByText('Kafka')).toBeInTheDocument();
+  expect(screen.queryByRole('button', { name: 'Go' })).not.toBeInTheDocument();
 });
 
 it('shows no confidence badge when there is no confidence', () => {

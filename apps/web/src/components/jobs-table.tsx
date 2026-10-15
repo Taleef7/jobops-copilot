@@ -21,10 +21,10 @@ import { isPrerankAnalysis, skillNames } from '@/lib/analysis-display';
 import { formatDate } from '@/lib/format';
 import { isWithinRecency, RECENCY_OPTIONS, recencyDate, type RecencyWindow } from '@/lib/job-recency';
 import { cn } from '@/lib/utils';
-import type { Job, JobPriority, JobStatus, MatchedSkill } from '@/types/job';
+import type { Job, JobPriority, JobStatus } from '@/types/job';
 
 /** "Matches: Go · Postgres · Kafka +2", or nothing when no skill matched. */
-function MatchesLine({ skills }: { skills: MatchedSkill[] }) {
+function MatchesLine({ skills }: { skills: string[] }) {
   const names = skillNames(skills);
   if (!names.length) return null;
   return (
