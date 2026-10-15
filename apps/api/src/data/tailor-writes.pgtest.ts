@@ -30,6 +30,8 @@ test('a draft changes only while it is as it was read', { skip }, async () => {
     structuredResume: resume,
     approved: false,
     isBase: false,
+    // A tailored version carries the grounding marker (migration 029).
+    basedOn: { baseVersionId: null, baseUpdatedAt: null, jobId: 'job-1', postingSha256: 'a'.repeat(64), model: 'm', createdAt: now, grounding: { version: 1 } },
     createdAt: now,
     updatedAt: now,
   });
@@ -60,6 +62,8 @@ test("each write moves a draft's updatedAt on by at least a millisecond", { skip
     structuredResume: resume,
     approved: false,
     isBase: false,
+    // A tailored version carries the grounding marker (migration 029).
+    basedOn: { baseVersionId: null, baseUpdatedAt: null, jobId: 'job-1', postingSha256: 'a'.repeat(64), model: 'm', createdAt: ahead, grounding: { version: 1 } },
     createdAt: ahead,
     updatedAt: ahead,
   });
