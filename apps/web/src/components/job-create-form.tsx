@@ -377,9 +377,11 @@ export function JobCreateForm() {
     );
   }
 
+  // Title and Company must be filled in, so "Not stated" only says the posting left them
+  // out; entered by hand, they need no hint. An empty Location is saved as not stated.
   const hints = {
-    title: hintFor(details.title, posted?.title),
-    company: hintFor(details.company, posted?.company),
+    title: posted ? hintFor(details.title, posted.title) : null,
+    company: posted ? hintFor(details.company, posted.company) : null,
     location: hintFor(details.location, posted?.location),
   };
   const workplaceHint = posted?.workplaceType && details.workplaceType === posted.workplaceType ? 'from posting' : null;
@@ -554,26 +556,33 @@ export function JobCreateForm() {
             aria-describedby={describedBy(errors.descriptionText && 'job-description-error')}
           />
         ) : (
-          <p className="text-muted-foreground bg-muted/40 line-clamp-4 rounded-lg p-3 text-sm break-words whitespace-pre-line">
-            {details.descriptionText}
-          </p>
+          // The clamp is on an inner line box: overflow is cut at the padding edge, so with
+          // the padding on the same element a fifth line would show through it.
+          <div className="bg-muted/40 rounded-lg p-3">
+            <p className="text-muted-foreground line-clamp-4 text-sm break-words whitespace-pre-line">
+              {details.descriptionText}
+            </p>
+          </div>
         )}
         {errors.descriptionText ? (
           <p id="job-description-error" className="text-destructive text-xs">
             {errors.descriptionText}
           </p>
         ) : null}
-        <Button
-          type="button"
-          variant="link"
-          size="sm"
-          className="h-auto px-0"
-          aria-expanded={descriptionOpen}
-          aria-controls={descriptionOpen ? 'job-description' : undefined}
-          onClick={() => setDescriptionOpen((open) => !open)}
-        >
-          {descriptionOpen ? 'Done editing' : 'Edit description'}
-        </Button>
+        {/* Nothing to fold away while it's empty. */}
+        {details.descriptionText.trim() ? (
+          <Button
+            type="button"
+            variant="link"
+            size="sm"
+            className="h-auto px-0"
+            aria-expanded={descriptionOpen}
+            aria-controls={descriptionOpen ? 'job-description' : undefined}
+            onClick={() => setDescriptionOpen((open) => !open)}
+          >
+            {descriptionOpen ? 'Done editing' : 'Edit description'}
+          </Button>
+        ) : null}
       </div>
 
       {saveError ? (

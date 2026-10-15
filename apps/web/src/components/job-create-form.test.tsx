@@ -181,6 +181,14 @@ it('opens an empty review to enter the details by hand', async () => {
   expect(screen.getByRole('radio', { name: 'Not stated' })).toBeChecked();
   expect(screen.getByRole('textbox', { name: 'Description' })).toHaveValue('');
   expect(document.body.textContent).not.toMatch(/from posting/);
+  // Title and Company must be typed in; only an empty Location is saved as not stated.
+  expect(screen.getByLabelText(/^Title/)).not.toHaveAccessibleDescription(/Not stated/);
+  expect(screen.getByLabelText(/^Company/)).not.toHaveAccessibleDescription(/Not stated/);
+  expect(screen.getByLabelText(/^Location/)).toHaveAccessibleDescription(/Not stated/);
+  // No salary row: nothing was read from a posting.
+  expect(screen.queryByRole('group', { name: 'Salary' })).not.toBeInTheDocument();
+  // The empty description stays open; there's nothing to fold away.
+  expect(screen.queryByRole('button', { name: /edit description|done editing/i })).not.toBeInTheDocument();
   expect(extractJobFromUrl).not.toHaveBeenCalled();
   expect(parseJob).not.toHaveBeenCalled();
 });
