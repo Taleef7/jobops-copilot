@@ -9,7 +9,7 @@ import { resolveResumeParse } from '@/lib/agent-client';
 import { attachmentDisposition } from '@/lib/content-disposition';
 import { flagResume } from '@/lib/resume-flags';
 import { requireUser } from '@/lib/auth';
-import { isTooLong, STORED_TEXT_MAX, TOO_LONG_MESSAGE } from '@/lib/input-caps';
+import { isTooLong, resumeProblem, STORED_TEXT_MAX, TOO_LONG_MESSAGE } from '@/lib/input-caps';
 import type { ResumeVersionRecord, StructuredResume } from '@/types';
 
 export const baseResumeRouter = Router();
@@ -64,6 +64,10 @@ baseResumeRouter.put('/', async (request, response, next) => {
       return response.status(400).json({
         error: 'baseResume with at least basics.name is required.',
       });
+    }
+    const tooLarge = resumeProblem(body.baseResume);
+    if (tooLarge) {
+      return response.status(413).json({ error: tooLarge });
     }
 
     let source: { resumeText: string; resumeFileName: string } | null = null;
@@ -145,6 +149,10 @@ baseResumeRouter.post('/render-pdf', async (request, response, next) => {
 
     const body = (request.body ?? {}) as { resume?: StructuredResume; versionId?: string };
     let resumeToRender = body.resume;
+    const tooLarge = resumeProblem(body.resume);
+    if (tooLarge) {
+      return response.status(413).json({ error: tooLarge });
+    }
     let versionRecord: ResumeVersionRecord | null = null;
 
     if (body.versionId) {
@@ -178,8 +186,8 @@ baseResumeRouter.post('/render-pdf', async (request, response, next) => {
       });
     }
 
-    const { renderAtsResumePdf } = await import('@/lib/ats-resume-pdf');
-    const pdfBuffer = renderAtsResumePdf(resumeToRender);
+    const { renderResumePdf } = await import('@/lib/ats-resume-pdf');
+    const { pdf: pdfBuffer, pages, unsupported } = await renderResumePdf(resumeToRender);
 
     if (!versionRecord) {
       versionRecord = {
@@ -209,6 +217,9 @@ baseResumeRouter.post('/render-pdf', async (request, response, next) => {
       versionId: versionRecord.id,
       fileUrl,
       fileName: `resume_${versionRecord.id}.pdf`,
+      pages,
+      // Characters the font can't print (CJK, emoji), shown as "?" (#429).
+      unsupported,
     });
   } catch (error) {
     next(error);
@@ -235,15 +246,17 @@ baseResumeRouter.get('/versions/:id/download', async (request, response, next) =
       return response.status(404).json({ error: 'Resume version not found.' });
     }
 
-    const { renderAtsResumePdf } = await import('@/lib/ats-resume-pdf');
-    const pdfBuffer = renderAtsResumePdf(version.structuredResume);
+    const { renderResumePdf } = await import('@/lib/ats-resume-pdf');
+    const { pdf, pages, unsupported } = await renderResumePdf(version.structuredResume);
 
     response.setHeader('Content-Type', 'application/pdf');
+    response.setHeader('X-Page-Count', String(pages));
+    response.setHeader('X-Pdf-Unsupported-Characters', String(unsupported));
     response.setHeader(
       'Content-Disposition',
-      attachmentDisposition(`resume_${version.structuredResume.basics?.name || 'document'}_${version.id}.pdf`),
+      attachmentDisposition(`${version.structuredResume.basics?.name?.trim() || 'Resume'} – Résumé.pdf`),
     );
-    return response.send(pdfBuffer);
+    return response.send(pdf);
   } catch (error) {
     next(error);
   }

@@ -231,7 +231,7 @@ describe('TailoredResumeReview', () => {
     renderReview([draft]);
 
     await user.click(screen.getByRole('button', { name: 'Download PDF' }));
-    await waitFor(() => expect(downloadResumeVersion).toHaveBeenCalledWith('ver-1', expect.stringMatching(/Jordan_Lee/)));
+    await waitFor(() => expect(downloadResumeVersion).toHaveBeenCalledWith('ver-1', 'Jordan Lee – Acme Pay.pdf'));
     expect(approveResumeVersion).toHaveBeenCalledWith('ver-1');
     expect(await screen.findByText(/Downloaded\. To change it, tailor again\./)).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Restore original' })).not.toBeInTheDocument();
@@ -477,5 +477,14 @@ describe('TailoredResumeReview', () => {
     expect(await screen.findByText('Reworded 2 lines. 1 suggestion was dropped.')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'v2 · Draft' })).toHaveAttribute('aria-pressed', 'true');
     expect(screen.getByRole('button', { name: 'v1 · Downloaded' })).toBeInTheDocument();
+  });
+
+  it("says when the PDF has characters the font can't print", async () => {
+    const user = userEvent.setup();
+    approveResumeVersion.mockResolvedValueOnce({ version: { ...draft, approved: true }, approved: true });
+    downloadResumeVersion.mockResolvedValueOnce({ unsupported: 3 });
+    renderReview([draft]);
+    await user.click(screen.getByRole('button', { name: 'Download PDF' }));
+    await waitFor(() => expect(toast.warning).toHaveBeenCalledWith(expect.stringMatching(/3 characters/)));
   });
 });

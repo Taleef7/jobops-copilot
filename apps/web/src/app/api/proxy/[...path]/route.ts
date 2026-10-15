@@ -20,7 +20,7 @@ const SHARED_SECRET = process.env.API_SHARED_SECRET?.trim();
 
 // x-total-count carries the unpaginated list total so the client can page; Retry-After and
 // the RateLimit-* headers let it back off on a 429.
-const PASSED_BACK = /^(content-type|content-disposition|x-total-count|retry-after|ratelimit-[a-z]+)$/;
+const PASSED_BACK = /^(content-type|content-disposition|x-total-count|x-page-count|x-pdf-unsupported-characters|retry-after|ratelimit-[a-z]+)$/;
 
 async function handler(request: NextRequest, context: { params: Promise<{ path: string[] }> }) {
   const { path } = await context.params;
