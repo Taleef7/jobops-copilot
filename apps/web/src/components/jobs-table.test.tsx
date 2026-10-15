@@ -90,7 +90,10 @@ it('marks an estimated (local-prerank) job and lists its matched skills', () => 
     analysis: {
       requiredSkills: [],
       preferredSkills: [],
-      matchedSkills: ['TypeScript', 'React'],
+      matchedSkills: [
+        { skill: 'TypeScript', evidence: '' },
+        { skill: 'React', evidence: '' },
+      ],
       missingSkills: [],
       atsKeywords: [],
       fitSummary: '',

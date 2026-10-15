@@ -13,7 +13,7 @@ import type {
   UpdateOutreachBody,
   UpdateJobBody,
 } from '@/types';
-import { validateJobAnalysis } from '@/lib/analysis-core';
+import { normalizeAnalysis, validateJobAnalysis } from '@/lib/analysis-core';
 import { deriveAnalyzedNextAction, UNSCORED_NEXT_ACTION } from '@/lib/analysis-workflow';
 import { deriveOutreachJobUpdate } from '@/lib/outreach-workflow';
 import { hasPostgresConnection } from '@/lib/postgres';
@@ -124,7 +124,10 @@ async function loadJobs(): Promise<JobRecord[]> {
       throw new Error('Invalid job store contents');
     }
 
-    jobsCache = parsed as JobRecord[];
+    // Rows saved before #354 hold a 0–1 confidence and skills as "label: why" strings.
+    jobsCache = (parsed as JobRecord[]).map((job) =>
+      job.analysis ? { ...job, analysis: normalizeAnalysis(job.analysis) } : job,
+    );
   } catch {
     jobsCache = seedState();
     await persistJobs();
@@ -522,7 +525,7 @@ export async function saveJobAnalysis(
       throw new Error('Invalid job analysis payload');
     }
 
-    job.analysis = clone(analysis);
+    job.analysis = clone(normalizeAnalysis(analysis));
     if (fitScore !== undefined) {
       job.fitScore = fitScore;
     }

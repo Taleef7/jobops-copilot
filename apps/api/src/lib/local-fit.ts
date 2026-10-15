@@ -68,9 +68,11 @@ export function prerankAnalysis(
     analysis: {
       requiredSkills: parsed.required_skills,
       preferredSkills: parsed.preferred_skills,
-      matchedSkills,
+      matchedSkills: matchedSkills.map((skill) => ({ skill, evidence: '' })),
       // Required minus matched, so the same skill is never both matched and missing.
-      missingSkills: parsed.required_skills.filter((skill) => !matched.has(skill)),
+      missingSkills: parsed.required_skills
+        .filter((skill) => !matched.has(skill))
+        .map((skill) => ({ skill, postingQuote: '' })),
       atsKeywords: [...new Set([...parsed.required_skills, ...parsed.preferred_skills])].slice(0, 6),
       fitSummary: parsed.summary,
       recommendedResumeAngle: 'Review the job description and map it to truthful résumé evidence before applying.',
@@ -78,11 +80,12 @@ export function prerankAnalysis(
       // A keyword estimate claims no confidence (#349).
       confidenceScore: null,
       modelUsed: PRERANK_MODEL,
+      // It measures skills only; the rest is unknown (#354).
       subSignals: {
-        skillsMatch: score ?? 50,
-        titleSeniority: 50,
-        salaryFit: 50,
-        sponsorshipLikelihood: 50,
+        skillsMatch: score,
+        titleSeniority: null,
+        salaryFit: null,
+        sponsorshipLikelihood: null,
       },
     },
   };

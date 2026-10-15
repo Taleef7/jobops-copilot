@@ -63,15 +63,23 @@ test('prerankAnalysis builds an estimated analysis tagged local-prerank', () => 
   // Carries the local-fit score …
   assert.equal(fitScore, 67);
   // … the matched skills from the overlap …
-  assert.deepEqual(analysis.matchedSkills.sort(), ['React', 'TypeScript']);
+  assert.deepEqual(analysis.matchedSkills.map((item) => item.skill).sort(), ['React', 'TypeScript']);
   // … parsed required/preferred skills from the description …
   assert.ok(analysis.requiredSkills.length > 0);
   // … and the sentinel that marks it estimated (so the UI can upgrade on open).
   assert.equal(analysis.modelUsed, PRERANK_MODEL);
   assert.equal(PRERANK_MODEL, 'local-prerank');
   // A matched skill must never also appear as missing.
-  const overlap = analysis.missingSkills.filter((skill) => analysis.matchedSkills.includes(skill));
+  const matched = new Set(analysis.matchedSkills.map((item) => item.skill));
+  const overlap = analysis.missingSkills.filter((item) => matched.has(item.skill));
   assert.deepEqual(overlap, []);
+  // It measures skills only: the rest is unknown, not 50 (#354).
+  assert.deepEqual(analysis.subSignals, {
+    skillsMatch: 67,
+    titleSeniority: null,
+    salaryFit: null,
+    sponsorshipLikelihood: null,
+  });
 });
 
 test('prerankAnalysis leaves the score unset when evidence is thin', () => {
@@ -83,7 +91,9 @@ test('prerankAnalysis leaves the score unset when evidence is thin', () => {
   assert.equal(fitScore, null);
   // Still a usable analysis — just without a fabricated number attached.
   assert.equal(analysis.modelUsed, PRERANK_MODEL);
-  assert.deepEqual(analysis.matchedSkills, ['TypeScript']);
+  assert.deepEqual(analysis.matchedSkills, [{ skill: 'TypeScript', evidence: '' }]);
+  // No score means no skills signal either, not 50 (#354).
+  assert.equal(analysis.subSignals?.skillsMatch, null);
 });
 
 test('realistic 1500-char JD mentioning Python, PostgreSQL, Docker, Kubernetes, Terraform clears evidence floor', () => {

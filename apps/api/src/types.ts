@@ -40,23 +40,36 @@ export type MessageType =
 
 export type OutreachStatus = 'drafted' | 'approved' | 'sent' | 'skipped';
 
+/** Each 0–100, or null when unknown (#354): never a default. */
 export interface JobAnalysisSubSignals {
-  skillsMatch?: number;
-  titleSeniority?: number;
-  salaryFit?: number;
-  sponsorshipLikelihood?: number;
+  skillsMatch?: number | null;
+  titleSeniority?: number | null;
+  salaryFit?: number | null;
+  sponsorshipLikelihood?: number | null;
+}
+
+/** A skill the résumé shows: a label of at most four words, and where it shows it (#354). */
+export interface MatchedSkill {
+  skill: string;
+  evidence: string;
+}
+
+/** A skill the posting asks for that the résumé doesn't show, with the posting's words (#354). */
+export interface MissingSkill {
+  skill: string;
+  postingQuote: string;
 }
 
 export interface JobAnalysis {
   requiredSkills: string[];
   preferredSkills: string[];
-  matchedSkills: string[];
-  missingSkills: string[];
+  matchedSkills: MatchedSkill[];
+  missingSkills: MissingSkill[];
   atsKeywords: string[];
   fitSummary: string;
   recommendedResumeAngle: string;
   applyRecommendation: string;
-  /** Null for the discovery pre-rank, which is a keyword estimate, not a model reading. */
+  /** 0–100. Null when there is none, e.g. the discovery pre-rank, a keyword estimate. */
   confidenceScore: number | null;
   modelUsed: string;
   subSignals?: JobAnalysisSubSignals;

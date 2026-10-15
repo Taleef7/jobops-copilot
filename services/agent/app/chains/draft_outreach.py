@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import re
+
 from app.llm.provider import get_model
 from app.prompts import OUTREACH_DRAFTER_SYSTEM
 from app.safety.groundedness import check_groundedness
@@ -14,6 +16,20 @@ from app.safety.injection import (
 from app.safety.moderation import moderate_text
 from app.safety.pii import maybe_redact
 from app.schemas import DraftOutreachRequest, OutreachDraftLLM, OutreachDraftResponse
+
+# Hard limits by message type (#354). LinkedIn cuts a connection note at 300 characters
+# (200 on a free account).
+CHARACTER_LIMITS = {"linkedin_connection": 300}
+
+# "[Name]", "[Company]", "[Your Name]": text the user would have to fill in before sending.
+_PLACEHOLDER = re.compile(r"\[[^\[\]\n]+\]")
+
+
+def _reject_placeholders(draft: OutreachDraftLLM) -> None:
+    """A draft with a placeholder is not a draft: fail, and the API saves nothing (#354)."""
+    found = _PLACEHOLDER.search(f"{draft.subject}\n{draft.draft_text}")
+    if found:
+        raise ValueError(f"The draft has a placeholder: {found.group(0)}")
 
 
 def draft_outreach(req: DraftOutreachRequest, config: dict | None = None) -> OutreachDraftResponse:
@@ -67,11 +83,37 @@ def draft_outreach(req: DraftOutreachRequest, config: dict | None = None) -> Out
 
     messages = [("system", OUTREACH_DRAFTER_SYSTEM), ("human", "\n\n".join(parts))]
     result = structured.invoke(messages, config=config or None)
+    _reject_placeholders(result)
+
+    limit = CHARACTER_LIMITS.get(req.message_type)
+    if limit and len(result.draft_text) > limit:
+        # Ask once for a shorter one. If it is still too long, the user is told, rather than
+        # sent a note cut off mid-sentence.
+        shorter = structured.invoke(
+            [
+                *messages,
+                ("ai", result.draft_text),
+                (
+                    "human",
+                    f"That is {len(result.draft_text)} characters. Rewrite it in at most "
+                    f"{limit} characters, spaces included, with the same true claims.",
+                ),
+            ],
+            config=config or None,
+        )
+        _reject_placeholders(shorter)
+        if shorter.draft_text.strip() and len(shorter.draft_text) < len(result.draft_text):
+            result = shorter
 
     # Output guardrails: moderate the draft for safety and check it is grounded in the
     # provided context (catches invented claims a moderation API would pass). Both surface
     # in safety_notes; a moderation block withholds the body for human review.
     notes = [result.safety_notes] if result.safety_notes else []
+    if limit and len(result.draft_text) > limit:
+        notes.append(
+            f"Over {limit} characters ({len(result.draft_text)}). "
+            f"LinkedIn allows {limit}, or 200 on a free account."
+        )
     ctx = "\n\n".join(
         maybe_redact(part)
         for part in (req.job_context, req.resume_summary, *(req.retrieved_context or []))

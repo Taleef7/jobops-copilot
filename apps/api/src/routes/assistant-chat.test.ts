@@ -33,8 +33,11 @@ function fakeJob(overrides: Partial<JobRecord> = {}): JobRecord {
     analysis: {
       requiredSkills: [],
       preferredSkills: [],
-      matchedSkills: ['Go', 'Kubernetes'],
-      missingSkills: ['Rust'],
+      matchedSkills: [
+        { skill: 'Go', evidence: '' },
+        { skill: 'Kubernetes', evidence: '' },
+      ],
+      missingSkills: [{ skill: 'Rust', postingQuote: '' }],
       atsKeywords: [],
       fitSummary: 'Strong systems match.',
       recommendedResumeAngle: '',

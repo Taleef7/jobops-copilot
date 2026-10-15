@@ -43,7 +43,11 @@ test('generateDailyDigest aggregates matches, follow-ups, and approvals with ide
     job1.analysis = {
       requiredSkills: ['Kubernetes', 'Go'],
       preferredSkills: ['TypeScript'],
-      matchedSkills: ['Kubernetes', 'Go', 'TypeScript'],
+      matchedSkills: [
+        { skill: 'Kubernetes', evidence: '' },
+        { skill: 'Go', evidence: '' },
+        { skill: 'TypeScript', evidence: '' },
+      ],
       missingSkills: [],
       atsKeywords: ['Kubernetes', 'Go', 'TypeScript'],
       fitSummary: 'Excellent match for distributed platform role',

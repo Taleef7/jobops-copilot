@@ -325,16 +325,19 @@ Example response:
 {
   "job_id": "uuid",
   "fit_score": 82,
-  "matched_skills": ["TypeScript"],
-  "missing_skills": ["n8n"],
+  "sub_signals": { "skills_match": 70, "title_seniority": 80, "salary_fit": null, "sponsorship_likelihood": null },
+  "matched_skills": [{ "skill": "TypeScript", "evidence": "Built the billing API in TypeScript." }],
+  "missing_skills": [{ "skill": "n8n", "posting_quote": "Experience with n8n workflows" }],
   "ats_keywords": ["TypeScript", "n8n"],
-  "fit_summary": "Matched 1 of 2 required skills and left the rest for truthful review.",
+  "fit_summary": "You match 1 of 2 required skills.",
   "recommended_resume_angle": "Lead with truthful experience around TypeScript and avoid overstating gaps.",
   "apply_recommendation": "review",
   "confidence_score": 69,
-  "model_used": "mock-fit-scorer-v1"
+  "model_used": "openai:gpt-6-luna"
 }
 ```
+
+Skill labels are at most four words, with the explanation in `evidence` or `posting_quote`, and at most 8 of each. `confidence_score` and each sub-signal are 0–100 or `null` when unknown; the saved analysis keeps salary fit and sponsorship unknown until the user can enter a salary floor and visa needs.
 
 Current response fields:
 

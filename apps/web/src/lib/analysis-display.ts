@@ -15,6 +15,25 @@ export function isPrerankAnalysis(modelUsed: string | null | undefined): boolean
   return modelUsed === PRERANK_MODEL;
 }
 
+/** "Confidence 65%", or null when there is none. A value of 1 or less is on a 0–1 scale (#354). */
+export function confidenceLabel(score: number | null | undefined): string | null {
+  if (typeof score !== 'number' || !Number.isFinite(score)) return null;
+  return `Confidence ${Math.round(score <= 1 ? score * 100 : score)}%`;
+}
+
+/** A sub-signal as "80%", or "unknown" when nothing measured it (#354). */
+export function signalLabel(value: number | null | undefined): string {
+  return typeof value === 'number' && Number.isFinite(value) ? `${Math.round(value)}%` : 'unknown';
+}
+
+/** The API's label for an item that was a sentence, not a skill; the sentence is its evidence. */
+export const OTHER_SKILL = 'Other';
+
+/** The labels of some skills, leaving out "Other", which is not a skill. */
+export function skillNames(items: ReadonlyArray<{ skill: string }>): string[] {
+  return items.map(({ skill }) => skill).filter((skill) => skill !== OTHER_SKILL);
+}
+
 /** Longest skill label we render inline before eliding. */
 const MAX_SKILL_LABEL = 48;
 

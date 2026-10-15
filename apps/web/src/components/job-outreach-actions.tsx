@@ -25,6 +25,9 @@ const messageTypeOptions: { label: string; value: OutreachMessageType }[] = [
   { label: 'Cover letter', value: 'cover_letter' },
 ];
 
+/** LinkedIn cuts a connection note at 300 characters, or 200 on a free account (#354). */
+const LINKEDIN_NOTE_LIMIT = 300;
+
 type FormState = {
   messageType: OutreachMessageType;
   contactName: string;
@@ -200,6 +203,12 @@ export function JobOutreachActions({
             </div>
           </div>
           <p className="text-sm whitespace-pre-wrap">{result.draftText}</p>
+          {result.messageType === 'linkedin_connection' && result.draftText.length > LINKEDIN_NOTE_LIMIT ? (
+            <p className="text-xs text-amber-700 dark:text-amber-400">
+              Over {LINKEDIN_NOTE_LIMIT} characters ({result.draftText.length}). LinkedIn allows{' '}
+              {LINKEDIN_NOTE_LIMIT}, or 200 on a free account. Shorten it before sending.
+            </p>
+          ) : null}
           {result.safetyNotes.trim() ? (
             <details className="border-t pt-2">
               <summary className="text-muted-foreground cursor-pointer text-xs select-none">

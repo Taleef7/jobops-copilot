@@ -12,7 +12,7 @@ import type {
   UpdateJobBody,
   UpdateOutreachBody,
 } from '@/types';
-import { validateJobAnalysis } from '@/lib/analysis-core';
+import { normalizeAnalysis, toMatchedSkills, toMissingSkills, validateJobAnalysis } from '@/lib/analysis-core';
 import { deriveAnalyzedNextAction, UNSCORED_NEXT_ACTION } from '@/lib/analysis-workflow';
 import { getPool } from '@/lib/postgres';
 import type { PageParams } from '@/lib/pagination';
@@ -128,11 +128,12 @@ function mapAnalysis(row: JobAnalysisRow | undefined): JobAnalysis | null {
       ? (row.sub_signals as JobAnalysis['subSignals'])
       : undefined;
 
-  const analysis = {
+  // Rows saved before #354 hold skills as "label: why" strings and default sub-signals.
+  const analysis = normalizeAnalysis({
     requiredSkills: toTextArray(row.required_skills),
     preferredSkills: toTextArray(row.preferred_skills),
-    matchedSkills: toTextArray(row.matched_skills),
-    missingSkills: toTextArray(row.missing_skills),
+    matchedSkills: toMatchedSkills(row.matched_skills),
+    missingSkills: toMissingSkills(row.missing_skills),
     atsKeywords: toTextArray(row.ats_keywords),
     fitSummary: row.fit_summary,
     recommendedResumeAngle: row.recommended_resume_angle,
@@ -140,7 +141,7 @@ function mapAnalysis(row: JobAnalysisRow | undefined): JobAnalysis | null {
     confidenceScore: row.confidence_score ?? null,
     modelUsed: row.model_used,
     subSignals,
-  } satisfies JobAnalysis;
+  });
 
   return validateJobAnalysis(analysis) ? analysis : null;
 }
@@ -742,6 +743,8 @@ export async function saveJobAnalysis(
   }
 
   const timestamp = new Date().toISOString();
+  // Confidence on 0–100 (a 0.65 becomes 65; the column takes integers 0–100), skills short (#354).
+  const stored = normalizeAnalysis(analysis);
 
   await pool.query(
     `
@@ -780,17 +783,17 @@ export async function saveJobAnalysis(
     [
       randomUUID(),
       jobId,
-      JSON.stringify(analysis.requiredSkills),
-      JSON.stringify(analysis.preferredSkills),
-      JSON.stringify(analysis.matchedSkills),
-      JSON.stringify(analysis.missingSkills),
-      JSON.stringify(analysis.atsKeywords),
-      analysis.fitSummary,
-      analysis.recommendedResumeAngle,
-      analysis.applyRecommendation,
-      analysis.confidenceScore,
-      analysis.modelUsed,
-      JSON.stringify(analysis.subSignals ?? {}),
+      JSON.stringify(stored.requiredSkills),
+      JSON.stringify(stored.preferredSkills),
+      JSON.stringify(stored.matchedSkills),
+      JSON.stringify(stored.missingSkills),
+      JSON.stringify(stored.atsKeywords),
+      stored.fitSummary,
+      stored.recommendedResumeAngle,
+      stored.applyRecommendation,
+      stored.confidenceScore,
+      stored.modelUsed,
+      JSON.stringify(stored.subSignals ?? {}),
       timestamp,
     ],
   );

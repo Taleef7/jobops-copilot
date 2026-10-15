@@ -7,7 +7,7 @@ function analysis(missingSkills: string[] = []): JobAnalysis {
     requiredSkills: [],
     preferredSkills: [],
     matchedSkills: [],
-    missingSkills,
+    missingSkills: missingSkills.map((skill) => ({ skill, postingQuote: '' })),
     atsKeywords: [],
     fitSummary: '',
     recommendedResumeAngle: '',

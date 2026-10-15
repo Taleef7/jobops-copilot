@@ -43,24 +43,44 @@ class ParsedJob(BaseModel):
 
 
 class SubSignals(BaseModel):
-    """Component sub-signals that contribute to the overall fit score."""
+    """Component sub-signals of the fit score. Null when the inputs don't say (#354)."""
 
-    skills_match: int = Field(
-        default=50,
+    skills_match: int | None = Field(
+        default=None,
         description="Match between candidate skills and required/preferred skills, 0-100.",
     )
-    title_seniority: int = Field(
-        default=50,
+    title_seniority: int | None = Field(
+        default=None,
         description="Match between role title/seniority level and candidate background, 0-100.",
     )
-    salary_fit: int = Field(
-        default=50,
-        description="Alignment between posting compensation and candidate preferences, 0-100.",
+    salary_fit: int | None = Field(
+        default=None,
+        description=(
+            "Posting salary against the candidate's salary floor, 0-100; "
+            "null unless both are stated."
+        ),
     )
-    sponsorship_likelihood: int = Field(
-        default=50,
-        description="Likelihood of H-1B or visa sponsorship if required by candidate, 0-100.",
+    sponsorship_likelihood: int | None = Field(
+        default=None,
+        description=(
+            "Likelihood of the visa sponsorship the candidate needs, 0-100; "
+            "null unless the posting and the candidate both say."
+        ),
     )
+
+
+class MatchedSkill(BaseModel):
+    """A skill the résumé shows (#354)."""
+
+    skill: str = Field(description="The skill's name only, at most four words.")
+    evidence: str = Field(default="", description="Where the résumé shows it, in one sentence.")
+
+
+class MissingSkill(BaseModel):
+    """A skill the posting asks for that the résumé doesn't show (#354)."""
+
+    skill: str = Field(description="The skill's name only, at most four words.")
+    posting_quote: str = Field(default="", description="The posting's words that ask for it.")
 
 
 class FitScoreLLM(BaseModel):
@@ -75,13 +95,13 @@ class FitScoreLLM(BaseModel):
 
     fit_score: int = Field(description="Overall fit, 0-100.")
     sub_signals: SubSignals = Field(default_factory=SubSignals)
-    matched_skills: list[str] = Field(default_factory=list)
-    missing_skills: list[str] = Field(default_factory=list)
+    matched_skills: list[MatchedSkill] = Field(default_factory=list, description="At most 8.")
+    missing_skills: list[MissingSkill] = Field(default_factory=list, description="At most 8.")
     ats_keywords: list[str] = Field(default_factory=list)
     fit_summary: str = ""
     recommended_resume_angle: str = ""
     apply_recommendation: ApplyRecommendation = "review"
-    confidence_score: int = Field(default=50, description="Confidence, 0-100.")
+    confidence_score: int | None = Field(default=None, description="Confidence, 0-100.")
 
 
 class FeedCuratorAnalysis(BaseModel):
@@ -99,7 +119,9 @@ class FeedCuratorAnalysis(BaseModel):
         default="", description="Strategic angle to highlight in applications."
     )
     apply_recommendation: ApplyRecommendation = "review"
-    confidence_score: int = Field(default=50, description="Confidence in this assessment, 0-100.")
+    confidence_score: int | None = Field(
+        default=None, description="Confidence in this assessment, 0-100."
+    )
 
 
 class OutreachDraftLLM(BaseModel):
@@ -264,7 +286,7 @@ class TelemetryInsights(BaseModel):
 class FitScoreResponse(FitScoreLLM):
     # Re-imposed here: whatever the model said, what leaves the service is in range.
     fit_score: int = Field(ge=0, le=100, description="Overall fit, 0-100.")
-    confidence_score: int = Field(default=50, ge=0, le=100)
+    confidence_score: int | None = Field(default=None, ge=0, le=100)
     model_used: str
 
 
