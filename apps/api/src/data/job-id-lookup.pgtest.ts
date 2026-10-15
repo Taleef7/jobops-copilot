@@ -66,7 +66,9 @@ test(
         status: 'drafted' as const,
         createdAt: new Date().toISOString(),
       };
-      for (const id of ['not-a-real-id', `${job.id}x`, '']) {
+      // The AI routes pass `job_id` from the JSON body unchecked, so it can be an array.
+      const unchecked = [job.id] as unknown as string;
+      for (const id of ['not-a-real-id', `${job.id}x`, '', unchecked]) {
         assert.equal(await getJobById(user, id), undefined);
         assert.equal(await updateJob(user, id, { notes: 'Called the recruiter' }), undefined);
         assert.equal(await appendOutreachDraft(user, id, draft), undefined);

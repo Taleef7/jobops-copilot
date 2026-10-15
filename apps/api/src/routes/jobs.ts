@@ -30,7 +30,7 @@ export const jobsRouter = Router();
  * compare a uuid answered 500.
  */
 export function rejectMalformedJobId(request: Request, response: Response, next: NextFunction) {
-  if (isUuid(String(request.params.id))) {
+  if (isUuid(request.params.id)) {
     next();
     return;
   }
