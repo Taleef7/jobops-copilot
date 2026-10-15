@@ -24,6 +24,7 @@ import { metadata } from './layout';
 import manifest from './manifest';
 import OpengraphImage, { alt } from './opengraph-image';
 import * as twitterImage from './twitter-image';
+import { metadata as signUpMetadata } from './sign-up/[[...sign-up]]/page';
 
 const SENTENCE =
   'Tell me in 10 seconds if a job is worth applying to, give me an honest tailored résumé, and never let me miss a follow-up.';
@@ -63,4 +64,8 @@ it('puts the name and the product sentence on the social card, on a plain backgr
   expect(card.element.props.style.background).not.toMatch(/gradient/);
   expect(alt).not.toMatch(CLAIMS);
   expect(twitterImage.alt).toBe(alt);
+});
+
+it('describes the sign-up page without selling AI', () => {
+  expect(signUpMetadata.description).toBe('Create your JobOps Copilot account.');
 });

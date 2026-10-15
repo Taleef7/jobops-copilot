@@ -11,6 +11,10 @@ it('says what saving does, and that the fit is run on the job page', () => {
   const { container } = render(<AddJobPage />);
 
   expect(screen.getByRole('heading', { name: 'Add a job' })).toBeInTheDocument();
+  // Pasting the text fills only the description; Autofill from a URL fills the rest.
+  expect(
+    screen.getByText('Paste the posting and fill in the company and title, or paste its URL and press Autofill. Then save.'),
+  ).toBeInTheDocument();
   expect(screen.getByText(/score fit/i)).toBeInTheDocument();
   expect(container.textContent).not.toMatch(/AI extracts|scores your fit|analy[sz]ed|CRM/i);
 });

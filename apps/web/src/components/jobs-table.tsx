@@ -144,7 +144,7 @@ export function JobsTable({ jobs, initialQuery = '' }: { jobs: Job[]; initialQue
       {!hasJobs ? (
         <EmptyState
           title="No jobs yet"
-          description="Add a job (paste its description) and the AI will parse it, score your fit, and draft outreach. You can also load sample data from Settings to explore first."
+          description="Add one by pasting a posting or its URL."
           actionLabel="Add your first job"
           actionHref="/jobs/new"
         />

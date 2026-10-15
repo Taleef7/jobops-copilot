@@ -9,7 +9,7 @@ import { PRODUCT_SENTENCE } from '@/lib/product';
 const steps = [
   {
     title: 'Add a job',
-    body: 'Paste the posting, or paste its URL and press Autofill. Check the details, then save.',
+    body: 'Paste the posting and fill in the company and title, or paste its URL and press Autofill. Then save.',
   },
   {
     title: 'See the fit',

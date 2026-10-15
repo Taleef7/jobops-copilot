@@ -80,3 +80,11 @@ it('the "Clear filters" action restores the full table', async () => {
   expect(screen.queryByText('No matching jobs')).not.toBeInTheDocument();
   expect(screen.getByText(/Northwind/)).toBeInTheDocument();
 });
+
+// #356: the spec's empty state (docs/SPEC.md, Pipeline). Saving a job parses, scores and drafts nothing (#349).
+it('tells a new user how to add a job, and promises nothing the save does not do', () => {
+  const { container } = render(<JobsTable jobs={[]} />);
+
+  expect(screen.getByText('Add one by pasting a posting or its URL.')).toBeInTheDocument();
+  expect(container.textContent).not.toMatch(/the AI will|score your fit|draft outreach/i);
+});

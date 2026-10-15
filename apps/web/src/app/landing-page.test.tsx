@@ -6,8 +6,14 @@ const { auth } = vi.hoisted(() => ({
   auth: vi.fn(async (): Promise<{ userId: string | null }> => ({ userId: null })),
 }));
 vi.mock('@clerk/nextjs/server', () => ({ auth }));
+// Clerk's SignInButton opens sign-in when its child is clicked. The mock marks where it wraps
+// so a test can tell a working Sign in from a plain, dead button.
 vi.mock('@clerk/nextjs', () => ({
-  SignInButton: ({ children }: { children: React.ReactNode }) => children,
+  SignInButton: ({ children, mode }: { children: React.ReactNode; mode?: string }) => (
+    <span data-clerk="sign-in" data-mode={mode}>
+      {children}
+    </span>
+  ),
   SignUpButton: ({ children }: { children: React.ReactNode }) => children,
   UserButton: () => <div data-testid="user-button" />,
 }));
@@ -47,16 +53,22 @@ it('shows three short steps: add a job, the fit, then the résumé and follow-up
   const steps = within(screen.getByRole('list', { name: /how it works/i })).getAllByRole('listitem');
   expect(steps).toHaveLength(3);
   expect(steps[0]).toHaveTextContent(/add a job/i);
+  expect(steps[0]).toHaveTextContent(
+    'Paste the posting and fill in the company and title, or paste its URL and press Autofill. Then save.',
+  );
   expect(steps[1]).toHaveTextContent(/score fit/i);
   expect(steps[2]).toHaveTextContent(/résumé/i);
   expect(steps[2]).toHaveTextContent(/follow-up/i);
 });
 
-it('offers a sign-in button to a signed-out visitor', async () => {
+it('offers a sign-in button to a signed-out visitor that opens Clerk sign-in', async () => {
   await renderLanding();
 
-  const main = screen.getByRole('main');
-  expect(within(main).getByRole('button', { name: 'Sign in' })).toBeInTheDocument();
+  const signIn = within(screen.getByRole('main')).getByRole('button', { name: 'Sign in' });
+  expect(signIn.closest('[data-clerk="sign-in"]')).toHaveAttribute('data-mode', 'modal');
+  // The header's Sign in is wired the same way.
+  const headerSignIn = within(screen.getByRole('banner')).getByRole('button', { name: 'Sign in' });
+  expect(headerSignIn.closest('[data-clerk="sign-in"]')).toHaveAttribute('data-mode', 'modal');
 });
 
 it('links a signed-in visitor into the app instead of offering sign-in', async () => {

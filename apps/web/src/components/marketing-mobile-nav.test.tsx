@@ -3,8 +3,13 @@ import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { expect, it, vi } from 'vitest';
 
+// Marks where Clerk's SignInButton wraps, so the test can tell a working Sign in from a dead one.
 vi.mock('@clerk/nextjs', () => ({
-  SignInButton: ({ children }: { children: React.ReactNode }) => children,
+  SignInButton: ({ children, mode }: { children: React.ReactNode; mode?: string }) => (
+    <span data-clerk="sign-in" data-mode={mode}>
+      {children}
+    </span>
+  ),
   SignUpButton: ({ children }: { children: React.ReactNode }) => children,
   UserButton: () => <div data-testid="user-button" />,
 }));
@@ -19,7 +24,8 @@ it('has no Features link in the mobile menu', async () => {
 
   await user.click(screen.getByRole('button', { name: /open navigation menu/i }));
 
-  expect(await screen.findByRole('button', { name: 'Sign in' })).toBeInTheDocument();
+  const signIn = await screen.findByRole('button', { name: 'Sign in' });
+  expect(signIn.closest('[data-clerk="sign-in"]')).toHaveAttribute('data-mode', 'modal');
   expect(screen.queryByRole('link', { name: /features/i })).not.toBeInTheDocument();
   expect(document.querySelector('a[href="/#features"]')).toBeNull();
 });

@@ -17,7 +17,7 @@ export default function AddJobPage() {
       <div>
         <h1 className="font-heading text-2xl font-bold tracking-tight">Add a job</h1>
         <p className="text-muted-foreground text-sm">
-          Paste the posting, or paste its URL and press Autofill. Check the details, then save.
+          Paste the posting and fill in the company and title, or paste its URL and press Autofill. Then save.
         </p>
       </div>
 
