@@ -86,6 +86,21 @@ it('advances to the target-roles step after a resume is saved, then discovers an
     remoteOnly: false,
   }));
   expect(runDiscovery).toHaveBeenCalledOnce();
+  // #353: the jobs page says what discovery added; a toast was gone before anyone read it.
+  await waitFor(() => expect(push).toHaveBeenCalledWith('/jobs?added=3&skipped=0'));
+});
+
+it('goes to the jobs page without a count when discovery fails', async () => {
+  runDiscovery.mockRejectedValueOnce(new ApiRequestError('The API took too long to answer.', 408));
+  const user = userEvent.setup();
+  render(<OnboardingPage />);
+
+  await user.click(screen.getByRole('tab', { name: /paste text/i }));
+  await user.type(screen.getByPlaceholderText(/paste your resume text/i), 'Engineer.');
+  await continueWithResume(user);
+  await user.type(await screen.findByLabelText(/role or keywords/i), 'AI Engineer');
+  await user.click(screen.getByRole('button', { name: /find matching jobs/i }));
+
   await waitFor(() => expect(push).toHaveBeenCalledWith('/jobs'));
 });
 

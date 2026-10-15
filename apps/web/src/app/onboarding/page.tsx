@@ -206,17 +206,16 @@ export default function OnboardingPage() {
         location: isRemoteLocation ? undefined : trimmedLocation || undefined,
         remoteOnly: remoteOnly || isRemoteLocation,
       });
+      // The jobs page says what discovery added (#353); a toast was gone before the page
+      // had loaded, after a wait of half a minute.
+      let landing = '/jobs';
       try {
         const result = await runDiscovery();
-        toast.success(
-          result.inserted > 0
-            ? `Found ${result.inserted} matching job${result.inserted === 1 ? '' : 's'}.`
-            : "Search saved — new jobs will appear as they're posted.",
-        );
+        landing = `/jobs?${new URLSearchParams({ added: String(result.inserted), skipped: String(result.skipped) })}`;
       } catch {
         toast.success("Search saved — we'll pull matching jobs shortly.");
       }
-      router.push('/jobs');
+      router.push(landing);
       router.refresh();
     } catch {
       toast.error('Could not save your search. Please try again.');
