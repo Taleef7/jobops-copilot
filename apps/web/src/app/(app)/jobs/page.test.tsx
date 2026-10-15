@@ -1,5 +1,5 @@
 import '@testing-library/jest-dom/vitest';
-import { render, screen } from '@testing-library/react';
+import { cleanup, render, screen } from '@testing-library/react';
 import { expect, it, vi } from 'vitest';
 import JobsPage from './page';
 
@@ -66,4 +66,22 @@ it("keeps the pipeline and shows the feed's error when only the feed fails", asy
   expect(screen.getByRole('alert')).toHaveTextContent("Couldn't load today's best");
   expect(screen.getByRole('alert')).toHaveTextContent('The API took too long to answer.');
   expect(screen.getByTestId('initial-query')).toBeInTheDocument();
+});
+
+// #353: the header search lands on /jobs?q=…, and only the pipeline filters by q. It
+// opened on Today's Best, unfiltered.
+it('opens the pipeline tab when there is a search', async () => {
+  const ui = await JobsPage({ searchParams: Promise.resolve({ q: 'Jobot' }) });
+  render(ui);
+
+  expect(screen.getByRole('tab', { name: /pipeline/i })).toHaveAttribute('aria-selected', 'true');
+});
+
+it("opens Today's Best without a search, and the tab named in the URL either way", async () => {
+  render(await JobsPage({ searchParams: Promise.resolve({}) }));
+  expect(screen.getByRole('tab', { name: /today's best/i })).toHaveAttribute('aria-selected', 'true');
+  cleanup();
+
+  render(await JobsPage({ searchParams: Promise.resolve({ q: 'Jobot', tab: 'searches' }) }));
+  expect(screen.getByRole('tab', { name: /searches/i })).toHaveAttribute('aria-selected', 'true');
 });

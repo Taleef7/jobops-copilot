@@ -163,3 +163,23 @@ it('says a job is not analysed yet when it has no analysis', () => {
   expect(screen.getByText('Fresh role')).toBeInTheDocument();
   expect(screen.getByText('Not analysed yet')).toBeInTheDocument();
 });
+
+// #353: a search from the header says it is filtering, with a way back to every job.
+it('shows a "Filtered by" chip for a search from the URL, with Clear', async () => {
+  const user = userEvent.setup();
+  render(<JobsTable jobs={jobs} initialQuery="northwind" />);
+
+  const chip = screen.getByText(/filtered by/i).closest('p');
+  expect(chip).toHaveTextContent('Filtered by “northwind”');
+  expect(screen.getByRole('link', { name: 'Clear' })).toHaveAttribute('href', '/jobs?tab=pipeline');
+
+  // Once the search box says something else, the chip would be wrong.
+  await user.type(screen.getByRole('searchbox', { name: /search jobs/i }), ' labs');
+  expect(screen.queryByText(/filtered by/i)).not.toBeInTheDocument();
+});
+
+it('shows no chip without a search from the URL', () => {
+  render(<JobsTable jobs={jobs} initialQuery="" />);
+
+  expect(screen.queryByText(/filtered by/i)).not.toBeInTheDocument();
+});

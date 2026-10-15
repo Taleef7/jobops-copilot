@@ -99,6 +99,16 @@ export function JobsTable({ jobs, initialQuery = '' }: { jobs: Job[]; initialQue
 
   return (
     <div className="space-y-4">
+      {/* A search from the URL says so until the box is changed; Clear drops it from the URL (#353). */}
+      {initialQuery.trim() && query === initialQuery ? (
+        <p className="bg-muted text-muted-foreground inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs">
+          Filtered by “{initialQuery.trim()}”
+          <span aria-hidden="true">·</span>
+          <Link href="/jobs?tab=pipeline" className="text-foreground font-medium hover:underline">
+            Clear
+          </Link>
+        </p>
+      ) : null}
       {/* No filter controls when there is nothing to filter. */}
       {hasJobs ? (
         <div className="flex flex-col gap-2 sm:flex-row sm:items-center">

@@ -27,7 +27,8 @@ export default async function JobsPage({
   ]);
 
   const initialQuery = Array.isArray(q) ? (q[0] ?? '') : (q ?? '');
-  const activeTab = (Array.isArray(tab) ? tab[0] : tab) || 'feed';
+  // A search (the header box lands here with ?q=) opens the pipeline, the tab it filters (#353).
+  const activeTab = (Array.isArray(tab) ? tab[0] : tab) || (initialQuery.trim() ? 'pipeline' : 'feed');
   if (error) return <LoadFailure heading="Jobs" title="Couldn't load your jobs" message={error} />;
 
   return (
