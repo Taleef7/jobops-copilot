@@ -15,6 +15,7 @@ import { resumeStudioRouter } from './resume-studio';
 import { TAILOR_BASE, edit, emptyAnswer } from '@/test-support/tailor-fixtures';
 import type { TailorAgentRequest, TailorAnswer } from '@/lib/tailor/answer';
 import type { ResumeVersionRecord, StructuredResume } from '@/types';
+import { flat, readPdf } from '@/test-support/pdf-read';
 
 /**
  * POST /api/jobs/:id/tailor (#351): the AI suggests edits to lines of the base résumé, the
@@ -192,11 +193,9 @@ test('a suggestion that adds a skill is dropped and shown, and the download keep
     assert.equal((await send('POST', `/api/resume-versions/${version.id}/approve`, {})).status, 200);
     const download = await send('GET', `/api/resume-versions/${version.id}/download`);
     assert.equal(download.status, 200);
-    // The PDF's text operators: pdf.js can't open this writer's files ("bad XRef entry"),
-    // which L01 (#352) fixes when it replaces the writer.
-    const pdf = Buffer.from(await download.arrayBuffer()).toString('latin1');
-    assert.match(pdf, /Cut p95 latency 40% with Redis caching\) Tj/);
-    assert.match(pdf, /Built the billing API in Go serving 2,000 merchants\) Tj/);
+    const pdf = flat((await readPdf(new Uint8Array(await download.arrayBuffer()))).text);
+    assert.ok(pdf.includes('Cut p95 latency 40% with Redis caching'), pdf);
+    assert.ok(pdf.includes('Built the billing API in Go serving 2,000 merchants'), pdf);
     assert.doesNotMatch(pdf, /Kafka/);
   });
 });
@@ -512,7 +511,7 @@ test('a draft for a name outside Latin-1 downloads, with the name kept in the fi
     assert.equal(download.status, 200);
     const disposition = download.headers.get('content-disposition') ?? '';
     assert.match(disposition, /^attachment; filename="[\x20-\x7e]+\.pdf"; filename\*=UTF-8''/);
-    assert.ok(decodeURIComponent(disposition.split("UTF-8''")[1]!).startsWith('Łukasz_Żółć_李_'));
+    assert.equal(decodeURIComponent(disposition.split("UTF-8''")[1]!), 'Łukasz Żółć 李 – Acme Pay Inc.pdf');
   });
 });
 

@@ -213,10 +213,11 @@ export interface CreateJobBody {
 export interface UpdateJobBody {
   status?: JobStatus;
   priority?: JobPriority;
-  notes?: string;
+  /** null clears it, as for nextAction and nextActionDue; left out, it's unchanged. */
+  notes?: string | null;
   fitScore?: number | null;
-  nextAction?: string;
-  nextActionDue?: string;
+  nextAction?: string | null;
+  nextActionDue?: string | null;
 }
 
 export interface ParseJobBody {
@@ -381,6 +382,14 @@ export interface ResumeCertificate {
   url?: string;
 }
 
+export type ResumeSectionKey = 'summary' | 'work' | 'education' | 'skills' | 'projects' | 'certificates';
+
+/** Section order, titles and visibility, and page size, for the PDF (#352; edited in #415). */
+export interface ResumeLayout {
+  sections?: Array<{ key: ResumeSectionKey; title?: string; hidden?: boolean }>;
+  pageSize?: 'letter' | 'a4';
+}
+
 export interface StructuredResume {
   basics: ResumeBasics;
   work: ResumeWorkExperience[];
@@ -388,6 +397,7 @@ export interface StructuredResume {
   skills: ResumeSkill[];
   projects?: ResumeProject[];
   certificates?: ResumeCertificate[];
+  layout?: ResumeLayout;
 }
 
 /**

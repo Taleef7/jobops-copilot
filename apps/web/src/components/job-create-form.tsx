@@ -1,6 +1,6 @@
 'use client';
 
-import { Download, Loader2, Sparkles } from 'lucide-react';
+import { Download, Loader2 } from 'lucide-react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import type { FormEvent } from 'react';
@@ -183,12 +183,7 @@ export function JobCreateForm() {
   return (
     <form className="space-y-5" onSubmit={handleSubmit} noValidate>
       <div className="space-y-1.5">
-        <div className="flex items-center justify-between">
-          <Label htmlFor="description">Job description</Label>
-          <span className="text-muted-foreground inline-flex items-center gap-1 text-xs">
-            <Sparkles className="size-3.5 text-indigo-500" /> AI extracts skills &amp; scores fit
-          </span>
-        </div>
+        <Label htmlFor="description">Job description</Label>
         {/* Cap the height so a long paste scrolls internally instead of pushing the
             rest of the form off-screen (the Textarea uses field-sizing-content). */}
         <Textarea
@@ -336,9 +331,8 @@ export function JobCreateForm() {
       </div>
 
       <div className="flex gap-2">
-        <Button type="submit" disabled={isSubmitting} className="gap-1.5">
-          <Sparkles className="size-4" />
-          {isSubmitting ? 'Saving…' : 'Save & analyze'}
+        <Button type="submit" disabled={isSubmitting}>
+          {isSubmitting ? 'Saving…' : 'Save job'}
         </Button>
       </div>
     </form>

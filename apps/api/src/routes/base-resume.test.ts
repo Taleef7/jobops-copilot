@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { randomUUID } from 'node:crypto';
 import http from 'node:http';
 import test from 'node:test';
 import { mkdtemp } from 'node:fs/promises';
@@ -8,7 +9,7 @@ import express from 'express';
 import { baseResumeRouter } from './base-resume';
 import { demoRouter } from './demo';
 import { getUserProfile, upsertUserProfile } from '@/data/profile-store';
-import { resetResumeVersionStore } from '@/data/resume-version-store';
+import { insertResumeVersion, resetResumeVersionStore } from '@/data/resume-version-store';
 import type { StructuredResume } from '@/types';
 import { apiErrorHandler } from '@/lib/api-error-handler';
 import { FAKE_STRUCTURED_RESUME, fakeAgentAnswer } from '@/test-support/fake-agent';
@@ -567,7 +568,7 @@ test('POST /api/profile/base-resume/render-pdf renders ATS PDF and stores versio
         assert.equal(downloadRes.status, 200);
         assert.equal(downloadRes.headers.get('content-type'), 'application/pdf');
         const buf = Buffer.from(await downloadRes.arrayBuffer());
-        assert.ok(buf.toString('utf-8', 0, 8).startsWith('%PDF-1.4'));
+        assert.ok(buf.toString('utf-8', 0, 8).startsWith('%PDF-'));
       },
     );
   } finally {
@@ -684,6 +685,108 @@ test('the base-résumé PDF routes refuse a tailored version, and still render t
         const baseDownload = await fetch(`${baseUrl}/api/profile/base-resume/versions/${versionId}/download`, { headers });
         assert.equal(baseDownload.status, 200);
         assert.equal(baseDownload.headers.get('content-type'), 'application/pdf');
+      },
+    );
+  } finally {
+    process.chdir(originalCwd);
+  }
+});
+
+test('a résumé with a field longer than a résumé has is refused, on save and on render', async () => {
+  const originalCwd = process.cwd();
+  delete process.env.DATABASE_URL;
+  const tempDir = await mkdtemp(join(tmpdir(), 'jobops-base-resume-caps-'));
+  try {
+    process.chdir(tempDir);
+    await resetResumeVersionStore();
+    const huge: StructuredResume = {
+      ...sampleResume,
+      work: [{ ...sampleResume.work[0]!, highlights: ['x'.repeat(5_001)] }],
+    };
+    const many: StructuredResume = { ...sampleResume, skills: [{ category: 'All', skills: Array.from({ length: 201 }, (_, i) => `s${i}`) }] };
+    await withServer(
+      (app) => app.use('/api/profile/base-resume', baseResumeRouter),
+      async (baseUrl) => {
+        const send = (method: string, path: string, body: unknown) =>
+          fetch(`${baseUrl}/api/profile/base-resume${path}`, {
+            method,
+            headers: { 'Content-Type': 'application/json', 'X-User-Id': 'user-br-caps' },
+            body: JSON.stringify(body),
+          });
+        for (const resume of [huge, many]) {
+          const saved = await send('PUT', '', { baseResume: resume });
+          assert.equal(saved.status, 413);
+          assert.match(((await saved.json()) as { error: string }).error, /A bullet is longer than 5,000 characters|A skill list has more than 200 entries/);
+          assert.equal((await send('POST', '/render-pdf', { resume })).status, 413);
+        }
+        assert.equal((await getUserProfile('user-br-caps'))?.baseResume, undefined, 'nothing was saved');
+        assert.equal((await send('PUT', '', { baseResume: sampleResume })).status, 200);
+      },
+    );
+  } finally {
+    process.chdir(originalCwd);
+  }
+});
+
+test('a résumé too big in all is refused on save and render, and one stored before the caps on download', async () => {
+  const originalCwd = process.cwd();
+  delete process.env.DATABASE_URL;
+  const tempDir = await mkdtemp(join(tmpdir(), 'jobops-base-resume-total-'));
+  try {
+    process.chdir(tempDir);
+    await resetResumeVersionStore();
+    const long: StructuredResume = {
+      ...sampleResume,
+      work: [{ ...sampleResume.work[0]!, highlights: Array.from({ length: 15 }, () => 'Shipped a careful change. '.repeat(170)) }],
+    };
+    const stored = randomUUID();
+    await insertResumeVersion({
+      id: stored,
+      userId: 'user-br-total',
+      jobId: null,
+      changeSummary: 'Saved before the caps',
+      structuredResume: long,
+      approved: true,
+      isBase: true,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    });
+    await withServer(
+      (app) => app.use('/api/profile/base-resume', baseResumeRouter),
+      async (baseUrl) => {
+        const headers = { 'Content-Type': 'application/json', 'X-User-Id': 'user-br-total' };
+        const saved = await fetch(`${baseUrl}/api/profile/base-resume`, { method: 'PUT', headers, body: JSON.stringify({ baseResume: long }) });
+        assert.equal(saved.status, 413);
+        assert.match(((await saved.json()) as { error: string }).error, /This résumé is too long/);
+        const rendered = await fetch(`${baseUrl}/api/profile/base-resume/render-pdf`, { method: 'POST', headers, body: JSON.stringify({ resume: long }) });
+        assert.equal(rendered.status, 413);
+        const download = await fetch(`${baseUrl}/api/profile/base-resume/versions/${stored}/download`, { headers });
+        assert.equal(download.status, 413);
+      },
+    );
+  } finally {
+    process.chdir(originalCwd);
+  }
+});
+
+test('the PDF says how many characters it could not print', async () => {
+  const originalCwd = process.cwd();
+  delete process.env.DATABASE_URL;
+  const tempDir = await mkdtemp(join(tmpdir(), 'jobops-base-resume-glyphs-'));
+  try {
+    process.chdir(tempDir);
+    await resetResumeVersionStore();
+    await withServer(
+      (app) => app.use('/api/profile/base-resume', baseResumeRouter),
+      async (baseUrl) => {
+        const headers = { 'Content-Type': 'application/json', 'X-User-Id': 'user-br-glyphs' };
+        const resume = { ...sampleResume, basics: { ...sampleResume.basics, name: '王小明' } };
+        const rendered = await fetch(`${baseUrl}/api/profile/base-resume/render-pdf`, { method: 'POST', headers, body: JSON.stringify({ resume }) });
+        assert.equal(rendered.status, 200);
+        const body = (await rendered.json()) as { versionId: string; unsupported: number };
+        assert.equal(body.unsupported, 3);
+        const download = await fetch(`${baseUrl}/api/profile/base-resume/versions/${body.versionId}/download`, { headers });
+        assert.equal(download.headers.get('x-pdf-unsupported-characters'), '3');
       },
     );
   } finally {

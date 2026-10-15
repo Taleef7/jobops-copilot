@@ -67,3 +67,13 @@ it("keeps the pipeline and shows the feed's error when only the feed fails", asy
   expect(screen.getByRole('alert')).toHaveTextContent('The API took too long to answer.');
   expect(screen.getByTestId('initial-query')).toBeInTheDocument();
 });
+
+// #356: a pulled posting gets a fit read when the user opens it, not on the way in.
+it('does not say discovered postings come already scored', async () => {
+  const ui = await JobsPage({ searchParams: Promise.resolve({ tab: 'searches' }) });
+  render(ui);
+
+  expect(screen.getByTestId('saved-searches')).toBeInTheDocument();
+  expect(screen.getByText(/open one to get a fit read/i)).toBeInTheDocument();
+  expect(screen.queryByText(/already scored/i)).not.toBeInTheDocument();
+});
