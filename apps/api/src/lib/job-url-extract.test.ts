@@ -88,3 +88,38 @@ test('returns source "none" for an empty page', () => {
   assert.equal(result.source, 'none');
   assert.equal(result.title, undefined);
 });
+
+// #355: the Add job review shows the salary as posted, read the way the store reads it
+// when the job is saved, or "Not stated".
+test('reads the salary the posting states', () => {
+  const html = `<html><head><script type="application/ld+json">
+    {"@type":"JobPosting","title":"Engineer",
+     "description":"<p>Build APIs.</p><p>The salary range is £80,000 - £95,000.</p>"}
+    </script></head><body></body></html>`;
+  const result = extractJobFromHtml(html);
+  assert.deepEqual(result.salary, { min: 80000, max: 95000, currency: 'GBP' });
+});
+
+// A description without a salary states none (null). With no description there's nothing
+// to read, so the salary is unknown and left out, as an API from before #355 leaves it out.
+test('a posting that states no salary has null, and a page with no description has none', () => {
+  assert.equal(extractJobFromHtml(JSONLD).salary, null);
+  assert.equal(extractJobFromHtml('<html><head></head><body></body></html>').salary, undefined);
+});
+
+// A meta description is a teaser, not the posting: a salary it leaves out is unknown.
+test('a description from the page metadata leaves the salary unknown', () => {
+  const html = `<html><head>
+    <meta property="og:title" content="Backend Engineer">
+    <meta property="og:description" content="Build APIs in Go."></head><body></body></html>`;
+  const result = extractJobFromHtml(html);
+  assert.equal(result.descriptionText, 'Build APIs in Go.');
+  assert.equal(result.salary, undefined);
+});
+
+test('the salary is the one the store will save, an hourly rate made yearly', () => {
+  const html = `<html><head><script type="application/ld+json">
+    {"@type":"JobPosting","title":"Engineer","description":"<p>Pay is $45/hr.</p>"}
+    </script></head><body></body></html>`;
+  assert.deepEqual(extractJobFromHtml(html).salary, { min: 93600, max: 93600, currency: 'USD' });
+});

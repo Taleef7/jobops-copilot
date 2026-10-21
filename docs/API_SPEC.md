@@ -108,6 +108,7 @@ Validation rules:
 - `jobUrl`, when provided, must be a valid URL and unique.
 - `priority`, when provided, must be `high`, `medium`, or `low`.
 - `workplaceType`, when provided, must be `remote`, `hybrid`, `onsite`, or `flexible`.
+- `location`, `employmentType` and `workplaceType` are stored as given. Left out, they stay unstated: a job reads back with `location` and `employmentType` empty and `workplaceType` `null`, never a default such as "Remote" (#355).
 
 Example response:
 
@@ -206,6 +207,7 @@ Response fields (every field except `source` is optional and omitted when not fo
 
 - `title`, `company`, `location`, `descriptionText` — extracted strings.
 - `workplaceType` — one of `remote`, `hybrid`, `onsite`, `flexible` (currently only set to `remote`, from a JSON-LD `TELECOMMUTE` location).
+- `salary` — as for `parse-job` (#355): the store's reading of `descriptionText`, or `null`; left out when there's no description or only the page's meta description.
 - `source` — the highest-priority tier that contributed at least one field: `jsonld`, `opengraph`, `heuristic`, or `none`.
 
 When nothing could be extracted the body is just `{ "source": "none" }`.
@@ -258,26 +260,28 @@ The `/api/ai/*` and `/api/discovery/*` routes are protected (Phase 2 · Workstre
 
 ### `POST /api/ai/parse-job`
 
-Parses raw text into structured job fields.
+Parses raw text into structured job fields. The Add job form sends a pasted posting here and shows the result for review; nothing is saved (#349, #355).
 
 Example request:
 
 ```json
 {
-  "job_id": "uuid",
   "description_text": "Build internal automations..."
 }
 ```
 
-If `job_id` is provided, the parsed analysis is saved back to the current job record.
+`job_id` is optional and only echoed back.
 
 Example response:
 
 ```json
 {
-  "job_id": "uuid",
+  "job_id": null,
   "company": "Northwind Labs",
   "title": "AI Automation Engineer",
+  "location": "London, United Kingdom",
+  "workplace_type": "hybrid",
+  "salary": { "min": 80000, "max": 95000, "currency": "GBP" },
   "required_skills": ["TypeScript", "Azure Functions", "n8n"],
   "preferred_skills": ["LLM"],
   "responsibilities": [
@@ -295,6 +299,14 @@ Current response fields:
 
 - `company`
 - `title`
+- `location`: where the job is based, as the posting says, or `null`. Left out when the agent doesn't read it (an image from before #355): unknown, not "not stated".
+- `workplace_type`: `remote`, `hybrid`, `onsite` or `flexible` when the posting says ("On-site", "in-office", "in-person", "fully remote", "100% remote" and a leading "remote" are read too), or `null` when it says nothing. Left out when the agent doesn't read it, or for a word the app doesn't know ("remote or hybrid"), which the agent passes through as written.
+- `salary`: `{ min, max, currency }` as the store will save it from `description_text` (`parseSalaryFromText`: a yearly figure, an hourly rate made yearly), or `null` when it finds none. The Add job review shows it as what will be saved, not as what the posting says.
+
+Errors:
+- `400` when `description_text` is missing, empty or not a string.
+- `413` when it is longer than 100,000 characters, before any AI call.
+- `422` `{ "error": "This posting has text that reads like instructions to the AI, so it wasn’t read. Enter the details yourself." }` when the agent refuses it (`INJECTION_ACTION=refuse`). Score fit answers `422` "…so it wasn’t scored." for the same posting, and the n8n intake keeps the job and skips enrichment (201). Any other 422 from the agent is a `503` like other agent failures.
 - `required_skills`
 - `preferred_skills`
 - `responsibilities`

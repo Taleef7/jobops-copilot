@@ -34,6 +34,7 @@ import { isDuplicateRemote, postingHref } from '@/lib/job-display';
 export const dynamic = 'force-dynamic';
 
 type JobDetailParams = { params: Promise<{ jobId: string }> };
+type JobDetailProps = JobDetailParams & { searchParams?: Promise<{ run?: string | string[] }> };
 
 export async function generateMetadata({ params }: JobDetailParams): Promise<Metadata> {
   const { jobId } = await params;
@@ -41,8 +42,10 @@ export async function generateMetadata({ params }: JobDetailParams): Promise<Met
   return { title: job ? `${job.company} · ${job.title}` : 'Job detail' };
 }
 
-export default async function JobDetailPage({ params }: JobDetailParams) {
+export default async function JobDetailPage({ params, searchParams }: JobDetailProps) {
   const { jobId } = await params;
+  // "Save and run fit" on the Add job form opens the job with ?run=fit (#355).
+  const runFit = (await searchParams)?.run === 'fit';
   // A malformed id names no job, so say so without asking the API (#353).
   if (!isJobId(jobId)) notFound();
   // Fetch the profile + persisted agent outputs alongside the job. Neither is
@@ -91,11 +94,16 @@ export default async function JobDetailPage({ params }: JobDetailParams) {
             ) : null}
             <div className="flex flex-wrap items-center gap-2">
               <StatusPill status={job.status} />
-              {!isDuplicateRemote(job.location, job.workplaceType) ? (
+              {/* What the posting doesn't state is left out, not filled in (#355). */}
+              {job.location.trim() && !isDuplicateRemote(job.location, job.workplaceType) ? (
                 <Badge variant="outline" className="capitalize">{job.location}</Badge>
               ) : null}
-              <Badge variant="outline" className="capitalize">{job.workplaceType}</Badge>
-              <Badge variant="outline" className="capitalize">{job.employmentType}</Badge>
+              {job.workplaceType ? (
+                <Badge variant="outline" className="capitalize">{job.workplaceType}</Badge>
+              ) : null}
+              {job.employmentType.trim() ? (
+                <Badge variant="outline" className="capitalize">{job.employmentType}</Badge>
+              ) : null}
               <Badge variant="outline" className="capitalize">{job.priority} priority</Badge>
             </div>
           </div>
@@ -106,7 +114,7 @@ export default async function JobDetailPage({ params }: JobDetailParams) {
         </div>
         <div className="border-t pt-4">
           {/* Keyed so each job gets its own one-at-a-time Score fit guard (#353). */}
-          <JobAnalysisActions key={job.id} jobId={job.id} autoScore={autoScore} />
+          <JobAnalysisActions key={job.id} jobId={job.id} autoScore={autoScore} runFit={runFit} />
         </div>
       </Card>
 

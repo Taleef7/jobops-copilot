@@ -11,6 +11,46 @@ def test_parsed_job_defaults_are_safe():
     assert parsed.seniority == "unknown"
     assert parsed.required_skills == []
     assert parsed.summary == ""
+    # #355: what the posting doesn't state stays unknown, never a default such as "Remote".
+    assert parsed.location is None
+    assert parsed.workplace_type is None
+
+
+def test_parsed_job_reads_location_and_workplace():
+    parsed = ParsedJob(location="London, United Kingdom", workplace_type="hybrid")
+    assert parsed.location == "London, United Kingdom"
+    assert parsed.workplace_type == "hybrid"
+
+
+def test_parsed_job_workplace_is_one_the_api_knows():
+    # Mirrors normalizeWorkplace in apps/api/src/lib/analysis-core.ts. A workplace in other
+    # words is read; any other word goes through as written, for the API to call unknown.
+    # None is only for a posting that says nothing (#355).
+    cases = {
+        "remote": "remote",
+        "Remote": "remote",
+        "hybrid": "hybrid",
+        "onsite": "onsite",
+        "Onsite": "onsite",
+        "on-site": "onsite",
+        "On-site": "onsite",
+        "on  site": "onsite",
+        "in-office": "onsite",
+        "in-person": "onsite",
+        "remote-first": "remote",
+        "Remote (US)": "remote",
+        "Fully remote": "remote",
+        "100% remote": "remote",
+        "remote or hybrid": "remote or hybrid",
+        "flexible": "flexible",
+        "Flexible": "flexible",
+        "  ": None,
+        "": None,
+        None: None,
+        42: None,
+    }
+    for given, expected in cases.items():
+        assert ParsedJob(workplace_type=given).workplace_type == expected, given
 
 
 def test_fit_score_clamps_range():
@@ -119,3 +159,24 @@ def test_the_outreach_prompt_forbids_placeholders_and_long_linkedin_notes():
     assert "bracketed placeholder" in prompt
     assert "neutral greeting" in prompt
     assert "300 characters" in prompt
+
+
+def test_parsed_job_joins_a_list_of_locations():
+    # A posting can name several places; the model may answer with a list (#355).
+    parsed = ParsedJob(location=["London, UK", " Berlin, Germany ", ""])
+    assert parsed.location == "London, UK; Berlin, Germany"
+    assert ParsedJob(location=[]).location is None
+
+
+def test_parsed_job_keeps_only_the_text_places_of_a_location_list():
+    assert ParsedJob(location=["NYC", None]).location == "NYC"
+    assert ParsedJob(location=[1, "NYC", {"city": "x"}]).location == "NYC"
+    assert ParsedJob(location=[None]).location is None
+    assert ParsedJob(location=5).location is None
+
+
+def test_the_workplace_field_names_the_values_the_api_knows():
+    # A free string now, so the structured-output schema guides the model by its description.
+    description = ParsedJob.model_json_schema()["properties"]["workplace_type"]["description"]
+    for value in ("remote", "hybrid", "onsite", "flexible"):
+        assert value in description

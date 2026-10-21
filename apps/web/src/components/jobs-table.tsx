@@ -20,6 +20,7 @@ import {
 } from '@/components/ui/table';
 import { isPrerankAnalysis, skillNames } from '@/lib/analysis-display';
 import { postedDay } from '@/lib/format';
+import { companyAndLocation } from '@/lib/job-display';
 import { isWithinRecency, RECENCY_OPTIONS, type RecencyWindow } from '@/lib/job-recency';
 import { cn } from '@/lib/utils';
 import type { Job, JobPriority, JobStatus } from '@/types/job';
@@ -231,7 +232,7 @@ export function JobsTable({ jobs, initialQuery = '' }: { jobs: Job[]; initialQue
                           {job.title}
                         </span>
                         <span className="text-muted-foreground block truncate text-xs">
-                          {job.company} · {job.location}
+                          {companyAndLocation(job)}
                         </span>
                         <span className="mt-1 flex flex-wrap items-center gap-1.5">
                           {job.source === 'adzuna' || job.source === 'remotive' ? (

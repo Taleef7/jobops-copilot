@@ -137,9 +137,12 @@ export interface JobRecord {
   source: string;
   company: string;
   title: string;
+  /** Empty when the posting doesn't say (#355). */
   location: string;
+  /** Empty when the posting doesn't say (#355). */
   employmentType: string;
-  workplaceType: JobWorkplaceType;
+  /** Null when the posting doesn't say (#355). */
+  workplaceType: JobWorkplaceType | null;
   datePosted?: string;
   discoveredAt: string;
   descriptionText: string;

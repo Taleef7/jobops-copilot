@@ -39,13 +39,19 @@ function isReasonable(min: number | null, max: number | null): boolean {
 export function parseSalaryFromText(text: string): ParsedSalary | null {
   if (!text || typeof text !== 'string') return null;
 
-  // Mask 401(k) references so they aren't parsed as a $401k salary
-  const cleaned = text.replace(/401\s*\(?k\)?/gi, '');
+  // Mask 401(k) references so they aren't parsed as a $401k salary.
+  // Pasted text reaches this (#355), so the input is shaped first and every repeat below is
+  // bounded: one space for each run of whitespace, and no digit run longer than any salary.
+  // Unbounded runs made these regexes quadratic (40k digits took 16 s).
+  const cleaned = text
+    .replace(/401\s*\(?k\)?/gi, '')
+    .replace(/\s+/g, ' ')
+    .replace(/\d{13,}/g, ' ');
   const currency = resolveCurrency(cleaned);
 
   // 1. Hourly rate: e.g. "$45/hr contract" or "$40 - $60 / hour"
   const hourlyRangeMatches = cleaned.matchAll(
-    /(?:\$|£|€|USD|GBP|EUR)?\s*(\d+(?:\.\d+)?)\s*(?:-|–|—|to)\s*(?:\$|£|€|USD|GBP|EUR)?\s*(\d+(?:\.\d+)?)\s*(?:\/|\bper\s+)(?:hr|hour|hourly)\b/gi,
+    /(?:\$|£|€|USD|GBP|EUR)?\s*(\d{1,12}(?:\.\d{1,12})?)\s*(?:-|–|—|to)\s*(?:\$|£|€|USD|GBP|EUR)?\s*(\d{1,12}(?:\.\d{1,12})?)\s*(?:\/|\bper\s+)(?:hr|hour|hourly)\b/gi,
   );
   for (const m of hourlyRangeMatches) {
     const min = parseNumber(m[1]!, false, true);
@@ -56,7 +62,7 @@ export function parseSalaryFromText(text: string): ParsedSalary | null {
   }
 
   const singleHourlyMatches = cleaned.matchAll(
-    /(?:\$|£|€|USD|GBP|EUR)?\s*(\d+(?:\.\d+)?)\s*(?:\/|\bper\s+)(?:hr|hour|hourly)\b/gi,
+    /(?:\$|£|€|USD|GBP|EUR)?\s*(\d{1,12}(?:\.\d{1,12})?)\s*(?:\/|\bper\s+)(?:hr|hour|hourly)\b/gi,
   );
   for (const m of singleHourlyMatches) {
     const rate = parseNumber(m[1]!, false, true);
@@ -68,7 +74,7 @@ export function parseSalaryFromText(text: string): ParsedSalary | null {
   // 2. Annual range: e.g. "$120,000 - $150,000", "$120k–$150K", "120,000 to 150,000 USD"
   // Prioritize matches with currency symbols or salary keywords, iterating all matches.
   const rangeRegex =
-    /(?:(\$|£|€|USD|GBP|EUR)\s*)?(\d+(?:,\d{3})*(?:\.\d+)?|\d+)\s*(k)?\s*(?:-|–|—|to)\s*(?:(\$|£|€|USD|GBP|EUR)\s*)?(\d+(?:,\d{3})*(?:\.\d+)?|\d+)\s*(k)?\s*(USD|GBP|EUR)?/gi;
+    /(?:(\$|£|€|USD|GBP|EUR)\s*)?(\d{1,12}(?:,\d{3}){0,4}(?:\.\d{1,12})?)\s*(k)?\s*(?:-|–|—|to)\s*(?:(\$|£|€|USD|GBP|EUR)\s*)?(\d{1,12}(?:,\d{3}){0,4}(?:\.\d{1,12})?)\s*(k)?\s*(USD|GBP|EUR)?/gi;
 
   for (const m of cleaned.matchAll(rangeRegex)) {
     const curr1 = m[1];
@@ -114,7 +120,7 @@ export function parseSalaryFromText(text: string): ParsedSalary | null {
 
   // 3. "up to" as max-only: e.g. "up to $95,000" or "up to $120k"
   const upToMatches = cleaned.matchAll(
-    /\b(?:up\s+to|max(?:imum)?)\s*(?:(\$|£|€|USD|GBP|EUR)\s*)?(\d+(?:,\d{3})*(?:\.\d+)?|\d+)\s*(k)?\b/gi,
+    /\b(?:up\s+to|max(?:imum)?)\s*(?:(\$|£|€|USD|GBP|EUR)\s*)?(\d{1,12}(?:,\d{3}){0,4}(?:\.\d{1,12})?)\s*(k)?\b/gi,
   );
   for (const m of upToMatches) {
     const currSym = m[1];
@@ -131,7 +137,7 @@ export function parseSalaryFromText(text: string): ParsedSalary | null {
 
   // 4. "from" / "starting at" as min-only: e.g. "starting at $80,000"
   const fromMatches = cleaned.matchAll(
-    /\b(?:starting\s+at|from|min(?:imum)?)\s*(?:(\$|£|€|USD|GBP|EUR)\s*)?(\d+(?:,\d{3})*(?:\.\d+)?|\d+)\s*(k)?\b/gi,
+    /\b(?:starting\s+at|from|min(?:imum)?)\s*(?:(\$|£|€|USD|GBP|EUR)\s*)?(\d{1,12}(?:,\d{3}){0,4}(?:\.\d{1,12})?)\s*(k)?\b/gi,
   );
   for (const m of fromMatches) {
     const currSym = m[1];

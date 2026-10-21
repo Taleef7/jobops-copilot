@@ -4,8 +4,9 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { renderPageOnServer } from '@/test/time-zones';
 import type { Job } from '@/types/job';
 
-const { loadJob, api, scoreMounts } = vi.hoisted(() => ({
+const { loadJob, api, scoreMounts, scoreProps } = vi.hoisted(() => ({
   scoreMounts: [] as string[],
+  scoreProps: [] as Array<{ jobId: string; autoScore?: boolean; runFit?: boolean }>,
   loadJob: vi.fn(async (): Promise<{ job: unknown; error: string | null }> => ({ job: undefined, error: null })),
   api: {
     fetchProfile: vi.fn(async () => null),
@@ -30,7 +31,9 @@ vi.mock('next/navigation', () => ({
 vi.mock('@/components/job-analysis-actions', async () => {
   const { useEffect } = await import('react');
   return {
-    JobAnalysisActions: ({ jobId }: { jobId: string }) => {
+    JobAnalysisActions: (props: { jobId: string; autoScore?: boolean; runFit?: boolean }) => {
+      const { jobId } = props;
+      scoreProps.push(props);
       useEffect(() => {
         scoreMounts.push(jobId);
       }, []); // eslint-disable-line react-hooks/exhaustive-deps
@@ -51,9 +54,13 @@ afterEach(() => {
   vi.clearAllMocks();
   loadJob.mockImplementation(async () => ({ job: undefined, error: null }));
   scoreMounts.length = 0;
+  scoreProps.length = 0;
 });
 
-const params = (jobId: string) => ({ params: Promise.resolve({ jobId }) });
+const params = (jobId: string, searchParams: Record<string, string | string[]> = {}) => ({
+  params: Promise.resolve({ jobId }),
+  searchParams: Promise.resolve(searchParams),
+});
 const ID = '7f1c2a9e-3b4d-4e5f-8a6b-0c1d2e3f4a5b';
 
 // #353: `/jobs/not-a-real-id` asked the API for the job and its outputs, versions, pack and
@@ -118,6 +125,29 @@ it('has no posting link without a web address to open', async () => {
   }
 });
 
+// #355: what the posting doesn't state is not shown as a value, nor as an empty badge.
+it('shows no location, workplace or employment type the job does not state', async () => {
+  loadJob.mockResolvedValueOnce({
+    job: makeJob({ location: '', workplaceType: null, employmentType: '' }),
+    error: null,
+  });
+  const { container } = render(await JobDetailPage(params(ID)));
+
+  const badges = [...container.querySelectorAll('.rounded-4xl')];
+  expect(badges.length).toBeGreaterThan(0);
+  for (const badge of badges) expect(badge.textContent?.trim()).not.toBe('');
+  expect(container.textContent).not.toMatch(/null|Remote|Full-time/i);
+});
+
+it('shows the location, workplace and employment type the job states', async () => {
+  loadJob.mockResolvedValueOnce({ job: makeJob(), error: null });
+  render(await JobDetailPage(params(ID)));
+
+  expect(screen.getByText('Austin, TX')).toBeInTheDocument();
+  expect(screen.getByText('hybrid')).toBeInTheDocument();
+  expect(screen.getByText('Full-time')).toBeInTheDocument();
+});
+
 // Score fit's one-at-a-time guard belongs to one job: another job gets its own instance,
 // so a run for the last job can't block the next one's (#353).
 it('gives each job its own Score fit', async () => {
@@ -175,4 +205,22 @@ describe('dates', () => {
     const snapshot = screen.getByRole('heading', { name: 'Snapshot' }).parentElement!;
     expect(within(snapshot).getByText('Next action').nextElementSibling).toHaveTextContent(/^—$/);
   });
+});
+
+// #355: "Save and run fit" on the Add job form lands on /jobs/<id>?run=fit.
+it('asks Score fit to run once when opened with ?run=fit', async () => {
+  loadJob.mockResolvedValueOnce({ job: makeJob(), error: null });
+  render(await JobDetailPage(params(ID, { run: 'fit' })));
+
+  expect(scoreProps.at(-1)).toMatchObject({ jobId: ID, runFit: true });
+});
+
+it('runs nothing on open without ?run=fit', async () => {
+  const cases: Array<Record<string, string | string[]>> = [{}, { run: 'other' }, { run: ['fit', 'fit'] }];
+  for (const searchParams of cases) {
+    loadJob.mockResolvedValueOnce({ job: makeJob(), error: null });
+    const { unmount } = render(await JobDetailPage(params(ID, searchParams)));
+    expect(scoreProps.at(-1)).toMatchObject({ jobId: ID, runFit: false });
+    unmount();
+  }
 });
