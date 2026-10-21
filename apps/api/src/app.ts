@@ -108,6 +108,9 @@ export function createApp(dependencies: AppDependencies = {}) {
   app.post('/api/jobs/:id/tailor', runLimiter, runBudget);
   // So does writing a cover letter (#416); the route is in coverLetterRouter below.
   app.post('/api/jobs/:id/cover-letter', runLimiter, runBudget);
+  // Its download and paragraph edit draw the PDF on the request: the preview's allowance (#415).
+  app.get('/api/jobs/:id/cover-letter/download', pdfLimiter);
+  app.patch('/api/jobs/:id/cover-letter/paragraphs/:index', pdfLimiter);
   app.use('/api/jobs', agentOutputsRouter);
   app.use('/api/jobs', jobsRouter);
   app.use('/api/feed', feedRouter);

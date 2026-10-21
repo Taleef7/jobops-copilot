@@ -137,3 +137,14 @@ test("the PDF preview has its own limiter, not the AI routes' one", async () => 
     assert.notEqual(await guardFor(baseUrl, 'GET', '/api/profile/base-resume/pdf'), 'limiter');
   });
 });
+
+// Codex on #443: the cover letter's download and paragraph edit draw the PDF on the request too
+// (the edit checks it still fits one page), so they share the preview's allowance.
+test('the cover letter download and paragraph edit are behind the PDF limiter', async () => {
+  await withApp({ runLimiter: block('limiter'), runBudget: block('budget'), pdfLimiter: block('pdf') }, async (baseUrl) => {
+    assert.equal(await guardFor(baseUrl, 'GET', '/api/jobs/00000000-0000-4000-8000-000000000001/cover-letter/download'), 'pdf');
+    assert.equal(await guardFor(baseUrl, 'PATCH', '/api/jobs/00000000-0000-4000-8000-000000000001/cover-letter/paragraphs/0'), 'pdf');
+    // Reading the letter draws nothing.
+    assert.notEqual(await guardFor(baseUrl, 'GET', '/api/jobs/00000000-0000-4000-8000-000000000001/cover-letter'), 'pdf');
+  });
+});
