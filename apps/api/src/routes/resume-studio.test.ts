@@ -7,14 +7,14 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import express from 'express';
 import { createJob, resetJobStoreForTests, saveJobAnalysis } from '@/data/job-store';
-import { insertResumeVersion, resetResumeVersionStore } from '@/data/resume-version-store';
+import { insertResumeVersion, resetResumeVersionStore, updateResumeVersion } from '@/data/resume-version-store';
 import { getUserProfile, upsertUserProfile } from '@/data/profile-store';
 import { sampleAnalysis } from '@/test-support/analysis';
 import { apiErrorHandler } from '@/lib/api-error-handler';
 import { resumeStudioRouter } from './resume-studio';
 import { TAILOR_BASE, edit, emptyAnswer } from '@/test-support/tailor-fixtures';
 import type { TailorAgentRequest, TailorAnswer } from '@/lib/tailor/answer';
-import type { ResumeVersionRecord, StructuredResume } from '@/types';
+import type { ResumeLayout, ResumeVersionRecord, StructuredResume } from '@/types';
 import { flat, readPdf } from '@/test-support/pdf-read';
 
 /**
@@ -686,5 +686,72 @@ test('coverage keeps counting the keywords it started with after a new fit read'
       version: ResumeVersionRecord;
     };
     assert.deepEqual(removed.version.basedOn!.coverage, { total: 3, before: 2, after: 2, terms: ['Go', 'Postgres', 'Kafka'] });
+  });
+});
+
+// #415: the base résumé's layout (section order, headings, visibility). A tailored draft carries
+// the layout it was tailored from, follows the base résumé's as it changes, and keeps the one it
+// was downloaded with.
+const LAYOUT_AT_TAILORING: ResumeLayout = { sections: [{ key: 'skills', title: 'Toolbox' }] };
+const LAYOUT_AT_DOWNLOAD: ResumeLayout = {
+  sections: [{ key: 'education', title: 'Schooling' }, { key: 'work', title: 'Professional Experience' }, { key: 'skills', hidden: true }],
+};
+const LAYOUT_LATER: ResumeLayout = { sections: [{ key: 'summary', hidden: true }], pageSize: 'a4' };
+
+async function setBaseLayout(layout: ResumeLayout, user = 'user-studio') {
+  const base = (await getUserProfile(user))!.baseResume!;
+  await upsertUserProfile(user, { baseResume: { ...base, layout } });
+}
+
+test("a tailored draft carries the base résumé's layout at the time it was tailored", async () => {
+  await withStudio(answerWith({ edits: [edit('work[0].highlights[2]', 'Mentored 2 interns')] }), async ({ send }) => {
+    const job = await setUp({ ...TAILOR_BASE, layout: LAYOUT_AT_TAILORING });
+    const version = await tailor(send, job.id);
+    assert.deepEqual(version.structuredResume.layout, LAYOUT_AT_TAILORING);
+  });
+});
+
+test("a draft follows the base résumé's layout until it is downloaded, then keeps the one it was downloaded with", async () => {
+  await withStudio(answerWith({ edits: [edit('work[0].highlights[2]', 'Mentored 2 interns')] }), async ({ send }) => {
+    const job = await setUp({ ...TAILOR_BASE, layout: LAYOUT_AT_TAILORING });
+    const version = await tailor(send, job.id);
+
+    // The base layout changes after tailoring: the draft is rendered with the new one.
+    await setBaseLayout(LAYOUT_AT_DOWNLOAD);
+    const approved = await send('POST', `/api/resume-versions/${version.id}/approve`, {});
+    assert.equal(approved.status, 200);
+    const final = ((await approved.json()) as { version: ResumeVersionRecord }).version;
+    assert.deepEqual(final.structuredResume.layout, LAYOUT_AT_DOWNLOAD);
+    assert.ok(final.basedOn?.layoutFrozenAt, 'it records when the layout was frozen');
+    const first = await send('GET', `/api/resume-versions/${version.id}/download`);
+    assert.equal(first.status, 200);
+    const { text } = await readPdf(Buffer.from(await first.arrayBuffer()));
+    const at = (heading: string) => text.indexOf(heading);
+    assert.ok(at('Schooling') >= 0 && at('Schooling') < at('Professional Experience') && at('Professional Experience') < at('Summary'), text);
+    assert.ok(!text.includes('Toolbox') && !text.includes('Docker'), 'the hidden skills are left out');
+
+    // Changed again after the download: what was sent stays as it was.
+    await setBaseLayout(LAYOUT_LATER);
+    const again = await send('GET', `/api/resume-versions/${version.id}/download`);
+    const later = await readPdf(Buffer.from(await again.arrayBuffer()));
+    assert.equal(later.text, text);
+    assert.equal(Math.round(later.pages[0]!.height), 792, 'still Letter');
+  });
+});
+
+test('a draft whose layout was frozen (its job marked applied) is downloaded with that layout', async () => {
+  await withStudio(answerWith({ edits: [edit('work[0].highlights[2]', 'Mentored 2 interns')] }), async ({ send }) => {
+    const job = await setUp({ ...TAILOR_BASE, layout: LAYOUT_AT_TAILORING });
+    const version = await tailor(send, job.id);
+    await updateResumeVersion('user-studio', version.id, {
+      structuredResume: { ...version.structuredResume, layout: LAYOUT_AT_DOWNLOAD },
+      basedOn: { ...version.basedOn!, layoutFrozenAt: '2026-10-14T00:00:00.000Z' },
+    });
+    await setBaseLayout(LAYOUT_LATER);
+    const approved = await send('POST', `/api/resume-versions/${version.id}/approve`, {});
+    assert.equal(approved.status, 200);
+    const final = ((await approved.json()) as { version: ResumeVersionRecord }).version;
+    assert.deepEqual(final.structuredResume.layout, LAYOUT_AT_DOWNLOAD);
+    assert.equal(final.basedOn?.layoutFrozenAt, '2026-10-14T00:00:00.000Z');
   });
 });
