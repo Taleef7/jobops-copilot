@@ -38,7 +38,7 @@ interface Agent {
 async function withLetters(
   answer: unknown,
   run: (ctx: { agent: Agent; send: Send }) => Promise<void>,
-  options: { agentDown?: boolean } = {},
+  options: { agentDown?: boolean; status?: number } = {},
 ) {
   const originalCwd = process.cwd();
   const originalAgent = process.env.AGENT_SERVICE_URL;
@@ -55,7 +55,7 @@ async function withLetters(
     request.on('data', (chunk) => (raw += chunk));
     request.on('end', () => {
       agent.calls.push({ path: request.url ?? '', body: JSON.parse(raw || '{}') as CoverLetterAgentRequest });
-      response.writeHead(200, { 'Content-Type': 'application/json' }).end(JSON.stringify(agent.answer));
+      response.writeHead(options.status ?? 200, { 'Content-Type': 'application/json' }).end(JSON.stringify(agent.answer));
     });
   });
   await new Promise<void>((resolve) => agentServer.listen(0, resolve));
@@ -513,5 +513,26 @@ test('an answer far longer than any letter is refused before the check: 503 at o
       assert.ok(ms < 1_500, `${ms.toFixed(0)} ms`);
       assert.equal(await read(send, job.id), null);
     });
+  }
+});
+
+test("the agent's 422s: a validation error is a retryable 503, a refused input a 422, and neither writes a letter", async () => {
+  const cases: Array<[string, unknown, number]> = [
+    ['FastAPI validation', { detail: [{ loc: ['body', 'length'], msg: 'Input should be concise or full', type: 'literal_error' }] }, 503],
+    ['refused input', { detail: { code: 'input_refused', message: 'refused' } }, 422],
+  ];
+  for (const [label, answer, expected] of cases) {
+    await withLetters(
+      answer,
+      async ({ send }) => {
+        const job = await setUp();
+        const response = await send('POST', `/api/jobs/${job.id}/cover-letter`, { length: 'concise' });
+        const body = (await response.json()) as { retryable?: boolean };
+        assert.equal(response.status, expected, `${label}: ${JSON.stringify(body)}`);
+        if (expected === 503) assert.equal(body.retryable, true, label);
+        assert.equal(await read(send, job.id), null, `${label}: nothing written`);
+      },
+      { status: 422 },
+    );
   }
 });
