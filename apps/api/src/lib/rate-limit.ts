@@ -83,3 +83,8 @@ export function createRateLimiter(limit: number, namespace: string) {
 /** Lenient limiter for all routes; strict limiter for the expensive AI/discovery routes. */
 export const globalLimiter = createRateLimiter(globalMax, 'global');
 export const strictLimiter = createRateLimiter(aiMax, 'strict');
+/**
+ * The base résumé's PDF preview (#415): drawn on the request, so limited, but on its own: a
+ * few previews while arranging sections mustn't use up the AI routes' allowance.
+ */
+export const pdfLimiter = createRateLimiter(inProduction() ? 30 : 300, 'pdf');

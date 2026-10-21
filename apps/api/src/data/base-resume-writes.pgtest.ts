@@ -8,7 +8,7 @@ import { getBaseResumeVersion, insertResumeVersion } from './resume-version-stor
 import { apiErrorHandler } from '@/lib/api-error-handler';
 import { getPool } from '@/lib/postgres';
 import { baseResumeRouter } from '@/routes/base-resume';
-import type { StructuredResume } from '@/types';
+import type { ResumeLayout, StructuredResume } from '@/types';
 
 // The base résumé has two copies: the profile's, which Settings shows, and the base version's,
 // which the résumé studio, application pack and outreach read first (#408). A write that fails
@@ -47,6 +47,10 @@ async function withFailingWrites(on: string, userId: string, run: () => Promise<
 }
 
 async function putBaseResume(userId: string, body: unknown): Promise<number> {
+  return sendBaseResume(userId, 'PUT', '', body);
+}
+
+async function sendBaseResume(userId: string, method: string, path: string, body: unknown): Promise<number> {
   const app = express();
   app.use(express.json());
   app.use((request, _response, next) => {
@@ -60,8 +64,8 @@ async function putBaseResume(userId: string, body: unknown): Promise<number> {
   try {
     const address = server.address();
     if (!address || typeof address === 'string') throw new Error('no server address');
-    const response = await fetch(`http://127.0.0.1:${address.port}/api/profile/base-resume`, {
-      method: 'PUT',
+    const response = await fetch(`http://127.0.0.1:${address.port}/api/profile/base-resume${path}`, {
+      method,
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
     });
@@ -160,4 +164,51 @@ test("keywords added to the base résumé from tailoring go on both copies, or n
   });
   assert.deepEqual(await getUserProfile(userId), profile);
   assert.deepEqual(await getBaseResumeVersion(userId), version);
+});
+
+// #415: the layout changes on both copies or neither, and a résumé save never undoes it.
+const LAYOUT: ResumeLayout = { sections: [{ key: 'skills', title: 'Technical Skills' }, { key: 'summary', hidden: true }] };
+
+test('a layout change whose second write fails changes neither copy', { skip }, async () => {
+  const userId = newUser();
+  assert.equal(await putBaseResume(userId, { baseResume: resume('Base.') }), 200);
+  assert.equal(await sendBaseResume(userId, 'PATCH', '/layout', LAYOUT), 200);
+  const profile = await getUserProfile(userId);
+  const version = await getBaseResumeVersion(userId);
+  assert.deepEqual(version?.structuredResume.layout, LAYOUT);
+
+  // The version's write (the second) fails: the profile's is rolled back too.
+  await withFailingWrites('update on resume_versions', userId, async () => {
+    assert.equal(await sendBaseResume(userId, 'PATCH', '/layout', { pageSize: 'a4' }), 500);
+  });
+  assert.deepEqual(await getUserProfile(userId), profile);
+  assert.deepEqual(await getBaseResumeVersion(userId), version);
+
+  // The profile's write fails instead: the version isn't written either.
+  await withFailingWrites('update on user_profiles', userId, async () => {
+    assert.equal(await sendBaseResume(userId, 'PATCH', '/layout', { pageSize: 'a4' }), 500);
+  });
+  assert.deepEqual(await getUserProfile(userId), profile);
+  assert.deepEqual(await getBaseResumeVersion(userId), version);
+
+  // Once the database is back, both.
+  assert.equal(await sendBaseResume(userId, 'PATCH', '/layout', { pageSize: 'a4' }), 200);
+  assert.equal((await getUserProfile(userId))?.baseResume?.layout?.pageSize, 'a4');
+  assert.equal((await getBaseResumeVersion(userId))?.structuredResume.layout?.pageSize, 'a4');
+});
+
+test('résumé saves and layout changes at once: the layout is never undone', { skip }, async () => {
+  const userId = newUser();
+  assert.equal(await putBaseResume(userId, { baseResume: resume('Base.') }), 200);
+  for (let round = 0; round < 8; round += 1) {
+    const layout: ResumeLayout = { sections: [{ key: 'skills', title: `Skills ${round}` }] };
+    const statuses = await Promise.all([
+      putBaseResume(userId, { baseResume: { ...resume(`Saved ${round}.`), layout: { sections: [{ key: 'work' }] } } }),
+      sendBaseResume(userId, 'PATCH', '/layout', layout),
+      putBaseResume(userId, { baseResume: resume(`Saved again ${round}.`), resumeText: 'text', resumeFileName: 'cv.pdf' }),
+    ]);
+    assert.deepEqual(statuses, [200, 200, 200]);
+    assert.deepEqual((await getUserProfile(userId))?.baseResume?.layout, layout, `round ${round}`);
+    assert.deepEqual((await getBaseResumeVersion(userId))?.structuredResume.layout, layout, `round ${round}`);
+  }
 });

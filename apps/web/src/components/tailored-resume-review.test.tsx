@@ -195,6 +195,15 @@ describe('TailoredResumeReview', () => {
     );
   });
 
+  // #415: a draft prints in the base résumé's layout until it's downloaded or its job is applied.
+  it('says which section layout the PDF will use', () => {
+    const { unmount } = renderReview([draft]);
+    expect(screen.getByText(/uses the section order and headings set in Settings → Résumé until you download it/)).toBeInTheDocument();
+    unmount();
+    renderReview([{ ...draft, basedOn: { ...draft.basedOn!, layoutFrozenAt: '2026-10-15T00:00:00.000Z' } }]);
+    expect(screen.getByText(/keeps the section order and headings your résumé had when this job moved to Applied or later/)).toBeInTheDocument();
+  });
+
   it('each line can be kept, restored or edited, and a dropped one only edited', async () => {
     const user = userEvent.setup();
     reviewResumeChange.mockImplementation(async (_v: string, changeId: string, action: string, text?: string) => ({
