@@ -253,11 +253,13 @@ test("a credential claimed is dropped; a tool or client from the posting, claime
   for (const sentence of ['I have deep experience with Temporal.', 'I worked with Walmart on payment APIs in Go.']) {
     assert.equal(classOf(sentence, { job }), 'flag', sentence);
   }
-  // Wanting to work on the posting's product, or liking it, is not a claim: kept, and marked.
+  // Wanting to work on the posting's product, or liking it, is not a claim: kept, with a note
+  // that doesn't hold up the PDF.
   for (const sentence of ['I would enjoy working on PayLink with your team.', 'I am excited about PayLink.']) {
     const result = check(sentence, { job });
     assert.deepEqual(result.paragraphs, [sentence], sentence);
     assert.equal(result.checks[0]!.issues[0]!.code, 'NEW_NAME', sentence);
+    assert.equal(result.checks[0]!.severity, 'note', sentence);
   }
 });
 

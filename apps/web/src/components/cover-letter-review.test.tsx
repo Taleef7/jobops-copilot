@@ -376,7 +376,7 @@ describe('CoverLetterReview', () => {
     expect(screen.getByRole('button', { name: 'Download PDF' })).toBeDisabled();
     expect(screen.getByText(/Keep or remove the 1 highlighted sentence before you download/)).toBeInTheDocument();
 
-    await user.click(within(paragraph).getByRole('button', { name: 'Keep' }));
+    await user.click(within(paragraph).getByRole('button', { name: 'Keep “I would enjoy working on PayLink.”' }));
     expect(resolveCoverLetterFlag).toHaveBeenCalledWith('job-1', 'c1', 'keep', flagged.paragraphs[1]!.text, flagged.updatedAt);
     await waitFor(() => expect(screen.getByRole('button', { name: 'Download PDF' })).toBeEnabled());
   });
@@ -391,7 +391,7 @@ describe('CoverLetterReview', () => {
     });
     renderLetter();
 
-    await user.click(within(await screen.findByTestId('letter-paragraph-1')).getByRole('button', { name: 'Remove' }));
+    await user.click(within(await screen.findByTestId('letter-paragraph-1')).getByRole('button', { name: 'Remove “I would enjoy working on PayLink.”' }));
     expect(resolveCoverLetterFlag).toHaveBeenCalledWith('job-1', 'c1', 'remove', flagged.paragraphs[1]!.text, flagged.updatedAt);
     expect(await screen.findByText('At Globex I built the billing API in Go serving 2,000 merchants.')).toBeInTheDocument();
   });
@@ -448,5 +448,187 @@ describe('CoverLetterReview', () => {
     expect(screen.getByRole('button', { name: 'Full' })).toHaveAttribute('aria-pressed', 'true');
     await user.click(within(alert).getByRole('button', { name: 'Try again' }));
     expect(writeCoverLetter).toHaveBeenLastCalledWith('job-1', { length: 'full', confirmedKeywords: ['Snowflake'] });
+  });
+
+  // Fourth review (#416).
+
+  /** Two flags: the opening sentence and the PayLink one. */
+  const twoFlags: CoverLetterRecord = {
+    ...flagged,
+    checks: [
+      ...flagged.checks,
+      {
+        id: 'c3',
+        paragraph: 0,
+        sentence: 0,
+        text: 'I am applying for the Backend Engineer role at Acme Pay.',
+        dropped: false,
+        severity: 'flag',
+        issues: [{ code: 'NEW_TERM', term: 'Acme Pay', message: 'names "Acme Pay", which isn\'t in your base résumé', severity: 'flag' }],
+      },
+    ],
+  };
+  const answered = (record: CoverLetterRecord, id: string): CoverLetterRecord => ({
+    ...record,
+    updatedAt: '2026-10-14T12:05:00.000Z',
+    checks: record.checks.map((check) => (check.id === id ? { ...check, resolution: 'kept' as const } : check)),
+  });
+
+  it('Keep and Remove name their sentence, and after an answer focus moves to the next flag, then to the paragraph', async () => {
+    const user = userEvent.setup();
+    getCoverLetter.mockResolvedValueOnce(twoFlags);
+    const first = answered(twoFlags, 'c3');
+    resolveCoverLetterFlag.mockResolvedValueOnce(first).mockResolvedValueOnce(answered(first, 'c1'));
+    renderLetter();
+
+    const keepFirst = await screen.findByRole('button', { name: 'Keep “I am applying for the Backend Engineer role…”' });
+    expect(screen.getByRole('button', { name: 'Remove “I am applying for the Backend Engineer role…”' })).toBeInTheDocument();
+    await user.click(keepFirst);
+    const keepNext = screen.getByRole('button', { name: 'Keep “I would enjoy working on PayLink.”' });
+    await waitFor(() => expect(keepNext).toHaveFocus());
+    await user.click(keepNext);
+    await waitFor(() => expect(screen.getByTestId('letter-paragraph-1')).toHaveFocus());
+  });
+
+  it('the disabled Download says why, for a screen reader too', async () => {
+    getCoverLetter.mockResolvedValueOnce(flagged);
+    renderLetter();
+    const download = await screen.findByRole('button', { name: 'Download PDF' });
+    expect(download).toBeDisabled();
+    expect(download).toHaveAccessibleDescription(/Keep or remove the 1 highlighted sentence before you download/);
+  });
+
+  it("a removed flag's notes go with it", async () => {
+    getCoverLetter.mockResolvedValueOnce({
+      ...letter,
+      paragraphs: [letter.paragraphs[0]!, { text: 'At Globex I built the billing API in Go serving 2,000 merchants.', edited: false }, letter.paragraphs[2]!],
+      checks: letter.checks.map((check) => (check.id === 'c1' ? { ...check, resolution: 'removed' as const, confirmedTerms: ['Rust'] } : check)),
+    });
+    renderLetter();
+    expect(await screen.findByText('Uses Kafka, which you added')).toBeInTheDocument();
+    expect(screen.queryByText(/Rust/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/PayLink/)).not.toBeInTheDocument();
+  });
+
+  it('a flagged sentence is highlighted by its place, not inside an earlier sentence that contains it', async () => {
+    getCoverLetter.mockResolvedValueOnce({
+      ...flagged,
+      paragraphs: [letter.paragraphs[0]!, { text: 'I could say Acme Pay was my client. Acme Pay was my client.', edited: false }, letter.paragraphs[2]!],
+      checks: [
+        {
+          id: 'c1',
+          paragraph: 1,
+          sentence: 1,
+          text: 'Acme Pay was my client.',
+          dropped: false,
+          severity: 'flag',
+          issues: [{ code: 'NEW_ENTITY', term: 'Acme Pay', message: 'ties you to Acme Pay', severity: 'flag' }],
+        },
+      ],
+    });
+    renderLetter();
+    const paragraph = await screen.findByTestId('letter-paragraph-1');
+    const marks = paragraph.querySelectorAll('mark');
+    expect(marks).toHaveLength(1);
+    expect(marks[0]!.textContent).toBe('Acme Pay was my client.');
+    expect(within(paragraph).getByText('I could say Acme Pay was my client.').tagName).not.toBe('MARK');
+  });
+
+  it('a flag another tab already answered or replaced: the letter is read again and the user told', async () => {
+    const user = userEvent.setup();
+    getCoverLetter.mockResolvedValueOnce(flagged);
+    resolveCoverLetterFlag.mockRejectedValueOnce(Object.assign(new Error('Flag not found: c1'), { status: 404 }));
+    getCoverLetter.mockResolvedValueOnce(letter);
+    renderLetter();
+
+    await user.click(await screen.findByRole('button', { name: 'Keep “I would enjoy working on PayLink.”' }));
+    await waitFor(() => expect(toast.error).toHaveBeenCalledWith(expect.stringMatching(/changed in another tab/)));
+    expect(getCoverLetter).toHaveBeenCalledTimes(2);
+    expect(screen.getByRole('button', { name: 'Download PDF' })).toBeEnabled();
+  });
+
+  it('a stale tab answering a flag (LETTER_CHANGED) reads the letter again', async () => {
+    const user = userEvent.setup();
+    getCoverLetter.mockResolvedValueOnce(flagged);
+    resolveCoverLetterFlag.mockRejectedValueOnce(Object.assign(new Error('This letter changed.'), { status: 409, code: 'LETTER_CHANGED' }));
+    getCoverLetter.mockResolvedValueOnce(letter);
+    renderLetter();
+
+    await user.click(await screen.findByRole('button', { name: 'Remove “I would enjoy working on PayLink.”' }));
+    await waitFor(() => expect(toast.error).toHaveBeenCalledWith(expect.stringMatching(/changed in another tab/)));
+    expect(getCoverLetter).toHaveBeenCalledTimes(2);
+  });
+
+  it('a download refused for flags this tab has not seen reads the letter again and says why', async () => {
+    const user = userEvent.setup();
+    getCoverLetter.mockResolvedValueOnce(letter);
+    downloadCoverLetter.mockRejectedValueOnce(
+      Object.assign(new Error('Keep or remove the highlighted sentence before you download.'), { status: 409, code: 'FLAGS_UNRESOLVED' }),
+    );
+    getCoverLetter.mockResolvedValueOnce(flagged);
+    renderLetter();
+
+    await user.click(await screen.findByRole('button', { name: 'Download PDF' }));
+    await waitFor(() => expect(toast.error).toHaveBeenCalledWith('Keep or remove the highlighted sentence before you download.'));
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Download PDF' })).toBeDisabled());
+  });
+
+  it("a letter from the first version of the check (no ids, no severities) shows its findings as notes and doesn't block", async () => {
+    const errors = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    const legacy = {
+      ...letter,
+      basedOn: { ...letter.basedOn, grounding: { version: 1 } },
+      checks: [
+        { paragraph: null, text: 'At Globex I cut p95 latency by 60%.', dropped: true, dropReason: 'adds the number 60%', issues: [] },
+        {
+          paragraph: 1,
+          text: 'I would enjoy working on PayLink.',
+          dropped: false,
+          issues: [{ code: 'NEW_NAME', term: 'PayLink', message: 'mentions "PayLink" from the posting, not your résumé' }],
+        },
+        {
+          paragraph: 1,
+          text: 'At Globex I built the billing API in Go serving 2,000 merchants.',
+          dropped: false,
+          issues: [{ code: 'NEW_NAME', term: 'Globex', message: 'mentions "Globex"' }],
+        },
+      ],
+    } as unknown as CoverLetterRecord;
+    getCoverLetter.mockResolvedValueOnce(legacy);
+    renderLetter();
+
+    expect(await screen.findByText(/mentions "PayLink" from the posting/)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Download PDF' })).toBeEnabled();
+    expect(screen.queryByRole('button', { name: /^Keep/ })).not.toBeInTheDocument();
+    expect(errors.mock.calls.flat().join(' ')).not.toMatch(/key/i);
+    errors.mockRestore();
+  });
+
+  it("the posting's product named, not claimed, is a note that doesn't hold up the PDF", async () => {
+    getCoverLetter.mockResolvedValueOnce({
+      ...letter,
+      checks: letter.checks.map((check) =>
+        check.id === 'c1'
+          ? { ...check, resolution: undefined, severity: 'note' as const, issues: check.issues.map((found) => ({ ...found, severity: 'note' as const })) }
+          : check,
+      ),
+    });
+    renderLetter();
+    expect(await screen.findByText(/mentions "PayLink" from the posting/)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Download PDF' })).toBeEnabled();
+    expect(screen.queryByRole('button', { name: /^Keep/ })).not.toBeInTheDocument();
+    expect(within(screen.getByTestId('letter-paragraph-1')).queryByText('I would enjoy working on PayLink.')).not.toBeInTheDocument();
+  });
+
+  it("a flag that is the letter's only sentence can be kept or edited, not removed", async () => {
+    getCoverLetter.mockResolvedValueOnce({
+      ...letter,
+      paragraphs: [{ text: 'I would enjoy working on PayLink.', edited: false }],
+      checks: [{ ...flagged.checks[1]!, paragraph: 0, sentence: 0 }],
+    });
+    renderLetter();
+    expect(await screen.findByRole('button', { name: 'Keep “I would enjoy working on PayLink.”' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /^Remove “/ })).not.toBeInTheDocument();
+    expect(screen.getByText(/only sentence/)).toBeInTheDocument();
   });
 });

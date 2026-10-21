@@ -8,7 +8,7 @@ import { AiUnavailableError, normalizeStructuredResume, resolveCoverLetter } fro
 import { requireUser } from '@/lib/auth';
 import { attachmentDisposition } from '@/lib/content-disposition';
 import { buildCoverLetterRequest } from '@/lib/cover-letter/answer';
-import { groundLetter, LETTER_GROUNDING_VERSION, unresolvedFlags } from '@/lib/cover-letter/ground';
+import { groundLetter, LETTER_GROUNDING_VERSION, sentenceIndex, splitSentences, unresolvedFlags } from '@/lib/cover-letter/ground';
 import { countWords, letterTooLong, MAX_GENERATED_WORDS, MAX_LETTER_CHARS, MAX_PARAGRAPH_CHARS, TARGET_WORDS } from '@/lib/cover-letter/limits';
 import { renderCoverLetter, type CoverLetterPdfOptions } from '@/lib/cover-letter-pdf';
 import { companyName } from '@/lib/tailor/ground';
@@ -242,6 +242,8 @@ coverLetterRouter.patch('/jobs/:id/cover-letter/paragraphs/:index', async (reque
     if (body.updatedAt !== undefined && !isTimestamp(body.updatedAt)) {
       return response.status(400).json({ error: 'updatedAt must be the letter’s updatedAt.' });
     }
+    // Saved as it was: nothing changes, and its flags still wait for an answer.
+    if (text === letter.paragraphs[index]!.text.replace(/\s+/g, ' ').trim()) return response.json({ coverLetter: letter });
 
     const paragraphs = letter.paragraphs.map((paragraph, i) => (i === index ? { text, edited: true } : paragraph));
     // The user's words are theirs: the paragraph's flags are settled by the edit.
@@ -318,11 +320,14 @@ coverLetterRouter.delete('/jobs/:id/cover-letter/paragraphs/:index', async (requ
 });
 
 /**
- * PATCH /api/jobs/:id/cover-letter/checks/:checkId   body: { action: 'keep' | 'remove', expectedText?, updatedAt? }
+ * PATCH /api/jobs/:id/cover-letter/checks/:checkId   body: { action: 'keep' | 'remove', expectedText, updatedAt }
  *
  * The user's answer to a flagged sentence (#416): keep it, or remove it from its paragraph (the
- * paragraph goes too when it was its only sentence, unless it is the letter's last). `expectedText`
- * is the paragraph as the page shows it, as for an edit: 409 PARAGRAPH_CHANGED if it moved.
+ * paragraph goes too when it was its only sentence, unless it is the letter's last). Both fields
+ * are required (400): `updatedAt` is the letter as the page read it, checked first, so a tab that
+ * missed a rewrite gets 409 LETTER_CHANGED rather than a 404 for a check id the new letter reuses
+ * or lacks; `expectedText` is the paragraph as the page shows it (409 PARAGRAPH_CHANGED). The
+ * sentence is found by its place in the paragraph, never by substring.
  */
 coverLetterRouter.patch('/jobs/:id/cover-letter/checks/:checkId', async (request, response, next) => {
   try {
@@ -330,30 +335,45 @@ coverLetterRouter.patch('/jobs/:id/cover-letter/checks/:checkId', async (request
     if (!userId) return;
     const job = await jobFor(userId, request.params.id!, response);
     if (!job) return;
-    const letter = await getCoverLetter(userId, job.id);
-    const check = letter?.checks.find((found) => found.id === request.params.checkId && found.severity === 'flag');
-    if (!letter || !check || check.paragraph === null) {
-      return response.status(404).json({ error: `Flag not found: ${request.params.checkId}` });
-    }
     const body = (request.body ?? {}) as { action?: unknown; expectedText?: unknown; updatedAt?: unknown };
     if (body.action !== 'keep' && body.action !== 'remove') {
       return response.status(400).json({ error: "action must be 'keep' or 'remove'." });
     }
-    if (body.updatedAt !== undefined && !isTimestamp(body.updatedAt)) {
+    if (!isTimestamp(body.updatedAt)) {
       return response.status(400).json({ error: 'updatedAt must be the letter’s updatedAt.' });
+    }
+    if (typeof body.expectedText !== 'string') {
+      return response.status(400).json({ error: 'expectedText must be the paragraph as the page shows it.' });
+    }
+    const letter = await getCoverLetter(userId, job.id);
+    if (!letter) {
+      return response.status(404).json({ error: 'This job has no cover letter yet.' });
+    }
+    if (Date.parse(body.updatedAt) !== Date.parse(letter.updatedAt)) return response.status(409).json(LETTER_CHANGED);
+    const check = letter.checks.find((found) => found.id === request.params.checkId && found.severity === 'flag');
+    if (!check || check.paragraph === null) {
+      return response.status(404).json({ error: `Flag not found: ${request.params.checkId}` });
     }
     const index = check.paragraph;
     const paragraph = letter.paragraphs[index];
-    if (!paragraph || paragraphMoved(body.expectedText, paragraph.text) || !paragraph.text.includes(check.text)) {
+    const sentences = paragraph ? splitSentences(paragraph.text) : [];
+    const at = sentenceIndex(sentences, check);
+    if (!paragraph || paragraphMoved(body.expectedText, paragraph.text) || at < 0) {
       return response.status(409).json(PARAGRAPH_CHANGED);
     }
 
     let paragraphs = letter.paragraphs;
     let checks = letter.checks.map((found) => (found.id === check.id ? { ...found, resolution: body.action === 'keep' ? ('kept' as const) : ('removed' as const) } : found));
     if (body.action === 'remove') {
-      const text = paragraph.text.replace(check.text, ' ').replace(/\s+/g, ' ').trim();
+      const text = sentences.filter((_sentence, i) => i !== at).join(' ');
       if (text) {
         paragraphs = letter.paragraphs.map((p, i) => (i === index ? { ...p, text } : p));
+        // The paragraph's later sentences move up a place.
+        checks = checks.map((found) =>
+          found.paragraph === index && found.id !== check.id && found.sentence !== undefined && found.sentence > at
+            ? { ...found, sentence: found.sentence - 1 }
+            : found,
+        );
       } else if (letter.paragraphs.length === 1) {
         return response.status(400).json({ error: 'A letter keeps at least one paragraph. Edit it, or write the letter again.' });
       } else {
@@ -366,12 +386,7 @@ coverLetterRouter.patch('/jobs/:id/cover-letter/checks/:checkId', async (request
         });
       }
     }
-    const updated = await updateCoverLetter(
-      userId,
-      job.id,
-      { paragraphs, checks },
-      { expect: { updatedAt: (body.updatedAt as string | undefined) ?? letter.updatedAt } },
-    );
+    const updated = await updateCoverLetter(userId, job.id, { paragraphs, checks }, { expect: { updatedAt: body.updatedAt } });
     if (!updated) return response.status(409).json(LETTER_CHANGED);
     return response.json({ coverLetter: updated });
   } catch (error) {

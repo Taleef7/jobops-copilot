@@ -436,9 +436,10 @@ export interface GroundingIssue {
   /**
    * A cover letter's finding (#416): `drop` is what the check can prove (a number, a date, a link,
    * a credential, a posting skill, a placeholder); `flag` is what it can only guess (a name, a tie,
-   * an employer, a language, a title, leadership) and the user keeps or removes.
+   * an employer, a language, a title, leadership) and the user keeps or removes; `note` is shown
+   * and holds nothing up (the posting's product named, not claimed).
    */
-  severity?: 'drop' | 'flag';
+  severity?: 'drop' | 'flag' | 'note';
 }
 
 export interface ResumeChangeDetail {
@@ -536,11 +537,17 @@ export interface CoverLetterCheck {
   /** Stable within the letter ("c0", "c1"…): what a Keep or Remove names. */
   id: string;
   paragraph: number | null;
+  /**
+   * A kept sentence's place among its paragraph's sentences (0-based), so Remove, the pack and the
+   * highlight find it by place rather than by substring. Letters from version 1 of the check lack it.
+   */
+  sentence?: number;
   text: string;
   dropped: boolean;
   /**
    * `drop`: left out of the letter. `flag`: kept in it, highlighted, and the PDF waits until the
-   * user keeps or removes it. `note`: a confirmed keyword it uses, marked as the user's.
+   * user keeps or removes it. `note`: shown, holding nothing up (a confirmed keyword it uses,
+   * marked as the user's, or the posting's product named).
    */
   severity: 'drop' | 'flag' | 'note';
   /** A flag's outcome: kept, removed from its paragraph, or the paragraph was edited. */

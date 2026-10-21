@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { REVIEW_HONEST, REVIEW_INVENTED, REVIEW_LINKS, SRE_BASE, SRE_JOB, SRE_TERMS } from '@/test-support/letter-fixtures';
-import { groundLetter, type LetterContext } from './ground';
+import { groundLetter, settledParagraphs, type LetterContext } from './ground';
 
 /**
  * The third review's corpus (#416), by class. The owner's rule: what the check can prove is
@@ -85,4 +85,54 @@ test('a flag is kept in the letter, marked, and says why', () => {
   assert.ok(check!.id, 'a flag has an id the review can resolve it by');
   assert.equal(check!.resolution, undefined);
   assert.ok(check!.issues.every((issue) => issue.severity === 'flag'));
+});
+
+// Fourth review (#416).
+
+test('experience near the company is read by word distance, in linear time', () => {
+  for (const sentence of ["Fabrikam's platform team was my client.", 'I know the team at Fabrikam well.']) {
+    assert.equal(findingOf(sentence), 'flag', sentence);
+  }
+  // The trade-off: more than six words between them, and the tie isn't read.
+  assert.equal(findingOf('I know, from years of reading about it and talking with friends there, Fabrikam well.'), 'kept');
+  const unit = `know ${"a'".repeat(60)} `;
+  groundLetter(['I build things.'], ctx()); // The first call builds the check's patterns: not timed.
+  for (const text of [`I ${unit}`, `I ${unit.repeat(5)}`.slice(0, 3_000)]) {
+    const started = performance.now();
+    groundLetter([text], ctx());
+    const ms = performance.now() - started;
+    assert.ok(ms < 200, `${text.length} chars: ${ms.toFixed(0)} ms`);
+  }
+});
+
+test('a flagged sentence is settled by its place in the paragraph, not by substring', () => {
+  // Also a substring of the sentence before it, quoted: removing by substring would cut that one.
+  const result = groundLetter(['I would never write "Fabrikam was my client." in a letter to you. Fabrikam was my client.'], ctx());
+  const flag = result.checks.find((check) => check.severity === 'flag')!;
+  assert.equal(flag.text, 'Fabrikam was my client.');
+  assert.equal(flag.sentence, 1);
+  const letter = { paragraphs: result.paragraphs.map((text) => ({ text, edited: false })), checks: result.checks };
+  assert.deepEqual(settledParagraphs(letter), ['I would never write "Fabrikam was my client." in a letter to you.']);
+  // The reviewer's case: the same sentence twice, the first time inside a longer one.
+  const twice = groundLetter(['I could say Fabrikam was my client. Fabrikam was my client.'], ctx());
+  assert.deepEqual(
+    twice.checks.map((check) => [check.severity, check.sentence]),
+    [['flag', 1]],
+  );
+});
+
+test('an exam is a credential only when passed or sat, and "examined" in the résumé is no evidence', () => {
+  const base = structuredClone(SRE_BASE);
+  base.work[0]!.highlights = [...base.work[0]!.highlights, 'Examined incident timelines in every postmortem'];
+  const withExamined = (sentence: string) => groundLetter([sentence], ctx({ base }));
+  assert.deepEqual(withExamined('I passed the bar exam.').paragraphs, []);
+  const honest = 'I treat every postmortem like an exam.';
+  assert.deepEqual(withExamined(honest).paragraphs, [honest]);
+  assert.equal(findingOf(honest), 'kept');
+});
+
+test('"-fold" is a number only as a quantity', () => {
+  assert.equal(findingOf('I see a twofold opportunity in this role.'), 'kept');
+  assert.equal(findingOf('The pages I got grew threefold before I rebuilt the alerting.'), 'drop');
+  assert.equal(findingOf('I delivered a fivefold increase in deploy speed.'), 'drop');
 });

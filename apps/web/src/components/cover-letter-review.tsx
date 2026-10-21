@@ -1,7 +1,7 @@
 'use client';
 
 import Link from 'next/link';
-import { useEffect, useState, useSyncExternalStore } from 'react';
+import { Fragment, useEffect, useId, useRef, useState, useSyncExternalStore } from 'react';
 import { Loader2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { LocalDate } from '@/components/local-date';
@@ -16,6 +16,7 @@ import {
   resolveCoverLetterFlag,
   writeCoverLetter,
 } from '@/lib/api';
+import { sentenceIndex, splitSentences } from '@/lib/sentences';
 import type { CoverLetterCheck, CoverLetterLength, CoverLetterParagraph, CoverLetterRecord } from '@/types/job';
 
 /**
@@ -318,7 +319,8 @@ function LetterView({
   const words = letter.paragraphs.reduce((sum, paragraph) => sum + countWords(paragraph.text), 0);
   const dropped = letter.checks.filter((check) => check.dropped);
   const edited = letter.paragraphs.some((paragraph) => paragraph.edited);
-  const unresolved = letter.checks.filter((check) => check.severity === 'flag' && check.paragraph !== null && !check.resolution);
+  const unresolved = letter.checks.filter(isOpenFlag);
+  const reasonId = useId();
   // The paragraph being edited, by its key, and what was typed: while one is open, nothing else
   // can change the letter. A key is the paragraph's text (and which copy of it), so it stays with
   // the paragraph when another one goes, and what was typed is kept here, not in the card.
@@ -337,6 +339,12 @@ function LetterView({
         );
       }
     } catch (err: unknown) {
+      // Flags this tab hasn't seen (written again in another tab): show them.
+      const { status, code } = (err ?? {}) as { status?: unknown; code?: unknown };
+      if (status === 409 && code === 'FLAGS_UNRESOLVED') {
+        const fresh = await getCoverLetter(jobId).catch(() => null);
+        if (fresh) setLetter(jobId, fresh);
+      }
       toast.error(err instanceof Error ? err.message : "The PDF couldn't be downloaded.");
     } finally {
       setLetterState(jobId, { downloading: false });
@@ -381,14 +389,23 @@ function LetterView({
     );
   }
 
-  async function change(run: () => Promise<CoverLetterRecord>, failure: string, typed: string | null = null): Promise<boolean> {
+  async function change(
+    run: () => Promise<CoverLetterRecord>,
+    failure: string,
+    typed: string | null = null,
+    done?: (fresh: CoverLetterRecord) => void,
+  ): Promise<boolean> {
     setLetterState(jobId, { saving: true });
     try {
-      setLetter(jobId, await run());
+      const fresh = await run();
+      done?.(fresh);
+      setLetter(jobId, fresh);
       return true;
     } catch (err: unknown) {
       const { status, code } = (err ?? {}) as { status?: unknown; code?: unknown };
-      if (status === 409 && (code === 'PARAGRAPH_CHANGED' || code === 'LETTER_CHANGED')) {
+      // Changed in another tab, or what it named is gone there (a flag answered, or the letter
+      // written again): read the letter as it is now.
+      if ((status === 409 && (code === 'PARAGRAPH_CHANGED' || code === 'LETTER_CHANGED')) || status === 404) {
         await reread(code === 'LETTER_CHANGED' ? 'letter' : 'paragraph', typed);
       } else {
         toast.error(err instanceof Error ? err.message : failure);
@@ -414,10 +431,27 @@ function LetterView({
       () => removeCoverLetterParagraph(jobId, index, letter.updatedAt, letter.paragraphs[index]!.text),
       "That paragraph couldn't be removed.",
     );
+  // After an answer, focus goes to the next flag's Keep, else to the answered sentence's paragraph.
+  const list = useRef<HTMLDivElement>(null);
+  const focusNext = useRef<string | null>(null);
+  useEffect(() => {
+    const selector = focusNext.current;
+    if (!selector || saving) return;
+    focusNext.current = null;
+    list.current?.querySelector<HTMLElement>(selector)?.focus();
+  }, [letter, saving]);
   const resolve = (check: CoverLetterCheck, action: 'keep' | 'remove') =>
     change(
-      () => resolveCoverLetterFlag(jobId, check.id, action, letter.paragraphs[check.paragraph!]!.text, letter.updatedAt),
+      () => resolveCoverLetterFlag(jobId, check.id!, action, letter.paragraphs[check.paragraph!]!.text, letter.updatedAt),
       "That sentence couldn't be updated.",
+      null,
+      (fresh) => {
+        const open = fresh.checks.filter(isOpenFlag);
+        const after = fresh.checks.findIndex((found) => found.id === check.id);
+        const next = open.find((found) => fresh.checks.indexOf(found) > after) ?? open[0];
+        const paragraph = Math.min(check.paragraph!, fresh.paragraphs.length - 1);
+        focusNext.current = next ? `[data-keep="${next.id}"]` : `[data-paragraph="${paragraph}"]`;
+      },
     );
 
   return (
@@ -435,14 +469,14 @@ function LetterView({
           <Button variant="outline" onClick={onWriteAgain} disabled={locked}>
             Write again
           </Button>
-          <Button onClick={download} disabled={locked || unresolved.length > 0}>
+          <Button onClick={download} disabled={locked || unresolved.length > 0} aria-describedby={unresolved.length > 0 ? reasonId : undefined}>
             {downloading ? <Loader2 className="size-4 animate-spin" aria-hidden /> : null}
             Download PDF
           </Button>
         </div>
       </div>
       {unresolved.length > 0 ? (
-        <p className="text-xs font-medium">
+        <p id={reasonId} className="text-xs font-medium">
           {`Keep or remove the ${unresolved.length === 1 ? '1 highlighted sentence' : `${unresolved.length} highlighted sentences`} before you download: the check couldn't confirm ${unresolved.length === 1 ? 'it' : 'them'} from your résumé.`}
         </p>
       ) : null}
@@ -451,7 +485,7 @@ function LetterView({
         {edited ? ' Writing it again replaces your edits.' : ''}
       </p>
 
-      <div className="space-y-3">
+      <div className="space-y-3" ref={list}>
         {letter.paragraphs.map((paragraph, index) => (
           <ParagraphCard
             key={keyOf(index)}
@@ -503,29 +537,37 @@ function keyIn(letter: CoverLetterRecord, index: number): string {
   return [letter.id, text, copy].join(KEY_SEPARATOR);
 }
 
-/** The paragraph's text with its unresolved flagged sentences highlighted. */
-function Highlighted({ text, sentences }: { text: string; sentences: string[] }) {
-  const parts: Array<{ text: string; marked: boolean }> = [];
-  let rest = text;
-  for (const sentence of sentences) {
-    const at = rest.indexOf(sentence);
-    if (at === -1) continue;
-    if (at > 0) parts.push({ text: rest.slice(0, at), marked: false });
-    parts.push({ text: sentence, marked: true });
-    rest = rest.slice(at + sentence.length);
-  }
-  if (rest) parts.push({ text: rest, marked: false });
+/** A flag the user hasn't kept or removed yet: the PDF waits for it. */
+function isOpenFlag(check: CoverLetterCheck): boolean {
+  return check.severity === 'flag' && check.id !== undefined && check.paragraph !== null && !check.resolution;
+}
+
+/** A sentence's first words, for a button that names it. */
+function opening(text: string): string {
+  const words = text.split(/\s+/);
+  return words.length > 8 ? `${words.slice(0, 8).join(' ')}…` : text;
+}
+
+/**
+ * The paragraph's text with its unresolved flagged sentences highlighted: found by their place
+ * among its sentences, as the API splits them, never by substring.
+ */
+function Highlighted({ text, checks }: { text: string; checks: CoverLetterCheck[] }) {
+  const sentences = splitSentences(text);
+  const marked = new Set(checks.map((check) => sentenceIndex(sentences, check)).filter((at) => at >= 0));
+  if (marked.size === 0) return <p className="text-sm whitespace-pre-wrap">{text}</p>;
   return (
     <p className="text-sm whitespace-pre-wrap">
-      {parts.map((part, i) =>
-        part.marked ? (
-          <mark key={i} className="rounded-sm bg-amber-200/70 px-0.5 text-inherit dark:bg-amber-500/30">
-            {part.text}
-          </mark>
-        ) : (
-          <span key={i}>{part.text}</span>
-        ),
-      )}
+      {sentences.map((sentence, i) => (
+        <Fragment key={i}>
+          {i > 0 ? ' ' : null}
+          {marked.has(i) ? (
+            <mark className="rounded-sm bg-amber-200/70 px-0.5 text-inherit dark:bg-amber-500/30">{sentence}</mark>
+          ) : (
+            <span>{sentence}</span>
+          )}
+        </Fragment>
+      ))}
     </p>
   );
 }
@@ -559,39 +601,64 @@ function ParagraphCard({
 }) {
   const editing = draft !== null;
   // The user's own words are theirs: an edited paragraph's findings are settled.
-  const flags = paragraph.edited ? [] : checks.filter((check) => check.severity === 'flag' && check.resolution !== 'removed');
+  // A removed flag's findings go with it. A check from an early build (no id or severity) is a note.
+  const shown = paragraph.edited ? [] : checks.filter((check) => check.resolution !== 'removed');
+  const flags = shown.filter((check) => check.severity === 'flag' && check.id !== undefined);
   const open = flags.filter((check) => !check.resolution);
-  const notes = paragraph.edited ? [] : checks.filter((check) => check.confirmedTerms?.length);
+  const notes = shown.filter((check) => !flags.includes(check) && check.issues.length > 0);
+  const terms = shown.filter((check) => check.confirmedTerms?.length);
+  // The letter's only sentence can be kept or edited; removing it would leave no letter.
+  const alone = !onRemove && splitSentences(paragraph.text).length === 1;
 
   return (
-    <div className="space-y-2 rounded-md border p-3" data-testid={`letter-paragraph-${index}`}>
+    <div className="space-y-2 rounded-md border p-3" data-testid={`letter-paragraph-${index}`} data-paragraph={index} tabIndex={-1}>
       {paragraph.edited ? <p className="text-xs font-medium">Your words</p> : null}
       {editing ? (
         <Textarea aria-label={`Paragraph ${index + 1}`} value={draft} onChange={(event) => onDraft(event.target.value)} rows={5} />
       ) : (
-        <Highlighted text={paragraph.text} sentences={open.map((check) => check.text)} />
+        <Highlighted text={paragraph.text} checks={open} />
       )}
-      {flags.length > 0 || notes.length > 0 ? (
+      {flags.length > 0 || notes.length > 0 || terms.length > 0 ? (
         <div className="space-y-2 rounded-md border border-amber-500/40 bg-amber-500/5 p-2 text-xs">
           {flags.map((check) => (
-            <div key={check.id} className="space-y-1">
+            <div key={check.id!} className="space-y-1">
               {check.issues.map((found, j) => (
                 <p key={j}>{`${check.resolution === 'kept' ? 'Kept ' : ''}“${check.text}”: it ${found.message}.`}</p>
               ))}
               {!check.resolution && !editing ? (
-                <div className="flex gap-2">
-                  <Button size="sm" variant="outline" disabled={busy} onClick={() => void onResolve(check, 'keep')}>
+                <div className="flex flex-wrap items-center gap-2">
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    disabled={busy}
+                    aria-label={`Keep “${opening(check.text)}”`}
+                    data-keep={check.id}
+                    onClick={() => void onResolve(check, 'keep')}
+                  >
                     Keep
                   </Button>
-                  <Button size="sm" variant="outline" disabled={busy} onClick={() => void onResolve(check, 'remove')}>
-                    Remove
-                  </Button>
+                  {alone ? (
+                    <span className="text-muted-foreground">It&apos;s the letter&apos;s only sentence: keep it, or edit it.</span>
+                  ) : (
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      disabled={busy}
+                      aria-label={`Remove “${opening(check.text)}”`}
+                      onClick={() => void onResolve(check, 'remove')}
+                    >
+                      Remove
+                    </Button>
+                  )}
                 </div>
               ) : null}
             </div>
           ))}
-          {notes.map((check) => (
-            <p key={check.id}>{`Uses ${check.confirmedTerms!.join(', ')}, which you added`}</p>
+          {notes.map((check, i) =>
+            check.issues.map((found, j) => <p key={`${check.id ?? `note-${i}`}-${j}`}>{`“${check.text}”: it ${found.message}.`}</p>),
+          )}
+          {terms.map((check, i) => (
+            <p key={`${check.id ?? `terms-${i}`}-terms`}>{`Uses ${check.confirmedTerms!.join(', ')}, which you added`}</p>
           ))}
         </div>
       ) : null}

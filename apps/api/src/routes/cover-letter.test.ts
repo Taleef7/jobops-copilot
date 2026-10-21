@@ -564,7 +564,11 @@ test('a flagged sentence stays in the letter, and the PDF waits until it is kept
     assert.equal(((await blocked.json()) as { code?: string }).code, 'FLAGS_UNRESOLVED');
 
     const flag = letter.checks.find((check) => check.severity === 'flag')!;
-    const kept = await send('PATCH', `/api/jobs/${job.id}/cover-letter/checks/${flag.id}`, { action: 'keep', updatedAt: letter.updatedAt });
+    const kept = await send('PATCH', `/api/jobs/${job.id}/cover-letter/checks/${flag.id}`, {
+      action: 'keep',
+      expectedText: letter.paragraphs[1]!.text,
+      updatedAt: letter.updatedAt,
+    });
     assert.equal(kept.status, 200, await kept.clone().text());
     const after = ((await kept.json()) as { coverLetter: CoverLetterRecord }).coverLetter;
     assert.equal(after.checks.find((check) => check.id === flag.id)!.resolution, 'kept');
@@ -582,6 +586,7 @@ test('removing a flagged sentence edits its paragraph through the guarded path',
     const stale = await send('PATCH', `/api/jobs/${job.id}/cover-letter/checks/${flag.id}`, {
       action: 'remove',
       expectedText: 'Something else.',
+      updatedAt: letter.updatedAt,
     });
     assert.equal(stale.status, 409);
     assert.equal(((await stale.json()) as { code?: string }).code, 'PARAGRAPH_CHANGED');
@@ -599,9 +604,11 @@ test('removing a flagged sentence edits its paragraph through the guarded path',
     const { text } = await download(send, job.id);
     assert.ok(!text.includes('google'));
 
-    assert.equal((await send('PATCH', `/api/jobs/${job.id}/cover-letter/checks/nope`, { action: 'keep' })).status, 404);
-    assert.equal((await send('PATCH', `/api/jobs/${job.id}/cover-letter/checks/${flag.id}`, { action: 'maybe' })).status, 400);
-    assert.equal((await send('PATCH', `/api/jobs/${job.id}/cover-letter/checks/${flag.id}`, { action: 'keep' }, 'intruder')).status, 404);
+    const now = after.updatedAt;
+    const answer = { expectedText: after.paragraphs[0]!.text, updatedAt: now };
+    assert.equal((await send('PATCH', `/api/jobs/${job.id}/cover-letter/checks/nope`, { action: 'keep', ...answer })).status, 404);
+    assert.equal((await send('PATCH', `/api/jobs/${job.id}/cover-letter/checks/${flag.id}`, { action: 'maybe', ...answer })).status, 400);
+    assert.equal((await send('PATCH', `/api/jobs/${job.id}/cover-letter/checks/${flag.id}`, { action: 'keep', ...answer }, 'intruder')).status, 404);
   });
 });
 
@@ -613,6 +620,7 @@ test('a flagged sentence alone in its paragraph takes the paragraph with it', as
     const response = await send('PATCH', `/api/jobs/${job.id}/cover-letter/checks/${flag.id}`, {
       action: 'remove',
       expectedText: FLAGGED,
+      updatedAt: letter.updatedAt,
     });
     assert.equal(response.status, 200, await response.clone().text());
     const after = ((await response.json()) as { coverLetter: CoverLetterRecord }).coverLetter;
@@ -645,5 +653,83 @@ test('the "less than half a letter" 503 counts only dropped sentences, not flagg
     const job = await setUp();
     const letter = await write(send, job.id);
     assert.ok(letter.checks.filter((check) => check.severity === 'flag').length >= 1);
+  });
+});
+
+// Fourth review (#416).
+
+test('answering a flag needs the letter as read: updatedAt and expectedText are required, and a stale tab is a 409 first', async () => {
+  await withLetters(flaggedLetter(), async ({ agent, send }) => {
+    const job = await setUp();
+    const letter = await writeWithFlag(send, job.id);
+    const flag = letter.checks.find((check) => check.severity === 'flag')!;
+    const url = `/api/jobs/${job.id}/cover-letter/checks/${flag.id}`;
+    assert.equal((await send('PATCH', url, { action: 'keep', expectedText: letter.paragraphs[1]!.text })).status, 400);
+    assert.equal((await send('PATCH', url, { action: 'keep', updatedAt: letter.updatedAt })).status, 400);
+
+    // Written again in another tab: the old checkId is stale, and the stale letter is the reason.
+    agent.answer = answerOf(letterOf(180, 3));
+    await write(send, job.id);
+    for (const id of [flag.id, 'c99']) {
+      const response = await send('PATCH', `/api/jobs/${job.id}/cover-letter/checks/${id}`, {
+        action: 'keep',
+        expectedText: letter.paragraphs[1]!.text,
+        updatedAt: letter.updatedAt,
+      });
+      assert.equal(response.status, 409, id);
+      assert.equal(((await response.json()) as { code?: string }).code, 'LETTER_CHANGED', id);
+    }
+    // With the fresh letter, an id it doesn't have is a 404.
+    const fresh = (await read(send, job.id))!;
+    const missing = await send('PATCH', `/api/jobs/${job.id}/cover-letter/checks/c99`, {
+      action: 'keep',
+      expectedText: fresh.paragraphs[0]!.text,
+      updatedAt: fresh.updatedAt,
+    });
+    assert.equal(missing.status, 404);
+  });
+});
+
+// The flagged sentence is also a substring of the one before it: removing by substring would cut that one.
+const TWICE_CLIENT = 'I would never write "Acme Pay was my client." in a letter to you. Acme Pay was my client.';
+
+test('a flagged sentence whose words repeat inside another sentence is removed by its place, not by substring', async () => {
+  await withLetters(answerOf([letterOf(120, 1)[0]!, TWICE_CLIENT, GROUNDED[9]!]), async ({ send }) => {
+    const job = await setUp();
+    const letter = await write(send, job.id);
+    const flag = letter.checks.find((check) => check.severity === 'flag')!;
+    assert.equal(flag.text, 'Acme Pay was my client.');
+    assert.equal(flag.sentence, 1);
+    const response = await send('PATCH', `/api/jobs/${job.id}/cover-letter/checks/${flag.id}`, {
+      action: 'remove',
+      expectedText: letter.paragraphs[1]!.text,
+      updatedAt: letter.updatedAt,
+    });
+    assert.equal(response.status, 200, await response.clone().text());
+    const after = ((await response.json()) as { coverLetter: CoverLetterRecord }).coverLetter;
+    assert.equal(after.paragraphs[1]!.text, 'I would never write "Acme Pay was my client." in a letter to you.');
+  });
+});
+
+test('Save with the paragraph unchanged answers nothing: no edit, no new updatedAt, the flags stay open', async () => {
+  await withLetters(flaggedLetter(), async ({ send }) => {
+    const job = await setUp();
+    const letter = await writeWithFlag(send, job.id);
+    const response = await send('PATCH', `/api/jobs/${job.id}/cover-letter/paragraphs/1`, {
+      text: letter.paragraphs[1]!.text,
+      expectedText: letter.paragraphs[1]!.text,
+      updatedAt: letter.updatedAt,
+    });
+    assert.equal(response.status, 200);
+    const after = ((await response.json()) as { coverLetter: CoverLetterRecord }).coverLetter;
+    assert.deepEqual(after, letter);
+    assert.equal((await send('GET', `/api/jobs/${job.id}/cover-letter/download`)).status, 409);
+  });
+});
+
+test('a letter is written with the second version of the check', async () => {
+  await withLetters(answerOf(letterOf(180, 3)), async ({ send }) => {
+    const job = await setUp();
+    assert.deepEqual((await write(send, job.id)).basedOn.grounding, { version: 2 });
   });
 });

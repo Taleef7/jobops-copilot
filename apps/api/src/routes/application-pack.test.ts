@@ -419,3 +419,47 @@ test("the pack leaves out a cover letter's flagged sentences the user hasn't kep
     await resetCoverLetterStoreForTests();
   });
 });
+
+test('the pack leaves out the flagged sentence by its place, even when its words repeat in another (#416)', async () => {
+  await withFreshStores(async () => {
+    await resetCoverLetterStoreForTests();
+    const job = await createJob(USER, { company: 'Acme', title: 'Engineer', descriptionText: 'Backend engineering role.' });
+    const now = new Date().toISOString();
+    await saveCoverLetter({
+      id: '7f9b962c-0000-4000-8000-000000000418',
+      userId: USER,
+      jobId: job.id,
+      length: 'concise',
+      paragraphs: [{ text: 'I would never write "Acme was my client." in a letter to you. Acme was my client.', edited: false }],
+      checks: [
+        {
+          id: 'c0',
+          paragraph: 0,
+          sentence: 1,
+          text: 'Acme was my client.',
+          dropped: false,
+          severity: 'flag',
+          issues: [{ code: 'NEW_ENTITY', term: 'Acme', message: 'ties you to Acme', severity: 'flag' }],
+        },
+      ],
+      basedOn: {
+        baseVersionId: null,
+        baseUpdatedAt: now,
+        jobId: job.id,
+        postingSha256: 'a'.repeat(64),
+        model: 'openai:gpt-6-luna',
+        createdAt: now,
+        grounding: { version: 2 },
+        confirmedKeywords: [],
+      },
+      createdAt: now,
+      updatedAt: now,
+    });
+    await withServer(async (baseUrl) => {
+      const res = await fetch(`${baseUrl}/api/jobs/${job.id}/application-pack`, { method: 'POST', headers: hdrs(USER) });
+      const { applicationPack } = (await res.json()) as { applicationPack: ApplicationPackPayload };
+      assert.equal(applicationPack.coverLetterText, 'I would never write "Acme was my client." in a letter to you.');
+    });
+    await resetCoverLetterStoreForTests();
+  });
+});

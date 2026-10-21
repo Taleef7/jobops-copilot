@@ -61,9 +61,9 @@ export interface GroundedLetter {
 }
 
 /** Set on a letter by this check (its basis records which check it passed). */
-export const LETTER_GROUNDING_VERSION = 1;
+export const LETTER_GROUNDING_VERSION = 2;
 
-type Severity = 'drop' | 'flag';
+type Severity = 'drop' | 'flag' | 'note';
 const issue = (severity: Severity, found: Omit<GroundingIssue, 'severity'>): GroundingIssue => ({ ...found, severity });
 
 interface Prepared {
@@ -228,12 +228,37 @@ const AT_NAME = /(?:^|,\s*)at\s+(?:the\s+)?(\p{Lu}[\p{L}\p{N}&']{0,40})\s*,/gu;
 const SPEAKS = /\b(?:fluent|fluently|speak|speaks|spoke|native|bilingual|trilingual|proficient|conversational)\b/i;
 const LANGUAGE =
   /\b(spanish|mandarin|french|german|hindi|urdu|arabic|japanese|korean|portuguese|italian|russian|cantonese|bengali|punjabi|tamil|telugu|turkish|vietnamese|polish|dutch|swahili|farsi|persian|hebrew|greek|thai|indonesian|tagalog)\b/gi;
-/** "By a third", "by half", "doubled", "tenfold": a share or a multiple the résumé must state. */
+/** "By a third", "by half", "doubled": a share or a multiple the résumé must state. */
 const FRACTION =
-  /\b(?:(?:a|one|two)\s+(?:half|third|quarter|fifth)|(?:in|by)\s+half|halved|doubled(?!\s+down)|tripled|quadrupled|thirds|(?:two|three|four|five|six|seven|eight|nine|ten|twenty|hundred|thousand|many|\d+)-?fold)\b/gi;
+  /\b(?:(?:a|one|two)\s+(?:half|third|quarter|fifth)|(?:in|by)\s+half|halved|doubled(?!\s+down)|tripled|quadrupled|thirds)\b/gi;
+/**
+ * "Grew threefold", "a fivefold increase": a multiple, only when it measures something. "A twofold
+ * opportunity" is no number.
+ */
+const FOLD_WORD = String.raw`(?:two|three|four|five|six|seven|eight|nine|ten|twenty|hundred|thousand|many|\d+)-?fold`;
+const FOLD = new RegExp(
+  String.raw`\b(?:(?:grew|grow|grows|growing|grown|increased?|increasing|improved?|improving|rose|risen|rise|rising|jumped|expanded|scaled|multiplied|boosted|cut|reduced|dropped|fell|shrank|accelerated|sped\s+up)\s+(?:[\p{L}\p{N}'’-]{1,30}\s+){0,3}?(${FOLD_WORD})|(${FOLD_WORD})\s+(?:increases?|rises?|growth|gains?|improvements?|reductions?|decreases?|drops?|cuts?|jumps?|boosts?|speed-?ups?|faster|slower|more|fewer|less|higher|lower|larger|smaller|bigger|returns?))\b`,
+  'giu',
+);
 
-/** Credentials, by family: a claimed one the résumé never names is dropped. */
-const CREDENTIAL = /(?<![\p{L}])(certif\p{L}*|licen[cs]\p{L}*|clearance|accredit\p{L}*|chartered|credential\p{L}*|exams?)(?![\p{L}])/giu;
+/**
+ * Credentials, by family: a claimed one whose family the résumé never names is dropped. Each family
+ * has its own stem ("Examined…" in the résumé is no exam), and an exam is a credential only as one
+ * passed or sat ("I treat every postmortem like an exam" claims none).
+ */
+const CREDENTIALS: Array<{ claim: RegExp; evidence: RegExp }> = [
+  { claim: /(?<!\p{L})certif\p{L}*/iu, evidence: /(?<!\p{L})certif/iu },
+  { claim: /(?<!\p{L})licen[cs]\p{L}*/iu, evidence: /(?<!\p{L})licen[cs]/iu },
+  { claim: /(?<!\p{L})clearances?(?!\p{L})/iu, evidence: /(?<!\p{L})clearances?(?!\p{L})/iu },
+  { claim: /(?<!\p{L})accredit\p{L}*/iu, evidence: /(?<!\p{L})accredit/iu },
+  { claim: /(?<!\p{L})chartered(?!\p{L})/iu, evidence: /(?<!\p{L})chartered(?!\p{L})/iu },
+  { claim: /(?<!\p{L})credential\p{L}*/iu, evidence: /(?<!\p{L})credential/iu },
+  {
+    claim:
+      /(?<!\p{L})(?:pass|passed|passing|took|take|taken|taking|sat|sit|sitting|cleared|clearing|completed)\s+(?:[\p{L}\p{N}&'’-]{1,30}\s+){0,4}?exams?(?!\p{L})/iu,
+    evidence: /(?<!\p{L})exams?(?!\p{L})/iu,
+  },
+];
 /** Awards and honours: a guess (the words can't tell), so flagged. */
 const AWARD = /\b(awards?|awarded|prizes?|honou?rs?|won|winner|recogni[sz]ed|named\s+(?:a|an|the)\b)/i;
 /** Roles in a community or a company the résumé doesn't name: flagged. */
@@ -278,12 +303,39 @@ function capitalisedMidSentence(texts: string[]): Set<string> {
  * Experience with the company: in a claim, a mention of it within six words of one of these is a
  * tie ("I know the team at Fabrikam", "Fabrikam's platform team was my client").
  */
-const EXPERIENCE_WORDS =
-  String.raw`(?:worked|working|ran|run|running|built|used|uses|know|knew|known|spent|returned|helped|supported|maintained|shipped|consulted|partnered|collaborated|served|operated|owned|led|managed|joined|hired|employed|acquired|interviewed|talked|met|been|former|ex|employee|employer|alumn\p{L}*|alum|codebase|customer|client|contractor|part\s+of)`;
-const GAP = String.raw`(?:[^\p{L}\p{N}]{1,5}[\p{L}\p{N}'’-]{1,40}){0,6}?[^\p{L}\p{N}]{1,5}`;
+const EXPERIENCE = new Set(
+  'worked working ran run running built used uses know knew known spent returned helped supported maintained shipped consulted partnered collaborated served operated owned led managed joined hired employed acquired interviewed talked met been former ex employee employer alum codebase customer client contractor'.split(
+    ' ',
+  ),
+);
+/** The words of a text, lower case, a possessive's "'s" taken off ("Fabrikam's" is "fabrikam"). */
+const WORD = /[\p{L}\p{N}]+(?:['’][\p{L}\p{N}]+)*/gu;
+const wordsOf = (text: string) => [...text.matchAll(WORD)].map((match) => match[0].toLowerCase().replace(/['’]s$/, ''));
+/** At most this many words between the company and the experience word. */
+const NEAR = 6;
+/**
+ * Counted in words, not matched with a pattern: linear in the sentence, whatever it holds. More than
+ * six words apart, the tie isn't read (a trade-off: "I know, from years of reading about it and
+ * talking with friends there, Fabrikam well" is kept).
+ */
 function nearExperience(sentence: string, company: string): boolean {
-  const name = source(company);
-  return new RegExp(`${START}${EXPERIENCE_WORDS}${GAP}${name}${END}|${START}${name}${GAP}${EXPERIENCE_WORDS}${END}`, 'iu').test(sentence);
+  const name = wordsOf(company);
+  if (name.length === 0) return false;
+  const words = wordsOf(sentence);
+  const starts: number[] = [];
+  for (let i = 0; i + name.length <= words.length; i++) if (name.every((word, j) => words[i + j] === word)) starts.push(i);
+  if (starts.length === 0) return false;
+  for (let i = 0; i < words.length; i++) {
+    const word = words[i]!;
+    const phrase = word === 'part' && words[i + 1] === 'of';
+    if (!phrase && !EXPERIENCE.has(word) && !word.startsWith('alumn')) continue;
+    const last = phrase ? i + 1 : i;
+    for (const start of starts) {
+      const between = start > last ? start - last - 1 : i - (start + name.length);
+      if (between >= 0 && between <= NEAR) return true;
+    }
+  }
+  return false;
 }
 
 /** Where the letter names the company to apply: applying to it, the role at it, bringing something to it. */
@@ -514,7 +566,7 @@ function checkSentence(sentence: string, prepared: Prepared): { issues: Groundin
     const fromPosting = prepared.posting.has(stem(name.toLowerCase()));
     issues.push(
       fromPosting && !claim
-        ? issue('flag', { code: 'NEW_NAME', term: name, message: `mentions "${name}" from the posting, not your résumé` })
+        ? issue('note', { code: 'NEW_NAME', term: name, message: `mentions "${name}" from the posting, not your résumé` })
         : issue('flag', {
             code: 'NEW_TERM',
             term: name,
@@ -574,9 +626,11 @@ function checkSentence(sentence: string, prepared: Prepared): { issues: Groundin
     }
   }
   if (aboutMe) {
-    for (const match of text.matchAll(FRACTION)) {
-      if (!has(evidence.everythingLower, norm(match[0]))) {
-        issues.push(issue('drop', { code: 'NEW_NUMBER', term: match[0], message: `adds "${match[0]}", which isn't in your base résumé` }));
+    const multiples = [...text.matchAll(FRACTION)].map((match) => match[0]);
+    for (const match of text.matchAll(FOLD)) multiples.push((match[1] ?? match[2])!);
+    for (const found of multiples) {
+      if (!has(evidence.everythingLower, norm(found))) {
+        issues.push(issue('drop', { code: 'NEW_NUMBER', term: found, message: `adds "${found}", which isn't in your base résumé` }));
       }
     }
   }
@@ -587,10 +641,11 @@ function checkSentence(sentence: string, prepared: Prepared): { issues: Groundin
     }
   }
   if (claim) {
-    for (const match of text.matchAll(CREDENTIAL)) {
-      const family = match[1]!.toLowerCase().slice(0, 6).replace(/c$/, 's');
-      if (!new RegExp(`(?<![\\p{L}])${family.replace('licens', 'licen[cs]')}`, 'u').test(evidence.everythingLower)) {
-        issues.push(issue('drop', { code: 'NEW_ENTITY', term: match[1], message: `mentions a credential ("${match[1]}") your base résumé doesn't` }));
+    for (const family of CREDENTIALS) {
+      const found = family.claim.exec(text)?.[0];
+      if (found && !family.evidence.test(evidence.everythingLower)) {
+        const term = /exams?$/i.exec(found)?.[0] ?? found;
+        issues.push(issue('drop', { code: 'NEW_ENTITY', term, message: `mentions a credential ("${term}") your base résumé doesn't` }));
         break;
       }
     }
@@ -706,6 +761,16 @@ function bodyParagraphs(raw: string[], name: string): string[] {
   return blocks.map((block) => block.replace(/\s+/g, ' ').trim()).filter(Boolean);
 }
 
+/**
+ * Where a check's sentence is in its paragraph's sentences: at its place, when the sentence there is
+ * still it, else the first sentence equal to it (never a substring: "Fabrikam was my client." is not
+ * in "I could say Fabrikam was my client, honestly."). -1 when the paragraph no longer has it.
+ */
+export function sentenceIndex(sentences: string[], check: Pick<CoverLetterCheck, 'text' | 'sentence'>): number {
+  if (check.sentence !== undefined && sentences[check.sentence] === check.text) return check.sentence;
+  return sentences.indexOf(check.text);
+}
+
 /** The flags the user hasn't kept or removed yet: the PDF waits for them. */
 export function unresolvedFlags(letter: Pick<CoverLetterRecord, 'checks'>): CoverLetterCheck[] {
   return letter.checks.filter((check) => check.severity === 'flag' && check.paragraph !== null && !check.resolution);
@@ -718,13 +783,23 @@ export function unresolvedFlags(letter: Pick<CoverLetterRecord, 'checks'>): Cove
 export function settledParagraphs(letter: Pick<CoverLetterRecord, 'checks' | 'paragraphs'>): string[] {
   const open = unresolvedFlags(letter);
   return letter.paragraphs
-    .map((paragraph, index) =>
-      open
-        .filter((check) => check.paragraph === index)
-        .reduce((text, check) => text.replace(check.text, ' '), paragraph.text)
+    .map((paragraph, index) => {
+      const flags = open.filter((check) => check.paragraph === index);
+      if (flags.length === 0) return paragraph.text.replace(/\s+/g, ' ').trim();
+      const sentences = splitSentences(paragraph.text);
+      const out = new Set<number>();
+      const lost: string[] = [];
+      for (const flag of flags) {
+        const at = sentenceIndex(sentences, flag);
+        if (at >= 0) out.add(at);
+        else lost.push(flag.text);
+      }
+      // A flag whose sentence can't be found is still left out, fail closed.
+      return lost
+        .reduce((text, missing) => text.replace(missing, ' '), sentences.filter((_sentence, i) => !out.has(i)).join(' '))
         .replace(/\s+/g, ' ')
-        .trim(),
-    )
+        .trim();
+    })
     .filter(Boolean);
 }
 
@@ -752,8 +827,9 @@ export function groundLetter(raw: string[], ctx: LetterContext): GroundedLetter 
       if (issues.length > 0 || confirmedTerms.length > 0) {
         found.push({
           text: sentence,
+          sentence: kept.length - 1,
           dropped: false,
-          severity: issues.length > 0 ? 'flag' : 'note',
+          severity: issues.some((found) => found.severity === 'flag') ? 'flag' : 'note',
           issues,
           ...(confirmedTerms.length > 0 ? { confirmedTerms } : {}),
         });

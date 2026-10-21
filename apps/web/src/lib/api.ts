@@ -783,8 +783,15 @@ function fileNameOf(disposition: string | null, fallback: string): string {
 export async function downloadCoverLetter(jobId: string, date: string): Promise<{ unsupported: number }> {
   const res = await fetch(`/api/proxy/api/jobs/${jobId}/cover-letter/download?date=${encodeURIComponent(date)}`);
   if (!res.ok) {
-    const errorData = await res.json().catch(() => ({ error: 'Download failed' }));
-    throw new Error(errorData.error || `Download failed with status ${res.status}`);
+    // Its status and code stay with it: a 409 FLAGS_UNRESOLVED has the page read the letter again.
+    const payload = (await res.json().catch(() => ({}))) as { error?: unknown; code?: unknown };
+    throw new ApiRequestError(
+      typeof payload.error === 'string' && payload.error ? payload.error : `Download failed with status ${res.status}`,
+      res.status,
+      undefined,
+      undefined,
+      typeof payload.code === 'string' ? payload.code : undefined,
+    );
   }
   const unsupported = Number(res.headers.get('x-pdf-unsupported-characters') ?? 0) || 0;
   const blob = await res.blob();

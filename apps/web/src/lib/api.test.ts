@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   ApiRequestError,
   createJob,
+  downloadCoverLetter,
   draftOutreach,
   fetchBaseResumePdf,
   fetchJobs,
@@ -227,5 +228,21 @@ describe('uploadResumeFile network failures', () => {
     vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new DOMException('signal timed out', 'TimeoutError')));
     const file = new File(['%PDF'], 'cv.pdf', { type: 'application/pdf' });
     await expect(uploadResumeFile(file)).rejects.toThrow('The API took too long to answer. Try again in a moment.');
+  });
+});
+
+describe('downloadCoverLetter', () => {
+  it('a refused download keeps its status and code, so the page can tell why (#416)', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue(
+        new Response(JSON.stringify({ code: 'FLAGS_UNRESOLVED', error: 'Keep or remove the highlighted sentence before you download.' }), {
+          status: 409,
+        }),
+      ),
+    );
+    const failure = await downloadCoverLetter('job-1', '2026-10-14').catch((error: unknown) => error);
+    expect(failure).toBeInstanceOf(ApiRequestError);
+    expect(failure).toMatchObject({ status: 409, code: 'FLAGS_UNRESOLVED', message: 'Keep or remove the highlighted sentence before you download.' });
   });
 });
