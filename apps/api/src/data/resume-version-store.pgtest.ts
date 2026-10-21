@@ -38,6 +38,7 @@ test(
       await client.query('begin');
       // Put the table back as it was before 028, inside this transaction only.
       await client.query('alter table resume_versions alter column user_id drop not null');
+      await client.query('alter table resume_versions drop constraint if exists resume_versions_tailored_is_grounded');
       const insert = (id: string, owner: string | null, jobId: string | null, isBase: boolean) =>
         client.query(
           `insert into resume_versions (id, user_id, job_id, change_summary, structured_resume, approved, is_base)
