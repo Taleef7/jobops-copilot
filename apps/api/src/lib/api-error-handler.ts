@@ -11,9 +11,14 @@ import { ResumeTooLargeError } from '@/lib/input-caps';
  * - The AI couldn't answer (#349): 503 with the reason and `retryable: true`. Nothing was
  *   saved: there is no fallback that makes up a result.
  * - A résumé too big to draw (#352): 413.
+ * - A body that isn't JSON, or is JSON null (express.json's parse error): 400.
  * - Anything else: 500.
  */
 export function apiErrorHandler(error: unknown, _request: Request, response: Response, next: NextFunction): void {
+  if ((error as { type?: unknown } | null)?.type === 'entity.parse.failed') {
+    response.status(400).json({ error: 'The request body must be a JSON object.' });
+    return;
+  }
   if (error instanceof AiBudgetExceededError) {
     response.status(429).json({ error: 'Daily AI budget reached' });
     return;

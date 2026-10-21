@@ -384,7 +384,10 @@ export interface ResumeCertificate {
 
 export type ResumeSectionKey = 'summary' | 'work' | 'education' | 'skills' | 'projects' | 'certificates';
 
-/** Section order, titles and visibility, and page size, for the PDF (#352; edited in #415). */
+/**
+ * Section order, titles and visibility, and page size, for the PDF (#352). Edited in Settings
+ * and saved through PATCH /api/profile/base-resume/layout only (#415).
+ */
 export interface ResumeLayout {
   sections?: Array<{ key: ResumeSectionKey; title?: string; hidden?: boolean }>;
   pageSize?: 'letter' | 'a4';
@@ -481,6 +484,11 @@ export interface ResumeVersionBasis {
   gaps?: string[];
   /** Posting keywords (from the fit read) in the base résumé and the draft, and which were counted. */
   coverage?: { total: number; before: number; after: number; terms?: string[] };
+  /**
+   * When the base résumé's layout was copied onto the version for good (#415): on download, or
+   * when its job was marked applied. Until then a draft prints with the base résumé's layout.
+   */
+  layoutFrozenAt?: string;
 }
 
 export interface ResumeVersionRecord {

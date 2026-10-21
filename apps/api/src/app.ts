@@ -2,7 +2,7 @@ import express from 'express';
 import helmet from 'helmet';
 import { attachUserId, clerkAuth } from '@/lib/auth';
 import { safeEqual } from '@/lib/safe-equal';
-import { globalLimiter, strictLimiter } from '@/lib/rate-limit';
+import { globalLimiter, pdfLimiter as defaultPdfLimiter, strictLimiter } from '@/lib/rate-limit';
 import { enforceDailyBudget } from '@/lib/budget';
 import { apiErrorHandler } from '@/lib/api-error-handler';
 import { aiRouter } from '@/routes/ai';
@@ -69,12 +69,15 @@ export interface AppDependencies {
   runLimiter?: express.RequestHandler;
   /** The daily AI budget guard (injectable for tests). */
   runBudget?: express.RequestHandler;
+  /** The base résumé's PDF preview limiter (injectable for tests). */
+  pdfLimiter?: express.RequestHandler;
 }
 
 export function createApp(dependencies: AppDependencies = {}) {
   const app = express();
   const runLimiter = dependencies.runLimiter ?? strictLimiter;
   const runBudget = dependencies.runBudget ?? enforceDailyBudget;
+  const pdfLimiter = dependencies.pdfLimiter ?? defaultPdfLimiter;
 
   app.disable('x-powered-by');
   // One proxy hop in front of the app (Azure App Service) — needed so `req.ip` is
@@ -139,6 +142,8 @@ export function createApp(dependencies: AppDependencies = {}) {
   // Résumé parsing calls the LLM; rendering a PDF is CPU on the event loop plus a blob write.
   app.post('/api/profile/base-resume/parse-resume', runLimiter, runBudget);
   app.post('/api/profile/base-resume/render-pdf', runLimiter);
+  // The PDF preview is CPU on the event loop too, on its own allowance (#415).
+  app.get('/api/profile/base-resume/pdf', pdfLimiter);
   app.use('/api/profile/base-resume', baseResumeRouter);
   // Reading an uploaded PDF is CPU work in a worker thread (#389).
   app.post('/api/profile/resume', runLimiter);

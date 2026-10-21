@@ -1,5 +1,6 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { Router } from 'express';
+import { readBaseResume } from '@/data/base-resume';
 import { getJobById } from '@/data/job-store';
 import { changeBaseResume, getUserProfile } from '@/data/profile-store';
 import {
@@ -12,6 +13,7 @@ import {
 import { AiUnavailableError, normalizeStructuredResume, resolveTailorResume } from '@/lib/agent-client';
 import { renderAtsResumePdf, renderResumePdf } from '@/lib/ats-resume-pdf';
 import { requireUser } from '@/lib/auth';
+import { layoutFrozen, withBaseLayout } from '@/lib/resume-layout';
 import { storeResumePdf } from '@/lib/resume-storage';
 import { addSkills, GROUNDING_VERSION, isGrounded, skillGroup, tailorFromAnswer } from '@/lib/tailor/apply';
 import { isInjectionRefusal } from '@/lib/tailor/answer';
@@ -216,7 +218,8 @@ async function getDraft(userId: string, id: string): Promise<ResumeVersionRecord
  * POST /api/resume-versions/:id/approve
  *
  * Approves a tailored draft the API checked (422 NOT_GROUNDED otherwise): renders the PDF,
- * stores it, and marks the version approved.
+ * stores it, and marks the version approved. A draft prints with the base résumé's layout as
+ * it is now (#415), which is saved on the version: once downloaded, it keeps that layout.
  */
 resumeStudioRouter.post('/resume-versions/:id/approve', async (request, response, next) => {
   try {
@@ -232,13 +235,20 @@ resumeStudioRouter.post('/resume-versions/:id/approve', async (request, response
       return response.status(422).json(NOT_GROUNDED);
     }
 
-    const pdfBuffer = await renderAtsResumePdf(version.structuredResume);
+    // Frozen already when its job was marked applied; otherwise the base résumé's layout now.
+    const resume = layoutFrozen(version) ? version.structuredResume : withBaseLayout(version.structuredResume, await readBaseResume(userId));
+    const pdfBuffer = await renderAtsResumePdf(resume);
     const { fileUrl } = await storeResumePdf(version, pdfBuffer);
     // Approved as rendered: a line saved meanwhile (another tab) would make the PDF differ.
     const updated = await updateResumeVersion(
       userId,
       id!,
-      { approved: true, tailoredResumeFileUrl: fileUrl },
+      {
+        approved: true,
+        tailoredResumeFileUrl: fileUrl,
+        structuredResume: resume,
+        basedOn: { ...version.basedOn!, layoutFrozenAt: version.basedOn?.layoutFrozenAt ?? new Date().toISOString() },
+      },
       { expect: { updatedAt: version.updatedAt } },
     );
     if (!updated) {
