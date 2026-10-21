@@ -11,7 +11,9 @@
 -- from a stored application pack to one. A stored PDF of an approved one stays in blob storage
 -- with nothing pointing to it; the dry run lists them for removal by hand.
 --
--- Dry run on live, read-only: DRY_RUN_PLACEHOLDER
+-- Dry run on live, read-only (2026-10-21): 4 versions, 1 base, 0 checked drafts, 3 to delete
+-- (all 3 template-tailored, 2 of them approved, 2 with a stored PDF) in 1 account; 3
+-- notifications removed and 1 application pack unlinked.
 
 -- The whole table, first: no lock upgrade later (a deadlock with a delete at boot), and no
 -- new row slipping in before the constraint. It's a small table; the lock lasts milliseconds.
