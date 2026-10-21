@@ -1,4 +1,5 @@
-import { Router, type Response } from 'express';
+import { Router, type NextFunction, type Request, type Response } from 'express';
+import { freezeDraftLayouts } from '@/data/base-resume';
 import { DuplicateJobError } from '@/data/duplicate-job';
 import {
   countJobs,
@@ -11,6 +12,7 @@ import {
 import { requireUser } from '@/lib/auth';
 import { parsePageParams } from '@/lib/pagination';
 import { isTooLong, JOB_FIELD_MAX, JOB_NOTE_MAX, STORED_TEXT_MAX, TOO_LONG_MESSAGE } from '@/lib/input-caps';
+import { isUuid } from '@/lib/uuid';
 import type {
   CreateJobBody,
   JobLiveness,
@@ -22,6 +24,19 @@ import type {
 } from '@/types';
 
 export const jobsRouter = Router();
+
+/**
+ * Mounted on `/api/jobs/:id` ahead of every job route (#353): an id that isn't a UUID is a
+ * 404 before any lookup or budget check. It used to reach Postgres, where the routes that
+ * compare a uuid answered 500.
+ */
+export function rejectMalformedJobId(request: Request, response: Response, next: NextFunction) {
+  if (isUuid(request.params.id)) {
+    next();
+    return;
+  }
+  response.status(404).json({ error: 'Job not found' });
+}
 
 const allowedPriorities = new Set<JobPriority>(['high', 'medium', 'low']);
 const allowedSeniorities = new Set<JobSeniority>(['junior', 'mid', 'senior', 'lead', 'unknown']);
@@ -40,6 +55,18 @@ const allowedStatuses = new Set<JobStatus>([
   'offer',
   'archived',
 ]);
+
+/** A field a PATCH leaves out is unchanged; null, or blank, clears it. */
+function cleared(value: string | null | undefined) {
+  return value === undefined ? undefined : value?.trim() || null;
+}
+
+/**
+ * Stages that mean the user applied (#415): a job moved into one from any other freezes the base
+ * résumé's layout on its tailored drafts ("until downloaded or applied"). Outreach and referrals
+ * can come before applying, and archiving says nothing about it.
+ */
+const APPLIED_STAGES = new Set<JobStatus>(['applied', 'follow_up_due', 'interview', 'offer', 'rejected']);
 
 function isValidUrl(value: string) {
   try {
@@ -248,18 +275,26 @@ jobsRouter.patch('/:id', async (request, response, next) => {
   }
 
   try {
+    // Marking a job applied, or a later stage, freezes the base résumé's layout on its drafts (#415).
+    const before = body.status && APPLIED_STAGES.has(body.status) ? await getJobById(userId, request.params.id) : null;
     const job = await updateJob(userId, request.params.id, {
       status: body.status,
       priority: body.priority,
-      notes: body.notes?.trim(),
+      notes: cleared(body.notes),
       fitScore: typeof body.fitScore === 'undefined' ? undefined : body.fitScore,
-      nextAction: body.nextAction?.trim(),
-      nextActionDue: body.nextActionDue?.trim(),
+      nextAction: cleared(body.nextAction),
+      nextActionDue: cleared(body.nextActionDue),
     });
 
     if (!job) {
       response.status(404).json({ error: 'Job not found' });
       return;
+    }
+    if (before && !APPLIED_STAGES.has(before.status) && APPLIED_STAGES.has(job.status)) {
+      // The status is saved either way: a draft left unfrozen still prints, with the current layout.
+      await freezeDraftLayouts(userId, job.id).catch((error: unknown) =>
+        console.error("[jobs] freezing the layout of the job's drafts failed", error),
+      );
     }
 
     response.json({ job });

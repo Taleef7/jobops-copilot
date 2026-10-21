@@ -21,6 +21,8 @@ Return valid JSON only.
 {
   "company": "string or null",
   "title": "string or null",
+  "location": "string or null",
+  "workplace_type": "remote | hybrid | onsite | null",
   "required_skills": ["string"],
   "preferred_skills": ["string"],
   "responsibilities": ["string"],
@@ -35,6 +37,7 @@ Return valid JSON only.
 
 - Return valid JSON only.
 - Use `null` when a field is unknown.
+- `location` and `workplace_type` come only from what the posting says; never default to remote.
 - Do not infer aggressively.
 - Separate cloud tools, automation tools, programming languages, and soft skills where possible.
 - Keep the output grounded in the source text.

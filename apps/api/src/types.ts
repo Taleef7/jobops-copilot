@@ -40,23 +40,40 @@ export type MessageType =
 
 export type OutreachStatus = 'drafted' | 'approved' | 'sent' | 'skipped';
 
+/** Each 0–100, or null when unknown (#354): never a default. */
 export interface JobAnalysisSubSignals {
-  skillsMatch?: number;
-  titleSeniority?: number;
-  salaryFit?: number;
-  sponsorshipLikelihood?: number;
+  skillsMatch?: number | null;
+  titleSeniority?: number | null;
+  salaryFit?: number | null;
+  sponsorshipLikelihood?: number | null;
+}
+
+/** A skill the résumé shows: a label of at most four words, and where it shows it (#354). */
+export interface MatchedSkill {
+  skill: string;
+  evidence: string;
+}
+
+/** A skill the posting asks for that the résumé doesn't show, with the posting's words (#354). */
+export interface MissingSkill {
+  skill: string;
+  postingQuote: string;
 }
 
 export interface JobAnalysis {
   requiredSkills: string[];
   preferredSkills: string[];
+  /** Short labels, as strings: every web version reads these (#354). */
   matchedSkills: string[];
   missingSkills: string[];
+  /** The same skills with their evidence, in the same order; absent on rows from before #354. */
+  matchedSkillDetails?: MatchedSkill[];
+  missingSkillDetails?: MissingSkill[];
   atsKeywords: string[];
   fitSummary: string;
   recommendedResumeAngle: string;
   applyRecommendation: string;
-  /** Null for the discovery pre-rank, which is a keyword estimate, not a model reading. */
+  /** 0–100. Null when there is none, e.g. the discovery pre-rank, a keyword estimate. */
   confidenceScore: number | null;
   modelUsed: string;
   subSignals?: JobAnalysisSubSignals;
@@ -120,9 +137,12 @@ export interface JobRecord {
   source: string;
   company: string;
   title: string;
+  /** Empty when the posting doesn't say (#355). */
   location: string;
+  /** Empty when the posting doesn't say (#355). */
   employmentType: string;
-  workplaceType: JobWorkplaceType;
+  /** Null when the posting doesn't say (#355). */
+  workplaceType: JobWorkplaceType | null;
   datePosted?: string;
   discoveredAt: string;
   descriptionText: string;
@@ -196,10 +216,11 @@ export interface CreateJobBody {
 export interface UpdateJobBody {
   status?: JobStatus;
   priority?: JobPriority;
-  notes?: string;
+  /** null clears it, as for nextAction and nextActionDue; left out, it's unchanged. */
+  notes?: string | null;
   fitScore?: number | null;
-  nextAction?: string;
-  nextActionDue?: string;
+  nextAction?: string | null;
+  nextActionDue?: string | null;
 }
 
 export interface ParseJobBody {
@@ -364,6 +385,17 @@ export interface ResumeCertificate {
   url?: string;
 }
 
+export type ResumeSectionKey = 'summary' | 'work' | 'education' | 'skills' | 'projects' | 'certificates';
+
+/**
+ * Section order, titles and visibility, and page size, for the PDF (#352). Edited in Settings
+ * and saved through PATCH /api/profile/base-resume/layout only (#415).
+ */
+export interface ResumeLayout {
+  sections?: Array<{ key: ResumeSectionKey; title?: string; hidden?: boolean }>;
+  pageSize?: 'letter' | 'a4';
+}
+
 export interface StructuredResume {
   basics: ResumeBasics;
   work: ResumeWorkExperience[];
@@ -371,6 +403,7 @@ export interface StructuredResume {
   skills: ResumeSkill[];
   projects?: ResumeProject[];
   certificates?: ResumeCertificate[];
+  layout?: ResumeLayout;
 }
 
 /**
@@ -454,6 +487,11 @@ export interface ResumeVersionBasis {
   gaps?: string[];
   /** Posting keywords (from the fit read) in the base résumé and the draft, and which were counted. */
   coverage?: { total: number; before: number; after: number; terms?: string[] };
+  /**
+   * When the base résumé's layout was copied onto the version for good (#415): on download, or
+   * when its job was marked applied. Until then a draft prints with the base résumé's layout.
+   */
+  layoutFrozenAt?: string;
 }
 
 export interface ResumeVersionRecord {

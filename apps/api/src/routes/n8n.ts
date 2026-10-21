@@ -10,7 +10,7 @@ import {
 import { saveWeeklyReport } from '@/data/report-store';
 import { N8N_USER_ID } from '@/lib/auth';
 import { analysisFromFit } from '@/lib/analysis-core';
-import { AiUnavailableError, resolveFitScore, resolveParsedJob } from '@/lib/agent-client';
+import { AiRefusedInputError, AiUnavailableError, resolveFitScore, resolveParsedJob } from '@/lib/agent-client';
 import { BUDGET_SPENT, runWithAiBudget } from '@/lib/budget';
 import { exportWeeklyReportMarkdown } from '@/lib/report-export';
 import { getRequestBaseUrl } from '@/lib/request-url';
@@ -236,6 +236,15 @@ export function createN8nRouter(dependencies: N8nDependencies = defaultDependenc
       try {
         parsed = await runWithAiBudget(userId, 'parse', () => resolveParsedJob(createdJob.descriptionText));
       } catch (error) {
+        // The job is already created: answering an error here would make n8n retry and add
+        // it again (#355). A refused posting is skipped like an AI that can't answer.
+        if (error instanceof AiRefusedInputError) {
+          skippedIntake(
+            'AI enrichment skipped: the posting has text that reads like instructions to the AI.',
+            'Job created. The AI did not read it, because it has text that reads like instructions to the AI.',
+          );
+          return;
+        }
         if (!(error instanceof AiUnavailableError)) throw error;
         skippedIntake(
           `AI enrichment skipped: ${error.message}`,

@@ -15,19 +15,37 @@ export const dynamic = 'force-dynamic';
 
 export const metadata: Metadata = { title: 'Jobs' };
 
+type Param = string | string[] | undefined;
+
+function count(value: Param): number | null {
+  const text = Array.isArray(value) ? value[0] : value;
+  return text && /^\d+$/.test(text) ? Number(text) : null;
+}
+
+/** What onboarding's discovery added, from ?added=&skipped= (#353); null without a count. */
+function discoveryNote(added: Param, skipped: Param): string | null {
+  const addedCount = count(added);
+  if (addedCount === null) return null;
+  const skippedCount = count(skipped) ?? 0;
+  const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? '' : 's'}`;
+  return `Added ${plural(addedCount, 'job')}${skippedCount > 0 ? `, skipped ${plural(skippedCount, 'duplicate')}` : ''}.`;
+}
+
 export default async function JobsPage({
   searchParams,
 }: {
-  searchParams: Promise<{ q?: string | string[]; tab?: string | string[] }>;
+  searchParams: Promise<{ q?: Param; tab?: Param; added?: Param; skipped?: Param }>;
 }) {
-  const [{ jobs, error }, { feed, error: feedError }, { q, tab }] = await Promise.all([
+  const [{ jobs, error }, { feed, error: feedError }, { q, tab, added, skipped }] = await Promise.all([
     loadJobs(),
     loadRankedFeed({ limit: 50 }),
     searchParams,
   ]);
 
   const initialQuery = Array.isArray(q) ? (q[0] ?? '') : (q ?? '');
-  const activeTab = (Array.isArray(tab) ? tab[0] : tab) || 'feed';
+  // A search (the header box lands here with ?q=) opens the pipeline, the tab it filters (#353).
+  const activeTab = (Array.isArray(tab) ? tab[0] : tab) || (initialQuery.trim() ? 'pipeline' : 'feed');
+  const note = discoveryNote(added, skipped);
   if (error) return <LoadFailure heading="Jobs" title="Couldn't load your jobs" message={error} />;
 
   return (
@@ -44,6 +62,11 @@ export default async function JobsPage({
         </Button>
       </div>
 
+      {note ? (
+        <p role="status" className="bg-muted rounded-lg px-4 py-3 text-sm">
+          {note}
+        </p>
+      ) : null}
 
       <Tabs defaultValue={activeTab} className="w-full space-y-6">
         <TabsList className="grid w-full grid-cols-3 max-w-md">
@@ -81,7 +104,7 @@ export default async function JobsPage({
         <TabsContent value="searches" className="space-y-4">
           <SectionCard
             title="Find new jobs"
-            description="Save target searches, then pull real postings into your pipeline — already scored against your resume."
+            description="Save target searches, then pull real postings into your pipeline. Open one to get a fit read."
           >
             <SavedSearchesManager />
           </SectionCard>

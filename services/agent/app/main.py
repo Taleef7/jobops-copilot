@@ -23,7 +23,7 @@ from pydantic import BaseModel, Field
 from app.agents.runner import run_interview_prep, run_research, run_skill_gap
 from app.auth import assert_auth_configured, is_authorized
 from app.chains.draft_outreach import draft_outreach
-from app.chains.parse_job import parse_job
+from app.chains.parse_job import PostingRefused, parse_job
 from app.chains.parse_resume import parse_resume_text
 from app.chains.score_fit import score_fit
 from app.chains.tailor_resume import tailor_resume
@@ -209,6 +209,12 @@ def _run(fn, *args):
         return fn(*args)
     except LLMNotConfigured as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
+    except PostingRefused as exc:
+        # The API shows this to the user as its own error, not as a posting that says
+        # nothing (#355).
+        raise HTTPException(
+            status_code=422, detail={"code": "input_refused", "message": str(exc)}
+        ) from exc
     except Exception as exc:  # noqa: BLE001 - surface upstream model/network failures
         logger.exception("agent chain failed")
         raise HTTPException(status_code=502, detail=f"Agent chain failed: {exc}") from exc

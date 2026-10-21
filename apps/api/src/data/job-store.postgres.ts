@@ -12,9 +12,10 @@ import type {
   UpdateJobBody,
   UpdateOutreachBody,
 } from '@/types';
-import { validateJobAnalysis } from '@/lib/analysis-core';
+import { normalizeAnalysis, validateJobAnalysis } from '@/lib/analysis-core';
 import { deriveAnalyzedNextAction, UNSCORED_NEXT_ACTION } from '@/lib/analysis-workflow';
 import { getPool } from '@/lib/postgres';
+import { isUuid } from '@/lib/uuid';
 import type { PageParams } from '@/lib/pagination';
 import { deriveOutreachJobUpdate } from '@/lib/outreach-workflow';
 import { seedJobs } from '@/data/mock-store';
@@ -59,6 +60,8 @@ type JobAnalysisRow = {
   preferred_skills: unknown;
   matched_skills: unknown;
   missing_skills: unknown;
+  matched_skill_details?: unknown;
+  missing_skill_details?: unknown;
   ats_keywords: unknown;
   fit_summary: string;
   recommended_resume_angle: string;
@@ -118,7 +121,7 @@ function toTextArray(value: unknown): string[] {
 }
 
 /** The job's analysis, or null when it has none yet (#349: no made-up default). */
-function mapAnalysis(row: JobAnalysisRow | undefined): JobAnalysis | null {
+function mapAnalysis(row: JobAnalysisRow | undefined, fitScore: number | null): JobAnalysis | null {
   if (!row) {
     return null;
   }
@@ -128,19 +131,27 @@ function mapAnalysis(row: JobAnalysisRow | undefined): JobAnalysis | null {
       ? (row.sub_signals as JobAnalysis['subSignals'])
       : undefined;
 
-  const analysis = {
-    requiredSkills: toTextArray(row.required_skills),
-    preferredSkills: toTextArray(row.preferred_skills),
-    matchedSkills: toTextArray(row.matched_skills),
-    missingSkills: toTextArray(row.missing_skills),
-    atsKeywords: toTextArray(row.ats_keywords),
-    fitSummary: row.fit_summary,
-    recommendedResumeAngle: row.recommended_resume_angle,
-    applyRecommendation: row.apply_recommendation,
-    confidenceScore: row.confidence_score ?? null,
-    modelUsed: row.model_used,
-    subSignals,
-  } satisfies JobAnalysis;
+  // Rows saved before #354 hold skills as "label: why" strings, no details, and default
+  // sub-signals.
+  const analysis = normalizeAnalysis(
+    {
+      requiredSkills: toTextArray(row.required_skills),
+      preferredSkills: toTextArray(row.preferred_skills),
+      // As saved: strings, or the agent's objects when an API from before #354 saved them.
+      matchedSkills: row.matched_skills,
+      missingSkills: row.missing_skills,
+      matchedSkillDetails: row.matched_skill_details,
+      missingSkillDetails: row.missing_skill_details,
+      atsKeywords: toTextArray(row.ats_keywords),
+      fitSummary: row.fit_summary,
+      recommendedResumeAngle: row.recommended_resume_angle,
+      applyRecommendation: row.apply_recommendation,
+      confidenceScore: row.confidence_score ?? null,
+      modelUsed: row.model_used,
+      subSignals,
+    },
+    fitScore,
+  );
 
   return validateJobAnalysis(analysis) ? analysis : null;
 }
@@ -183,9 +194,10 @@ function mapJob(row: JobRow, analysisRow?: JobAnalysisRow, outreachRows: Outreac
     source: row.source,
     company: row.company,
     title: row.title,
-    location: row.location ?? 'Remote',
-    employmentType: row.employment_type ?? 'Full-time',
-    workplaceType: (row.workplace_type ?? 'remote') as JobRecord['workplaceType'],
+    // NULL is what the posting didn't state; it reads as unstated, not "Remote" (#355).
+    location: row.location ?? '',
+    employmentType: row.employment_type ?? '',
+    workplaceType: (row.workplace_type ?? null) as JobRecord['workplaceType'],
     datePosted: toIsoString(row.date_posted),
     discoveredAt: toIsoString(row.discovered_at) ?? row.discovered_at,
     descriptionText: row.description_text,
@@ -193,9 +205,10 @@ function mapJob(row: JobRow, analysisRow?: JobAnalysisRow, outreachRows: Outreac
     priority: row.priority as JobRecord['priority'],
     fitScore: row.fit_score,
     notes: row.notes ?? undefined,
-    nextAction: row.next_action ?? 'Review the job and decide on the next step.',
+    // Cleared reads back empty: a default here would be saved by the next edit as the user's own.
+    nextAction: row.next_action ?? '',
     nextActionDue: toIsoString(row.next_action_due),
-    analysis: mapAnalysis(analysisRow),
+    analysis: mapAnalysis(analysisRow, row.fit_score),
     outreach: outreachRows.map(mapOutreach),
     salaryMin: row.salary_min ?? null,
     salaryMax: row.salary_max ?? null,
@@ -302,9 +315,12 @@ export async function backfillCanonicalUrls(batchSize = 500): Promise<number> {
 
 export async function getJobById(userId: string, jobId: string): Promise<JobRecord | undefined> {
   const pool = poolOrThrow();
+  // `id = $1::uuid` uses the indexes; `id::text = $1` scanned job_analysis and outreach whole
+  // on every read. A non-UUID would be a cast error, and names no job (#353).
+  if (!isUuid(jobId)) return undefined;
 
   const { rows } = await pool.query<JobRow>(
-    'select * from jobs where id::text = $1 and user_id = $2 limit 1',
+    'select * from jobs where id = $1::uuid and user_id = $2 limit 1',
     [jobId, userId],
   );
   const job = rows[0] as JobRow | undefined;
@@ -314,10 +330,10 @@ export async function getJobById(userId: string, jobId: string): Promise<JobReco
   }
 
   const [analysisResult, outreachResult] = await Promise.all([
-    pool.query<JobAnalysisRow>('select * from job_analysis where job_id::text = $1 order by created_at desc limit 1', [
+    pool.query<JobAnalysisRow>('select * from job_analysis where job_id = $1::uuid order by created_at desc limit 1', [
       jobId,
     ]),
-    pool.query<OutreachRow>('select * from outreach where job_id::text = $1 order by created_at asc', [jobId]),
+    pool.query<OutreachRow>('select * from outreach where job_id = $1::uuid order by created_at asc', [jobId]),
   ]);
 
   return mapJob(job, analysisResult.rows[0] as JobAnalysisRow | undefined, outreachResult.rows as OutreachRow[]);
@@ -414,9 +430,9 @@ export async function createJob(userId: string, body: CreateJobBody): Promise<Jo
         body.source ?? 'manual',
         body.company.trim(),
         body.title.trim(),
-        body.location?.trim() ?? 'Remote',
-        body.employmentType?.trim() ?? 'Full-time',
-        body.workplaceType ?? 'remote',
+        body.location?.trim() || null,
+        body.employmentType?.trim() || null,
+        body.workplaceType ?? null,
         body.datePosted ?? null,
         timestamp,
         body.descriptionText.trim(),
@@ -465,6 +481,7 @@ export async function updateJob(
   body: UpdateJobBody,
 ): Promise<JobRecord | undefined> {
   const pool = poolOrThrow();
+  if (!isUuid(jobId)) return undefined;
   const client = await pool.connect();
 
   try {
@@ -476,11 +493,11 @@ export async function updateJob(
         set
           status = coalesce($2, status),
           priority = coalesce($3, priority),
-          notes = case when $4::text is null then notes else nullif($4::text, '') end,
+          notes = case when $9::boolean then nullif($4::text, '') else notes end,
           fit_score = coalesce($5, fit_score),
-          next_action = case when $6::text is null then next_action else nullif($6::text, '') end,
-          next_action_due = case when $7::timestamptz is null then next_action_due else $7::timestamptz end
-        where id::text = $1 and user_id = $8
+          next_action = case when $10::boolean then nullif($6::text, '') else next_action end,
+          next_action_due = case when $11::boolean then $7::timestamptz else next_action_due end
+        where id = $1::uuid and user_id = $8
         returning *
       `,
       [
@@ -492,6 +509,10 @@ export async function updateJob(
         body.nextAction ?? null,
         body.nextActionDue ?? null,
         userId,
+        // Set when given, null included (it clears); left out, unchanged.
+        body.notes !== undefined,
+        body.nextAction !== undefined,
+        body.nextActionDue !== undefined,
       ],
     );
 
@@ -516,12 +537,13 @@ export async function appendOutreachDraft(
   draft: OutreachDraft,
 ): Promise<OutreachDraft | undefined> {
   const pool = poolOrThrow();
+  if (!isUuid(jobId)) return undefined;
   const client = await pool.connect();
 
   try {
     await client.query('begin');
 
-    const ownership = await client.query('select 1 from jobs where id::text = $1 and user_id = $2 limit 1', [
+    const ownership = await client.query('select 1 from jobs where id = $1::uuid and user_id = $2 limit 1', [
       jobId,
       userId,
     ]);
@@ -532,7 +554,7 @@ export async function appendOutreachDraft(
 
     // Replace only the superseded unsent draft; preserve approved/sent/skipped
     // rows, which carry real outreach history and dashboard/reporting state.
-    await client.query("delete from outreach where job_id::text = $1 and status = 'drafted'", [jobId]);
+    await client.query("delete from outreach where job_id = $1::uuid and status = 'drafted'", [jobId]);
 
     const { rows } = await client.query<OutreachRow>(
       `
@@ -572,12 +594,12 @@ export async function appendOutreachDraft(
       ],
     );
 
-    const jobResult = await client.query<JobStateRow>('select status, next_action from jobs where id::text = $1 limit 1', [
+    const jobResult = await client.query<JobStateRow>('select status, next_action from jobs where id = $1::uuid limit 1', [
       jobId,
     ]);
     const jobRow = jobResult.rows[0];
     const outreachResult = await client.query<OutreachRow>(
-      'select * from outreach where job_id::text = $1 order by created_at asc',
+      'select * from outreach where job_id = $1::uuid order by created_at asc',
       [jobId],
     );
     const jobUpdate = jobRow
@@ -595,7 +617,7 @@ export async function appendOutreachDraft(
             status = $2,
             next_action = $3,
             updated_at = now()
-          where id::text = $1
+          where id = $1::uuid
         `,
         [
           jobId,
@@ -658,12 +680,12 @@ export async function updateOutreachDraft(
       return undefined;
     }
 
-    const jobResult = await client.query<JobStateRow>('select status, next_action from jobs where id::text = $1 limit 1', [
+    const jobResult = await client.query<JobStateRow>('select status, next_action from jobs where id = $1::uuid limit 1', [
       outreach.job_id,
     ]);
     const jobRow = jobResult.rows[0];
     const outreachRows = await client.query<OutreachRow>(
-      'select * from outreach where job_id::text = $1 order by created_at asc',
+      'select * from outreach where job_id = $1::uuid order by created_at asc',
       [outreach.job_id],
     );
     const jobUpdate = jobRow
@@ -681,7 +703,7 @@ export async function updateOutreachDraft(
             status = $2,
             next_action = $3,
             updated_at = now()
-          where id::text = $1
+          where id = $1::uuid
         `,
         [
           outreach.job_id,
@@ -742,6 +764,9 @@ export async function saveJobAnalysis(
   }
 
   const timestamp = new Date().toISOString();
+  // Confidence on 0–100 (a 0.65 becomes 65; the column takes integers 0–100). Skills keep short
+  // labels as strings, which every API version reads, with their details alongside (#354).
+  const stored = normalizeAnalysis(analysis, fitScore === undefined ? job.fitScore : fitScore);
 
   await pool.query(
     `
@@ -759,9 +784,12 @@ export async function saveJobAnalysis(
         confidence_score,
         model_used,
         sub_signals,
-        created_at
+        created_at,
+        matched_skill_details,
+        missing_skill_details
       ) values (
-        $1, $2, $3::jsonb, $4::jsonb, $5::jsonb, $6::jsonb, $7::jsonb, $8, $9, $10, $11, $12, $13::jsonb, $14
+        $1, $2, $3::jsonb, $4::jsonb, $5::jsonb, $6::jsonb, $7::jsonb, $8, $9, $10, $11, $12, $13::jsonb, $14,
+        $15::jsonb, $16::jsonb
       )
       on conflict (job_id) do update set
         required_skills = excluded.required_skills,
@@ -775,23 +803,27 @@ export async function saveJobAnalysis(
         confidence_score = excluded.confidence_score,
         model_used = excluded.model_used,
         sub_signals = excluded.sub_signals,
-        created_at = excluded.created_at
+        created_at = excluded.created_at,
+        matched_skill_details = excluded.matched_skill_details,
+        missing_skill_details = excluded.missing_skill_details
     `,
     [
       randomUUID(),
       jobId,
-      JSON.stringify(analysis.requiredSkills),
-      JSON.stringify(analysis.preferredSkills),
-      JSON.stringify(analysis.matchedSkills),
-      JSON.stringify(analysis.missingSkills),
-      JSON.stringify(analysis.atsKeywords),
-      analysis.fitSummary,
-      analysis.recommendedResumeAngle,
-      analysis.applyRecommendation,
-      analysis.confidenceScore,
-      analysis.modelUsed,
-      JSON.stringify(analysis.subSignals ?? {}),
+      JSON.stringify(stored.requiredSkills),
+      JSON.stringify(stored.preferredSkills),
+      JSON.stringify(stored.matchedSkills),
+      JSON.stringify(stored.missingSkills),
+      JSON.stringify(stored.atsKeywords),
+      stored.fitSummary,
+      stored.recommendedResumeAngle,
+      stored.applyRecommendation,
+      stored.confidenceScore,
+      stored.modelUsed,
+      JSON.stringify(stored.subSignals ?? {}),
       timestamp,
+      JSON.stringify(stored.matchedSkillDetails ?? []),
+      JSON.stringify(stored.missingSkillDetails ?? []),
     ],
   );
 
@@ -815,7 +847,7 @@ export async function saveJobAnalysis(
             else next_action
           end,
           updated_at = now()
-        where id::text = $1
+        where id = $1::uuid
       `,
       [jobId, fitScore, nextAction, UNSCORED_NEXT_ACTION],
     );
@@ -829,7 +861,7 @@ export async function saveJobAnalysis(
             else next_action
           end,
           updated_at = now()
-        where id::text = $1
+        where id = $1::uuid
       `,
       [jobId, nextAction, UNSCORED_NEXT_ACTION],
     );

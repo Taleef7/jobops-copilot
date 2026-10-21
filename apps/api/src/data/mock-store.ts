@@ -33,7 +33,7 @@ function defaultAnalysis(descriptionText: string): JobAnalysis {
     fitSummary: 'Initial placeholder analysis waiting for AI processing.',
     recommendedResumeAngle: 'Emphasize truthful, relevant experience from the current resume.',
     applyRecommendation: 'Review manually before deciding whether to apply.',
-    confidenceScore: 48,
+    confidenceScore: null,
     modelUsed: 'mock-analysis-v1',
   };
 }
@@ -67,7 +67,8 @@ function extractKeywords(text: string): string[] {
 
 function createBaseJob(body: CreateJobBody): JobRecord {
   const timestamp = now();
-  const workplaceType = body.workplaceType ?? 'remote';
+  // What the posting doesn't state stays unstated, not "Remote" (#355).
+  const workplaceType = body.workplaceType ?? null;
   const parsedSalary =
     body.salaryMin == null && body.salaryMax == null
       ? parseSalaryFromText(body.descriptionText)
@@ -93,8 +94,8 @@ function createBaseJob(body: CreateJobBody): JobRecord {
     source: body.source ?? 'manual',
     company: body.company.trim(),
     title: body.title.trim(),
-    location: body.location?.trim() ?? 'Remote',
-    employmentType: body.employmentType?.trim() ?? 'Full-time',
+    location: body.location?.trim() ?? '',
+    employmentType: body.employmentType?.trim() ?? '',
     workplaceType,
     datePosted: body.datePosted,
     discoveredAt: timestamp,
@@ -396,16 +397,16 @@ export function updateJob(jobId: string, body: UpdateJobBody) {
     job.priority = body.priority;
   }
   if (typeof body.notes !== 'undefined') {
-    job.notes = body.notes;
+    job.notes = body.notes ?? undefined;
   }
   if (typeof body.fitScore !== 'undefined') {
     job.fitScore = body.fitScore;
   }
   if (typeof body.nextAction !== 'undefined') {
-    job.nextAction = body.nextAction;
+    job.nextAction = body.nextAction ?? undefined;
   }
   if (typeof body.nextActionDue !== 'undefined') {
-    job.nextActionDue = body.nextActionDue;
+    job.nextActionDue = body.nextActionDue ?? undefined;
   }
 
   job.updatedAt = now();

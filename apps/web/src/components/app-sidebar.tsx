@@ -41,9 +41,8 @@ export function AppSidebar() {
           <span className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-primary text-primary-foreground shadow-sm">
             <Sparkles className="size-4" />
           </span>
-          <span className="grid leading-tight group-data-[collapsible=icon]:hidden">
-            <span className="font-heading text-sm font-bold">JobOps Copilot</span>
-            <span className="text-muted-foreground text-xs">AI Operations</span>
+          <span className="font-heading text-sm font-bold group-data-[collapsible=icon]:hidden">
+            JobOps Copilot
           </span>
         </Link>
       </SidebarHeader>

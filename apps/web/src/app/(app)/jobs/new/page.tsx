@@ -16,12 +16,10 @@ export default function AddJobPage() {
 
       <div>
         <h1 className="font-heading text-2xl font-bold tracking-tight">Add a job</h1>
-        <p className="text-muted-foreground text-sm">
-          Paste a posting — AI extracts the company, title, and skills, then scores your fit.
-        </p>
+        <p className="text-muted-foreground text-sm">Paste a job link or the posting. Check the details, then save.</p>
       </div>
 
-      <SectionCard title="Job details" description="Saved to the CRM, then analyzed on the detail page.">
+      <SectionCard title="Job details">
         <JobCreateForm />
       </SectionCard>
     </div>

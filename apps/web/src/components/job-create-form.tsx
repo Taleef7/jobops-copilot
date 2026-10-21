@@ -1,344 +1,692 @@
 'use client';
 
-import { Download, Loader2, Sparkles } from 'lucide-react';
+import { Loader2 } from 'lucide-react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import type { FormEvent } from 'react';
-import { useRef, useState } from 'react';
+import type { FormEvent, ReactNode } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { toast } from 'sonner';
+import { ErrorState } from '@/components/error-state';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { OptionSelect } from '@/components/ui/option-select';
 import { Textarea } from '@/components/ui/textarea';
-import { ApiRequestError, createJob, extractJobFromUrl } from '@/lib/api';
-import type { Job } from '@/types/job';
+import { ApiRequestError, createJob, extractJobFromUrl, parseJob, type PostedSalary } from '@/lib/api';
+import { salaryAsSaved } from '@/lib/job-display';
+import type { WorkplaceType } from '@/types/job';
 
-const capitalise = (value: string) => value.charAt(0).toUpperCase() + value.slice(1);
+/**
+ * Add job (#355): one box for a job link or the posting's text. The server reads the fields
+ * (a link through the URL extractor, text through parse-job), the user checks them, and
+ * nothing is saved until a save button is pressed. What the posting doesn't state is shown
+ * as "Not stated" and saved as nothing, never as a default.
+ */
 
-const workplaceTypeOptions = (
-  ['remote', 'hybrid', 'onsite', 'flexible'] as const satisfies readonly Job['workplaceType'][]
-).map((value) => ({ value, label: capitalise(value) }));
+type Workplace = WorkplaceType;
 
-const priorityOptions = (
-  ['high', 'medium', 'low'] as const satisfies readonly Job['priority'][]
-).map((value) => ({ value, label: capitalise(value) }));
+const WORKPLACE_CHOICES: Array<{ value: Workplace | null; label: string }> = [
+  { value: 'remote', label: 'Remote' },
+  { value: 'hybrid', label: 'Hybrid' },
+  { value: 'onsite', label: 'On-site' },
+  { value: 'flexible', label: 'Flexible' },
+  { value: null, label: 'Not stated' },
+];
 
-function isHttpUrl(value: string): boolean {
+function asWorkplace(value: string | null | undefined): Workplace | null {
+  return value === 'remote' || value === 'hybrid' || value === 'onsite' || value === 'flexible' ? value : null;
+}
+
+/** A single line that is a web address is a link to read; anything else is posting text. */
+function postingLink(text: string): string | null {
+  const value = text.trim();
+  if (!/^https?:\/\/\S+$/i.test(value)) return null;
   try {
-    const url = new URL(value.trim());
+    void new URL(value);
+    return value;
+  } catch {
+    return null;
+  }
+}
+
+function isWebAddress(value: string): boolean {
+  try {
+    const url = new URL(value);
     return url.protocol === 'http:' || url.protocol === 'https:';
   } catch {
     return false;
   }
 }
 
-type FormState = {
-  company: string;
+type Details = {
   title: string;
-  jobUrl: string;
-  source: string;
+  company: string;
   location: string;
-  employmentType: string;
-  workplaceType: Job['workplaceType'];
-  priority: Job['priority'];
-  notes: string;
+  /** null is "Not stated"; undefined is unknown, with no choice made for the user. */
+  workplaceType: Workplace | null | undefined;
+  jobUrl: string;
   descriptionText: string;
 };
 
-const initialState: FormState = {
-  company: '',
+const EMPTY_DETAILS: Details = {
   title: '',
+  company: '',
+  location: '',
+  workplaceType: null,
   jobUrl: '',
-  source: 'manual',
-  location: 'Remote',
-  employmentType: 'Full-time',
-  workplaceType: 'remote',
-  priority: 'medium',
-  notes: '',
   descriptionText: '',
 };
 
+/**
+ * What the reading said, to mark the fields it filled. Null when the user enters the job by
+ * hand. A field left out (undefined) is unknown, which an older agent or API leaves out;
+ * an empty or null one is "not stated" (#355).
+ */
+type Posted = {
+  title?: string;
+  company?: string;
+  location?: string;
+  workplaceType?: Workplace | null;
+  salary?: PostedSalary | null;
+  /** The description the salary was read from. */
+  description: string;
+};
+
+/** The review's starting values: what was read, and blank for the unknown. */
+function detailsFrom(from: Posted, jobUrl: string, descriptionText: string): Details {
+  return {
+    title: from.title ?? '',
+    company: from.company ?? '',
+    location: from.location ?? '',
+    workplaceType: from.workplaceType,
+    jobUrl,
+    descriptionText,
+  };
+}
+
+const SHOWN_FIELDS = ['title', 'company', 'jobUrl', 'descriptionText'] as const;
+
+const NOTHING_TO_READ = 'Couldn’t find a job on that page. Paste the posting’s text instead, or enter the details yourself.';
+const READ_FAILED = 'Something went wrong. Try again, or enter the details yourself.';
+
+/**
+ * "from posting" while a field still holds what the posting said; "Not stated" while it's
+ * empty and the reading said it wasn't stated. An unknown field gets no hint.
+ */
+function hintFor(value: string, posted: string | undefined, known: boolean): string | null {
+  if (!value.trim()) return known ? 'Not stated' : null;
+  if (posted?.trim() && value === posted) return 'from posting';
+  return null;
+}
+
+function FieldLabel({
+  htmlFor,
+  required,
+  hint,
+  hintId,
+  children,
+}: {
+  htmlFor: string;
+  required?: boolean;
+  hint: string | null;
+  hintId: string;
+  children: ReactNode;
+}) {
+  return (
+    <div className="flex items-baseline justify-between gap-2">
+      <Label htmlFor={htmlFor} className="gap-0.5">
+        {children}
+        {required ? (
+          <span className="text-destructive" aria-hidden="true">
+            *
+          </span>
+        ) : null}
+      </Label>
+      {hint ? (
+        <span id={hintId} className="text-muted-foreground text-xs">
+          {hint}
+        </span>
+      ) : null}
+    </div>
+  );
+}
+
+const describedBy = (...ids: Array<string | false | null | undefined>) => ids.filter(Boolean).join(' ') || undefined;
+
 export function JobCreateForm() {
   const router = useRouter();
-  const [form, setForm] = useState<FormState>(initialState);
+  const [step, setStep] = useState<'paste' | 'review'>('paste');
+
+  // Step 1: the paste box.
+  const [pasteText, setPasteText] = useState('');
+  const [pasteError, setPasteError] = useState<string | null>(null);
+  const [readError, setReadError] = useState<string | null>(null);
+  const [isReading, setIsReading] = useState(false);
+  const reading = useRef(false);
+  // Each reading's number. Entering the details by hand or starting over moves it on, so an
+  // answer that comes back after that is dropped instead of replacing what the user did.
+  const readSeq = useRef(0);
+
+  // Step 2: the review.
+  const [details, setDetails] = useState<Details>(EMPTY_DETAILS);
+  const [posted, setPosted] = useState<Posted | null>(null);
+  const [descriptionOpen, setDescriptionOpen] = useState(false);
   const [errors, setErrors] = useState<Record<string, string>>({});
+  const [saveError, setSaveError] = useState<string | null>(null);
   // The job this URL is already tracked as (a 409 from the API, #346).
   const [existingJobId, setExistingJobId] = useState<string | null>(null);
-  const [isSubmitting, setIsSubmitting] = useState(false);
-  const [isExtracting, setIsExtracting] = useState(false);
-  const [autofillNote, setAutofillNote] = useState<string | null>(null);
+  const [saving, setSaving] = useState<'fit' | 'save' | 'done' | null>(null);
+  const savingRef = useRef(false);
+  // Which save button sent the form. Enter in a field clicks the first one, Save and run fit.
+  const intent = useRef<'fit' | 'save'>('fit');
 
+  const pasteRef = useRef<HTMLTextAreaElement>(null);
+  const reviewHeadingRef = useRef<HTMLHeadingElement>(null);
+  const titleRef = useRef<HTMLInputElement>(null);
+  const companyRef = useRef<HTMLInputElement>(null);
+  const jobUrlRef = useRef<HTMLInputElement>(null);
   const descriptionRef = useRef<HTMLTextAreaElement>(null);
-  const companyRef     = useRef<HTMLInputElement>(null);
-  const titleRef       = useRef<HTMLInputElement>(null);
-  const jobUrlRef      = useRef<HTMLInputElement>(null);
+  // Where focus goes after a step change: the review's heading, so a screen reader hears
+  // the new step, or back to the paste box. Nothing takes focus on first load.
+  const pendingFocus = useRef<'review' | 'paste' | null>(null);
 
-  function updateField<K extends keyof FormState>(field: K, value: FormState[K]) {
-    setForm((current) => ({ ...current, [field]: value }));
-    if (errors[field]) {
-      setErrors((prev) => ({ ...prev, [field]: '' }));
+  useEffect(() => {
+    if (pendingFocus.current === 'review') reviewHeadingRef.current?.focus();
+    if (pendingFocus.current === 'paste') pasteRef.current?.focus();
+    pendingFocus.current = null;
+  }, [step]);
+
+  function openReview(next: Details, from: Posted | null) {
+    setDetails(next);
+    setPosted(from);
+    setDescriptionOpen(!next.descriptionText.trim());
+    setErrors({});
+    setSaveError(null);
+    setExistingJobId(null);
+    setReadError(null);
+    pendingFocus.current = 'review';
+    setStep('review');
+  }
+
+  /** Drop the reading on its way, if there is one. */
+  function abandonReading() {
+    readSeq.current += 1;
+    reading.current = false;
+    setIsReading(false);
+  }
+
+  /** "Enter details yourself": an empty review, keeping what was pasted (a link or the text). */
+  function enterByHand() {
+    abandonReading();
+    const link = postingLink(pasteText);
+    openReview({ ...EMPTY_DETAILS, jobUrl: link ?? '', descriptionText: link ? '' : pasteText.trim() }, null);
+  }
+
+  async function readPosting() {
+    if (reading.current) return;
+    const text = pasteText.trim();
+    if (!text) {
+      setPasteError('Paste a job link or the posting’s text first.');
+      pasteRef.current?.focus();
+      return;
     }
+    const id = ++readSeq.current;
+    reading.current = true;
+    setIsReading(true);
+    setPasteError(null);
+    // A previous failure stays up while this reading runs, so focus stays on its Try again.
+    try {
+      const link = postingLink(text);
+      if (link) {
+        const data = await extractJobFromUrl(link);
+        if (id !== readSeq.current) return;
+        if (!(data.title || data.company || data.location || data.descriptionText)) {
+          setReadError(NOTHING_TO_READ);
+          return;
+        }
+        // The extractor leaves out what it couldn't find: unknown, not "not stated".
+        const from: Posted = {
+          title: data.title,
+          company: data.company,
+          location: data.location,
+          workplaceType: data.workplaceType === undefined ? undefined : asWorkplace(data.workplaceType),
+          salary: data.salary,
+          description: data.descriptionText ?? '',
+        };
+        openReview(detailsFrom(from, link, from.description), from);
+      } else {
+        const data = await parseJob({ descriptionText: text });
+        if (id !== readSeq.current) return;
+        const from: Posted = {
+          title: data.title ?? '',
+          company: data.company ?? '',
+          location: data.location === undefined ? undefined : (data.location ?? ''),
+          workplaceType: data.workplace_type === undefined ? undefined : asWorkplace(data.workplace_type),
+          salary: data.salary,
+          description: text,
+        };
+        openReview(detailsFrom(from, '', text), from);
+      }
+    } catch (error) {
+      if (id !== readSeq.current) return;
+      setReadError(error instanceof ApiRequestError ? error.message : READ_FAILED);
+    } finally {
+      if (id === readSeq.current) {
+        reading.current = false;
+        setIsReading(false);
+      }
+    }
+  }
+
+  function startOver() {
+    abandonReading();
+    setReadError(null);
+    setDetails(EMPTY_DETAILS);
+    setPosted(null);
+    setErrors({});
+    setSaveError(null);
+    setExistingJobId(null);
+    pendingFocus.current = 'paste';
+    setStep('paste');
+  }
+
+  function update<K extends keyof Details>(field: K, value: Details[K]) {
+    setDetails((current) => ({ ...current, [field]: value }));
+    if (errors[field]) setErrors((current) => ({ ...current, [field]: '' }));
     if (field === 'jobUrl') setExistingJobId(null);
   }
 
-  async function handleAutofill() {
-    const url = form.jobUrl.trim();
-    if (!isHttpUrl(url)) return;
-    setIsExtracting(true);
-    setAutofillNote(null);
-    try {
-      const data = await extractJobFromUrl(url);
-      const hasAny = Boolean(
-        data.title || data.company || data.location || data.descriptionText || data.workplaceType,
-      );
-      if (!hasAny) {
-        setAutofillNote('Couldn’t read that posting automatically — paste the description below.');
-        return;
-      }
-      setForm((current) => ({
-        ...current,
-        title: data.title ?? current.title,
-        company: data.company ?? current.company,
-        location: data.location ?? current.location,
-        descriptionText: data.descriptionText ?? current.descriptionText,
-        workplaceType: data.workplaceType ?? current.workplaceType,
-      }));
-      setErrors({});
-      const label = data.source === 'jsonld' ? 'the posting’s structured data' : 'page metadata';
-      toast.success(`Autofilled from ${label} — review before saving.`);
-    } catch (error) {
-      toast.error(
-        error instanceof ApiRequestError ? error.message : 'Could not read that job posting.',
-      );
-    } finally {
-      setIsExtracting(false);
+  function validate(values: Details) {
+    const next: Record<string, string> = {};
+    if (!values.title.trim()) next.title = 'Add the job title.';
+    if (!values.company.trim()) next.company = 'Add the company.';
+    if (values.jobUrl.trim() && !isWebAddress(values.jobUrl.trim())) {
+      next.jobUrl = 'Enter the posting’s full web address, starting with https://.';
     }
+    if (!values.descriptionText.trim()) next.descriptionText = 'Add the job description.';
+    return next;
   }
 
-  function validate(values: FormState) {
-    const nextErrors: Record<string, string> = {};
-    if (!values.company.trim()) nextErrors.company = 'Company is required.';
-    if (!values.title.trim()) nextErrors.title = 'Job title is required.';
-    if (!values.descriptionText.trim()) nextErrors.descriptionText = 'Job description is required.';
-    if (values.jobUrl.trim()) {
-      try {
-        void new URL(values.jobUrl.trim());
-      } catch {
-        nextErrors.jobUrl = 'Enter a valid job URL.';
-      }
-    }
-    return nextErrors;
-  }
-
-  async function handleSubmit(event: FormEvent<HTMLFormElement>) {
+  async function save(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    const nextErrors = validate(form);
+    if (savingRef.current) return;
+    const runFit = intent.current === 'fit';
+    const nextErrors = validate(details);
     setErrors(nextErrors);
+    setSaveError(null);
     if (Object.keys(nextErrors).length > 0) {
-      // Focus the first errored field (DOM order) after React flushes.
-      setTimeout(() => {
-        const focusOrder = [
-          { key: 'descriptionText', ref: descriptionRef },
-          { key: 'company',         ref: companyRef },
-          { key: 'title',           ref: titleRef },
-          { key: 'jobUrl',          ref: jobUrlRef },
-        ] as const;
-        const first = focusOrder.find(({ key }) => nextErrors[key]);
-        first?.ref.current?.focus();
-      }, 0);
+      if (nextErrors.descriptionText) setDescriptionOpen(true);
+      focusFirstError(nextErrors);
       return;
     }
 
-    setIsSubmitting(true);
+    savingRef.current = true;
+    setSaving(runFit ? 'fit' : 'save');
     try {
       const job = await createJob({
-        company: form.company.trim(),
-        title: form.title.trim(),
-        jobUrl: form.jobUrl.trim() || undefined,
-        source: form.source.trim() || undefined,
-        location: form.location.trim() || undefined,
-        employmentType: form.employmentType.trim() || undefined,
-        workplaceType: form.workplaceType,
-        priority: form.priority,
-        notes: form.notes.trim() || undefined,
-        descriptionText: form.descriptionText.trim(),
+        company: details.company.trim(),
+        title: details.title.trim(),
+        location: details.location.trim() || undefined,
+        workplaceType: details.workplaceType ?? undefined,
+        jobUrl: details.jobUrl.trim() || undefined,
+        source: 'manual',
+        // No salary: the store reads it from this description, as the review said it would.
+        descriptionText: details.descriptionText.trim(),
       });
+      setSaving('done');
       toast.success('Job saved.');
-      router.push(`/jobs/${job.id}`);
-      router.refresh();
+      // The job page starts the fit run once, through Score fit's own guard (#353). It's
+      // rendered on request, so there's nothing to refresh.
+      router.push(runFit ? `/jobs/${job.id}?run=fit` : `/jobs/${job.id}`);
     } catch (error) {
-      if (error instanceof ApiRequestError) {
-        setErrors(error.fields ?? {});
-        setExistingJobId(error.status === 409 ? (error.existingJobId ?? null) : null);
-        toast.error(error.message);
-      } else {
-        toast.error(error instanceof Error ? error.message : 'Failed to create the job.');
+      savingRef.current = false;
+      setSaving(null);
+      if (!(error instanceof ApiRequestError)) {
+        setSaveError(error instanceof Error ? error.message : 'The job wasn’t saved. Try again.');
+        return;
       }
-    } finally {
-      setIsSubmitting(false);
+      const fields = error.fields ?? {};
+      const shown = Object.fromEntries(
+        Object.entries(fields).filter(([key, message]) => message && (SHOWN_FIELDS as readonly string[]).includes(key)),
+      );
+      const others = Object.entries(fields)
+        .filter(([key, message]) => message && !(SHOWN_FIELDS as readonly string[]).includes(key))
+        .map(([, message]) => message);
+      setErrors(shown);
+      setExistingJobId(error.status === 409 ? (error.existingJobId ?? null) : null);
+      // A field the form shows gets its message and focus, so it's read out; anything else
+      // goes in the alert.
+      if (others.length > 0) setSaveError(others.join(' '));
+      else if (Object.keys(shown).length === 0) setSaveError(error.message);
+      if (shown.descriptionText) setDescriptionOpen(true);
+      focusFirstError(shown);
     }
   }
 
-  return (
-    <form className="space-y-5" onSubmit={handleSubmit} noValidate>
-      <div className="space-y-1.5">
-        <div className="flex items-center justify-between">
-          <Label htmlFor="description">Job description</Label>
-          <span className="text-muted-foreground inline-flex items-center gap-1 text-xs">
-            <Sparkles className="size-3.5 text-indigo-500" /> AI extracts skills &amp; scores fit
-          </span>
+  function focusFirstError(found: Record<string, string>) {
+    // In page order, once React has drawn the messages.
+    setTimeout(() => {
+      const order = [
+        { key: 'title', ref: titleRef },
+        { key: 'company', ref: companyRef },
+        { key: 'jobUrl', ref: jobUrlRef },
+        { key: 'descriptionText', ref: descriptionRef },
+      ] as const;
+      order.find(({ key }) => found[key])?.ref.current?.focus();
+    }, 0);
+  }
+
+  if (step === 'paste') {
+    return (
+      <form
+        className="space-y-4"
+        noValidate
+        onSubmit={(event) => {
+          event.preventDefault();
+          void readPosting();
+        }}
+      >
+        <div className="space-y-1.5">
+          <Label htmlFor="job-paste">Paste a job link or the full posting</Label>
+          {/* Capped so a long paste scrolls inside the box (the Textarea grows with its content). */}
+          <Textarea
+            ref={pasteRef}
+            id="job-paste"
+            name="posting"
+            value={pasteText}
+            onChange={(event) => {
+              setPasteText(event.target.value);
+              if (pasteError) setPasteError(null);
+            }}
+            className="max-h-80 min-h-32 overflow-y-auto"
+            // Read-only, not disabled, while the server reads it, so focus stays put.
+            readOnly={isReading}
+            aria-busy={isReading || undefined}
+            aria-invalid={pasteError ? true : undefined}
+            aria-describedby={describedBy('job-paste-help', pasteError && 'job-paste-error')}
+          />
+          <p id="job-paste-help" className="text-muted-foreground text-xs">
+            Works with Greenhouse, Lever, Ashby, Workday and most job pages.
+          </p>
+          {pasteError ? (
+            <p id="job-paste-error" className="text-destructive text-xs">
+              {pasteError}
+            </p>
+          ) : null}
         </div>
-        {/* Cap the height so a long paste scrolls internally instead of pushing the
-            rest of the form off-screen (the Textarea uses field-sizing-content). */}
-        <Textarea
-          ref={descriptionRef}
-          id="description"
-          name="description"
-          value={form.descriptionText}
-          onChange={(event) => updateField('descriptionText', event.target.value)}
-          placeholder="Paste the full job posting here…"
-          className="max-h-80 min-h-40 overflow-y-auto"
-          // Locked during autofill so in-flight edits aren't clobbered when the
-          // extracted response resolves (it overwrites the autofilled fields).
-          disabled={isExtracting}
-          required
-          aria-describedby={errors.descriptionText ? 'description-error' : undefined}
-          aria-invalid={errors.descriptionText ? true : undefined}
-        />
-        {errors.descriptionText ? (
-          <p id="description-error" className="text-destructive text-xs">{errors.descriptionText}</p>
+
+        {readError ? (
+          <ErrorState title="Couldn't get the details" message={readError} onRetry={() => void readPosting()}>
+            <Button type="button" size="sm" variant="ghost" onClick={enterByHand}>
+              Enter details yourself
+            </Button>
+          </ErrorState>
         ) : null}
+
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+          <Button type="submit" aria-disabled={isReading || undefined} className="w-full gap-1.5 sm:w-auto">
+            {isReading ? <Loader2 className="size-4 animate-spin" aria-hidden="true" /> : null}
+            {isReading ? 'Getting details…' : 'Get details'}
+          </Button>
+          {/* Not while reading: the answer would land on top of what the user types. */}
+          {readError || isReading ? null : (
+            <Button type="button" variant="link" onClick={enterByHand} className="w-full sm:w-auto">
+              Enter details yourself
+            </Button>
+          )}
+        </div>
+      </form>
+    );
+  }
+
+  // Title and Company must be filled in, so "Not stated" only says the posting left them
+  // out; entered by hand, they need no hint. An empty Location is saved as not stated.
+  const hints = {
+    title: posted ? hintFor(details.title, posted.title, posted.title !== undefined) : null,
+    company: posted ? hintFor(details.company, posted.company, posted.company !== undefined) : null,
+    location: hintFor(details.location, posted?.location, !posted || posted.location !== undefined),
+  };
+  const workplaceHint = posted?.workplaceType && details.workplaceType === posted.workplaceType ? 'from posting' : null;
+  // The salary row says what will be saved, never what the posting said: the API reads it
+  // with the store's own parser, so it can't contradict the saved job. That holds only while
+  // the description is the one it was read from; otherwise it's read on save.
+  const salaryRead =
+    posted !== null && posted.salary !== undefined && details.descriptionText === posted.description;
+  const salaryText = salaryRead && posted?.salary ? salaryAsSaved(posted.salary) : null;
+  const characters = details.descriptionText.length.toLocaleString('en-US');
+
+  return (
+    <form className="space-y-5" onSubmit={save} noValidate>
+      <div className="space-y-1">
+        <h3 ref={reviewHeadingRef} tabIndex={-1} className="font-heading text-base font-semibold outline-none">
+          Check the details
+        </h3>
+        <p className="text-muted-foreground text-sm">Nothing is saved until you press Save.</p>
       </div>
 
       <div className="grid gap-4 sm:grid-cols-2">
         <div className="space-y-1.5">
-          <Label htmlFor="company">Company</Label>
-          <Input
-            ref={companyRef}
-            id="company"
-            name="company"
-            autoComplete="organization"
-            value={form.company}
-            onChange={(event) => updateField('company', event.target.value)}
-            placeholder="Pebble"
-            disabled={isExtracting}
-            required
-            aria-describedby={errors.company ? 'company-error' : undefined}
-            aria-invalid={errors.company ? true : undefined}
-          />
-          {errors.company ? (
-            <p id="company-error" className="text-destructive text-xs">{errors.company}</p>
-          ) : null}
-        </div>
-        <div className="space-y-1.5">
-          <Label htmlFor="title">Job title</Label>
+          <FieldLabel htmlFor="job-title" required hint={hints.title} hintId="job-title-hint">
+            Title
+          </FieldLabel>
           <Input
             ref={titleRef}
-            id="title"
+            id="job-title"
             name="title"
             autoComplete="off"
-            value={form.title}
-            onChange={(event) => updateField('title', event.target.value)}
-            placeholder="AI Software Engineer"
-            disabled={isExtracting}
+            value={details.title}
+            onChange={(event) => update('title', event.target.value)}
+            placeholder="e.g. Backend Engineer"
             required
-            aria-describedby={errors.title ? 'title-error' : undefined}
             aria-invalid={errors.title ? true : undefined}
+            aria-describedby={describedBy(hints.title && 'job-title-hint', errors.title && 'job-title-error')}
           />
           {errors.title ? (
-            <p id="title-error" className="text-destructive text-xs">{errors.title}</p>
+            <p id="job-title-error" className="text-destructive text-xs">
+              {errors.title}
+            </p>
           ) : null}
         </div>
+
         <div className="space-y-1.5">
-          <Label htmlFor="jobUrl">Job URL</Label>
-          <div className="flex gap-2">
-            <Input
-              ref={jobUrlRef}
-              id="jobUrl"
-              name="jobUrl"
-              type="url"
-              autoComplete="url"
-              value={form.jobUrl}
-              onChange={(event) => updateField('jobUrl', event.target.value)}
-              placeholder="https://…"
-              className="flex-1"
-              // Locked during extraction so an in-flight response can't be applied
-              // to a URL the user changed meanwhile (stale-autofill mismatch).
-              disabled={isExtracting}
-              aria-describedby={errors.jobUrl ? 'job-url-error' : undefined}
-              aria-invalid={errors.jobUrl ? true : undefined}
-            />
-            <Button
-              type="button"
-              variant="outline"
-              onClick={handleAutofill}
-              disabled={!isHttpUrl(form.jobUrl) || isExtracting}
-              className="shrink-0 gap-1.5"
-            >
-              {isExtracting ? (
-                <Loader2 className="size-4 animate-spin" aria-hidden="true" />
-              ) : (
-                <Download className="size-4" aria-hidden="true" />
-              )}
-              Autofill
-            </Button>
+          <FieldLabel htmlFor="job-company" required hint={hints.company} hintId="job-company-hint">
+            Company
+          </FieldLabel>
+          <Input
+            ref={companyRef}
+            id="job-company"
+            name="company"
+            autoComplete="organization"
+            value={details.company}
+            onChange={(event) => update('company', event.target.value)}
+            placeholder="e.g. Acme"
+            required
+            aria-invalid={errors.company ? true : undefined}
+            aria-describedby={describedBy(hints.company && 'job-company-hint', errors.company && 'job-company-error')}
+          />
+          {errors.company ? (
+            <p id="job-company-error" className="text-destructive text-xs">
+              {errors.company}
+            </p>
+          ) : null}
+        </div>
+
+        <div className="space-y-1.5">
+          <FieldLabel htmlFor="job-location" hint={hints.location} hintId="job-location-hint">
+            Location
+          </FieldLabel>
+          <Input
+            id="job-location"
+            name="location"
+            autoComplete="off"
+            value={details.location}
+            onChange={(event) => update('location', event.target.value)}
+            placeholder="e.g. London, United Kingdom"
+            aria-describedby={describedBy(hints.location && 'job-location-hint')}
+          />
+        </div>
+
+        <fieldset
+          className="relative min-w-0 space-y-1.5"
+          aria-describedby={describedBy(workplaceHint && 'job-workplace-hint')}
+        >
+          {/* The legend is the fieldset's first child, or the group has no name. */}
+          <legend className="text-sm leading-none font-medium">Workplace</legend>
+          {workplaceHint ? (
+            <span id="job-workplace-hint" className="text-muted-foreground absolute top-0 right-0 text-xs">
+              {workplaceHint}
+            </span>
+          ) : null}
+          <div className="flex flex-wrap gap-x-4 gap-y-2 pt-1">
+            {WORKPLACE_CHOICES.map((choice) => (
+              <label key={choice.label} className="flex items-center gap-2 text-sm">
+                <input
+                  type="radio"
+                  name="workplace"
+                  value={choice.value ?? ''}
+                  checked={details.workplaceType === choice.value}
+                  onChange={() => update('workplaceType', choice.value)}
+                  className="accent-primary size-4"
+                />
+                {choice.label}
+              </label>
+            ))}
           </div>
+        </fieldset>
+
+        {/* Read-only: the salary is read from the description, not typed in. */}
+        <div role="group" aria-labelledby="job-salary-label" className="space-y-1.5">
+          <p id="job-salary-label" className="text-sm leading-none font-medium">
+            Salary, as it will be saved
+          </p>
+          <p className="text-sm">
+            {salaryText ??
+              (salaryRead ? (
+                <span className="text-muted-foreground">No salary found in the description.</span>
+              ) : (
+                <span className="text-muted-foreground">Read from the description when you save.</span>
+              ))}
+          </p>
+        </div>
+
+        <div className="space-y-1.5 sm:col-span-2">
+          <Label htmlFor="job-url">Posting URL</Label>
+          <Input
+            ref={jobUrlRef}
+            id="job-url"
+            name="jobUrl"
+            type="url"
+            autoComplete="url"
+            value={details.jobUrl}
+            onChange={(event) => update('jobUrl', event.target.value)}
+            placeholder="e.g. https://jobs.lever.co/acme/123"
+            aria-invalid={errors.jobUrl ? true : undefined}
+            aria-describedby={describedBy(errors.jobUrl && 'job-url-error')}
+          />
           {errors.jobUrl ? (
             <p id="job-url-error" className="text-destructive text-xs">
               {errors.jobUrl}
               {existingJobId ? (
                 <>
                   {' '}
-                  <Link href={`/jobs/${existingJobId}`} className="text-foreground font-medium underline underline-offset-2">
+                  <Link
+                    href={`/jobs/${existingJobId}`}
+                    className="text-foreground font-medium underline underline-offset-2"
+                  >
                     Open the job
                   </Link>
                 </>
               ) : null}
             </p>
           ) : null}
-          {/* Always-present live region so a screen reader announces a failed autofill. */}
-          <p role="status" className="text-muted-foreground text-xs empty:hidden">
-            {autofillNote ?? ''}
-          </p>
-        </div>
-        <div className="space-y-1.5">
-          <Label htmlFor="location">Location</Label>
-          <Input
-            id="location"
-            name="location"
-            autoComplete="off"
-            value={form.location}
-            onChange={(event) => updateField('location', event.target.value)}
-            placeholder="Remote · San Francisco"
-            disabled={isExtracting}
-          />
-        </div>
-        <div className="space-y-1.5">
-          <Label htmlFor="workplace">Workplace</Label>
-          <OptionSelect
-            id="workplace"
-            value={form.workplaceType}
-            onValueChange={(value) => updateField('workplaceType', value)}
-            options={workplaceTypeOptions}
-            disabled={isExtracting}
-          />
-        </div>
-        <div className="space-y-1.5">
-          <Label htmlFor="priority">Priority</Label>
-          <OptionSelect
-            id="priority"
-            value={form.priority}
-            onValueChange={(value) => updateField('priority', value)}
-            options={priorityOptions}
-          />
         </div>
       </div>
 
-      <div className="flex gap-2">
-        <Button type="submit" disabled={isSubmitting} className="gap-1.5">
-          <Sparkles className="size-4" />
-          {isSubmitting ? 'Saving…' : 'Save & analyze'}
+      <div className="space-y-1.5">
+        <div className="flex items-baseline justify-between gap-2">
+          {descriptionOpen ? (
+            <FieldLabel htmlFor="job-description" required hint={null} hintId="job-description-hint">
+              Description
+            </FieldLabel>
+          ) : (
+            <p className="text-sm leading-none font-medium">Description</p>
+          )}
+          <span className="text-muted-foreground text-xs">{characters} characters</span>
+        </div>
+        {descriptionOpen ? (
+          // Capped so a long posting scrolls inside the box.
+          <Textarea
+            ref={descriptionRef}
+            id="job-description"
+            name="description"
+            value={details.descriptionText}
+            onChange={(event) => update('descriptionText', event.target.value)}
+            className="max-h-80 min-h-32 overflow-y-auto"
+            required
+            aria-invalid={errors.descriptionText ? true : undefined}
+            aria-describedby={describedBy(errors.descriptionText && 'job-description-error')}
+          />
+        ) : (
+          // The clamp is on an inner line box: overflow is cut at the padding edge, so with
+          // the padding on the same element a fifth line would show through it.
+          <div className="bg-muted/40 rounded-lg p-3">
+            <p className="text-muted-foreground line-clamp-4 text-sm break-words whitespace-pre-line">
+              {details.descriptionText}
+            </p>
+          </div>
+        )}
+        {errors.descriptionText ? (
+          <p id="job-description-error" className="text-destructive text-xs">
+            {errors.descriptionText}
+          </p>
+        ) : null}
+        {/* Nothing to fold away while it's empty. */}
+        {details.descriptionText.trim() ? (
+          <Button
+            type="button"
+            variant="link"
+            size="sm"
+            className="h-auto px-0"
+            aria-expanded={descriptionOpen}
+            aria-controls={descriptionOpen ? 'job-description' : undefined}
+            onClick={() => setDescriptionOpen((open) => !open)}
+          >
+            {descriptionOpen ? 'Done editing' : 'Edit description'}
+          </Button>
+        ) : null}
+      </div>
+
+      {saveError ? (
+        <p role="alert" className="text-destructive text-sm">
+          {saveError}
+        </p>
+      ) : null}
+
+      <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+        <Button
+          type="submit"
+          onClick={() => (intent.current = 'fit')}
+          disabled={saving !== null}
+          className="w-full sm:w-auto"
+        >
+          {saving === 'fit' ? 'Saving…' : saving === 'done' ? 'Opening the job…' : 'Save and run fit'}
+        </Button>
+        <Button
+          type="submit"
+          variant="outline"
+          onClick={() => (intent.current = 'save')}
+          disabled={saving !== null}
+          className="w-full sm:w-auto"
+        >
+          {saving === 'save' ? 'Saving…' : 'Save only'}
+        </Button>
+        <Button
+          type="button"
+          variant="link"
+          onClick={startOver}
+          disabled={saving !== null}
+          className="w-full sm:ml-auto sm:w-auto"
+        >
+          Start over
         </Button>
       </div>
     </form>

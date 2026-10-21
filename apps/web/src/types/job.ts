@@ -38,27 +38,44 @@ export type SponsorLikelihood =
   | KnownSponsorLikelihood;
 export type JobLiveness = 'active' | 'stale' | 'expired';
 
+/** Each 0–100, or null when unknown (#354). */
 export interface JobAnalysisSubSignals {
-  skillsMatch?: number;
-  titleSeniority?: number;
-  salaryFit?: number;
-  sponsorshipLikelihood?: number;
-  skills_match?: number;
-  title_seniority?: number;
-  salary_fit?: number;
-  sponsorship_likelihood?: number;
+  skillsMatch?: number | null;
+  titleSeniority?: number | null;
+  salaryFit?: number | null;
+  sponsorshipLikelihood?: number | null;
+  skills_match?: number | null;
+  title_seniority?: number | null;
+  salary_fit?: number | null;
+  sponsorship_likelihood?: number | null;
+}
+
+/** A skill the résumé shows: a short label, and where the résumé shows it (#354). */
+export interface MatchedSkill {
+  skill: string;
+  evidence: string;
+}
+
+/** A skill the posting asks for that the résumé doesn't show, with the posting's words (#354). */
+export interface MissingSkill {
+  skill: string;
+  postingQuote: string;
 }
 
 export interface JobAnalysis {
   requiredSkills: string[];
   preferredSkills: string[];
+  /** Short labels. */
   matchedSkills: string[];
   missingSkills: string[];
+  /** The same skills with their evidence; an API from before #354 doesn't send these. */
+  matchedSkillDetails?: MatchedSkill[];
+  missingSkillDetails?: MissingSkill[];
   atsKeywords: string[];
   fitSummary: string;
   recommendedResumeAngle: string;
   applyRecommendation: string;
-  /** Null for the discovery pre-rank, a keyword estimate rather than a model reading. */
+  /** 0–100. Null when there is none, e.g. the discovery pre-rank, a keyword estimate. */
   confidenceScore: number | null;
   modelUsed: string;
   subSignals?: JobAnalysisSubSignals;
@@ -112,9 +129,12 @@ export interface Job {
   source: string;
   company: string;
   title: string;
+  /** Empty when the posting doesn't say (#355). */
   location: string;
+  /** Empty when the posting doesn't say (#355). */
   employmentType: string;
-  workplaceType: WorkplaceType;
+  /** Null when the posting doesn't say (#355). */
+  workplaceType: WorkplaceType | null;
   datePosted?: string;
   discoveredAt: string;
   descriptionText: string;
@@ -226,6 +246,14 @@ export interface ResumeCertificate {
   url?: string;
 }
 
+export type ResumeSectionKey = 'summary' | 'work' | 'education' | 'skills' | 'projects' | 'certificates';
+
+/** The PDF's section order, headings and visibility, and page size (#415). */
+export interface ResumeLayout {
+  sections?: Array<{ key: ResumeSectionKey; title?: string; hidden?: boolean }>;
+  pageSize?: 'letter' | 'a4';
+}
+
 export interface StructuredResume {
   basics: ResumeBasics;
   work: ResumeWorkExperience[];
@@ -233,6 +261,8 @@ export interface StructuredResume {
   skills: ResumeSkill[];
   projects?: ResumeProject[];
   certificates?: ResumeCertificate[];
+  /** Saved through its own route (saveResumeLayout); a résumé save keeps it. */
+  layout?: ResumeLayout;
 }
 
 export interface ResumeChangeDetail {
@@ -274,6 +304,8 @@ export interface ResumeVersionBasis {
   gaps?: string[];
   /** Posting keywords in the base résumé and in the draft. */
   coverage?: { total: number; before: number; after: number; terms?: string[] };
+  /** Set once it prints with its own layout copy, not the base résumé's (#415). */
+  layoutFrozenAt?: string;
 }
 
 export interface ResumeVersionRecord {

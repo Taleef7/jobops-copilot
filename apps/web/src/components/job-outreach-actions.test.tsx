@@ -11,6 +11,7 @@ vi.mock('@/lib/api', () => ({
   ApiRequestError: class ApiRequestError extends Error {},
 }));
 
+import { chooseOption } from '@/test/select';
 import { JobOutreachActions } from './job-outreach-actions';
 
 afterEach(() => vi.clearAllMocks());
@@ -40,4 +41,38 @@ it('shows the reason, keeps the form, and retries when drafting fails', async ()
   expect(draftOutreach).toHaveBeenLastCalledWith(expect.objectContaining({ contactName: 'Dana' }));
   expect(await screen.findByText('Hi Dana')).toBeInTheDocument();
   expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+});
+
+// #354: LinkedIn cuts a connection note at 300 characters, so a longer one is flagged in view.
+it('warns when a LinkedIn connection note is over 300 characters', async () => {
+  draftOutreach.mockResolvedValueOnce({
+    subject: 'Connecting',
+    draft_text: 'a'.repeat(420),
+    safety_notes: '',
+    gmail_draft_status: 'skipped',
+  });
+  const user = userEvent.setup();
+  render(<JobOutreachActions jobId="job-1" jobContext="Acme · Engineer" />);
+
+  await chooseOption(user, /message type/i, /linkedin connection/i);
+  await user.click(screen.getByRole('button', { name: /generate outreach/i }));
+
+  expect(await screen.findByText(/over 300 characters/i)).toBeInTheDocument();
+});
+
+it('does not warn about length for a note within the limit', async () => {
+  draftOutreach.mockResolvedValueOnce({
+    subject: 'Connecting',
+    draft_text: 'Hi there, I would like to connect.',
+    safety_notes: '',
+    gmail_draft_status: 'skipped',
+  });
+  const user = userEvent.setup();
+  render(<JobOutreachActions jobId="job-1" jobContext="Acme · Engineer" />);
+
+  await chooseOption(user, /message type/i, /linkedin connection/i);
+  await user.click(screen.getByRole('button', { name: /generate outreach/i }));
+
+  expect(await screen.findByText('Hi there, I would like to connect.')).toBeInTheDocument();
+  expect(screen.queryByText(/over 300 characters/i)).not.toBeInTheDocument();
 });

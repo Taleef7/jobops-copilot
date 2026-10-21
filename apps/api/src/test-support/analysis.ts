@@ -10,6 +10,8 @@ export function sampleAnalysis(overrides: Partial<JobAnalysis> = {}): JobAnalysi
     preferredSkills: ['Kafka'],
     matchedSkills: ['Go'],
     missingSkills: ['Postgres'],
+    matchedSkillDetails: [{ skill: 'Go', evidence: 'Built the billing API in Go.' }],
+    missingSkillDetails: [{ skill: 'Postgres', postingQuote: 'Experience with Postgres' }],
     atsKeywords: ['Go', 'Postgres', 'Kafka'],
     fitSummary: 'Strong on Go.',
     recommendedResumeAngle: 'Lead with the Go services.',

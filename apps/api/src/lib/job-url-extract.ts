@@ -1,4 +1,5 @@
 import { parse, type HTMLElement } from 'node-html-parser';
+import { parseSalaryFromText, type ParsedSalary } from '@/lib/job-enrich';
 
 export type WorkplaceType = 'remote' | 'hybrid' | 'onsite' | 'flexible';
 
@@ -8,6 +9,12 @@ export interface ExtractedJob {
   location?: string;
   descriptionText?: string;
   workplaceType?: WorkplaceType;
+  /**
+   * The salary as the store will save it from this description (parseSalaryFromText), for
+   * the Add job review (#355): null when it finds none, left out when there's no description
+   * or only the page's meta description.
+   */
+  salary?: ParsedSalary | null;
   /**
    * Highest-priority tier that contributed at least one field (jsonld >
    * opengraph > heuristic), or 'none'. Individual fields may come from lower
@@ -128,6 +135,7 @@ export function extractJobFromHtml(html: string): ExtractedJob {
   ];
 
   const result: ExtractedJob = { source: 'none' };
+  let descriptionTier: ExtractedJob['source'] = 'none';
   for (const [tier, data] of tiers) {
     let used = false;
     if (result.title === undefined && data.title !== undefined) { result.title = data.title; used = true; }
@@ -135,6 +143,7 @@ export function extractJobFromHtml(html: string): ExtractedJob {
     if (result.location === undefined && data.location !== undefined) { result.location = data.location; used = true; }
     if (result.descriptionText === undefined && data.descriptionText !== undefined) {
       result.descriptionText = data.descriptionText;
+      descriptionTier = tier;
       used = true;
     }
     if (result.workplaceType === undefined && data.workplaceType !== undefined) {
@@ -142,6 +151,10 @@ export function extractJobFromHtml(html: string): ExtractedJob {
       used = true;
     }
     if (used && result.source === 'none') result.source = tier;
+  }
+  // A meta description is a teaser: the salary it leaves out may be in the posting.
+  if (result.descriptionText && descriptionTier !== 'opengraph') {
+    result.salary = parseSalaryFromText(result.descriptionText);
   }
   return result;
 }

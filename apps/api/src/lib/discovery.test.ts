@@ -568,11 +568,13 @@ test('sequential scoring runs AI score when budget is available and saves sub-si
   assert.equal(analyses.length, 2);
   assert.equal(analyses[0]?.modelUsed, 'agent:gpt-5.6-luna');
   assert.equal(analyses[0]?.fitScore, 92);
+  // Salary fit and sponsorship stay unknown until the user can state a salary floor and visa
+  // needs (#354): the model's numbers there were guesses.
   assert.deepEqual(analyses[0]?.subSignals, {
     skillsMatch: 95,
     titleSeniority: 90,
-    salaryFit: 85,
-    sponsorshipLikelihood: 100,
+    salaryFit: null,
+    sponsorshipLikelihood: null,
   });
   assert.equal(analyses[1]?.modelUsed, 'agent:gpt-5.6-luna');
 });

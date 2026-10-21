@@ -1,11 +1,12 @@
 'use client';
 
 import { Loader2, Sparkles } from 'lucide-react';
-import { useState, useTransition } from 'react';
+import { useEffect, useRef, useState, useTransition } from 'react';
 import { EmptyState } from '@/components/empty-state';
 import { FeedCard } from '@/components/feed-card';
 import { FeedFilters, type FeedFilterState } from '@/components/feed-filters';
 import { Skeleton } from '@/components/ui/skeleton';
+import { skillNames } from '@/lib/analysis-display';
 import { fetchRankedFeed } from '@/lib/api';
 import type { FeedItem, FeedResult, JobSeniority, JobStatus, WorkplaceType } from '@/types/job';
 
@@ -24,8 +25,29 @@ const defaultFilters: FeedFilterState = {
 
 export function TodaysBestFeed({ initialFeed }: TodaysBestFeedProps) {
   const [filters, setFilters] = useState<FeedFilterState>(defaultFilters);
+  // The filter in force when a status change is saved, not when its click began: the user can
+  // change it while the save is in flight (#353).
+  const currentFilters = useRef<FeedFilterState>(defaultFilters);
   const [feed, setFeed] = useState<FeedResult>(initialFeed);
   const [isPending, startTransition] = useTransition();
+  const listRef = useRef<HTMLDivElement>(null);
+  const countRef = useRef<HTMLSpanElement>(null);
+  // Where the removed card was, to focus the card now in its place, or the last one (#353).
+  // A position, not a job: when two Passes overlap, the job after the first may be gone too.
+  const focusIndex = useRef<number | null>(null);
+
+  useEffect(() => {
+    const index = focusIndex.current;
+    if (index === null) return;
+    focusIndex.current = null;
+    // Only when focus went with the removed card: by the time the API answers, the user may
+    // be typing elsewhere.
+    const active = document.activeElement;
+    if (active && active !== document.body && active.isConnected) return;
+    const cards = listRef.current?.querySelectorAll<HTMLElement>(':scope > [data-slot="card"]') ?? [];
+    // No card left: the count says so.
+    (cards[Math.min(index, cards.length - 1)]?.querySelector<HTMLElement>('a') ?? countRef.current)?.focus();
+  }, [feed]);
 
   async function loadFeedWithFilters(newFilters: FeedFilterState) {
     startTransition(async () => {
@@ -53,6 +75,7 @@ export function TodaysBestFeed({ initialFeed }: TodaysBestFeedProps) {
   }
 
   function handleFilterChange(newFilters: FeedFilterState) {
+    currentFilters.current = newFilters;
     setFilters(newFilters);
     // Reload from server when server-filtered fields change
     if (
@@ -67,11 +90,26 @@ export function TodaysBestFeed({ initialFeed }: TodaysBestFeedProps) {
   }
 
   function handleResetFilters() {
+    currentFilters.current = defaultFilters;
     setFilters(defaultFilters);
     loadFeedWithFilters(defaultFilters);
   }
 
   function handleStatusChange(jobId: string, newStatus: JobStatus) {
+    // A job the feed's filter no longer covers leaves it, and focus moves to the next card
+    // (#353). The feed omits archived jobs unless filtered to a status, so Pass removes it.
+    const { status } = currentFilters.current;
+    const leavesFeed = status === 'all' ? newStatus === 'archived' : newStatus !== status;
+    if (leavesFeed) {
+      focusIndex.current = Math.max(0, visibleItems.findIndex((item) => item.job.id === jobId));
+      setFeed((prev) =>
+        // A reload after a filter change may have dropped it already: count it once.
+        prev.items.some((item) => item.job.id === jobId)
+          ? { ...prev, items: prev.items.filter((item) => item.job.id !== jobId), total: Math.max(0, prev.total - 1) }
+          : prev,
+      );
+      return;
+    }
     setFeed((prev) => ({
       ...prev,
       items: prev.items.map((item) =>
@@ -94,7 +132,7 @@ export function TodaysBestFeed({ initialFeed }: TodaysBestFeedProps) {
           item.job.company,
           item.job.location,
           item.job.notes ?? '',
-          ...(item.job.analysis?.matchedSkills ?? []),
+          ...skillNames(item.job.analysis?.matchedSkills ?? []),
           ...(item.rankReasons ?? []),
         ]
           .join(' ')
@@ -118,7 +156,7 @@ export function TodaysBestFeed({ initialFeed }: TodaysBestFeedProps) {
       <div className="flex flex-wrap items-center justify-between gap-2 px-1 text-xs text-muted-foreground">
         <div className="flex items-center gap-1.5 font-medium">
           <Sparkles className="size-3.5 text-primary" />
-          <span>
+          <span ref={countRef} tabIndex={-1} className="outline-none">
             {visibleItems.length === 1
               ? '1 curated opportunity'
               : `${visibleItems.length} curated opportunities`}
@@ -164,7 +202,7 @@ export function TodaysBestFeed({ initialFeed }: TodaysBestFeedProps) {
         />
       ) : (
         /* Ranked Feed Cards */
-        <div className="space-y-4">
+        <div ref={listRef} className="space-y-4">
           {visibleItems.map((item) => (
             <FeedCard
               key={item.job.id}

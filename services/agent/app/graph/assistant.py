@@ -15,12 +15,12 @@ from langgraph.types import Command, interrupt
 
 from app.agents.runner import run_research
 from app.chains.draft_outreach import draft_outreach
-from app.chains.parse_job import parse_job
+from app.chains.parse_job import BLOCKED_SUMMARY, PostingRefused, parse_job
 from app.chains.score_fit import score_fit
 from app.config import settings
 from app.graph.budget import charge_tokens
 from app.graph.state import AssistantState
-from app.schemas import DraftOutreachRequest, ResearchRequest, ScoreFitRequest
+from app.schemas import DraftOutreachRequest, ParsedJob, ResearchRequest, ScoreFitRequest
 
 __all__ = ["build_assistant_graph", "route_after_score", "Command"]
 
@@ -38,7 +38,11 @@ def route_after_review(state: dict) -> str:
 
 def parse_node(state: AssistantState) -> dict:
     delta = charge_tokens(state, None)
-    parsed = parse_job(state["description_text"])
+    try:
+        parsed = parse_job(state["description_text"])
+    except PostingRefused:
+        # The assistant records the refusal in its run, as it did before #355.
+        parsed = ParsedJob(summary=BLOCKED_SUMMARY)
     return {"parsed": parsed.model_dump(), "status": "parsed", **delta}
 
 

@@ -9,11 +9,31 @@ unavailable.
 
 from __future__ import annotations
 
+import re
 from typing import Any, Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 Seniority = Literal["junior", "mid", "senior", "lead", "unknown"]
+# The workplaces the app knows, as in normalizeWorkplace in apps/api/src/lib/analysis-core.ts
+# (#355): the same words map here, and the API calls anything else unknown.
+_ONSITE = re.compile(r"on[-\s]*site|in[-\s]*(?:office|person)")
+_REMOTE = re.compile(r"(?:fully\s|100%\s?)?remote\b")
+_NAMES_AN_OFFICE = re.compile(r"hybrid|office|on[-\s]*site|in[-\s]*person")
+
+
+def _workplace_word(value: str) -> str | None:
+    """The workplace in the app's words, the word as written when it isn't one, or None."""
+    word = " ".join(value.strip().lower().split())
+    if not word:
+        return None
+    if word in ("remote", "hybrid", "onsite", "flexible"):
+        return word
+    if _ONSITE.fullmatch(word):
+        return "onsite"
+    if _REMOTE.match(word) and not _NAMES_AN_OFFICE.search(word):
+        return "remote"
+    return value.strip()
 ApplyRecommendation = Literal["apply", "review", "pass"]
 MessageType = Literal[
     "recruiter_email",
@@ -33,6 +53,35 @@ class ParsedJob(BaseModel):
 
     company: str | None = Field(default=None, description="Hiring company, or null if unknown.")
     title: str | None = Field(default=None, description="Role title, or null if unknown.")
+    location: str | None = Field(
+        default=None,
+        description="Where the job is based, in the posting's words, or null if it doesn't say.",
+    )
+    workplace_type: str | None = Field(
+        default=None,
+        description=(
+            "Where the work is done, as one of: remote, hybrid, onsite, flexible. "
+            "Null when the posting doesn't say."
+        ),
+    )
+
+    @field_validator("workplace_type", mode="before")
+    @classmethod
+    def _workplace_in_known_words(cls, value: object) -> str | None:
+        # "On-site", "Fully remote" or "Remote (US)" is still the workplace. Any other word goes
+        # through as written, for the API to call unknown; None is only for a posting that says
+        # nothing. Never a failed parse (#355).
+        return _workplace_word(value) if isinstance(value, str) else None
+
+    @field_validator("location", mode="before")
+    @classmethod
+    def _locations_in_one_line(cls, value: object) -> str | None:
+        # A posting can name several places, and the model may answer with a list: its text
+        # items, joined. Anything that isn't text is None, never a failed parse (#355).
+        if isinstance(value, list):
+            places = [place.strip() for place in value if isinstance(place, str) and place.strip()]
+            return "; ".join(places) or None
+        return value if isinstance(value, str) else None
     required_skills: list[str] = Field(default_factory=list)
     preferred_skills: list[str] = Field(default_factory=list)
     responsibilities: list[str] = Field(default_factory=list)
@@ -43,24 +92,44 @@ class ParsedJob(BaseModel):
 
 
 class SubSignals(BaseModel):
-    """Component sub-signals that contribute to the overall fit score."""
+    """Component sub-signals of the fit score. Null when the inputs don't say (#354)."""
 
-    skills_match: int = Field(
-        default=50,
+    skills_match: int | None = Field(
+        default=None,
         description="Match between candidate skills and required/preferred skills, 0-100.",
     )
-    title_seniority: int = Field(
-        default=50,
+    title_seniority: int | None = Field(
+        default=None,
         description="Match between role title/seniority level and candidate background, 0-100.",
     )
-    salary_fit: int = Field(
-        default=50,
-        description="Alignment between posting compensation and candidate preferences, 0-100.",
+    salary_fit: int | None = Field(
+        default=None,
+        description=(
+            "Posting salary against the candidate's salary floor, 0-100; "
+            "null unless both are stated."
+        ),
     )
-    sponsorship_likelihood: int = Field(
-        default=50,
-        description="Likelihood of H-1B or visa sponsorship if required by candidate, 0-100.",
+    sponsorship_likelihood: int | None = Field(
+        default=None,
+        description=(
+            "Likelihood of the visa sponsorship the candidate needs, 0-100; "
+            "null unless the posting and the candidate both say."
+        ),
     )
+
+
+class MatchedSkill(BaseModel):
+    """A skill the résumé shows (#354)."""
+
+    skill: str = Field(description="The skill's name only, at most four words.")
+    evidence: str = Field(default="", description="Where the résumé shows it, in one sentence.")
+
+
+class MissingSkill(BaseModel):
+    """A skill the posting asks for that the résumé doesn't show (#354)."""
+
+    skill: str = Field(description="The skill's name only, at most four words.")
+    posting_quote: str = Field(default="", description="The posting's words that ask for it.")
 
 
 class FitScoreLLM(BaseModel):
@@ -75,13 +144,13 @@ class FitScoreLLM(BaseModel):
 
     fit_score: int = Field(description="Overall fit, 0-100.")
     sub_signals: SubSignals = Field(default_factory=SubSignals)
-    matched_skills: list[str] = Field(default_factory=list)
-    missing_skills: list[str] = Field(default_factory=list)
+    matched_skills: list[MatchedSkill] = Field(default_factory=list, description="At most 8.")
+    missing_skills: list[MissingSkill] = Field(default_factory=list, description="At most 8.")
     ats_keywords: list[str] = Field(default_factory=list)
     fit_summary: str = ""
     recommended_resume_angle: str = ""
     apply_recommendation: ApplyRecommendation = "review"
-    confidence_score: int = Field(default=50, description="Confidence, 0-100.")
+    confidence_score: int | None = Field(default=None, description="Confidence, 0-100.")
 
 
 class FeedCuratorAnalysis(BaseModel):
@@ -99,7 +168,9 @@ class FeedCuratorAnalysis(BaseModel):
         default="", description="Strategic angle to highlight in applications."
     )
     apply_recommendation: ApplyRecommendation = "review"
-    confidence_score: int = Field(default=50, description="Confidence in this assessment, 0-100.")
+    confidence_score: int | None = Field(
+        default=None, description="Confidence in this assessment, 0-100."
+    )
 
 
 class OutreachDraftLLM(BaseModel):
@@ -264,7 +335,7 @@ class TelemetryInsights(BaseModel):
 class FitScoreResponse(FitScoreLLM):
     # Re-imposed here: whatever the model said, what leaves the service is in range.
     fit_score: int = Field(ge=0, le=100, description="Overall fit, 0-100.")
-    confidence_score: int = Field(default=50, ge=0, le=100)
+    confidence_score: int | None = Field(default=None, ge=0, le=100)
     model_used: str
 
 

@@ -131,7 +131,7 @@ outreachRouter.get('/:id/download-pdf', async (request, response, next) => {
       ? [candidateBasics.location.city, candidateBasics.location.region].filter(Boolean).join(', ')
       : undefined;
 
-    const pdfBuffer = renderCoverLetterPdf({
+    const pdfBuffer = await renderCoverLetterPdf({
       candidateName,
       candidateEmail,
       candidatePhone,

@@ -6,6 +6,7 @@ import { useState } from 'react';
 import { EmptyState } from '@/components/empty-state';
 import { OptionSelect } from '@/components/ui/option-select';
 import { FitScoreRing } from '@/components/fit-score-ring';
+import { LocalDate } from '@/components/local-date';
 import { StatusPill } from '@/components/status-pill';
 import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
@@ -17,11 +18,24 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
-import { isPrerankAnalysis } from '@/lib/analysis-display';
-import { formatDate } from '@/lib/format';
-import { isWithinRecency, RECENCY_OPTIONS, recencyDate, type RecencyWindow } from '@/lib/job-recency';
+import { isPrerankAnalysis, skillNames } from '@/lib/analysis-display';
+import { postedDay } from '@/lib/format';
+import { companyAndLocation } from '@/lib/job-display';
+import { isWithinRecency, RECENCY_OPTIONS, type RecencyWindow } from '@/lib/job-recency';
 import { cn } from '@/lib/utils';
 import type { Job, JobPriority, JobStatus } from '@/types/job';
+
+/** "Matches: Go · Postgres · Kafka +2", or nothing when no skill matched. */
+function MatchesLine({ skills }: { skills: string[] }) {
+  const names = skillNames(skills);
+  if (!names.length) return null;
+  return (
+    <span className="text-muted-foreground mt-1 block truncate text-[11px]">
+      Matches: {names.slice(0, 3).join(' · ')}
+      {names.length > 3 ? ` +${names.length - 3}` : ''}
+    </span>
+  );
+}
 
 /** `outreach_drafted` -> `Outreach drafted`. */
 function titleCase(value: string) {
@@ -99,6 +113,16 @@ export function JobsTable({ jobs, initialQuery = '' }: { jobs: Job[]; initialQue
 
   return (
     <div className="space-y-4">
+      {/* A search from the URL says so until the box is changed; Clear drops it from the URL (#353). */}
+      {initialQuery.trim() && query === initialQuery ? (
+        <p className="bg-muted text-muted-foreground inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs">
+          Filtered by “{initialQuery.trim()}”
+          <span aria-hidden="true">·</span>
+          <Link href="/jobs?tab=pipeline" className="text-foreground font-medium hover:underline">
+            Clear
+          </Link>
+        </p>
+      ) : null}
       {/* No filter controls when there is nothing to filter. */}
       {hasJobs ? (
         <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
@@ -144,7 +168,7 @@ export function JobsTable({ jobs, initialQuery = '' }: { jobs: Job[]; initialQue
       {!hasJobs ? (
         <EmptyState
           title="No jobs yet"
-          description="Add a job (paste its description) and the AI will parse it, score your fit, and draft outreach. You can also load sample data from Settings to explore first."
+          description="Add one by pasting a posting or its URL."
           actionLabel="Add your first job"
           actionHref="/jobs/new"
         />
@@ -208,7 +232,7 @@ export function JobsTable({ jobs, initialQuery = '' }: { jobs: Job[]; initialQue
                           {job.title}
                         </span>
                         <span className="text-muted-foreground block truncate text-xs">
-                          {job.company} · {job.location}
+                          {companyAndLocation(job)}
                         </span>
                         <span className="mt-1 flex flex-wrap items-center gap-1.5">
                           {job.source === 'adzuna' || job.source === 'remotive' ? (
@@ -225,19 +249,14 @@ export function JobsTable({ jobs, initialQuery = '' }: { jobs: Job[]; initialQue
                             </Badge>
                           ) : null}
                           <span className="text-muted-foreground text-[11px]">
-                            Posted {formatDate(recencyDate(job))}
+                            Posted <LocalDate value={postedDay(job.datePosted) ?? job.discoveredAt} />
                           </span>
                         </span>
                         {!job.analysis ? (
                           <span className="text-muted-foreground mt-1 block text-[11px]">Not analysed yet</span>
-                        ) : job.analysis.matchedSkills.length > 0 ? (
-                          <span className="text-muted-foreground mt-1 block truncate text-[11px]">
-                            Matches: {job.analysis.matchedSkills.slice(0, 3).join(' · ')}
-                            {job.analysis.matchedSkills.length > 3
-                              ? ` +${job.analysis.matchedSkills.length - 3}`
-                              : ''}
-                          </span>
-                        ) : null}
+                        ) : (
+                          <MatchesLine skills={job.analysis.matchedSkills} />
+                        )}
                       </span>
                     </Link>
                   </TableCell>
@@ -269,7 +288,7 @@ export function JobsTable({ jobs, initialQuery = '' }: { jobs: Job[]; initialQue
                       row with its header still hidden — an unlabelled field in
                       every tablet-sized card. */}
                   <TableCell className="text-muted-foreground hidden max-w-[16rem] truncate text-sm lg:table-cell">
-                    {job.nextAction || formatDate(job.nextActionDue ?? job.discoveredAt)}
+                    {job.nextAction || <LocalDate value={job.nextActionDue ?? job.discoveredAt} />}
                   </TableCell>
                 </TableRow>
               ))}

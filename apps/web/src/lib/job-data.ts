@@ -45,6 +45,13 @@ export async function loadJobs(): Promise<JobDataResult> {
   }
 }
 
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/** Whether a URL segment can name a job: job ids are UUIDs, so anything else is not found (#353). */
+export function isJobId(value: string): boolean {
+  return UUID.test(value);
+}
+
 export async function loadJob(jobId: string): Promise<JobResult> {
   try {
     return { job: await fetchJob(jobId), error: null };

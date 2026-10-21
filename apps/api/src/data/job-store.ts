@@ -13,7 +13,7 @@ import type {
   UpdateOutreachBody,
   UpdateJobBody,
 } from '@/types';
-import { validateJobAnalysis } from '@/lib/analysis-core';
+import { normalizeAnalysis, validateJobAnalysis } from '@/lib/analysis-core';
 import { deriveAnalyzedNextAction, UNSCORED_NEXT_ACTION } from '@/lib/analysis-workflow';
 import { deriveOutreachJobUpdate } from '@/lib/outreach-workflow';
 import { hasPostgresConnection } from '@/lib/postgres';
@@ -77,9 +77,10 @@ function createBaseJob(userId: string, body: CreateJobBody): JobRecord {
     source: body.source ?? 'manual',
     company: body.company.trim(),
     title: body.title.trim(),
-    location: body.location?.trim() ?? 'Remote',
-    employmentType: body.employmentType?.trim() ?? 'Full-time',
-    workplaceType: body.workplaceType ?? 'remote',
+    // What the posting doesn't state stays unstated, not "Remote" (#355).
+    location: body.location?.trim() ?? '',
+    employmentType: body.employmentType?.trim() ?? '',
+    workplaceType: body.workplaceType ?? null,
     datePosted: body.datePosted,
     discoveredAt: timestamp,
     descriptionText: body.descriptionText.trim(),
@@ -124,7 +125,10 @@ async function loadJobs(): Promise<JobRecord[]> {
       throw new Error('Invalid job store contents');
     }
 
-    jobsCache = parsed as JobRecord[];
+    // Rows saved before #354 hold a 0–1 confidence and skills as "label: why" strings.
+    jobsCache = (parsed as JobRecord[]).map((job) =>
+      job.analysis ? { ...job, analysis: normalizeAnalysis(job.analysis, job.fitScore) } : job,
+    );
   } catch {
     jobsCache = seedState();
     await persistJobs();
@@ -329,13 +333,13 @@ export async function updateJob(
       job.priority = body.priority;
     }
     if (typeof body.notes !== 'undefined') {
-      job.notes = body.notes.trim() || undefined;
+      job.notes = body.notes?.trim() || undefined;
     }
     if (typeof body.fitScore !== 'undefined') {
       job.fitScore = body.fitScore;
     }
     if (typeof body.nextAction !== 'undefined') {
-      job.nextAction = body.nextAction.trim();
+      job.nextAction = body.nextAction?.trim() ?? '';
     }
     if (typeof body.nextActionDue !== 'undefined') {
       job.nextActionDue = body.nextActionDue || undefined;
@@ -522,10 +526,10 @@ export async function saveJobAnalysis(
       throw new Error('Invalid job analysis payload');
     }
 
-    job.analysis = clone(analysis);
     if (fitScore !== undefined) {
       job.fitScore = fitScore;
     }
+    job.analysis = clone(normalizeAnalysis(analysis, job.fitScore));
     // A scored job must stop telling you to score it. Null means "leave it" —
     // a pre-rank, or a next action that is no longer the creation-time prompt.
     const nextAction = deriveAnalyzedNextAction(job.nextAction, analysis.modelUsed, fitScore);

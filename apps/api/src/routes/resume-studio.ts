@@ -1,5 +1,6 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { Router } from 'express';
+import { readBaseResume } from '@/data/base-resume';
 import { getJobById } from '@/data/job-store';
 import { changeBaseResume, getUserProfile } from '@/data/profile-store';
 import {
@@ -10,8 +11,9 @@ import {
   updateResumeVersion,
 } from '@/data/resume-version-store';
 import { AiUnavailableError, normalizeStructuredResume, resolveTailorResume } from '@/lib/agent-client';
-import { renderAtsResumePdf } from '@/lib/ats-resume-pdf';
+import { renderAtsResumePdf, renderResumePdf } from '@/lib/ats-resume-pdf';
 import { requireUser } from '@/lib/auth';
+import { layoutFrozen, withBaseLayout } from '@/lib/resume-layout';
 import { storeResumePdf } from '@/lib/resume-storage';
 import { addSkills, GROUNDING_VERSION, isGrounded, skillGroup, tailorFromAnswer } from '@/lib/tailor/apply';
 import { isInjectionRefusal } from '@/lib/tailor/answer';
@@ -138,27 +140,20 @@ resumeStudioRouter.post('/jobs/:id/tailor', async (request, response, next) => {
     // "Also add them to my base résumé" in the tailor window: after the draft is saved, so a
     // failed tailoring changes nothing. The keywords go on the base résumé as it is now: the
     // user may have saved it in Settings, or another run added keywords, while the AI worked.
-    // The draft is saved either way: a failure here mustn't send the user to tailor again (a
-    // paid call), so it's reported, not thrown.
+    // Both copies, the profile's and the base version's, change together (#408). The draft is
+    // saved either way: a failure here mustn't send the user to tailor again (a paid call), so
+    // it's reported, not thrown.
     let addedToBase = false;
     if (body.addToBase === true && confirmedKeywords.length > 0) {
-      let updatedBase: ReturnType<typeof normalizeStructuredResume> = null;
       const currentBaseVersion = await getBaseResumeVersion(userId).catch(() => null);
       try {
-        updatedBase = await changeBaseResume(userId, currentBaseVersion?.structuredResume ?? null, (current) => {
+        await changeBaseResume(userId, currentBaseVersion?.structuredResume ?? null, (current) => {
           const next = normalizeStructuredResume(current);
           return next && addSkills(next, confirmedKeywords).length > 0 ? next : null;
         });
         addedToBase = true;
       } catch (error) {
         console.error('[resume-studio] adding confirmed keywords to the base résumé failed', error);
-      }
-      // The base version's copy follows the profile's, which Settings shows. Failing here leaves
-      // the keywords on the base résumé, so it's only logged.
-      if (updatedBase && currentBaseVersion) {
-        await updateResumeVersion(userId, currentBaseVersion.id, { structuredResume: updatedBase }).catch((error: unknown) =>
-          console.error("[resume-studio] updating the base version's copy failed", error),
-        );
       }
     }
 
@@ -223,7 +218,8 @@ async function getDraft(userId: string, id: string): Promise<ResumeVersionRecord
  * POST /api/resume-versions/:id/approve
  *
  * Approves a tailored draft the API checked (422 NOT_GROUNDED otherwise): renders the PDF,
- * stores it, and marks the version approved.
+ * stores it, and marks the version approved. A draft prints with the base résumé's layout as
+ * it is now (#415), which is saved on the version: once downloaded, it keeps that layout.
  */
 resumeStudioRouter.post('/resume-versions/:id/approve', async (request, response, next) => {
   try {
@@ -239,13 +235,20 @@ resumeStudioRouter.post('/resume-versions/:id/approve', async (request, response
       return response.status(422).json(NOT_GROUNDED);
     }
 
-    const pdfBuffer = renderAtsResumePdf(version.structuredResume);
+    // Frozen already when its job was marked applied; otherwise the base résumé's layout now.
+    const resume = layoutFrozen(version) ? version.structuredResume : withBaseLayout(version.structuredResume, await readBaseResume(userId));
+    const pdfBuffer = await renderAtsResumePdf(resume);
     const { fileUrl } = await storeResumePdf(version, pdfBuffer);
     // Approved as rendered: a line saved meanwhile (another tab) would make the PDF differ.
     const updated = await updateResumeVersion(
       userId,
       id!,
-      { approved: true, tailoredResumeFileUrl: fileUrl },
+      {
+        approved: true,
+        tailoredResumeFileUrl: fileUrl,
+        structuredResume: resume,
+        basedOn: { ...version.basedOn!, layoutFrozenAt: version.basedOn?.layoutFrozenAt ?? new Date().toISOString() },
+      },
       { expect: { updatedAt: version.updatedAt } },
     );
     if (!updated) {
@@ -415,15 +418,20 @@ resumeStudioRouter.get('/resume-versions/:id/download', async (request, response
       return response.status(409).json({ code: 'NOT_APPROVED', error: 'Approve this draft before downloading it.' });
     }
 
-    const pdfBuffer = renderAtsResumePdf(version.structuredResume);
-    const candidateName = version.structuredResume.basics?.name || 'Resume';
+    const { pdf, pages, unsupported } = await renderResumePdf(version.structuredResume);
+    const candidateName = version.structuredResume.basics?.name?.trim() || 'Resume';
+    const job = version.jobId ? await getJobById(userId, version.jobId) : null;
 
     response.setHeader('Content-Type', 'application/pdf');
+    response.setHeader('X-Page-Count', String(pages));
+    // Characters the font can't print (CJK, emoji), shown as "?" (#429): the web says so.
+    response.setHeader('X-Pdf-Unsupported-Characters', String(unsupported));
     response.setHeader(
       'Content-Disposition',
-      attachmentDisposition(`${candidateName.replace(/\s+/g, '_')}_${version.id}.pdf`),
+      // "First Last – Company.pdf" (no "Inc..pdf").
+      attachmentDisposition(`${candidateName} – ${job?.company?.trim().replace(/\.+$/, '') || 'Résumé'}.pdf`),
     );
-    return response.send(pdfBuffer);
+    return response.send(pdf);
   } catch (error) {
     next(error);
   }

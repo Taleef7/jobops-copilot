@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import { skillNames } from '@/lib/analysis-core';
 import type { JobRecord, WeeklyReportBody, WeeklyReportRecord } from '@/types';
 
 export interface WeeklyReportMetrics {
@@ -47,7 +48,7 @@ function countSkills(jobs: JobRecord[]) {
   const skillCounts = new Map<string, number>();
 
   for (const job of jobs) {
-    for (const skill of job.analysis?.missingSkills ?? []) {
+    for (const skill of skillNames(job.analysis?.missingSkills ?? [])) {
       skillCounts.set(skill, (skillCounts.get(skill) ?? 0) + 1);
     }
   }

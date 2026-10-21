@@ -8,6 +8,7 @@ import type {
   OutreachDraft,
   OutreachMessageType,
   OutreachStatus,
+  ResumeLayout,
   ResumeVersionRecord,
   StructuredResume,
   WeeklyReport,
@@ -87,10 +88,11 @@ export interface CreateJobPayload {
 export interface UpdateJobPayload {
   status?: Job['status'];
   priority?: Job['priority'];
-  notes?: string;
+  /** null clears it, as for nextAction and nextActionDue; left out, it's unchanged. */
+  notes?: string | null;
   fitScore?: number | null;
-  nextAction?: string;
-  nextActionDue?: string;
+  nextAction?: string | null;
+  nextActionDue?: string | null;
 }
 
 export interface ParseJobPayload {
@@ -98,10 +100,23 @@ export interface ParseJobPayload {
   descriptionText: string;
 }
 
+/** A salary as the API reads it from a posting (#355). */
+export interface PostedSalary {
+  min: number | null;
+  max: number | null;
+  currency: string;
+}
+
 export interface ParseJobResponse {
   job_id: string | null;
   company: string | null;
   title: string | null;
+  /** Null when the posting doesn't say. Left out when unknown: an agent or API from before
+   *  #355, or a workplace word the app doesn't know. */
+  location?: string | null;
+  workplace_type?: 'remote' | 'hybrid' | 'onsite' | 'flexible' | null;
+  /** The salary as the store will save it from this description, or null. */
+  salary?: PostedSalary | null;
   required_skills: string[];
   preferred_skills: string[];
   responsibilities: string[];
@@ -123,11 +138,13 @@ export interface ScoreFitResponse {
   fit_score: number;
   matched_skills: string[];
   missing_skills: string[];
+  matched_skill_details?: { skill: string; evidence: string }[];
+  missing_skill_details?: { skill: string; posting_quote: string }[];
   ats_keywords: string[];
   fit_summary: string;
   recommended_resume_angle: string;
   apply_recommendation: 'apply' | 'review' | 'pass';
-  confidence_score: number;
+  confidence_score: number | null;
   model_used: string;
 }
 
@@ -508,6 +525,59 @@ export async function saveBaseResume(baseResume: StructuredResume, source?: Resu
   return response.baseResume;
 }
 
+/**
+ * Save the base résumé's layout (#415): its sections' order, headings and visibility, or the
+ * page size. Only the fields sent change; answers with the whole layout as saved.
+ */
+export async function saveResumeLayout(patch: ResumeLayout): Promise<ResumeLayout> {
+  const response = await requestJson<{ layout: ResumeLayout }>('/api/profile/base-resume/layout', {
+    method: 'PATCH',
+    body: JSON.stringify(patch),
+  });
+  return response.layout;
+}
+
+export interface ResumePdf {
+  blob: Blob;
+  /** How many pages it runs to. */
+  pages: number;
+  /** Characters its font can't print (CJK, emoji), shown as "?" (#429). */
+  unsupported: number;
+}
+
+/** The saved base résumé's PDF, in its layout (#415). The API renders it and stores nothing. */
+export async function fetchBaseResumePdf(): Promise<ResumePdf> {
+  let res: Response;
+  try {
+    res = await fetch('/api/proxy/api/profile/base-resume/pdf', { cache: 'no-store', signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS) });
+  } catch (error) {
+    throw requestFailure(error);
+  }
+  if (!res.ok) {
+    const errorData = (await res.json().catch(() => ({}))) as { error?: string };
+    throw new ApiRequestError(errorData.error || "The PDF couldn't be made. Try again in a moment.", res.status);
+  }
+  return {
+    blob: await res.blob(),
+    pages: Number(res.headers.get('x-page-count') ?? 0) || 0,
+    unsupported: Number(res.headers.get('x-pdf-unsupported-characters') ?? 0) || 0,
+  };
+}
+
+/** Downloads the saved base résumé's PDF as `filename` ("First Last – Résumé.pdf"). */
+export async function downloadBaseResumePdf(filename: string): Promise<{ pages: number; unsupported: number }> {
+  const { blob, pages, unsupported } = await fetchBaseResumePdf();
+  const url = window.URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  window.URL.revokeObjectURL(url);
+  document.body.removeChild(a);
+  return { pages, unsupported };
+}
+
 /** A parsed field that looks misread (#350), held on the confirmation screen. */
 export interface ResumeFlag {
   /** Where it is, e.g. `work[0].company`. */
@@ -596,12 +666,17 @@ export async function reviewResumeChange(
 /**
  * Trigger gated browser download for an approved resume version PDF.
  */
-export async function downloadResumeVersion(versionId: string, filename?: string): Promise<void> {
+/**
+ * Downloads an approved tailored résumé. `unsupported`: characters the PDF's font can't print
+ * (CJK, emoji), shown as "?" (#429), so the page can say so.
+ */
+export async function downloadResumeVersion(versionId: string, filename?: string): Promise<{ unsupported: number }> {
   const res = await fetch(`/api/proxy/api/resume-versions/${versionId}/download`);
   if (!res.ok) {
     const errorData = await res.json().catch(() => ({ error: 'Download failed' }));
     throw new Error(errorData.error || `Download failed with status ${res.status}`);
   }
+  const unsupported = Number(res.headers.get('x-pdf-unsupported-characters') ?? 0) || 0;
   const blob = await res.blob();
   const url = window.URL.createObjectURL(blob);
   const a = document.createElement('a');
@@ -611,6 +686,7 @@ export async function downloadResumeVersion(versionId: string, filename?: string
   a.click();
   window.URL.revokeObjectURL(url);
   document.body.removeChild(a);
+  return { unsupported };
 }
 
 /**
@@ -813,6 +889,12 @@ export interface ExtractedJobResponse {
   location?: string;
   descriptionText?: string;
   workplaceType?: 'remote' | 'hybrid' | 'onsite' | 'flexible';
+  /**
+   * For the Add job review (#355): the salary as the store will save it from this
+   * description, or null. Left out when there's no description, only the page's meta
+   * description, or the API is from before #355.
+   */
+  salary?: PostedSalary | null;
   source: 'jsonld' | 'opengraph' | 'heuristic' | 'none';
 }
 

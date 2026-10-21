@@ -1,5 +1,6 @@
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
+import type { PoolClient } from 'pg';
 import * as postgresStore from '@/data/resume-version-store.postgres';
 import { hasPostgresConnection } from '@/lib/postgres';
 import type { ResumeVersionRecord } from '@/types';
@@ -65,13 +66,14 @@ async function runExclusive<T>(operation: () => Promise<T>): Promise<T> {
   }
 }
 
-export async function insertResumeVersion(record: ResumeVersionRecord): Promise<ResumeVersionRecord> {
+// `client`, here and below: a Postgres transaction to write in (#408). File mode ignores it.
+export async function insertResumeVersion(record: ResumeVersionRecord, client?: PoolClient): Promise<ResumeVersionRecord> {
   // Every query filters on the owner, so a version without one could never be shown (#351).
   if (!record.userId?.trim()) {
     throw new Error('A résumé version needs an owner (userId).');
   }
   if (hasPostgresConnection()) {
-    return postgresStore.insertResumeVersion(record);
+    return postgresStore.insertResumeVersion(record, client);
   }
 
   return runExclusive(async () => {
@@ -117,9 +119,9 @@ export async function listResumeVersionsForUser(userId: string): Promise<ResumeV
   return items.filter((item) => item.userId === userId).map(clone);
 }
 
-export async function getBaseResumeVersion(userId: string): Promise<ResumeVersionRecord | null> {
+export async function getBaseResumeVersion(userId: string, client?: PoolClient): Promise<ResumeVersionRecord | null> {
   if (hasPostgresConnection()) {
-    return postgresStore.getBaseResumeVersion(userId);
+    return postgresStore.getBaseResumeVersion(userId, client);
   }
 
   const items = await ensureLoaded();
@@ -140,9 +142,10 @@ export async function updateResumeVersion(
   id: string,
   patch: Partial<ResumeVersionRecord>,
   options: UpdateOptions = {},
+  client?: PoolClient,
 ): Promise<ResumeVersionRecord | null> {
   if (hasPostgresConnection()) {
-    return postgresStore.updateResumeVersion(userId, id, patch, options);
+    return postgresStore.updateResumeVersion(userId, id, patch, options, client);
   }
 
   return runExclusive(async () => {

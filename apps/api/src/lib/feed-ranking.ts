@@ -123,19 +123,18 @@ export function rankFeedJobs(
     }
 
     const normCompany = job.company.trim().toLowerCase();
+    // A signal nobody measured stays unknown, and a job with no score gets no adjusted
+    // score (#354).
     const rawSignals = job.analysis?.subSignals;
     const subSignals = {
-      skillsMatch: typeof rawSignals?.skillsMatch === 'number' ? rawSignals.skillsMatch : 50,
-      titleSeniority: typeof rawSignals?.titleSeniority === 'number' ? rawSignals.titleSeniority : 50,
-      salaryFit: typeof rawSignals?.salaryFit === 'number' ? rawSignals.salaryFit : 50,
+      skillsMatch: typeof rawSignals?.skillsMatch === 'number' ? rawSignals.skillsMatch : null,
+      titleSeniority: typeof rawSignals?.titleSeniority === 'number' ? rawSignals.titleSeniority : null,
+      salaryFit: typeof rawSignals?.salaryFit === 'number' ? rawSignals.salaryFit : null,
       sponsorshipLikelihood:
-        typeof rawSignals?.sponsorshipLikelihood === 'number' ? rawSignals.sponsorshipLikelihood : 50,
+        typeof rawSignals?.sponsorshipLikelihood === 'number' ? rawSignals.sponsorshipLikelihood : null,
     };
 
-    let baseScore = job.fitScore;
-    if (baseScore === null || typeof baseScore === 'undefined') {
-      baseScore = subSignals.skillsMatch ?? 50;
-    }
+    const baseScore = job.fitScore ?? subSignals.skillsMatch;
 
     const rankReasons: string[] = [];
     let delta = 0;
@@ -199,10 +198,10 @@ export function rankFeedJobs(
       rankReasons.push('Posting likely expired or closed (-30)');
     }
 
-    const adjustedScore = Math.max(0, Math.min(100, Math.round(baseScore + delta)));
+    const adjustedScore = baseScore == null ? null : Math.max(0, Math.min(100, Math.round(baseScore + delta)));
 
-    // Minimum score filter
-    if (typeof options.minScore === 'number' && adjustedScore < options.minScore) {
+    // Minimum score filter: an unscored job can't meet one.
+    if (typeof options.minScore === 'number' && (adjustedScore == null || adjustedScore < options.minScore)) {
       continue;
     }
 

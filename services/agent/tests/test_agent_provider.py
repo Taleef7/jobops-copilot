@@ -332,3 +332,46 @@ def test_an_openai_row_for_another_model_keeps_its_temperature(monkeypatch):
     assert captured["temperature"] == provider.settings.llm_temperature
     assert captured["top_p"] == 0.9
     assert "use_responses_api" not in captured
+
+
+# --- #413: the canary makes one attempt per call ---------------------------------------
+#
+# The SDKs retry a failed or timed-out request (OpenAI and Anthropic twice), so one canary
+# call could take 3 times the request timeout and its callers gave up first. The canary's
+# model is built with no retries and is otherwise the model every chain uses.
+
+_KEYS = {
+    "openai": {"openai_api_key": "sk-test-oa"},
+    "anthropic": {"anthropic_api_key": "sk-ant-test"},
+    "azure_openai": {"azure_openai_api_key": "az-test", "azure_openai_endpoint": "https://e"},
+    "google_genai": {"google_gemini_api_key": "g-test"},
+}
+
+
+@pytest.fixture()
+def fresh_env_model():
+    provider.get_model.cache_clear()
+    yield
+    provider.get_model.cache_clear()
+
+
+@pytest.mark.parametrize(
+    ("llm_provider", "max_retries"),
+    # langchain-google-genai's max_retries counts attempts (older google-genai read 0 as its
+    # default of 5), so one attempt is 1; the others count retries.
+    [("openai", 0), ("anthropic", 0), ("azure_openai", 0), ("google_genai", 1)],
+)
+def test_one_attempt_turns_off_the_retries_and_nothing_else(
+    monkeypatch, fresh_env_model, llm_provider, max_retries
+):
+    captured = _capture(monkeypatch)
+    monkeypatch.setattr(provider.settings, "llm_provider", llm_provider)
+    for name, value in _KEYS[llm_provider].items():
+        monkeypatch.setattr(provider.settings, name, value)
+
+    provider.get_model()
+    user_facing = dict(captured)
+    provider.get_model(one_attempt=True)
+
+    assert "max_retries" not in user_facing, "user-facing calls keep the SDK's own retries"
+    assert captured == {**user_facing, "max_retries": max_retries}

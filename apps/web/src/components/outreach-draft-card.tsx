@@ -1,13 +1,16 @@
 'use client';
 
 import { useState } from 'react';
+import { DraftLengthWarning } from '@/components/draft-length-warning';
 import { cn } from '@/lib/utils';
+import type { OutreachMessageType } from '@/types/job';
 
 interface OutreachDraftCardProps {
   draftText: string;
+  messageType: OutreachMessageType;
 }
 
-export function OutreachDraftCard({ draftText }: OutreachDraftCardProps) {
+export function OutreachDraftCard({ draftText, messageType }: OutreachDraftCardProps) {
   const [expanded, setExpanded] = useState(false);
 
   return (
@@ -21,6 +24,7 @@ export function OutreachDraftCard({ draftText }: OutreachDraftCardProps) {
       >
         {draftText}
       </p>
+      <DraftLengthWarning messageType={messageType} text={draftText} />
       <button
         type="button"
         aria-expanded={expanded}

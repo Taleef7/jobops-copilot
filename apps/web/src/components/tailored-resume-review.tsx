@@ -4,6 +4,7 @@ import Link from 'next/link';
 import { useEffect, useState, useSyncExternalStore } from 'react';
 import { Loader2, Plus, X } from 'lucide-react';
 import { toast } from 'sonner';
+import { LocalDate } from '@/components/local-date';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
@@ -39,7 +40,6 @@ interface TailorOptions {
 const MAX_KEYWORDS = 25;
 const MAX_KEYWORD_LENGTH = 60;
 
-const day = (iso: string | null | undefined) => (iso ? iso.slice(0, 10) : 'unknown date');
 const modelName = (model: string) => model.split(':').pop() ?? model;
 
 interface TailorError {
@@ -183,6 +183,7 @@ export function TailoredResumeReview({ jobId, jobCompany, initialVersions = [] }
           ) : null}
           <VersionReview
             version={version}
+            company={jobCompany}
             onChange={setVersion}
             saving={state.saving}
             onSaving={setSaving}
@@ -426,6 +427,7 @@ function TailorWindow({
 
 function VersionReview({
   version,
+  company,
   onChange,
   saving,
   onSaving,
@@ -434,6 +436,8 @@ function VersionReview({
   onTailorAgain,
 }: {
   version: ResumeVersionRecord;
+  /** The job's company: the download is named "First Last – Company.pdf". */
+  company: string;
   onChange: (version: ResumeVersionRecord) => void;
   /** One line at a time: each save changes the whole draft, and Download waits for it. */
   saving: boolean;
@@ -456,8 +460,14 @@ function VersionReview({
         current = (await approveResumeVersion(current.id)).version;
         onChange(current);
       }
-      const name = current.structuredResume.basics?.name || 'Resume';
-      await downloadResumeVersion(current.id, `${name.replace(/\s+/g, '_')}_tailored.pdf`);
+      const name = current.structuredResume.basics?.name?.trim() || 'Resume';
+      // "First Last – Company.pdf" (no "Inc..pdf").
+      const result = await downloadResumeVersion(current.id, `${name} – ${company.trim().replace(/\.+$/, '') || 'Résumé'}.pdf`);
+      if (result?.unsupported) {
+        toast.warning(
+          `${result.unsupported} characters in your résumé can't be printed in its font (Chinese, Japanese, Korean, Arabic, emoji…) and show as "?".`,
+        );
+      }
     } catch (err: unknown) {
       toast.error(err instanceof Error ? err.message : "The PDF couldn't be downloaded.");
     } finally {
@@ -486,8 +496,8 @@ function VersionReview({
             <h3 className="font-heading text-base font-semibold">Tailored résumé</h3>
             {basis ? (
               <p className="text-muted-foreground text-xs">
-                Based on your base résumé saved {day(basis.baseUpdatedAt)} and this posting · {modelName(basis.model)} ·
-                tailored {day(basis.createdAt)}
+                Based on your base résumé saved <LocalDate value={basis.baseUpdatedAt} fallback="unknown date" /> and
+                this posting · {modelName(basis.model)} · tailored <LocalDate value={basis.createdAt} />
               </p>
             ) : null}
           </div>
@@ -509,6 +519,15 @@ function VersionReview({
         ) : null}
         {version.approved ? (
           <p className="text-muted-foreground text-xs">Downloaded. To change it, tailor again.</p>
+        ) : basis?.layoutFrozenAt ? (
+          <p className="text-muted-foreground text-xs">
+            The PDF keeps the section order and headings your résumé had when this job moved to Applied or later.
+          </p>
+        ) : basis ? (
+          // #415: a draft prints in the base résumé's layout until it's downloaded.
+          <p className="text-muted-foreground text-xs">
+            The PDF uses the section order and headings set in Settings → Résumé until you download it.
+          </p>
         ) : null}
         {basis?.gaps?.length ? (
           <div className="space-y-1">

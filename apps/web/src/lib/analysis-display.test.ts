@@ -3,7 +3,9 @@ import {
   PRERANK_MODEL,
   isPrerankAnalysis,
   isSkillLabelTruncated,
+  skillChips,
   skillLabel,
+  skillNames,
 } from './analysis-display';
 
 describe('isPrerankAnalysis', () => {
@@ -57,5 +59,22 @@ describe('skillLabel', () => {
 
   it('reports truncation so callers can expose the original', () => {
     expect(isSkillLabelTruncated('"Intelligent automation platforms" (implied)')).toBe(true);
+  });
+});
+
+// #354: web and API deploy separately, so skills may arrive as labels or as objects.
+describe('skillNames and skillChips', () => {
+  it('give the labels from strings or objects, leaving out "Other"', () => {
+    expect(skillNames(['Go', 'Other', { skill: 'Kafka', evidence: 'x' }])).toEqual(['Go', 'Kafka']);
+  });
+
+  it('use the details when the API sends them, and the labels when it does not', () => {
+    expect(skillChips(['Go'], [{ skill: 'Go', evidence: 'Built the billing API in Go.' }])).toEqual([
+      { label: 'Go', detail: 'Built the billing API in Go.' },
+    ]);
+    expect(skillChips(['Kafka'], [{ skill: 'Kafka', postingQuote: 'Kafka in production' }])).toEqual([
+      { label: 'Kafka', detail: 'Kafka in production' },
+    ]);
+    expect(skillChips(['Go', 'Kafka'], undefined)).toEqual([{ label: 'Go' }, { label: 'Kafka' }]);
   });
 });
