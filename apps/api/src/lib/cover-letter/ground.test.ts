@@ -28,6 +28,16 @@ const ctx = (overrides: Partial<LetterContext> = {}): LetterContext => ({
 /** One paragraph of one sentence, checked. */
 const check = (sentence: string, overrides: Partial<LetterContext> = {}) => groundLetter([sentence], ctx(overrides));
 
+/**
+ * What the check does with a sentence (#416, the owner's rule): drops what it can prove, flags
+ * for the user what it can only guess, and keeps the rest unmarked.
+ */
+const classOf = (sentence: string, overrides: Partial<LetterContext> = {}): 'drop' | 'flag' | 'kept' => {
+  const result = check(sentence, overrides);
+  if (result.paragraphs.length === 0) return 'drop';
+  return result.checks.some((found) => found.severity === 'flag') ? 'flag' : 'kept';
+};
+
 test('sentences drawn from the résumé are kept as written', () => {
   const sentence =
     'At Globex I built the billing API in Go serving 2,000 merchants, and I reduced p95 latency by 40% with Redis caching.';
@@ -83,23 +93,22 @@ test('the company and the role, as the posting names them, are not claims', () =
   assert.deepEqual(check(numbered, { job: { ...JOB, title: 'Software Engineer 2', company: '3M' } }).paragraphs, [numbered]);
 });
 
-test('claiming to have worked at the company is dropped', () => {
+test('claiming to have worked at the company is flagged', () => {
   for (const sentence of ['I worked at Acme Pay on payment APIs in Go.', 'During my time at Acme Pay I built payment APIs.']) {
-    const result = check(sentence);
-    assert.deepEqual(result.paragraphs, [], sentence);
-    assert.equal(result.checks[0]!.issues[0]!.code, 'NEW_ENTITY', sentence);
+    assert.equal(classOf(sentence), 'flag', sentence);
+    assert.equal(check(sentence).checks[0]!.issues[0]!.code, 'NEW_ENTITY', sentence);
   }
 });
 
-test('an invented employer, degree or title is dropped', () => {
-  const cases: Array<[string, string]> = [
-    ['Before Globex, I built payment APIs at Hooli.', 'NEW_TERM'],
-    ["I hold a master's degree in Computer Science.", 'NEW_ENTITY'],
-    ['As a senior backend engineer, I set the direction for payment APIs.', 'NEW_SENIORITY'],
+test('an invented degree is dropped; an invented employer or title is flagged', () => {
+  const cases: Array<[string, string, 'drop' | 'flag']> = [
+    ['Before Globex, I built payment APIs at Hooli.', 'NEW_TERM', 'flag'],
+    ["I hold a master's degree in Computer Science.", 'NEW_ENTITY', 'drop'],
+    ['As a senior backend engineer, I set the direction for payment APIs.', 'NEW_SENIORITY', 'flag'],
   ];
-  for (const [sentence, code] of cases) {
+  for (const [sentence, code, finding] of cases) {
     const result = check(sentence);
-    assert.deepEqual(result.paragraphs, [], sentence);
+    assert.equal(classOf(sentence), finding, sentence);
     assert.ok(
       result.checks[0]!.issues.some((issue) => issue.code === code),
       `${sentence}: ${JSON.stringify(result.checks)}`,
@@ -185,11 +194,10 @@ test("the posting's title is the role being applied for, never a job the candida
     'I have been the Senior Backend Engineer on the billing API at Globex.',
   ]) {
     const result = check(sentence, { job: senior });
-    assert.deepEqual(result.paragraphs, [], sentence);
+    assert.equal(classOf(sentence, { job: senior }), 'flag', sentence);
     assert.ok(result.checks[0]!.issues.some((issue) => issue.code === 'NEW_SENIORITY'), JSON.stringify(result.checks));
   }
-  const lead = check('I was the Tech Lead for billing at Globex.', { job: { ...JOB, title: 'Tech Lead' } });
-  assert.deepEqual(lead.paragraphs, []);
+  assert.equal(classOf('I was the Tech Lead for billing at Globex.', { job: { ...JOB, title: 'Tech Lead' } }), 'flag');
 });
 
 test('the role in application phrasing is kept, as the posting writes it or shortened', () => {
@@ -217,11 +225,10 @@ test('a company named like a tool: naming the company is fine, claiming the tool
   assert.deepEqual(check('I have built checkout flows on Stripe for years.', { job: { ...JOB, company: 'Stripe' } }).paragraphs, []);
 });
 
-test('ties to the company are claims; hoping to work there is not', () => {
+test('ties to the company are flagged; hoping to work there is not', () => {
   for (const sentence of ['I have partnered with Acme Pay on integrations before.', 'As a longtime Acme Pay customer, I know the product well.']) {
-    const result = check(sentence);
-    assert.deepEqual(result.paragraphs, [], sentence);
-    assert.equal(result.checks[0]!.issues[0]!.code, 'NEW_ENTITY', sentence);
+    assert.equal(classOf(sentence), 'flag', sentence);
+    assert.equal(check(sentence).checks[0]!.issues[0]!.code, 'NEW_ENTITY', sentence);
   }
   for (const sentence of [
     'I look forward to working at Acme Pay.',
@@ -235,20 +242,16 @@ test('ties to the company are claims; hoping to work there is not', () => {
   }
 });
 
-test("a credential, tool or client from the posting, claimed as the candidate's, is dropped", () => {
+test("a credential claimed is dropped; a tool or client from the posting, claimed, is flagged", () => {
   const job = {
     ...JOB,
     descriptionText: `${JOB.descriptionText} PMP certification preferred. We run Temporal workflows for clients like Walmart.`,
   };
-  for (const sentence of [
-    'I hold the PMP certification.',
-    'I hold an active security clearance.',
-    'I am a licensed professional engineer.',
-    'I have deep experience with Temporal.',
-    'I worked with Walmart on payment APIs in Go.',
-  ]) {
-    const result = check(sentence, { job });
-    assert.deepEqual(result.paragraphs, [], `${sentence}: ${JSON.stringify(result.checks)}`);
+  for (const sentence of ['I hold the PMP certification.', 'I hold an active security clearance.', 'I am a licensed professional engineer.']) {
+    assert.equal(classOf(sentence, { job }), 'drop', sentence);
+  }
+  for (const sentence of ['I have deep experience with Temporal.', 'I worked with Walmart on payment APIs in Go.']) {
+    assert.equal(classOf(sentence, { job }), 'flag', sentence);
   }
   // Wanting to work on the posting's product, or liking it, is not a claim: kept, and marked.
   for (const sentence of ['I would enjoy working on PayLink with your team.', 'I am excited about PayLink.']) {
@@ -298,7 +301,7 @@ test('a name as the first word of a sentence is checked too', () => {
     'Amazon promoted me twice.',
   ]) {
     const result = check(sentence);
-    assert.deepEqual(result.paragraphs, [], `${sentence}: kept`);
+    assert.notEqual(classOf(sentence), 'kept', sentence);
     assert.ok(result.checks[0]!.issues.some((issue) => issue.code === 'NEW_TERM'), sentence);
   }
   for (const sentence of [
@@ -315,7 +318,7 @@ test('a name as the first word of a sentence is checked too', () => {
   }
 });
 
-test('any mention of the company in a sentence about the candidate is a claim, unless it applies or hopes', () => {
+test('experience with the company, in a sentence about the candidate, is flagged unless it applies or hopes', () => {
   for (const sentence of [
     'I am a former employee of Acme Pay.',
     'Acme Pay was my employer.',
@@ -327,9 +330,8 @@ test('any mention of the company in a sentence about the candidate is a claim, u
     'I know the Acme Pay codebase well.',
     'I worked at ACME PAY for a while.',
   ]) {
-    const result = check(sentence);
-    assert.deepEqual(result.paragraphs, [], `${sentence}: kept`);
-    assert.equal(result.checks[0]!.issues[0]!.code, 'NEW_ENTITY', sentence);
+    assert.equal(classOf(sentence), 'flag', sentence);
+    assert.equal(check(sentence).checks[0]!.issues[0]!.code, 'NEW_ENTITY', sentence);
   }
   for (const sentence of [
     'I am applying for the Backend Engineer role at Acme Pay.',
@@ -351,7 +353,7 @@ test("lowercase employers, and the posting's tools in any case, are caught in cl
     'I have used temporal workflows extensively.',
     'I have deep experience with snowflake.',
   ]) {
-    assert.deepEqual(check(sentence, { job: POSTING_TOOLS }).paragraphs, [], sentence);
+    assert.notEqual(classOf(sentence, { job: POSTING_TOOLS }), 'kept', sentence);
   }
   const honest = 'I worked at Globex on the billing API in Go.';
   assert.deepEqual(check(honest, { job: POSTING_TOOLS }).paragraphs, [honest]);
@@ -359,7 +361,7 @@ test("lowercase employers, and the posting's tools in any case, are caught in cl
 
 test('a confirmed keyword counts as a whole phrase only', () => {
   const confirmed = { confirmedKeywords: ['Google Cloud'] };
-  assert.deepEqual(check('I worked at Google for years.', confirmed).paragraphs, []);
+  assert.equal(classOf('I worked at Google for years.', confirmed), 'flag');
   const cloud = 'I moved the billing API to Google Cloud at Globex.';
   const result = check(cloud, confirmed);
   assert.deepEqual(result.paragraphs, [cloud], JSON.stringify(result.checks));

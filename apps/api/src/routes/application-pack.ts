@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { listAgentOutputs, saveAgentOutput } from '@/data/agent-output-store';
 import { hashQuestion, listApplicationAnswers } from '@/data/application-answer-store';
 import { getCoverLetter } from '@/data/cover-letter-store';
+import { settledParagraphs } from '@/lib/cover-letter/ground';
 import { getJobById } from '@/data/job-store';
 import { getUserProfile } from '@/data/profile-store';
 import { getBaseResumeVersion, listResumeVersionsForJob } from '@/data/resume-version-store';
@@ -197,9 +198,8 @@ export async function buildApplicationPack(userId: string, job: JobRecord): Prom
     resumeVersionId: selectedResume?.id ?? null,
     resumeFileUrl: selectedResume?.tailoredResumeFileUrl ?? null,
     coverLetterId: coverLetter?.id ?? coverLetterDraft?.id ?? null,
-    coverLetterText: coverLetter
-      ? coverLetter.paragraphs.map((paragraph) => paragraph.text).join('\n\n')
-      : (coverLetterDraft?.draftText ?? null),
+    // Flagged sentences the user hasn't kept are left out: nothing unconfirmed leaves the app.
+    coverLetterText: coverLetter ? settledParagraphs(coverLetter).join('\n\n') : (coverLetterDraft?.draftText ?? null),
     contactBlock: buildContactBlock(baseResume),
     answers,
     flaggedQuestions,

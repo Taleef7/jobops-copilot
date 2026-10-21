@@ -731,6 +731,24 @@ export async function editCoverLetterParagraph(
   return response.coverLetter;
 }
 
+/**
+ * Keep a flagged sentence, or remove it from its paragraph (#416). `expectedText` is that paragraph
+ * as the page shows it: the API refuses (409) if it changed.
+ */
+export async function resolveCoverLetterFlag(
+  jobId: string,
+  checkId: string,
+  action: 'keep' | 'remove',
+  expectedText: string,
+  updatedAt: string,
+): Promise<CoverLetterRecord> {
+  const response = await requestJson<{ coverLetter: CoverLetterRecord }>(
+    `/api/jobs/${jobId}/cover-letter/checks/${encodeURIComponent(checkId)}`,
+    { method: 'PATCH', body: JSON.stringify({ action, expectedText, updatedAt }) },
+  );
+  return response.coverLetter;
+}
+
 /** Remove one paragraph of the letter (not the last), the one the page shows as `expectedText`. */
 export async function removeCoverLetterParagraph(
   jobId: string,

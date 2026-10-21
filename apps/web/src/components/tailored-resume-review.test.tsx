@@ -26,7 +26,7 @@ vi.mock('@/lib/api', () => ({
 }));
 
 import { TailoredResumeReview, resetTailorStoreForTests } from './tailored-resume-review';
-import { resetCoverLetterStoreForTests } from './cover-letter-review';
+import { resetCoverLetterStoreForTests, tailorKeywordsOf } from './cover-letter-review';
 
 afterEach(() => {
   vi.clearAllMocks();
@@ -533,5 +533,22 @@ describe('TailoredResumeReview', () => {
     await user.click(within(window).getByRole('button', { name: 'Tailor résumé' }));
     expect(tailorResumeForJob).toHaveBeenCalledTimes(1);
     expect(writeCoverLetter).not.toHaveBeenCalled();
+  });
+  it("the cover letter remembers a tailoring's keywords only when the tailoring succeeds", async () => {
+    const user = userEvent.setup();
+    getTailorKeywords.mockResolvedValue({ fitRead: true, keywords: [{ term: 'Kafka', onResume: false }] });
+    tailorResumeForJob.mockRejectedValueOnce(Object.assign(new Error("The AI couldn't answer this time."), { status: 503 }));
+    tailorResumeForJob.mockResolvedValueOnce({ version: draft });
+    renderReview();
+
+    await user.click(screen.getByRole('button', { name: 'Tailor résumé' }));
+    const window = await screen.findByRole('dialog', { name: 'Tailor your résumé' });
+    await user.click(await within(window).findByRole('button', { name: 'Kafka' }));
+    await user.click(within(window).getByRole('button', { name: 'Tailor with 1 keyword' }));
+    await screen.findByRole('alert');
+    expect(tailorKeywordsOf('job-1')).toBeUndefined();
+
+    await user.click(screen.getByRole('button', { name: 'Try again' }));
+    await waitFor(() => expect(tailorKeywordsOf('job-1')).toEqual(['Kafka']));
   });
 });

@@ -81,7 +81,8 @@ const ROUGH: Record<string, [number, number]> = {
 const ROUGH_PHRASE = /\b(tens|hundreds)\s+of\s+(thousands|millions|billions)\b/gi;
 const ROUGH_WORD = /\b(dozens|hundreds|thousands|millions|billions)\b/gi;
 // "doubled", "tripling", "halved", "twice", "by half".
-const MULTIPLIER = /\b(?:(doubl|tripl|quadrupl|halv)(?:e|ed|es|ing)|(twice)|(?:by|in) (half))\b/gi;
+// "Doubled down" is an idiom, not a multiple.
+const MULTIPLIER = /\b(?:(doubl|tripl|quadrupl|halv)(?:e|ed|es|ing)(?!\s+down\b)|(twice)|(?:by|in) (half))\b/gi;
 const MULTIPLIED: Record<string, [number, string]> = {
   doubl: [2, 'x'], tripl: [3, 'x'], quadrupl: [4, 'x'], halv: [50, '%'], twice: [2, 'x'], half: [50, '%'],
 };

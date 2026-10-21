@@ -1,6 +1,5 @@
-import type { CoverLetterCheck, GroundingIssue, JobRecord, StructuredResume } from '@/types';
+import type { CoverLetterCheck, CoverLetterRecord, GroundingIssue, JobRecord, StructuredResume } from '@/types';
 import {
-  BLOCKING,
   companyName,
   degreesIn,
   heldTitles,
@@ -37,6 +36,12 @@ import { escapeRegex, mixedScriptWords, norm, plain, stem, wordStems } from '@/l
  * - a sentence about the company, with no "I" in it, may use the posting's numbers;
  * - a credential the résumé doesn't name ("licensed", "clearance") and a gap to fill in
  *   ("[Start Date]") are dropped.
+ *
+ * Drop or flag (the owner's decision, after the third review): a finding the check can prove is
+ * dropped: a number, a date, a link or email address, a credential, a posting skill the résumé
+ * lacks, a placeholder. A finding it can only guess from the words is flagged: kept in the letter,
+ * highlighted, and the PDF waits until the user keeps or removes it. Names, ties to the company,
+ * employers, languages, titles, awards, roles and leadership are flags.
  */
 
 export interface LetterContext {
@@ -58,7 +63,8 @@ export interface GroundedLetter {
 /** Set on a letter by this check (its basis records which check it passed). */
 export const LETTER_GROUNDING_VERSION = 1;
 
-const LETTER_BLOCKING = new Set<GroundingIssue['code']>([...BLOCKING, 'PLACEHOLDER']);
+type Severity = 'drop' | 'flag';
+const issue = (severity: Severity, found: Omit<GroundingIssue, 'severity'>): GroundingIssue => ({ ...found, severity });
 
 interface Prepared {
   vocab: Vocab;
@@ -70,6 +76,8 @@ interface Prepared {
   known: Set<string>;
   /** The posting's names: words it writes with a capital mid-sentence that the résumé lacks. */
   postingNames: Set<string>;
+  /** The résumé's employers, schools and projects, as word stems. */
+  employers: Set<string>;
   /** The candidate's own email addresses and links: the only ones a letter may give. */
   contacts: { emails: Set<string>; links: Set<string> };
   /** Words capitalised mid-sentence in the letter or the posting: what a first word may be a name by. */
@@ -119,7 +127,7 @@ const COMMON = new Set(
     'to today together toward towards two ultimately under unlike until upon us we well what when where whether ' +
     'which while who why with within without working yes yet you your ' +
     'forefront heart center centre core intersection helm start end top scale risk home ease work school ' +
-    'university college length best night times years months weeks decades'
+    'university college length best night times years months weeks decades forces'
   ).split(' '),
 );
 
@@ -147,23 +155,24 @@ function postingNamesOf(job: LetterContext['job'], known: Set<string>): Set<stri
   return names;
 }
 
-const EMAIL = /^[\w.+-]{1,64}@[\w-]{1,63}(?:\.[\w-]{1,63}){1,8}$/;
-// A bare domain: labels of letters, digits and hyphens, then a lower-case top-level domain (so
-// "ASP.NET" isn't one) that isn't a file type ("Node.js").
+// A bare domain, tested in lower case: labels of letters, digits and hyphens, then a top-level
+// domain that isn't a code file's extension ("Node.js"). A tool's name ("ASP.NET") is checked apart.
 const DOMAIN =
-  /^[A-Za-z0-9-]{1,63}(?:\.[A-Za-z0-9-]{1,63}){0,6}\.(?!(?:js|jsx|ts|tsx|py|rb|md|txt|json|yaml|yml|sh|sql|go|rs|cs|kt|swift|java|exe|dll|pdf|csv|png|jpg)(?:\/|$))[a-z]{2,24}(?:\/[^\s]{0,200})?$/;
+  /^[a-z0-9-]{1,63}(?:\.[a-z0-9-]{1,63}){0,6}\.(?!(?:js|jsx|ts|tsx|py|rb|md|txt|json|yaml|yml|sql|go|rs|cs|kt|swift|java|exe|dll|pdf|csv|png|jpg)(?:\/|$))[a-z]{2,24}(?:\/[^\s]{0,200})?$/;
 
-/** A link as compared: lower case, without the scheme, "www." or a trailing slash. */
+/** A link or address as compared: lower case, without "mailto:", the scheme, "www." or trailing stops and slashes. */
 const linkKey = (link: string) =>
   link
     .toLowerCase()
+    .replace(/^mailto:/, '')
     .replace(/^https?:\/\//, '')
     .replace(/^www\./, '')
-    .replace(/\/+$/, '');
+    .replace(/[.,;:!?/]+$/, '');
 
 /**
- * Email addresses and links in a sentence ("https://…", "www.…", "github.com/…", "evil.example"),
- * read a whitespace-separated token at a time with bounded patterns.
+ * Email addresses and links in a sentence, read a whitespace-separated token at a time. Any token
+ * with an "@" is an address (failing closed: "räman@evil.com" is one); a token is a link when it
+ * starts with a scheme or "www.", or is a domain in lower case ("priyaraman.NET" is one).
  */
 function linksIn(sentence: string): Array<{ kind: 'email' | 'link'; key: string; text: string }> {
   const found: Array<{ kind: 'email' | 'link'; key: string; text: string }> = [];
@@ -172,13 +181,10 @@ function linksIn(sentence: string): Array<{ kind: 'email' | 'link'; key: string;
     // A token longer than any address is not one: read only its start.
     const token = raw.slice(0, 300);
     for (const piece of token.split(/[()<>[\]{}"'“”‘’]+/)) {
-      const text = piece.replace(/^[.,;:!?]+/, '').replace(/[.,;:!?]+$/, '');
+      const text = piece.replace(/^[.,;:!?]+/, '').replace(/[.,;:!?/]+$/, '');
       if (!text) continue;
-      if (text.includes('@')) {
-        if (EMAIL.test(text)) found.push({ kind: 'email', key: text.toLowerCase(), text });
-      } else if (/^(?:https?:\/\/|www\.)/i.test(text) || DOMAIN.test(text)) {
-        found.push({ kind: 'link', key: linkKey(text), text });
-      }
+      if (text.includes('@')) found.push({ kind: 'email', key: linkKey(text), text });
+      else if (/^(?:https?:\/\/|www\.)/i.test(text) || DOMAIN.test(text.toLowerCase())) found.push({ kind: 'link', key: linkKey(text), text });
     }
   }
   return found;
@@ -200,39 +206,60 @@ function contactsOf(base: StructuredResume, everything: string): { emails: Set<s
 
 /**
  * Where a claim names an employer in any case: "worked at google", "was on the infrastructure
- * team at amazon", "my years at google", "contract work for uber", "Earlier, at netflix, I".
+ * team at amazon", "interned with initech", "my years at google", "contract work for uber",
+ * "spoke at kubecon". "Was" and "were" only before "at" or "with": "I was praised by…" is not one.
  */
 const EMPLOYER_WORD = String.raw`([\p{L}][\p{L}\p{N}&']{0,40})`;
 const EMPLOYER = [
-  String.raw`\b(?:worked|working|interned|served|consulted|contracted|employed|freelanced|was|were|been|stayed)\s+(?:[\p{L}-]{1,30}\s+){0,4}?(?:at|for|by)\s+(?:the\s+)?${EMPLOYER_WORD}`,
-  String.raw`\bspent\s+(?:[\p{L}\p{N}-]{1,30}\s+){1,3}?at\s+(?:the\s+)?${EMPLOYER_WORD}`,
+  String.raw`\b(?:worked|working|interned|served|consulted|contracted|freelanced|stayed)\s+(?:[\p{L}-]{1,30}\s+){0,4}?(?:at|for)\s+(?:the\s+)?${EMPLOYER_WORD}`,
+  String.raw`\bemployed\s+(?:[\p{L}-]{1,30}\s+){0,2}?(?:at|by|with)\s+(?:the\s+)?${EMPLOYER_WORD}`,
+  String.raw`\b(?:interned|consulted|contracted|partnered|freelanced)\s+(?:[\p{L}-]{1,30}\s+){0,2}?with\s+(?:the\s+)?${EMPLOYER_WORD}`,
+  String.raw`\b(?:was|were|been)\s+(?:[\p{L}-]{1,30}\s+){0,4}?(?:at|with)\s+(?:the\s+)?${EMPLOYER_WORD}`,
+  String.raw`\bspent\s+(?:[\p{L}\p{N}-]{1,30}\s+){1,3}?(?:at|with)\s+(?:the\s+)?${EMPLOYER_WORD}`,
   String.raw`\bjoined\s+(?:the\s+)?${EMPLOYER_WORD}`,
   String.raw`\b(?:my|our)\s+(?:[\p{L}-]{1,30}\s+){0,2}?(?:team|years?|time|work|stint|tenure|days|job|role)\s+(?:at|for|with)\s+(?:the\s+)?${EMPLOYER_WORD}`,
   String.raw`\b(?:did|doing|done)\s+(?:[\p{L}-]{1,30}\s+){0,2}?work\s+for\s+(?:the\s+)?${EMPLOYER_WORD}`,
-  String.raw`(?:^|,\s*)at\s+(?:the\s+)?${EMPLOYER_WORD}\s*,`,
+  String.raw`\b(?:spoke|speak|presented|talked|keynoted|won|competed)\s+(?:[\p{L}-]{1,30}\s+){0,3}?at\s+(?:the\s+)?${EMPLOYER_WORD}`,
 ].map((pattern) => new RegExp(pattern, 'giu'));
+/** ", at Netflix," with a capital: an employer named in passing. */
+const AT_NAME = /(?:^|,\s*)at\s+(?:the\s+)?(\p{Lu}[\p{L}\p{N}&']{0,40})\s*,/gu;
 
 /** "Fluent in Spanish": a language the résumé doesn't name. */
 const SPEAKS = /\b(?:fluent|fluently|speak|speaks|spoke|native|bilingual|trilingual|proficient|conversational)\b/i;
 const LANGUAGE =
   /\b(spanish|mandarin|french|german|hindi|urdu|arabic|japanese|korean|portuguese|italian|russian|cantonese|bengali|punjabi|tamil|telugu|turkish|vietnamese|polish|dutch|swahili|farsi|persian|hebrew|greek|thai|indonesian|tagalog)\b/gi;
-/** "By a third", "in half", "doubled": a share or a multiple the résumé must state. */
-const FRACTION = /\b(?:(?:a|one|two)\s+(?:half|third|quarter|fifth)|in\s+half|halved|doubled|tripled|quadrupled|thirds)\b/gi;
+/** "By a third", "by half", "doubled", "tenfold": a share or a multiple the résumé must state. */
+const FRACTION =
+  /\b(?:(?:a|one|two)\s+(?:half|third|quarter|fifth)|(?:in|by)\s+half|halved|doubled(?!\s+down)|tripled|quadrupled|thirds|(?:two|three|four|five|six|seven|eight|nine|ten|twenty|hundred|thousand|many|\d+)-?fold)\b/gi;
+
+/** Credentials, by family: a claimed one the résumé never names is dropped. */
+const CREDENTIAL = /(?<![\p{L}])(certif\p{L}*|licen[cs]\p{L}*|clearance|accredit\p{L}*|chartered|credential\p{L}*|exams?)(?![\p{L}])/giu;
+/** Awards and honours: a guess (the words can't tell), so flagged. */
+const AWARD = /\b(awards?|awarded|prizes?|honou?rs?|won|winner|recogni[sz]ed|named\s+(?:a|an|the)\b)/i;
+/** Roles in a community or a company the résumé doesn't name: flagged. */
+const ROLE_CLAIM =
+  /\b(maintainer|committer|contributor|speaker|keynote\w*|author|steering\s+committee|committee|board|council|advisor|ambassador|instructor|lecturer|founded|founder|co-founder)\b/i;
 
 /** "Here's", "It's", "We're": the word before its contraction. */
 const withoutContraction = (word: string) => word.replace(/['’](?:s|re|ll|ve|d|m)$/i, '');
 
 /**
  * A sentence whose first words are the actor of a tie to the candidate: "Google trained me",
- * "Netflix and Northwind Logistics both relied on my work", "Microsoft is where I learned Go".
+ * "Netflix and Northwind Logistics both relied on my work", "Initech let me run…", "Initech was
+ * my first employer", "Initech, my previous employer, …".
  */
+const ACTOR = String.raw`[\p{L}][\p{L}\p{N}'’.&-]{0,40}(?:\s+[\p{L}][\p{L}\p{N}'’.&-]{0,40}){0,2}`;
 const TIE_ACTOR = new RegExp(
-  String.raw`^\s*["'(]?[\p{L}][\p{L}\p{N}'’.&-]{0,40}(?:\s+[\p{L}][\p{L}\p{N}'’.&-]{0,40}){0,2}` +
-    String.raw`(?:\s*(?:,|and|&)\s*[\p{L}][\p{L}\p{N}'’.&-]{0,40}(?:\s+[\p{L}][\p{L}\p{N}'’.&-]{0,40}){0,2}){0,3}` +
-    String.raw`\s+(?:(?:also|both|once|later|then|first|previously)\s+)?` +
-    String.raw`(?:hired|trained|employed|promoted|recruited|sponsored|paid|contracted|certified|awarded|acquired|relied\s+on|taught\s+me|gave\s+me|offered\s+me|sent\s+me|chose\s+me|selected\s+me|(?:is|was)\s+(?:where|the\s+(?:company|place|team)\s+where)\s+I)\b`,
+  String.raw`^\s*["'(]?${ACTOR}(?:\s*(?:,|and|&)\s*${ACTOR}){0,3}` +
+    String.raw`(?:\s+(?:(?:also|both|once|later|then|first|previously|still|even)\s+)?` +
+    String.raw`(?:hired|trained|employed|promoted|recruited|sponsored|paid|contracted|certified|awarded|acquired|relied\s+on|depended\s+on|` +
+    String.raw`(?:taught|gave|offered|sent|chose|selected|brought|let|put|calls|called|asked|invited|interviewed)\s+me|(?:used|uses)\s+my|` +
+    String.raw`(?:is|was)\s+(?:where|the\s+(?:company|place|team)\s+where)\s+I|(?:is|was)\s+my\s+(?:[\p{L}-]{1,20}\s+)?(?:employer|client|company|team)` +
+    String.raw`)\b|\s*,\s*(?:my|our)\s+(?:previous|former|first|old|last)\s+(?:employer|client|company|team)\b)`,
   'iu',
 );
+/** Abstract nouns ("Curiosity", "Experience", "Mentorship"), which open sentences and name nothing. */
+const ABSTRACT = /(?:ity|ness|ment|tion|sion|ship|ence|ance|ism|ion)$/i;
 
 /** Words written with a capital mid-sentence somewhere in the text (a name's mark), lower case. */
 function capitalisedMidSentence(texts: string[]): Set<string> {
@@ -247,23 +274,25 @@ function capitalisedMidSentence(texts: string[]): Set<string> {
   return found;
 }
 
-/** Experience with the company: in a claim, a mention of it next to one of these is a tie. */
-const EXPERIENCE =
-  /\bI\s+(?:work|am\s+working)\s+(?:at|for|with)\b|\b(?:worked|ran|running\s+(?:its|their)|run\s+(?:its|their)|built|used|know|knew|known|spent|returned|helped|supported|maintained|shipped|consulted|partnered|collaborated|served|operated|owned|led|managed|joined|hired|employed|acquired|have\s+been|has\s+been|had\s+been|was\s+part\s+of|were\s+part\s+of|former|employee|employer|alum\w*|codebase|customer|client)\b|\bex-/i;
-
 /**
- * Where the letter may name the company in a sentence about the candidate: applying to it, the
- * role at it, bringing something to it, or the company doing something ("Acme builds…").
+ * Experience with the company: in a claim, a mention of it within six words of one of these is a
+ * tie ("I know the team at Fabrikam", "Fabrikam's platform team was my client").
  */
+const EXPERIENCE_WORDS =
+  String.raw`(?:worked|working|ran|run|running|built|used|uses|know|knew|known|spent|returned|helped|supported|maintained|shipped|consulted|partnered|collaborated|served|operated|owned|led|managed|joined|hired|employed|acquired|interviewed|talked|met|been|former|ex|employee|employer|alumn\p{L}*|alum|codebase|customer|client|contractor|part\s+of)`;
+const GAP = String.raw`(?:[^\p{L}\p{N}]{1,5}[\p{L}\p{N}'’-]{1,40}){0,6}?[^\p{L}\p{N}]{1,5}`;
+function nearExperience(sentence: string, company: string): boolean {
+  const name = source(company);
+  return new RegExp(`${START}${EXPERIENCE_WORDS}${GAP}${name}${END}|${START}${name}${GAP}${EXPERIENCE_WORDS}${END}`, 'iu').test(sentence);
+}
+
+/** Where the letter names the company to apply: applying to it, the role at it, bringing something to it. */
 function namedOnlyToApply(sentence: string, company: string): boolean {
   const name = `(?:the\\s+)?${source(company)}${END}`;
   const allowed = [
     new RegExp(`\\b(?:apply|applying|application|candidacy)\\s+(?:[\\p{L}\\p{N}&.'()-]+\\s+){0,8}?(?:at|to|with)\\s+${name}`, 'giu'),
     new RegExp(`(?<!\\b(?:my|our)\\s+(?:[\\p{L}-]+\\s+)?)\\b(?:role|position|opening|job|vacancy|opportunity)\\s+(?:at|with)\\s+${name}`, 'giu'),
     new RegExp(`\\b(?:bring|contribute|add|offer)\\s+(?:[\\p{L}\\p{N}'-]+\\s+){0,6}?to\\s+${name}`, 'giu'),
-    new RegExp(`\\b(?:about|to|toward|towards)\\s+${name}`, 'giu'),
-    new RegExp(`${START}${source(company)}['’]s\\s+(?:[\\p{L}-]+\\s+){0,4}?(?:is|are|was|were|matches|fits|appeals|resonates|aligns|stands)\\b`, 'giu'),
-    new RegExp(`^\\s*${source(company)}(?:['\u2019]s\\s+[\\p{L}-]+)?\\s+(?!was\\b|has\\b|hired\\b)\\p{Ll}+s\\b`, 'gu'),
   ];
   const rest = allowed.reduce((out, pattern) => out.replace(pattern, ' '), sentence);
   return !wordPattern(company).test(rest);
@@ -298,6 +327,11 @@ function prepare(ctx: LetterContext): Prepared {
     evidence,
     known: new Set([...resumeWords, ...own]),
     postingNames: postingNamesOf(job, new Set([...resumeWords, ...own])),
+    employers: wordStems(
+      [...base.work.map((role) => role.company), ...base.education.map((school) => school.institution), ...(base.projects ?? []).map((project) => project.name)]
+        .filter(Boolean)
+        .join('\n'),
+    ),
     contacts: contactsOf(base, evidence.everything),
     capitalised: new Set(),
     name: base.basics.name?.trim() ?? '',
@@ -390,9 +424,6 @@ const OTHERS_TITLE = new RegExp(
   'giu',
 );
 
-/** Credentials, by family: a claimed one the résumé never names is dropped. */
-const CREDENTIAL = /(?<![\p{L}])(certif\p{L}*|licen[cs]\p{L}*|clearance|accredit\p{L}*|chartered)(?![\p{L}])/giu;
-
 function checkSentence(sentence: string, prepared: Prepared): { issues: GroundingIssue[]; confirmedTerms: string[] } {
   const issues: GroundingIssue[] = [];
   const confirmedTerms: string[] = [];
@@ -402,37 +433,46 @@ function checkSentence(sentence: string, prepared: Prepared): { issues: Groundin
   const claim = aboutMe && !NOT_A_CLAIM.test(asWritten);
 
   const gap = PLACEHOLDER.exec(sentence);
-  if (gap) issues.push({ code: 'PLACEHOLDER', term: gap[0], message: `has a gap to fill in, "${gap[0]}"` });
+  if (gap) issues.push(issue('drop', { code: 'PLACEHOLDER', term: gap[0], message: `has a gap to fill in, "${gap[0]}"` }));
 
   for (const word of mixedScriptWords(sentence)) {
     if (!evidence.everythingPlain.includes(word)) {
-      issues.push({ code: 'ODD_CHARACTERS', term: word, message: `writes "${word}" with look-alike letters` });
+      issues.push(issue('drop', { code: 'ODD_CHARACTERS', term: word, message: `writes "${word}" with look-alike letters` }));
     }
   }
 
-  for (const link of linksIn(asWritten)) {
-    const own = link.kind === 'email' ? prepared.contacts.emails : prepared.contacts.links;
-    if (!own.has(link.key)) {
-      issues.push({ code: 'NEW_ENTITY', term: link.text, message: `adds "${link.text}", which isn't in your base résumé` });
-    }
+  const links = linksIn(asWritten);
+  for (const link of links) {
+    if (link.kind === 'email' ? prepared.contacts.emails.has(link.key) : prepared.contacts.links.has(link.key)) continue;
+    // A tool written like a domain ("ASP.NET") is read as a tool: only when the whole token is the
+    // tool's name, so "gitlab.com/priya" is still a link.
+    const isTool =
+      link.kind === 'link' &&
+      (termsIn(link.text, vocab).some((key) => displayOf(key, vocab).toLowerCase() === link.text.toLowerCase()) ||
+        has(evidence.everythingLower, link.text.toLowerCase()));
+    if (isTool) continue;
+    issues.push(issue('drop', { code: 'NEW_ENTITY', term: link.text, message: `adds "${link.text}", which isn't in your base résumé` }));
   }
 
-  // Ties to the company. In a claim about the candidate that speaks of experience (worked, ran,
-  // know, a former employee…), any mention fails closed: only applying to it, the role at it,
-  // bringing something to it, being drawn to it and its own doing are not ties.
+  // Ties to the company, flagged: the employment verbs ("worked at Acme"), and in a claim about the
+  // candidate, a mention of it within six words of experience ("I know the team at Acme").
   for (const company of prepared.companies) {
     if (has(evidence.everythingLower, norm(company))) continue;
     if (claimsTie(asWritten, company)) {
-      issues.push({ code: 'NEW_ENTITY', term: company, message: `says you have worked with ${company}, which your base résumé doesn't` });
+      issues.push(issue('flag', { code: 'NEW_ENTITY', term: company, message: `says you have worked with ${company}, which your base résumé doesn't` }));
       break;
     }
-    if (claim && EXPERIENCE.test(asWritten) && wordPattern(company).test(asWritten) && !namedOnlyToApply(asWritten, company)) {
-      issues.push({ code: 'NEW_ENTITY', term: company, message: `ties you to ${company}, which your base résumé doesn't` });
+    if (claim && nearExperience(asWritten, company) && !namedOnlyToApply(asWritten, company)) {
+      issues.push(issue('flag', { code: 'NEW_ENTITY', term: company, message: `ties you to ${company}, which your base résumé doesn't` }));
       break;
     }
   }
 
-  const text = withoutPosting(sentence, prepared);
+  // Addresses and links are checked above: their words aren't names ("Priya.Raman@Example.com").
+  const text = withoutPosting(
+    links.reduce((out, link) => out.replace(link.text, ' '), asWritten),
+    prepared,
+  );
 
   // Numbers and dates: as the résumé states them (or the posting, in a sentence about the company).
   // Years of experience: as the résumé's summary or headline does.
@@ -446,8 +486,8 @@ function checkSentence(sentence: string, prepared: Prepared): { issues: Groundin
   for (const number of unsupported) {
     issues.push(
       number.year
-        ? { code: 'NEW_DATE', term: number.raw, message: `adds the date ${number.raw}, which isn't in your base résumé` }
-        : { code: 'NEW_NUMBER', term: number.raw, message: `adds the number ${number.raw}, which isn't in your base résumé` },
+        ? issue('drop', { code: 'NEW_DATE', term: number.raw, message: `adds the date ${number.raw}, which isn't in your base résumé` })
+        : issue('drop', { code: 'NEW_NUMBER', term: number.raw, message: `adds the number ${number.raw}, which isn't in your base résumé` }),
     );
   }
 
@@ -460,11 +500,11 @@ function checkSentence(sentence: string, prepared: Prepared): { issues: Groundin
       confirmedTerms.push(asTyped ?? term);
       continue;
     }
-    issues.push({ code: 'NEW_SKILL', term, message: `adds ${term}, which isn't in your base résumé` });
+    issues.push(issue('drop', { code: 'NEW_SKILL', term, message: `adds ${term}, which isn't in your base résumé` }));
   }
 
-  // Names: the résumé's are fine. The posting's are dropped when claimed, else marked. Any other is
-  // dropped. A confirmed keyword is known only as its whole phrase, so it is taken out first.
+  // Names, flagged: the résumé's are fine; any other, or the posting's in a claim, is flagged. A
+  // confirmed keyword is known only as its whole phrase, so it is taken out first.
   const nameText = withoutKeywords(text, prepared.confirmedKeywords);
   const names = newNames(nameText, prepared.known, vocab);
   const reported = new Set<string>();
@@ -474,12 +514,12 @@ function checkSentence(sentence: string, prepared: Prepared): { issues: Groundin
     const fromPosting = prepared.posting.has(stem(name.toLowerCase()));
     issues.push(
       fromPosting && !claim
-        ? { code: 'NEW_NAME', term: name, message: `mentions "${name}" from the posting, not your résumé` }
-        : {
+        ? issue('flag', { code: 'NEW_NAME', term: name, message: `mentions "${name}" from the posting, not your résumé` })
+        : issue('flag', {
             code: 'NEW_TERM',
             term: name,
-            message: fromPosting ? `claims "${name}" from the posting, which isn't in your base résumé` : `adds "${name}", which isn't in your base résumé`,
-          },
+            message: fromPosting ? `claims "${name}" from the posting, which isn't in your base résumé` : `names "${name}", which isn't in your base résumé`,
+          }),
     );
   };
   for (const name of [...names.strong, ...names.weak]) report(name);
@@ -493,6 +533,8 @@ function checkSentence(sentence: string, prepared: Prepared): { issues: Groundin
     const ordinary =
       COMMON.has(lower) ||
       NUMBER_WORDS.test(lower) ||
+      ABSTRACT.test(lower) ||
+      /-\p{Ll}/u.test(word) ||
       prepared.known.has(stem(lower)) ||
       termsIn(word, vocab).length > 0 ||
       degreesIn(word).length > 0;
@@ -502,20 +544,15 @@ function checkSentence(sentence: string, prepared: Prepared): { issues: Groundin
   }
   if (claim) {
     // An employer in lower case ("worked at google"), and the posting's names in any case.
-    for (const pattern of EMPLOYER) {
+    for (const pattern of [...EMPLOYER, AT_NAME]) {
       for (const match of nameText.matchAll(pattern)) {
         const word = withoutContraction(match[1]!);
         const lower = word.toLowerCase();
-        if (
-          COMMON.has(lower) ||
-          NUMBER_WORDS.test(lower) ||
-          /(?:ing|ly)$/.test(lower) ||
-          lower === 'it' ||
-          prepared.known.has(stem(lower)) ||
-          termsIn(word, vocab).length > 0
-        ) {
-          continue;
-        }
+        if (COMMON.has(lower) || NUMBER_WORDS.test(lower) || /(?:ing|ly)$/.test(lower) || lower === 'it' || lower === 'its') continue;
+        if (prepared.employers.has(stem(lower))) continue;
+        // A capitalised name after "worked at" is an employer even when it is also a tool
+        // ("worked at Grafana"); a lower-case word the résumé uses is not one ("for product teams").
+        if (/^\p{Ll}/u.test(word) && (prepared.known.has(stem(lower)) || termsIn(word, vocab).length > 0)) continue;
         report(word);
       }
     }
@@ -527,25 +564,33 @@ function checkSentence(sentence: string, prepared: Prepared): { issues: Groundin
         if (!has(evidence.everythingLower, match[1]!.toLowerCase())) report(match[1]!);
       }
     }
+    const award = AWARD.exec(nameText);
+    if (award && !has(evidence.everythingLower, award[1]!.toLowerCase())) {
+      issues.push(issue('flag', { code: 'NEW_ENTITY', term: award[1], message: `mentions an award or honour ("${award[1]}") your base résumé doesn't` }));
+    }
+    const role = ROLE_CLAIM.exec(nameText);
+    if (role && !has(evidence.everythingLower, role[1]!.toLowerCase())) {
+      issues.push(issue('flag', { code: 'NEW_SENIORITY', term: role[1], message: `claims a role ("${role[1]}") your base résumé doesn't name` }));
+    }
   }
   if (aboutMe) {
     for (const match of text.matchAll(FRACTION)) {
       if (!has(evidence.everythingLower, norm(match[0]))) {
-        issues.push({ code: 'NEW_NUMBER', term: match[0], message: `adds "${match[0]}", which isn't in your base résumé` });
+        issues.push(issue('drop', { code: 'NEW_NUMBER', term: match[0], message: `adds "${match[0]}", which isn't in your base résumé` }));
       }
     }
   }
 
   for (const degree of degreesIn(text)) {
     if (!evidence.degrees.has(degree)) {
-      issues.push({ code: 'NEW_ENTITY', term: degree, message: `adds a ${degree}, which isn't in your base résumé` });
+      issues.push(issue('drop', { code: 'NEW_ENTITY', term: degree, message: `adds a ${degree}, which isn't in your base résumé` }));
     }
   }
   if (claim) {
     for (const match of text.matchAll(CREDENTIAL)) {
       const family = match[1]!.toLowerCase().slice(0, 6).replace(/c$/, 's');
       if (!new RegExp(`(?<![\\p{L}])${family.replace('licens', 'licen[cs]')}`, 'u').test(evidence.everythingLower)) {
-        issues.push({ code: 'NEW_ENTITY', term: match[1], message: `says you're ${match[1]!.toLowerCase()}, which your base résumé doesn't` });
+        issues.push(issue('drop', { code: 'NEW_ENTITY', term: match[1], message: `mentions a credential ("${match[1]}") your base résumé doesn't` }));
         break;
       }
     }
@@ -557,7 +602,7 @@ function checkSentence(sentence: string, prepared: Prepared): { issues: Groundin
   for (const found of titleClaims(titles, true)) if (!has(evidence.titles, found)) claimed.add(found);
   for (const title of heldTitles(titles).keys()) if (!has(evidence.titles, title)) claimed.add(title);
   for (const found of claimed) {
-    issues.push({ code: 'NEW_SENIORITY', term: found, message: `claims "${found}", a title your base résumé doesn't have` });
+    issues.push(issue('flag', { code: 'NEW_SENIORITY', term: found, message: `claims "${found}", a title your base résumé doesn't have` }));
   }
 
   // Leading or owning work the résumé never says you did: kept, and marked.
@@ -565,7 +610,7 @@ function checkSentence(sentence: string, prepared: Prepared): { issues: Groundin
   for (const verb of LEADERSHIP) {
     const found = verb.exec(lower);
     if (found && !verb.test(evidence.everythingLower)) {
-      issues.push({ code: 'LEADERSHIP_CLAIM', term: found[0], message: `says "${found[0]}", which your base résumé doesn't` });
+      issues.push(issue('flag', { code: 'LEADERSHIP_CLAIM', term: found[0], message: `says "${found[0]}", which your base résumé doesn't` }));
     }
   }
 
@@ -661,31 +706,62 @@ function bodyParagraphs(raw: string[], name: string): string[] {
   return blocks.map((block) => block.replace(/\s+/g, ' ').trim()).filter(Boolean);
 }
 
-/** The model's letter, checked a sentence at a time: what is kept, and what was dropped or marked. */
+/** The flags the user hasn't kept or removed yet: the PDF waits for them. */
+export function unresolvedFlags(letter: Pick<CoverLetterRecord, 'checks'>): CoverLetterCheck[] {
+  return letter.checks.filter((check) => check.severity === 'flag' && check.paragraph !== null && !check.resolution);
+}
+
+/**
+ * The letter's paragraphs without the flagged sentences the user hasn't kept: what may leave the
+ * app before they decide (the application pack). Empty paragraphs go.
+ */
+export function settledParagraphs(letter: Pick<CoverLetterRecord, 'checks' | 'paragraphs'>): string[] {
+  const open = unresolvedFlags(letter);
+  return letter.paragraphs
+    .map((paragraph, index) =>
+      open
+        .filter((check) => check.paragraph === index)
+        .reduce((text, check) => text.replace(check.text, ' '), paragraph.text)
+        .replace(/\s+/g, ' ')
+        .trim(),
+    )
+    .filter(Boolean);
+}
+
+/**
+ * The model's letter, checked a sentence at a time: what is kept, what was dropped, and what is
+ * flagged for the user (kept in the letter until they keep or remove it).
+ */
 export function groundLetter(raw: string[], ctx: LetterContext): GroundedLetter {
   const prepared = prepare(ctx);
   prepared.capitalised = capitalisedMidSentence([...raw, ctx.job.descriptionText]);
-  for (const word of wordStems(`${ctx.job.company}\n${ctx.job.title}`)) prepared.capitalised.delete(word);
+  for (const match of plain(`${ctx.job.company}\n${ctx.job.title}`).matchAll(NAME_TOKEN)) prepared.capitalised.delete(match[0].toLowerCase());
   const paragraphs: string[] = [];
   const checks: CoverLetterCheck[] = [];
   for (const paragraph of bodyParagraphs(raw, prepared.name)) {
     const kept: string[] = [];
-    const found: Array<Omit<CoverLetterCheck, 'paragraph'>> = [];
+    const found: Array<Omit<CoverLetterCheck, 'paragraph' | 'id'>> = [];
     for (const sentence of splitSentences(paragraph)) {
       const { issues, confirmedTerms } = checkSentence(sentence, prepared);
-      const reason = issues.find((issue) => LETTER_BLOCKING.has(issue.code))?.message;
+      const reason = issues.find((found) => found.severity === 'drop')?.message;
       if (reason) {
-        found.push({ text: sentence, dropped: true, dropReason: reason, issues });
+        found.push({ text: sentence, dropped: true, severity: 'drop', dropReason: reason, issues });
         continue;
       }
       kept.push(sentence);
       if (issues.length > 0 || confirmedTerms.length > 0) {
-        found.push({ text: sentence, dropped: false, issues, ...(confirmedTerms.length > 0 ? { confirmedTerms } : {}) });
+        found.push({
+          text: sentence,
+          dropped: false,
+          severity: issues.length > 0 ? 'flag' : 'note',
+          issues,
+          ...(confirmedTerms.length > 0 ? { confirmedTerms } : {}),
+        });
       }
     }
     const index = kept.length > 0 ? paragraphs.length : null;
     if (kept.length > 0) paragraphs.push(kept.join(' '));
-    for (const check of found) checks.push({ paragraph: index, ...check });
+    for (const check of found) checks.push({ id: `c${checks.length}`, paragraph: index, ...check });
   }
   return { paragraphs, checks };
 }

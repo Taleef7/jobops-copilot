@@ -8,14 +8,21 @@ import { LocalDate } from '@/components/local-date';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { Textarea } from '@/components/ui/textarea';
-import { downloadCoverLetter, editCoverLetterParagraph, getCoverLetter, removeCoverLetterParagraph, writeCoverLetter } from '@/lib/api';
+import {
+  downloadCoverLetter,
+  editCoverLetterParagraph,
+  getCoverLetter,
+  removeCoverLetterParagraph,
+  resolveCoverLetterFlag,
+  writeCoverLetter,
+} from '@/lib/api';
 import type { CoverLetterCheck, CoverLetterLength, CoverLetterParagraph, CoverLetterRecord } from '@/types/job';
 
 /**
  * The job's cover letter (#416), written from the tailor window or here: Concise or Full, always
- * one page. The API keeps only the sentences its check grounds in the base résumé; this shows
- * the letter, what the check left out and what to look at, and lets each paragraph be edited
- * before the one Download.
+ * one page. The API drops the sentences its check can prove unsupported, and flags the ones it can
+ * only guess about: this shows the letter with its flags highlighted, each to keep or remove,
+ * what the check left out, and lets each paragraph be edited. Download waits for every flag.
  */
 
 export interface WriteOptions {
@@ -28,6 +35,8 @@ interface LetterError {
   code?: string;
   /** The AI failed this run: Try again writes it again, with the length the toggle shows. */
   retry?: WriteOptions;
+  /** When it failed, on the store's clock: a length picked before it doesn't count. */
+  at?: number;
   /** Read the letter again (reading it failed). */
   reload?: boolean;
 }
@@ -54,6 +63,9 @@ const listeners = new Set<() => void>();
 const generations = new Map<string, number>();
 
 const stateOf = (jobId: string) => states.get(jobId) ?? EMPTY;
+/** A clock for "which came last": a failed run, or the length the user picked. */
+let clock = 0;
+const tick = () => (clock += 1);
 
 function setLetterState(jobId: string, patch: Partial<LetterState>) {
   states.set(jobId, { ...stateOf(jobId), ...patch });
@@ -79,10 +91,12 @@ export function resetCoverLetterStoreForTests() {
   generations.clear();
 }
 
-/** The tailor window's confirmed keywords, so "Write again" uses the latest ones. */
+/** The keywords of the latest successful tailoring, so "Write again" uses them. */
 export function setTailorKeywords(jobId: string, keywords: string[]) {
   setLetterState(jobId, { tailorKeywords: keywords });
 }
+
+export const tailorKeywordsOf = (jobId: string) => stateOf(jobId).tailorKeywords;
 
 /** Write the job's letter (from the tailor window or this card). One run at a time per job. */
 export function startCoverLetter(jobId: string, options: WriteOptions) {
@@ -101,6 +115,7 @@ export function startCoverLetter(jobId: string, options: WriteOptions) {
           message: err instanceof Error ? err.message : "Your cover letter couldn't be written.",
           code: typeof code === 'string' ? code : undefined,
           retry: typeof status === 'number' && status >= 500 ? options : undefined,
+          at: tick(),
         },
       });
     },
@@ -183,10 +198,12 @@ export function CoverLetterReview({
   defaultKeywords?: string[];
 }) {
   const state = useSyncExternalStore(subscribe, () => stateOf(jobId), () => EMPTY);
-  const [picked, setPicked] = useState<CoverLetterLength | null>(null);
+  const [picked, setPicked] = useState<{ length: CoverLetterLength; at: number } | null>(null);
   const { letter, run, error } = state;
-  // After a failed run, the toggle shows that run's length until another is picked.
-  const length = picked ?? error?.retry?.length ?? letter?.length ?? 'concise';
+  // After a failed run, the toggle shows that run's length until another is picked after it.
+  const pickedSince = picked && (!error?.retry || picked.at > (error.at ?? 0)) ? picked.length : null;
+  const length = pickedSince ?? error?.retry?.length ?? picked?.length ?? letter?.length ?? 'concise';
+  const pick = (next: CoverLetterLength) => setPicked({ length: next, at: tick() });
 
   useEffect(() => {
     loadCoverLetter(jobId);
@@ -210,7 +227,7 @@ export function CoverLetterReview({
           jobId={jobId}
           letter={letter}
           length={length}
-          onLength={setPicked}
+          onLength={pick}
           onWriteAgain={() => write()}
           saving={state.saving}
           downloading={state.downloading}
@@ -223,7 +240,7 @@ export function CoverLetterReview({
             and you can edit each paragraph before you download. {LENGTH_HINT}
           </p>
           <div className="flex flex-wrap items-center gap-2">
-            <LengthToggle value={length} onChange={setPicked} />
+            <LengthToggle value={length} onChange={pick} />
             <Button onClick={() => write()}>Write cover letter</Button>
           </div>
         </Card>
@@ -301,16 +318,13 @@ function LetterView({
   const words = letter.paragraphs.reduce((sum, paragraph) => sum + countWords(paragraph.text), 0);
   const dropped = letter.checks.filter((check) => check.dropped);
   const edited = letter.paragraphs.some((paragraph) => paragraph.edited);
-  // The paragraph being edited, by its key: while one is open, nothing else can change the letter.
-  // A key is the paragraph's text (and which copy of it), so it stays with the paragraph when
-  // another one is removed and the open editor keeps what was typed.
-  const [editingKey, setEditingKey] = useState<string | null>(null);
-  const keyOf = (index: number) => {
-    const text = letter.paragraphs[index]!.text;
-    const copy = letter.paragraphs.slice(0, index).filter((paragraph) => paragraph.text === text).length;
-    return [letter.id, text, copy].join(KEY_SEPARATOR);
-  };
-  const editingOpen = editingKey !== null && letter.paragraphs.some((_paragraph, index) => keyOf(index) === editingKey);
+  const unresolved = letter.checks.filter((check) => check.severity === 'flag' && check.paragraph !== null && !check.resolution);
+  // The paragraph being edited, by its key, and what was typed: while one is open, nothing else
+  // can change the letter. A key is the paragraph's text (and which copy of it), so it stays with
+  // the paragraph when another one goes, and what was typed is kept here, not in the card.
+  const [editing, setEditing] = useState<{ key: string; text: string } | null>(null);
+  const keyOf = (index: number) => keyIn(letter, index);
+  const editingOpen = editing !== null && letter.paragraphs.some((_paragraph, index) => keyOf(index) === editing.key);
   const locked = saving || downloading || editingOpen;
 
   async function download() {
@@ -332,17 +346,39 @@ function LetterView({
   // Text typed into a paragraph that another tab changed or removed: kept here to copy.
   const [unsaved, setUnsaved] = useState<string | null>(null);
 
-  /** The paragraph moved or changed in another tab: read the letter as it is now. */
-  async function reread(typed: string | null) {
+  /**
+   * The letter or a paragraph changed in another tab (409): read the letter as it is now, and say
+   * so. An edit in progress stays open on its paragraph if it is still there, else its text is kept.
+   */
+  async function reread(kind: 'letter' | 'paragraph', typed: string | null) {
     const fresh = await getCoverLetter(jobId).catch(() => null);
-    if (!fresh) return;
-    const editedText = editingKey?.split(KEY_SEPARATOR)[1];
+    if (!fresh) {
+      toast.error("The letter changed in another tab and couldn't be read again. Reload the page to see it.");
+      return;
+    }
     setLetter(jobId, fresh);
-    if (typed !== null && !fresh.paragraphs.some((paragraph) => paragraph.text === editedText)) {
-      setEditingKey(null);
+    const editedText = editing?.key.split(KEY_SEPARATOR)[1];
+    if (typed === null || editedText === undefined) {
+      toast.error(
+        kind === 'letter'
+          ? "This letter changed in another tab, so that wasn't saved. It now shows the latest version."
+          : "That paragraph changed in another tab, so that wasn't saved. The letter now shows the latest version.",
+      );
+      return;
+    }
+    const at = fresh.paragraphs.findIndex((paragraph) => paragraph.text === editedText);
+    if (at === -1) {
+      setEditing(null);
       setUnsaved(typed);
       toast.error("That paragraph changed in another tab, so your edit wasn't saved. Your text is below the letter to copy.");
+      return;
     }
+    setEditing({ key: keyIn(fresh, at), text: typed });
+    toast.error(
+      kind === 'letter'
+        ? "This letter changed in another tab, so your edit wasn't saved. It's still open: save it again."
+        : "That paragraph moved in another tab, so your edit wasn't saved. It's still open: save it again.",
+    );
   }
 
   async function change(run: () => Promise<CoverLetterRecord>, failure: string, typed: string | null = null): Promise<boolean> {
@@ -352,8 +388,11 @@ function LetterView({
       return true;
     } catch (err: unknown) {
       const { status, code } = (err ?? {}) as { status?: unknown; code?: unknown };
-      if (status === 409 && code === 'PARAGRAPH_CHANGED') await reread(typed);
-      else toast.error(err instanceof Error ? err.message : failure);
+      if (status === 409 && (code === 'PARAGRAPH_CHANGED' || code === 'LETTER_CHANGED')) {
+        await reread(code === 'LETTER_CHANGED' ? 'letter' : 'paragraph', typed);
+      } else {
+        toast.error(err instanceof Error ? err.message : failure);
+      }
       return false;
     } finally {
       setLetterState(jobId, { saving: false });
@@ -367,13 +406,18 @@ function LetterView({
       "That paragraph couldn't be saved.",
       text,
     );
-    if (saved) setEditingKey(null);
+    if (saved) setEditing(null);
     return saved;
   };
   const remove = (index: number) =>
     change(
       () => removeCoverLetterParagraph(jobId, index, letter.updatedAt, letter.paragraphs[index]!.text),
       "That paragraph couldn't be removed.",
+    );
+  const resolve = (check: CoverLetterCheck, action: 'keep' | 'remove') =>
+    change(
+      () => resolveCoverLetterFlag(jobId, check.id, action, letter.paragraphs[check.paragraph!]!.text, letter.updatedAt),
+      "That sentence couldn't be updated.",
     );
 
   return (
@@ -391,12 +435,17 @@ function LetterView({
           <Button variant="outline" onClick={onWriteAgain} disabled={locked}>
             Write again
           </Button>
-          <Button onClick={download} disabled={locked}>
+          <Button onClick={download} disabled={locked || unresolved.length > 0}>
             {downloading ? <Loader2 className="size-4 animate-spin" aria-hidden /> : null}
             Download PDF
           </Button>
         </div>
       </div>
+      {unresolved.length > 0 ? (
+        <p className="text-xs font-medium">
+          {`Keep or remove the ${unresolved.length === 1 ? '1 highlighted sentence' : `${unresolved.length} highlighted sentences`} before you download: the check couldn't confirm ${unresolved.length === 1 ? 'it' : 'them'} from your résumé.`}
+        </p>
+      ) : null}
       <p className="text-muted-foreground text-xs">
         {`${words} words, on one page. The PDF adds your name and contact line, the date, a greeting and a sign-off.`}
         {edited ? ' Writing it again replaces your edits.' : ''}
@@ -408,13 +457,14 @@ function LetterView({
             key={keyOf(index)}
             index={index}
             paragraph={paragraph}
-            notes={letter.checks.filter((check) => !check.dropped && check.paragraph === index)}
-            editing={editingKey === keyOf(index)}
-            onEdit={() => setEditingKey(keyOf(index))}
-            onCancel={() => setEditingKey(null)}
-            busy={saving || downloading || (editingOpen && editingKey !== keyOf(index))}
+            checks={letter.checks.filter((check) => !check.dropped && check.paragraph === index)}
+            draft={editing?.key === keyOf(index) ? editing.text : null}
+            onDraft={(text) => setEditing({ key: keyOf(index), text })}
+            onCancel={() => setEditing(null)}
+            busy={saving || downloading || (editingOpen && editing?.key !== keyOf(index))}
             onSave={save}
             onRemove={letter.paragraphs.length > 1 ? remove : undefined}
+            onResolve={resolve}
           />
         ))}
       </div>
@@ -446,53 +496,109 @@ function LetterView({
   );
 }
 
+/** A paragraph's key: the letter, its text, and which copy of that text it is. */
+function keyIn(letter: CoverLetterRecord, index: number): string {
+  const text = letter.paragraphs[index]!.text;
+  const copy = letter.paragraphs.slice(0, index).filter((paragraph) => paragraph.text === text).length;
+  return [letter.id, text, copy].join(KEY_SEPARATOR);
+}
+
+/** The paragraph's text with its unresolved flagged sentences highlighted. */
+function Highlighted({ text, sentences }: { text: string; sentences: string[] }) {
+  const parts: Array<{ text: string; marked: boolean }> = [];
+  let rest = text;
+  for (const sentence of sentences) {
+    const at = rest.indexOf(sentence);
+    if (at === -1) continue;
+    if (at > 0) parts.push({ text: rest.slice(0, at), marked: false });
+    parts.push({ text: sentence, marked: true });
+    rest = rest.slice(at + sentence.length);
+  }
+  if (rest) parts.push({ text: rest, marked: false });
+  return (
+    <p className="text-sm whitespace-pre-wrap">
+      {parts.map((part, i) =>
+        part.marked ? (
+          <mark key={i} className="rounded-sm bg-amber-200/70 px-0.5 text-inherit dark:bg-amber-500/30">
+            {part.text}
+          </mark>
+        ) : (
+          <span key={i}>{part.text}</span>
+        ),
+      )}
+    </p>
+  );
+}
+
 function ParagraphCard({
   index,
   paragraph,
-  notes,
-  editing,
-  onEdit,
+  checks,
+  draft,
+  onDraft,
   onCancel,
   busy,
   onSave,
   onRemove,
+  onResolve,
 }: {
   index: number;
   paragraph: CoverLetterParagraph;
-  /** The check's marks on this paragraph's sentences; the user's own words have none. */
-  notes: CoverLetterCheck[];
-  editing: boolean;
-  onEdit: () => void;
+  /** The check's findings on this paragraph's sentences: flags to keep or remove, and notes. */
+  checks: CoverLetterCheck[];
+  /** What is typed while the paragraph is open; null when it isn't. */
+  draft: string | null;
+  onDraft: (text: string) => void;
   onCancel: () => void;
   /** Saving, downloading, or another paragraph is open: nothing here can change. */
   busy: boolean;
   onSave: (index: number, text: string) => Promise<boolean>;
   /** Absent for a letter's only paragraph. */
   onRemove?: (index: number) => Promise<boolean>;
+  onResolve: (check: CoverLetterCheck, action: 'keep' | 'remove') => Promise<boolean>;
 }) {
-  const [text, setText] = useState(paragraph.text);
-  const shownNotes = paragraph.edited ? [] : notes;
+  const editing = draft !== null;
+  // The user's own words are theirs: an edited paragraph's findings are settled.
+  const flags = paragraph.edited ? [] : checks.filter((check) => check.severity === 'flag' && check.resolution !== 'removed');
+  const open = flags.filter((check) => !check.resolution);
+  const notes = paragraph.edited ? [] : checks.filter((check) => check.confirmedTerms?.length);
 
   return (
     <div className="space-y-2 rounded-md border p-3" data-testid={`letter-paragraph-${index}`}>
       {paragraph.edited ? <p className="text-xs font-medium">Your words</p> : null}
       {editing ? (
-        <Textarea aria-label={`Paragraph ${index + 1}`} value={text} onChange={(event) => setText(event.target.value)} rows={5} />
+        <Textarea aria-label={`Paragraph ${index + 1}`} value={draft} onChange={(event) => onDraft(event.target.value)} rows={5} />
       ) : (
-        <p className="text-sm whitespace-pre-wrap">{paragraph.text}</p>
+        <Highlighted text={paragraph.text} sentences={open.map((check) => check.text)} />
       )}
-      {shownNotes.length > 0 ? (
-        <div className="space-y-1 rounded-md border border-amber-500/40 bg-amber-500/5 p-2 text-xs">
-          {shownNotes.flatMap((check, i) => [
-            ...check.issues.map((issue, j) => <p key={`${i}-${j}`}>{`Check “${check.text}”: it ${issue.message}.`}</p>),
-            ...(check.confirmedTerms?.length ? [<p key={`${i}-terms`}>{`Uses ${check.confirmedTerms.join(', ')}, which you added`}</p>] : []),
-          ])}
+      {flags.length > 0 || notes.length > 0 ? (
+        <div className="space-y-2 rounded-md border border-amber-500/40 bg-amber-500/5 p-2 text-xs">
+          {flags.map((check) => (
+            <div key={check.id} className="space-y-1">
+              {check.issues.map((found, j) => (
+                <p key={j}>{`${check.resolution === 'kept' ? 'Kept ' : ''}“${check.text}”: it ${found.message}.`}</p>
+              ))}
+              {!check.resolution && !editing ? (
+                <div className="flex gap-2">
+                  <Button size="sm" variant="outline" disabled={busy} onClick={() => void onResolve(check, 'keep')}>
+                    Keep
+                  </Button>
+                  <Button size="sm" variant="outline" disabled={busy} onClick={() => void onResolve(check, 'remove')}>
+                    Remove
+                  </Button>
+                </div>
+              ) : null}
+            </div>
+          ))}
+          {notes.map((check) => (
+            <p key={check.id}>{`Uses ${check.confirmedTerms!.join(', ')}, which you added`}</p>
+          ))}
         </div>
       ) : null}
       <div className="flex flex-wrap gap-2">
         {editing ? (
           <>
-            <Button size="sm" disabled={busy || !text.trim()} onClick={() => void onSave(index, text.trim())}>
+            <Button size="sm" disabled={busy || !draft.trim()} onClick={() => void onSave(index, draft.trim())}>
               Save
             </Button>
             <Button size="sm" variant="ghost" onClick={onCancel}>
@@ -501,16 +607,7 @@ function ParagraphCard({
           </>
         ) : (
           <>
-            <Button
-              size="sm"
-              variant="outline"
-              disabled={busy}
-              aria-label={`Edit paragraph ${index + 1}`}
-              onClick={() => {
-                setText(paragraph.text);
-                onEdit();
-              }}
-            >
+            <Button size="sm" variant="outline" disabled={busy} aria-label={`Edit paragraph ${index + 1}`} onClick={() => onDraft(paragraph.text)}>
               Edit
             </Button>
             {onRemove ? (

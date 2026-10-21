@@ -433,6 +433,12 @@ export interface GroundingIssue {
   term?: string;
   /** For the user, after "Suggestion dropped: …": "adds Kafka, which this role doesn't mention". */
   message: string;
+  /**
+   * A cover letter's finding (#416): `drop` is what the check can prove (a number, a date, a link,
+   * a credential, a posting skill, a placeholder); `flag` is what it can only guess (a name, a tie,
+   * an employer, a language, a title, leadership) and the user keeps or removes.
+   */
+  severity?: 'drop' | 'flag';
 }
 
 export interface ResumeChangeDetail {
@@ -527,9 +533,18 @@ export interface CoverLetterParagraph {
  * paragraph it is in, or null when it was dropped with the rest of its paragraph.
  */
 export interface CoverLetterCheck {
+  /** Stable within the letter ("c0", "c1"…): what a Keep or Remove names. */
+  id: string;
   paragraph: number | null;
   text: string;
   dropped: boolean;
+  /**
+   * `drop`: left out of the letter. `flag`: kept in it, highlighted, and the PDF waits until the
+   * user keeps or removes it. `note`: a confirmed keyword it uses, marked as the user's.
+   */
+  severity: 'drop' | 'flag' | 'note';
+  /** A flag's outcome: kept, removed from its paragraph, or the paragraph was edited. */
+  resolution?: 'kept' | 'removed' | 'edited';
   /** Why it was dropped (the first blocking issue's message). */
   dropReason?: string;
   issues: GroundingIssue[];

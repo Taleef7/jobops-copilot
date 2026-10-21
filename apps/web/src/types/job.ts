@@ -335,12 +335,17 @@ export interface CoverLetterParagraph {
 
 /** A sentence of the AI's letter that the check dropped or marked (#416). */
 export interface CoverLetterCheck {
+  /** Stable within the letter: what Keep or Remove names. */
+  id: string;
   /** The kept paragraph it is in; null when its whole paragraph was dropped. */
   paragraph: number | null;
   text: string;
   dropped: boolean;
+  /** drop: left out. flag: kept, highlighted, and kept or removed by the user before the PDF. note: a keyword the user added. */
+  severity: 'drop' | 'flag' | 'note';
+  resolution?: 'kept' | 'removed' | 'edited';
   dropReason?: string;
-  issues: Array<{ code: string; term?: string; message: string }>;
+  issues: Array<{ code: string; term?: string; message: string; severity?: 'drop' | 'flag' }>;
   /** Confirmed keywords it uses ("uses Kafka, which you added"). */
   confirmedTerms?: string[];
 }

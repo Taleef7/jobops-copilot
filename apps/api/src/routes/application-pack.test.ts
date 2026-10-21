@@ -376,3 +376,46 @@ test("the pack's cover letter is the job's letter from the tailor window (#416)"
     await resetCoverLetterStoreForTests();
   });
 });
+
+test("the pack leaves out a cover letter's flagged sentences the user hasn't kept (#416)", async () => {
+  await withFreshStores(async () => {
+    await resetCoverLetterStoreForTests();
+    const job = await createJob(USER, { company: 'Acme', title: 'Engineer', descriptionText: 'Backend engineering role.' });
+    const now = new Date().toISOString();
+    const flag = (id: string, text: string, resolution?: 'kept' | 'removed' | 'edited') => ({
+      id,
+      paragraph: 0,
+      text,
+      dropped: false,
+      severity: 'flag' as const,
+      issues: [{ code: 'NEW_TERM' as const, term: 'x', message: 'adds "x"', severity: 'flag' as const }],
+      ...(resolution ? { resolution } : {}),
+    });
+    await saveCoverLetter({
+      id: '7f9b962c-0000-4000-8000-000000000417',
+      userId: USER,
+      jobId: job.id,
+      length: 'concise',
+      paragraphs: [{ text: 'I build Kubernetes platforms in Go. I worked at google. I ran Terraform at hooli.', edited: false }],
+      checks: [flag('c0', 'I worked at google.'), flag('c1', 'I ran Terraform at hooli.', 'kept')],
+      basedOn: {
+        baseVersionId: null,
+        baseUpdatedAt: now,
+        jobId: job.id,
+        postingSha256: 'a'.repeat(64),
+        model: 'openai:gpt-6-luna',
+        createdAt: now,
+        grounding: { version: 1 },
+        confirmedKeywords: [],
+      },
+      createdAt: now,
+      updatedAt: now,
+    });
+    await withServer(async (baseUrl) => {
+      const res = await fetch(`${baseUrl}/api/jobs/${job.id}/application-pack`, { method: 'POST', headers: hdrs(USER) });
+      const { applicationPack } = (await res.json()) as { applicationPack: ApplicationPackPayload };
+      assert.equal(applicationPack.coverLetterText, 'I build Kubernetes platforms in Go. I ran Terraform at hooli.');
+    });
+    await resetCoverLetterStoreForTests();
+  });
+});

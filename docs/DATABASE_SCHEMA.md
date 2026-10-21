@@ -122,7 +122,7 @@ Important fields:
 - `job_id`: foreign key to `jobs.id`, deleted with the job
 - `length`: `concise` or `full`
 - `paragraphs` (`jsonb`): the letter's body, `[{ text, edited }]`; `edited` marks the user's own words
-- `checks` (`jsonb`): the sentences the check dropped or marked, with why
+- `checks` (`jsonb`): the sentences the check dropped (provable) or flagged (a guess, kept until the user keeps or removes it), with why and the user's answer
 - `based_on` (`jsonb`): the base résumé version, a hash of the posting, the model, the confirmed keywords
 - `created_at`, `updated_at`
 

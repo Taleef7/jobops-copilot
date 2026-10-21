@@ -4,16 +4,25 @@ import userEvent from '@testing-library/user-event';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { CoverLetterRecord } from '@/types/job';
 
-const { getCoverLetter, writeCoverLetter, editCoverLetterParagraph, removeCoverLetterParagraph, downloadCoverLetter } = vi.hoisted(() => ({
-  getCoverLetter: vi.fn(),
-  writeCoverLetter: vi.fn(),
-  editCoverLetterParagraph: vi.fn(),
-  removeCoverLetterParagraph: vi.fn(),
-  downloadCoverLetter: vi.fn(),
-}));
+const { getCoverLetter, writeCoverLetter, editCoverLetterParagraph, removeCoverLetterParagraph, resolveCoverLetterFlag, downloadCoverLetter } =
+  vi.hoisted(() => ({
+    getCoverLetter: vi.fn(),
+    writeCoverLetter: vi.fn(),
+    editCoverLetterParagraph: vi.fn(),
+    removeCoverLetterParagraph: vi.fn(),
+    resolveCoverLetterFlag: vi.fn(),
+    downloadCoverLetter: vi.fn(),
+  }));
 const { toast } = vi.hoisted(() => ({ toast: { success: vi.fn(), error: vi.fn(), warning: vi.fn() } }));
 vi.mock('sonner', () => ({ toast }));
-vi.mock('@/lib/api', () => ({ getCoverLetter, writeCoverLetter, editCoverLetterParagraph, removeCoverLetterParagraph, downloadCoverLetter }));
+vi.mock('@/lib/api', () => ({
+  getCoverLetter,
+  writeCoverLetter,
+  editCoverLetterParagraph,
+  removeCoverLetterParagraph,
+  resolveCoverLetterFlag,
+  downloadCoverLetter,
+}));
 
 import { CoverLetterReview, resetCoverLetterStoreForTests, setTailorKeywords, startCoverLetter } from './cover-letter-review';
 
@@ -34,19 +43,24 @@ const letter: CoverLetterRecord = {
   ],
   checks: [
     {
+      id: 'c0',
       paragraph: null,
       text: 'At Globex I cut p95 latency by 60% with Redis caching.',
       dropped: true,
+      severity: 'drop',
       dropReason: "adds the number 60%, which isn't in your base résumé",
-      issues: [{ code: 'NEW_NUMBER', term: '60%', message: "adds the number 60%, which isn't in your base résumé" }],
+      issues: [{ code: 'NEW_NUMBER', term: '60%', message: "adds the number 60%, which isn't in your base résumé", severity: 'drop' }],
     },
     {
+      id: 'c1',
       paragraph: 1,
       text: 'I would enjoy working on PayLink.',
       dropped: false,
-      issues: [{ code: 'NEW_NAME', term: 'PayLink', message: 'mentions "PayLink" from the posting, not your résumé' }],
+      severity: 'flag',
+      resolution: 'kept',
+      issues: [{ code: 'NEW_NAME', term: 'PayLink', message: 'mentions "PayLink" from the posting, not your résumé', severity: 'flag' }],
     },
-    { paragraph: 2, text: 'I have worked with Kafka alongside Go.', dropped: false, issues: [], confirmedTerms: ['Kafka'] },
+    { id: 'c2', paragraph: 2, text: 'I have worked with Kafka alongside Go.', dropped: false, severity: 'note', issues: [], confirmedTerms: ['Kafka'] },
   ],
   basedOn: {
     baseVersionId: 'base-1',
@@ -60,6 +74,12 @@ const letter: CoverLetterRecord = {
   },
   createdAt: '2026-10-14T12:00:00.000Z',
   updatedAt: '2026-10-14T12:00:00.000Z',
+};
+
+/** The letter with its PayLink sentence flagged and not yet kept or removed. */
+const flagged: CoverLetterRecord = {
+  ...letter,
+  checks: letter.checks.map((check) => (check.id === 'c1' ? { ...check, resolution: undefined } : check)),
 };
 
 const renderLetter = (defaultKeywords: string[] = []) =>
@@ -343,5 +363,90 @@ describe('CoverLetterReview', () => {
     expect(unsaved).toHaveValue(`${letter.paragraphs[1]!.text} More.`);
     expect(screen.queryByLabelText(/^Paragraph \d$/)).not.toBeInTheDocument();
     expect(toast.error).toHaveBeenCalledWith(expect.stringMatching(/changed in another tab/));
+  });
+  it('a flagged sentence is highlighted with its reason, and Download waits until it is kept or removed', async () => {
+    const user = userEvent.setup();
+    getCoverLetter.mockResolvedValueOnce(flagged);
+    resolveCoverLetterFlag.mockResolvedValueOnce(letter);
+    renderLetter();
+
+    const paragraph = await screen.findByTestId('letter-paragraph-1');
+    expect(within(paragraph).getByText('I would enjoy working on PayLink.').tagName).toBe('MARK');
+    expect(within(paragraph).getByText(/mentions "PayLink" from the posting/)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Download PDF' })).toBeDisabled();
+    expect(screen.getByText(/Keep or remove the 1 highlighted sentence before you download/)).toBeInTheDocument();
+
+    await user.click(within(paragraph).getByRole('button', { name: 'Keep' }));
+    expect(resolveCoverLetterFlag).toHaveBeenCalledWith('job-1', 'c1', 'keep', flagged.paragraphs[1]!.text, flagged.updatedAt);
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Download PDF' })).toBeEnabled());
+  });
+
+  it('Remove takes the flagged sentence out of its paragraph', async () => {
+    const user = userEvent.setup();
+    getCoverLetter.mockResolvedValueOnce(flagged);
+    resolveCoverLetterFlag.mockResolvedValueOnce({
+      ...letter,
+      paragraphs: [letter.paragraphs[0]!, { text: 'At Globex I built the billing API in Go serving 2,000 merchants.', edited: false }, letter.paragraphs[2]!],
+      checks: letter.checks.map((check) => (check.id === 'c1' ? { ...check, resolution: 'removed' as const } : check)),
+    });
+    renderLetter();
+
+    await user.click(within(await screen.findByTestId('letter-paragraph-1')).getByRole('button', { name: 'Remove' }));
+    expect(resolveCoverLetterFlag).toHaveBeenCalledWith('job-1', 'c1', 'remove', flagged.paragraphs[1]!.text, flagged.updatedAt);
+    expect(await screen.findByText('At Globex I built the billing API in Go serving 2,000 merchants.')).toBeInTheDocument();
+  });
+
+  it('a letter that changed in another tab is read again, the typed text kept, and the user told', async () => {
+    const user = userEvent.setup();
+    getCoverLetter.mockResolvedValueOnce(letter);
+    editCoverLetterParagraph.mockRejectedValueOnce(Object.assign(new Error('This letter changed in another tab.'), { status: 409, code: 'LETTER_CHANGED' }));
+    getCoverLetter.mockResolvedValueOnce({ ...letter, updatedAt: '2026-10-14T12:09:00.000Z' });
+    renderLetter();
+
+    await user.click(await screen.findByRole('button', { name: 'Edit paragraph 2' }));
+    await user.type(screen.getByLabelText('Paragraph 2'), ' More.');
+    await user.click(within(screen.getByTestId('letter-paragraph-1')).getByRole('button', { name: 'Save' }));
+
+    await waitFor(() => expect(toast.error).toHaveBeenCalledWith(expect.stringMatching(/changed in another tab/)));
+    expect(screen.getByLabelText('Paragraph 2')).toHaveValue(`${letter.paragraphs[1]!.text} More.`);
+  });
+
+  it('when the letter cannot be read again after a 409, the user is told', async () => {
+    const user = userEvent.setup();
+    getCoverLetter.mockResolvedValueOnce(letter);
+    editCoverLetterParagraph.mockRejectedValueOnce(Object.assign(new Error('That paragraph changed.'), { status: 409, code: 'PARAGRAPH_CHANGED' }));
+    getCoverLetter.mockRejectedValueOnce(new Error('Network error'));
+    renderLetter();
+
+    await user.click(await screen.findByRole('button', { name: 'Edit paragraph 2' }));
+    await user.click(within(screen.getByTestId('letter-paragraph-1')).getByRole('button', { name: 'Save' }));
+    await waitFor(() => expect(toast.error).toHaveBeenCalledWith(expect.stringMatching(/couldn't be read again|Reload/)));
+  });
+
+  it('a 409 on a paragraph that only moved still says the save did not apply', async () => {
+    const user = userEvent.setup();
+    getCoverLetter.mockResolvedValueOnce(letter);
+    editCoverLetterParagraph.mockRejectedValueOnce(Object.assign(new Error('That paragraph changed.'), { status: 409, code: 'PARAGRAPH_CHANGED' }));
+    getCoverLetter.mockResolvedValueOnce({ ...letter, paragraphs: letter.paragraphs.slice(1), checks: [] });
+    renderLetter();
+
+    await user.click(await screen.findByRole('button', { name: 'Edit paragraph 2' }));
+    await user.click(within(screen.getByTestId('letter-paragraph-1')).getByRole('button', { name: 'Save' }));
+    await waitFor(() => expect(toast.error).toHaveBeenCalledWith(expect.stringMatching(/moved.*wasn't saved|wasn't saved.*moved/)));
+  });
+
+  it("after a failed run, the toggle shows that run's length even if another was picked before", async () => {
+    const user = userEvent.setup();
+    getCoverLetter.mockResolvedValue(null);
+    writeCoverLetter.mockRejectedValueOnce(Object.assign(new Error("The AI couldn't answer this time."), { status: 503 }));
+    writeCoverLetter.mockReturnValueOnce(new Promise(() => undefined));
+    renderLetter([]);
+    await user.click(await screen.findByRole('button', { name: 'Concise' }));
+
+    startCoverLetter('job-1', { length: 'full', confirmedKeywords: ['Snowflake'] });
+    const alert = await screen.findByRole('alert');
+    expect(screen.getByRole('button', { name: 'Full' })).toHaveAttribute('aria-pressed', 'true');
+    await user.click(within(alert).getByRole('button', { name: 'Try again' }));
+    expect(writeCoverLetter).toHaveBeenLastCalledWith('job-1', { length: 'full', confirmedKeywords: ['Snowflake'] });
   });
 });

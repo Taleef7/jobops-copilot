@@ -101,6 +101,8 @@ function startTailoring(jobId: string, options: TailorOptions) {
     ({ version, addedToBase }) => {
       // The new draft is shown; earlier versions stay in the list.
       see(jobId, version, { selectedId: version.id, run: null });
+      // A cover letter written again later uses the keywords of this tailoring, now it worked.
+      setTailorKeywords(jobId, options.confirmedKeywords);
       toast.success('Your tailored résumé is ready to review.');
       if (addedToBase === false) {
         toast.warning("Your draft is ready, but the keywords couldn't be added to your base résumé. Add them in Settings → Résumé.");
@@ -158,8 +160,6 @@ export function TailoredResumeReview({ jobId, jobCompany, initialVersions = [] }
   function tailor(options: TailorOptions, letter: CoverLetterLength | null = null) {
     setWindowOpen(false);
     startTailoring(jobId, options);
-    // A letter written again later uses these keywords too.
-    setTailorKeywords(jobId, options.confirmedKeywords);
     // The letter runs alongside, from the same keywords; it has its own progress and errors.
     if (letter) startCoverLetter(jobId, { length: letter, confirmedKeywords: options.confirmedKeywords });
   }

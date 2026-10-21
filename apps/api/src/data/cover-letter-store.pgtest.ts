@@ -23,7 +23,7 @@ function letterFor(userId: string, jobId: string, text: string, length: CoverLet
       { text, edited: false },
       { text: 'Thank you for your time.', edited: false },
     ],
-    checks: [{ paragraph: null, text: 'I ran Kafka.', dropped: true, dropReason: 'adds Kafka', issues: [{ code: 'NEW_SKILL', term: 'Kafka', message: 'adds Kafka' }] }],
+    checks: [{ id: 'c0', paragraph: null, text: 'I ran Kafka.', dropped: true, severity: 'drop', dropReason: 'adds Kafka', issues: [{ code: 'NEW_SKILL', term: 'Kafka', message: 'adds Kafka', severity: 'drop' }] }],
     basedOn: {
       baseVersionId: null,
       baseUpdatedAt: now,

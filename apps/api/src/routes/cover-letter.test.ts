@@ -510,6 +510,8 @@ test('an answer far longer than any letter is refused before the check: 503 at o
       const response = await send('POST', `/api/jobs/${job.id}/cover-letter`, { length: 'full' });
       const ms = performance.now() - started;
       assert.equal(response.status, 503);
+      // The guard's own reason: without it the check would read the answer and say something else.
+      assert.match(((await response.json()) as { error?: string }).error ?? '', /far longer than a letter/);
       assert.ok(ms < 1_500, `${ms.toFixed(0)} ms`);
       assert.equal(await read(send, job.id), null);
     });
@@ -535,4 +537,113 @@ test("the agent's 422s: a validation error is a retryable 503, a refused input a
       { status: 422 },
     );
   }
+});
+
+// The owner's rule (#416): what the check can only guess is flagged, kept in the letter, and must
+// be kept or removed by the user before the letter prints.
+const FLAGGED = 'Before Globex, I worked at google on payment APIs.';
+
+async function writeWithFlag(send: Send, jobId: string): Promise<CoverLetterRecord> {
+  const letter = await write(send, jobId);
+  const flag = letter.checks.find((check) => check.severity === 'flag');
+  assert.ok(flag, JSON.stringify(letter.checks));
+  assert.equal(flag.text, FLAGGED);
+  return letter;
+}
+
+const flaggedLetter = () => answerOf([letterOf(120, 1)[0]!, `${FLAGGED} ${GROUNDED[2]}`, GROUNDED[9]!]);
+
+test('a flagged sentence stays in the letter, and the PDF waits until it is kept or removed', async () => {
+  await withLetters(flaggedLetter(), async ({ send }) => {
+    const job = await setUp();
+    const letter = await writeWithFlag(send, job.id);
+    assert.ok(letter.paragraphs[1]!.text.includes(FLAGGED));
+
+    const blocked = await send('GET', `/api/jobs/${job.id}/cover-letter/download`);
+    assert.equal(blocked.status, 409);
+    assert.equal(((await blocked.json()) as { code?: string }).code, 'FLAGS_UNRESOLVED');
+
+    const flag = letter.checks.find((check) => check.severity === 'flag')!;
+    const kept = await send('PATCH', `/api/jobs/${job.id}/cover-letter/checks/${flag.id}`, { action: 'keep', updatedAt: letter.updatedAt });
+    assert.equal(kept.status, 200, await kept.clone().text());
+    const after = ((await kept.json()) as { coverLetter: CoverLetterRecord }).coverLetter;
+    assert.equal(after.checks.find((check) => check.id === flag.id)!.resolution, 'kept');
+    const { text } = await download(send, job.id);
+    assert.ok(text.includes(FLAGGED));
+  });
+});
+
+test('removing a flagged sentence edits its paragraph through the guarded path', async () => {
+  await withLetters(flaggedLetter(), async ({ send }) => {
+    const job = await setUp();
+    const letter = await writeWithFlag(send, job.id);
+    const flag = letter.checks.find((check) => check.severity === 'flag')!;
+
+    const stale = await send('PATCH', `/api/jobs/${job.id}/cover-letter/checks/${flag.id}`, {
+      action: 'remove',
+      expectedText: 'Something else.',
+    });
+    assert.equal(stale.status, 409);
+    assert.equal(((await stale.json()) as { code?: string }).code, 'PARAGRAPH_CHANGED');
+
+    const removed = await send('PATCH', `/api/jobs/${job.id}/cover-letter/checks/${flag.id}`, {
+      action: 'remove',
+      expectedText: letter.paragraphs[1]!.text,
+      updatedAt: letter.updatedAt,
+    });
+    assert.equal(removed.status, 200, await removed.clone().text());
+    const after = ((await removed.json()) as { coverLetter: CoverLetterRecord }).coverLetter;
+    assert.equal(after.paragraphs[1]!.text, GROUNDED[2]);
+    assert.equal(after.paragraphs[1]!.edited, false);
+    assert.equal(after.checks.find((check) => check.id === flag.id)!.resolution, 'removed');
+    const { text } = await download(send, job.id);
+    assert.ok(!text.includes('google'));
+
+    assert.equal((await send('PATCH', `/api/jobs/${job.id}/cover-letter/checks/nope`, { action: 'keep' })).status, 404);
+    assert.equal((await send('PATCH', `/api/jobs/${job.id}/cover-letter/checks/${flag.id}`, { action: 'maybe' })).status, 400);
+    assert.equal((await send('PATCH', `/api/jobs/${job.id}/cover-letter/checks/${flag.id}`, { action: 'keep' }, 'intruder')).status, 404);
+  });
+});
+
+test('a flagged sentence alone in its paragraph takes the paragraph with it', async () => {
+  await withLetters(answerOf([letterOf(120, 1)[0]!, FLAGGED, GROUNDED[9]!]), async ({ send }) => {
+    const job = await setUp();
+    const letter = await writeWithFlag(send, job.id);
+    const flag = letter.checks.find((check) => check.severity === 'flag')!;
+    const response = await send('PATCH', `/api/jobs/${job.id}/cover-letter/checks/${flag.id}`, {
+      action: 'remove',
+      expectedText: FLAGGED,
+    });
+    assert.equal(response.status, 200, await response.clone().text());
+    const after = ((await response.json()) as { coverLetter: CoverLetterRecord }).coverLetter;
+    assert.deepEqual(
+      after.paragraphs.map((p) => p.text),
+      [letter.paragraphs[0]!.text, GROUNDED[9]],
+    );
+  });
+});
+
+test("editing a paragraph clears its flags: the user's words are theirs", async () => {
+  await withLetters(flaggedLetter(), async ({ send }) => {
+    const job = await setUp();
+    const letter = await writeWithFlag(send, job.id);
+    const response = await send('PATCH', `/api/jobs/${job.id}/cover-letter/paragraphs/1`, {
+      text: 'At Globex I built the billing API in Go.',
+      expectedText: letter.paragraphs[1]!.text,
+    });
+    assert.equal(response.status, 200);
+    const after = ((await response.json()) as { coverLetter: CoverLetterRecord }).coverLetter;
+    assert.equal(after.checks.find((check) => check.severity === 'flag')!.resolution, 'edited');
+    assert.equal((await send('GET', `/api/jobs/${job.id}/cover-letter/download`)).status, 200);
+  });
+});
+
+test('the "less than half a letter" 503 counts only dropped sentences, not flagged ones', async () => {
+  // Most of this letter is flagged, none of it dropped: it is saved, flags and all.
+  const flagged = Array.from({ length: 10 }, () => FLAGGED).join(' ');
+  await withLetters(answerOf([letterOf(30, 1)[0]!, flagged]), async ({ send }) => {
+    const job = await setUp();
+    const letter = await write(send, job.id);
+    assert.ok(letter.checks.filter((check) => check.severity === 'flag').length >= 1);
+  });
 });

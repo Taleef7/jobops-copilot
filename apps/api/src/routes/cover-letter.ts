@@ -8,7 +8,7 @@ import { AiUnavailableError, normalizeStructuredResume, resolveCoverLetter } fro
 import { requireUser } from '@/lib/auth';
 import { attachmentDisposition } from '@/lib/content-disposition';
 import { buildCoverLetterRequest } from '@/lib/cover-letter/answer';
-import { groundLetter, LETTER_GROUNDING_VERSION } from '@/lib/cover-letter/ground';
+import { groundLetter, LETTER_GROUNDING_VERSION, unresolvedFlags } from '@/lib/cover-letter/ground';
 import { countWords, letterTooLong, MAX_GENERATED_WORDS, MAX_LETTER_CHARS, MAX_PARAGRAPH_CHARS, TARGET_WORDS } from '@/lib/cover-letter/limits';
 import { renderCoverLetter, type CoverLetterPdfOptions } from '@/lib/cover-letter-pdf';
 import { companyName } from '@/lib/tailor/ground';
@@ -151,11 +151,12 @@ coverLetterRouter.post('/jobs/:id/cover-letter', async (request, response, next)
     // An answer far longer than any letter isn't one: refused before the check reads it.
     const total = answer.paragraphs.reduce((sum, paragraph) => sum + paragraph.length, 0);
     if (total > 3 * MAX_LETTER_CHARS || answer.paragraphs.some((paragraph) => paragraph.length > 2 * MAX_PARAGRAPH_CHARS)) {
-      throw new AiUnavailableError(`The AI wrote a letter too long for a ${length} one. Try again.`);
+      throw new AiUnavailableError("The AI's answer was far longer than a letter, so it wasn't read. Try again.");
     }
     const grounded = groundLetter(answer.paragraphs, { base, job, jobTerms: postingKeywords(job), confirmedKeywords });
     const words = grounded.paragraphs.reduce((sum, paragraph) => sum + countWords(paragraph), 0);
     // Less than half of the length asked for is left: most of what the AI wrote was dropped.
+    // Flagged sentences are still in the letter, so only drops count here.
     if (words < Math.ceil(TARGET_WORDS[length].min / 2)) {
       throw new AiUnavailableError("Most of the AI's letter said things your base résumé doesn't, so it wasn't kept. Try again.");
     }
@@ -243,6 +244,10 @@ coverLetterRouter.patch('/jobs/:id/cover-letter/paragraphs/:index', async (reque
     }
 
     const paragraphs = letter.paragraphs.map((paragraph, i) => (i === index ? { text, edited: true } : paragraph));
+    // The user's words are theirs: the paragraph's flags are settled by the edit.
+    const checks = letter.checks.map((check) =>
+      check.severity === 'flag' && check.paragraph === index && !check.resolution ? { ...check, resolution: 'edited' as const } : check,
+    );
     const texts = paragraphs.map((paragraph) => paragraph.text);
     const tooLong = letterTooLong(texts);
     if (tooLong) return response.status(400).json({ code: LETTER_TOO_LONG, error: tooLong });
@@ -251,7 +256,12 @@ coverLetterRouter.patch('/jobs/:id/cover-letter/paragraphs/:index', async (reque
       return response.status(400).json({ code: LETTER_TOO_LONG, error: 'This would make the letter longer than one page. Shorten it.' });
     }
 
-    const updated = await updateCoverLetter(userId, job.id, { paragraphs }, { expect: { updatedAt: (body.updatedAt as string | undefined) ?? letter.updatedAt } });
+    const updated = await updateCoverLetter(
+      userId,
+      job.id,
+      { paragraphs, checks },
+      { expect: { updatedAt: (body.updatedAt as string | undefined) ?? letter.updatedAt } },
+    );
     if (!updated) return response.status(409).json(LETTER_CHANGED);
     return response.json({ coverLetter: updated });
   } catch (error) {
@@ -308,6 +318,68 @@ coverLetterRouter.delete('/jobs/:id/cover-letter/paragraphs/:index', async (requ
 });
 
 /**
+ * PATCH /api/jobs/:id/cover-letter/checks/:checkId   body: { action: 'keep' | 'remove', expectedText?, updatedAt? }
+ *
+ * The user's answer to a flagged sentence (#416): keep it, or remove it from its paragraph (the
+ * paragraph goes too when it was its only sentence, unless it is the letter's last). `expectedText`
+ * is the paragraph as the page shows it, as for an edit: 409 PARAGRAPH_CHANGED if it moved.
+ */
+coverLetterRouter.patch('/jobs/:id/cover-letter/checks/:checkId', async (request, response, next) => {
+  try {
+    const userId = requireUser(request, response);
+    if (!userId) return;
+    const job = await jobFor(userId, request.params.id!, response);
+    if (!job) return;
+    const letter = await getCoverLetter(userId, job.id);
+    const check = letter?.checks.find((found) => found.id === request.params.checkId && found.severity === 'flag');
+    if (!letter || !check || check.paragraph === null) {
+      return response.status(404).json({ error: `Flag not found: ${request.params.checkId}` });
+    }
+    const body = (request.body ?? {}) as { action?: unknown; expectedText?: unknown; updatedAt?: unknown };
+    if (body.action !== 'keep' && body.action !== 'remove') {
+      return response.status(400).json({ error: "action must be 'keep' or 'remove'." });
+    }
+    if (body.updatedAt !== undefined && !isTimestamp(body.updatedAt)) {
+      return response.status(400).json({ error: 'updatedAt must be the letter’s updatedAt.' });
+    }
+    const index = check.paragraph;
+    const paragraph = letter.paragraphs[index];
+    if (!paragraph || paragraphMoved(body.expectedText, paragraph.text) || !paragraph.text.includes(check.text)) {
+      return response.status(409).json(PARAGRAPH_CHANGED);
+    }
+
+    let paragraphs = letter.paragraphs;
+    let checks = letter.checks.map((found) => (found.id === check.id ? { ...found, resolution: body.action === 'keep' ? ('kept' as const) : ('removed' as const) } : found));
+    if (body.action === 'remove') {
+      const text = paragraph.text.replace(check.text, ' ').replace(/\s+/g, ' ').trim();
+      if (text) {
+        paragraphs = letter.paragraphs.map((p, i) => (i === index ? { ...p, text } : p));
+      } else if (letter.paragraphs.length === 1) {
+        return response.status(400).json({ error: 'A letter keeps at least one paragraph. Edit it, or write the letter again.' });
+      } else {
+        // Its only sentence: the paragraph goes, and later marks move up.
+        paragraphs = letter.paragraphs.filter((_p, i) => i !== index);
+        checks = checks.flatMap((found) => {
+          if (found.paragraph === null || found.paragraph < index) return [found];
+          if (found.paragraph > index) return [{ ...found, paragraph: found.paragraph - 1 }];
+          return found.id === check.id || found.dropped ? [{ ...found, paragraph: null }] : [];
+        });
+      }
+    }
+    const updated = await updateCoverLetter(
+      userId,
+      job.id,
+      { paragraphs, checks },
+      { expect: { updatedAt: (body.updatedAt as string | undefined) ?? letter.updatedAt } },
+    );
+    if (!updated) return response.status(409).json(LETTER_CHANGED);
+    return response.json({ coverLetter: updated });
+  } catch (error) {
+    next(error);
+  }
+});
+
+/**
  * GET /api/jobs/:id/cover-letter/download?date=YYYY-MM-DD
  *
  * The letter as a one-page PDF, "First Last – Company – Cover letter.pdf", dated `date` (the
@@ -322,6 +394,14 @@ coverLetterRouter.get('/jobs/:id/cover-letter/download', async (request, respons
     const letter = await getCoverLetter(userId, job.id);
     if (!letter) {
       return response.status(404).json({ error: 'This job has no cover letter yet.' });
+    }
+
+    const unresolved = unresolvedFlags(letter).length;
+    if (unresolved > 0) {
+      return response.status(409).json({
+        code: 'FLAGS_UNRESOLVED',
+        error: `Keep or remove the ${unresolved === 1 ? 'highlighted sentence' : `${unresolved} highlighted sentences`} before you download.`,
+      });
     }
 
     const { base } = await baseResumeOf(userId);
