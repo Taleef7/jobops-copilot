@@ -100,10 +100,10 @@ const DEGREES: Array<[string, RegExp]> = [
     /(?<![\p{L}])(bachelor'?s?|b\.?\s?sc\.?|b\.s\.?|b\.a\.|b\.?eng|b\.?tech)(?![\p{L}])|(?<![\p{L}])(bs|ba)\s+in(?![\p{L}])/u,
   ],
 ];
-const degreesIn = (text: string) => DEGREES.filter(([, pattern]) => pattern.test(norm(text))).map(([name]) => name);
+export const degreesIn = (text: string) => DEGREES.filter(([, pattern]) => pattern.test(norm(text))).map(([name]) => name);
 
 /** Text for title matching: "Vice President" is "VP", "head-of" is "head of". */
-const titleText = (text: string) =>
+export const titleText = (text: string) =>
   norm(text).replace(/\bvice[\s-]president\b/g, 'vp').replace(/\bhead-of\b/g, 'head of');
 
 const ROLE =
@@ -134,7 +134,7 @@ const PROMOTED =
 const AS_TITLE =
   /(?<!\b(?:such|well)\s)\bas (?:the |a |an |our )?(?:[\p{L}-]+\s+){0,3}?(lead|leader|manager|supervisor|director|head|ceo|cto|cfo|coo|vp|founder|owner)(?![\p{L}])(?=\s*(?:$|[,.;:!?(]|(?:who|with|at|in|for|and|of|on|to|from|during|until)\b))/gu;
 
-function titleClaims(text: string, isSummary: boolean): string[] {
+export function titleClaims(text: string, isSummary: boolean): string[] {
   const claims = new Set<string>();
   for (const match of text.matchAll(SENIORITY)) claims.add(match[1]!.replace(/\.$/, ''));
   for (const match of text.matchAll(LEVEL)) claims.add(match[1]!);
@@ -145,14 +145,14 @@ function titleClaims(text: string, isSummary: boolean): string[] {
 }
 
 /** Titles the line says the person held ("as billing lead"), with how often. */
-function heldTitles(text: string): Map<string, number> {
+export function heldTitles(text: string): Map<string, number> {
   const held = new Map<string, number>();
   for (const match of text.matchAll(AS_TITLE)) held.set(match[1]!, (held.get(match[1]!) ?? 0) + 1);
   return held;
 }
 
 /** Verbs that claim leading or owning work, by family. Kept, but marked for review. */
-const LEADERSHIP: RegExp[] = [
+export const LEADERSHIP: RegExp[] = [
   /\b(led|leading)\b/,
   /\bmanag(e|ed|es|ing)\b/,
   /\b(owned|owning)\b/,
@@ -201,7 +201,7 @@ function isToolOrDegree(token: string, vocab: Vocab): boolean {
  * capitalised word mid-sentence ("Memcached", "Microsoft"). Numbers, known tools and degrees are
  * checked on their own.
  */
-function newNames(text: string, known: Set<string>, vocab: Vocab): { strong: string[]; weak: string[] } {
+export function newNames(text: string, known: Set<string>, vocab: Vocab): { strong: string[]; weak: string[] } {
   const source = plain(text);
   const strong: string[] = [];
   const weak: string[] = [];

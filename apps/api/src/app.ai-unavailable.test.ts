@@ -48,7 +48,7 @@ test('every AI route answers 503 retryable when the agent is down, and nothing i
       ['score-fit', '/api/ai/score-fit', { job_id: jobId }],
       ['parse-job', '/api/ai/parse-job', { description_text: 'Build APIs in Python.' }],
       ['draft-outreach', '/api/ai/draft-outreach', { job_id: jobId, message_type: 'recruiter_email' }],
-      ['cover letter', '/api/ai/draft-outreach', { job_id: jobId, message_type: 'cover_letter' }],
+      ['cover letter', `/api/jobs/${jobId}/cover-letter`, { length: 'full' }],
       ['interview prep', '/api/ai/agents/interview-prep', { job_id: jobId }],
       ['research', '/api/ai/agents/research', { job_id: jobId }],
       ['résumé import', '/api/profile/base-resume/parse-resume', {}],
@@ -66,6 +66,8 @@ test('every AI route answers 503 retryable when the agent is down, and nothing i
     assert.deepEqual(after, before, 'a failed AI call changes nothing on the job (no fake score, no draft)');
     const versions = (await (await send('GET', `/api/jobs/${jobId}/resume-versions`)).json()) as { versions: unknown[] };
     assert.deepEqual(versions.versions, [], 'a failed tailor saves no résumé version');
+    const letter = (await (await send('GET', `/api/jobs/${jobId}/cover-letter`)).json()) as { coverLetter: unknown };
+    assert.equal(letter.coverLetter, null, 'a failed cover letter writes nothing');
   } finally {
     server.closeAllConnections();
     await new Promise<void>((resolve) => server.close(() => resolve()));
@@ -123,6 +125,39 @@ test('interview prep, research and skill gap answer 503 retryable on an unusable
     await new Promise<void>((resolve) => server.close(() => resolve()));
     agent.closeAllConnections();
     await new Promise<void>((resolve) => agent.close(() => resolve()));
+    process.chdir(originalCwd);
+    if (originalAgent === undefined) delete process.env.AGENT_SERVICE_URL;
+    else process.env.AGENT_SERVICE_URL = originalAgent;
+    await resetJobStoreForTests();
+    await rm(tempDir, { recursive: true, force: true });
+  }
+});
+
+test('the outreach drafter no longer writes cover letters: 400 before any AI call (#416)', async () => {
+  const originalCwd = process.cwd();
+  const originalAgent = process.env.AGENT_SERVICE_URL;
+  const tempDir = await mkdtemp(join(tmpdir(), 'jobops-outreach-letter-'));
+  delete process.env.DATABASE_URL;
+  // A call would fail with 503: a 400 shows none was made.
+  process.env.AGENT_SERVICE_URL = 'http://127.0.0.1:9';
+  process.chdir(tempDir);
+  await resetJobStoreForTests();
+  const server = http.createServer(createApp());
+  await new Promise<void>((resolve) => server.listen(0, resolve));
+  const address = server.address();
+  if (!address || typeof address === 'string') throw new Error('no server address');
+  try {
+    const response = await fetch(`http://127.0.0.1:${address.port}/api/ai/draft-outreach`, {
+      method: 'POST',
+      headers: { 'X-User-Id': 'u_outreach_letter', 'Content-Type': 'application/json' },
+      body: JSON.stringify({ message_type: 'cover_letter' }),
+    });
+    const payload = (await response.json()) as { error?: string };
+    assert.equal(response.status, 400, JSON.stringify(payload));
+    assert.match(payload.error ?? '', /tailor/i);
+  } finally {
+    server.closeAllConnections();
+    await new Promise<void>((resolve) => server.close(() => resolve()));
     process.chdir(originalCwd);
     if (originalAgent === undefined) delete process.env.AGENT_SERVICE_URL;
     else process.env.AGENT_SERVICE_URL = originalAgent;

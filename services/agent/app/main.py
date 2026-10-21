@@ -22,6 +22,7 @@ from pydantic import BaseModel, Field
 
 from app.agents.runner import run_interview_prep, run_research, run_skill_gap
 from app.auth import assert_auth_configured, is_authorized
+from app.chains.draft_cover_letter import draft_cover_letter
 from app.chains.draft_outreach import draft_outreach
 from app.chains.parse_job import PostingRefused, parse_job
 from app.chains.parse_resume import parse_resume_text
@@ -53,6 +54,8 @@ from app.safety.injection import (
 )
 from app.schemas import (
     ChatRequest,
+    CoverLetterRequest,
+    CoverLetterResponse,
     DraftOutreachRequest,
     FitScoreResponse,
     InterviewPrep,
@@ -339,6 +342,13 @@ def tailor_resume_endpoint(req: TailorResumeRequest) -> TailorResumeResponse:
     """Edits to the base résumé's lines for one posting (#351). The API applies and checks them."""
     _require_llm()
     return _run(tailor_resume, req, traced_config("tailor-resume"))
+
+
+@app.post("/cover-letter", response_model=CoverLetterResponse)
+def cover_letter_endpoint(req: CoverLetterRequest) -> CoverLetterResponse:
+    """The body of a Concise or Full cover letter (#416). The API checks every sentence."""
+    _require_llm()
+    return _run(draft_cover_letter, req, traced_config("cover-letter"))
 
 
 @app.post("/score-fit", response_model=FitScoreResponse)

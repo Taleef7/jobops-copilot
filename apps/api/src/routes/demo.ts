@@ -5,6 +5,7 @@ import { deleteUserProfile } from '@/data/profile-store';
 import { clearUserSavedSearches } from '@/data/saved-search-store';
 import { clearUserTargetCompanies } from '@/data/target-company-store';
 import { deleteResumeVersions } from '@/data/resume-version-store';
+import { deleteCoverLetters } from '@/data/cover-letter-store';
 import { requireUser } from '@/lib/auth';
 
 export const demoRouter = Router();
@@ -33,6 +34,7 @@ demoRouter.post('/clear', async (request, response, next) => {
     await clearUserSavedSearches(userId);
     await clearUserTargetCompanies(userId);
     await deleteResumeVersions(userId);
+    await deleteCoverLetters(userId);
     response.json({ ok: true });
   } catch (error) {
     next(error);

@@ -24,6 +24,7 @@ import { computeContentHash, parseSalaryFromText, parseSeniority } from '@/lib/j
 import { canonicalJobUrl } from '@/lib/job-sources/normalize';
 import { buildOutcomeStats, rankFeedJobs } from '@/lib/feed-ranking';
 import { deleteResumeVersions } from '@/data/resume-version-store';
+import { deleteCoverLetters } from '@/data/cover-letter-store';
 import { JOB_FIELD_MAX, JOB_NOTE_MAX, STORED_TEXT_MAX } from '@/lib/input-caps';
 
 // Resolved per call (not once at import) so tests can redirect the store with chdir.
@@ -557,6 +558,7 @@ export async function clearUserData(userId: string): Promise<void> {
     await persistStatusEvents();
 
     await deleteResumeVersions(userId);
+    await deleteCoverLetters(userId);
   });
 }
 

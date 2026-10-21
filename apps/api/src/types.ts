@@ -423,7 +423,9 @@ export type GroundingCode =
   | 'NEW_SENIORITY'
   | 'ODD_CHARACTERS'
   | 'NEW_NAME'
-  | 'LEADERSHIP_CLAIM';
+  | 'LEADERSHIP_CLAIM'
+  // A cover letter's sentence with a gap to fill in, such as "[Start Date]" (#416).
+  | 'PLACEHOLDER';
 
 export interface GroundingIssue {
   code: GroundingCode;
@@ -431,6 +433,13 @@ export interface GroundingIssue {
   term?: string;
   /** For the user, after "Suggestion dropped: …": "adds Kafka, which this role doesn't mention". */
   message: string;
+  /**
+   * A cover letter's finding (#416): `drop` is what the check can prove (a number, a date, a link,
+   * a credential, a posting skill, a placeholder); `flag` is what it can only guess (a name, a tie,
+   * an employer, a language, a title, leadership) and the user keeps or removes; `note` is shown
+   * and holds nothing up (the posting's product named, not claimed).
+   */
+  severity?: 'drop' | 'flag' | 'note';
 }
 
 export interface ResumeChangeDetail {
@@ -508,6 +517,70 @@ export interface ResumeVersionRecord {
   isBase: boolean;
   /** Tailored versions only (#351). */
   basedOn?: ResumeVersionBasis | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export type CoverLetterLength = 'concise' | 'full';
+
+/** A paragraph of a cover letter: as the check kept it, or the user's own words (`edited`). */
+export interface CoverLetterParagraph {
+  text: string;
+  edited: boolean;
+}
+
+/**
+ * A sentence of the AI's letter the check dropped or marked (#416). `paragraph` is the kept
+ * paragraph it is in, or null when it was dropped with the rest of its paragraph.
+ */
+export interface CoverLetterCheck {
+  /** Stable within the letter ("c0", "c1"…): what a Keep or Remove names. */
+  id: string;
+  paragraph: number | null;
+  /**
+   * A kept sentence's place among its paragraph's sentences (0-based), so Remove, the pack and the
+   * highlight find it by place rather than by substring. Letters from version 1 of the check lack it.
+   */
+  sentence?: number;
+  text: string;
+  dropped: boolean;
+  /**
+   * `drop`: left out of the letter. `flag`: kept in it, highlighted, and the PDF waits until the
+   * user keeps or removes it. `note`: shown, holding nothing up (a confirmed keyword it uses,
+   * marked as the user's, or the posting's product named).
+   */
+  severity: 'drop' | 'flag' | 'note';
+  /** A flag's outcome: kept, removed from its paragraph, or the paragraph was edited. */
+  resolution?: 'kept' | 'removed' | 'edited';
+  /** Why it was dropped (the first blocking issue's message). */
+  dropReason?: string;
+  issues: GroundingIssue[];
+  /** Confirmed keywords the sentence uses ("uses Kafka, which you added"). */
+  confirmedTerms?: string[];
+}
+
+/** What a cover letter was written from (#416), like a tailored résumé's basis. */
+export interface CoverLetterBasis {
+  baseVersionId: string | null;
+  baseUpdatedAt: string | null;
+  jobId: string;
+  /** SHA-256 of the job's posting text when the letter was written. */
+  postingSha256: string;
+  model: string;
+  createdAt: string;
+  grounding: { version: number };
+  confirmedKeywords: string[];
+}
+
+/** One cover letter per job and user (#416): its body only; the PDF adds the frame. */
+export interface CoverLetterRecord {
+  id: string;
+  userId: string;
+  jobId: string;
+  length: CoverLetterLength;
+  paragraphs: CoverLetterParagraph[];
+  checks: CoverLetterCheck[];
+  basedOn: CoverLetterBasis;
   createdAt: string;
   updatedAt: string;
 }
