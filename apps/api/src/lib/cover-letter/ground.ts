@@ -358,6 +358,27 @@ function titleForms(title: string): string[] {
   return [...new Set([full, short, spelled(full), spelled(short)])].filter((form) => form.length >= 2).sort((a, b) => b.length - a.length);
 }
 
+/** Words a company's name ends on that people leave off: "Palantir Technologies" is "Palantir". */
+const DESCRIPTOR =
+  /\s+(?:technolog(?:y|ies)|labs?|laboratories|systems|group|holdings|software|solutions|industries|enterprises|networks)$/i;
+
+/**
+ * The company's short name, when the posting calls it that mid-sentence: "At Palantir, we…" for
+ * "Palantir Technologies". Not a word the posting only starts a sentence with ("General
+ * knowledge…" for "General Systems"), and '' when there is none.
+ */
+function shortName(company: string, posting: string): string {
+  let short = company;
+  for (let previous = ''; previous !== short; ) {
+    previous = short;
+    short = short.replace(DESCRIPTOR, '').trim();
+  }
+  if (short === company) return '';
+  const rest = source(company.slice(short.length).trim());
+  const midSentence = new RegExp(`(?<=[\\p{L}\\p{N},;:]\\s+)${source(short)}${END}(?!\\s+${rest})`, 'u');
+  return midSentence.test(plain(posting)) ? short : '';
+}
+
 function prepare(ctx: LetterContext): Prepared {
   const { base, job, confirmedKeywords } = ctx;
   const vocab = buildVocab([
@@ -371,7 +392,8 @@ function prepare(ctx: LetterContext): Prepared {
   const location = base.basics.location;
   // The candidate's own name and place, "I'm", "I'd", and calendar words: not names the résumé must have.
   const own = wordStems([base.basics.name, location?.city, location?.region, location?.countryCode, "I'm I'd I've I'll", CALENDAR].join(' '));
-  const companies = [...new Set([job.company.trim(), companyName(job.company)])]
+  const named = companyName(job.company);
+  const companies = [...new Set([job.company.trim(), named, shortName(named, job.descriptionText)])]
     .filter((name) => name.length >= 2)
     .sort((a, b) => b.length - a.length);
   return {

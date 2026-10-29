@@ -233,6 +233,18 @@ test('a leadership claim the source line does not make is kept but marked for re
   assert.ok(codes(detail).includes('LEADERSHIP_CLAIM'));
 });
 
+test('a compound ending in a leadership verb ("evidence-led", "self-managed") is not a leadership claim', () => {
+  for (const text of [
+    'Built the evidence-led billing API in Go serving 2,000 merchants',
+    'Built the self-managed billing API in Go serving 2,000 merchants',
+    'Built the merchant-owned billing API in Go serving 2,000 merchants',
+  ]) {
+    assert.ok(!codes(kept('work[0].highlights[0]', text)).includes('LEADERSHIP_CLAIM'), text);
+  }
+  const coLed = kept('work[0].highlights[0]', 'Co-led the billing API in Go serving 2,000 merchants');
+  assert.ok(codes(coLed).includes('LEADERSHIP_CLAIM'));
+});
+
 test('gaps the résumé or the user already covers are left out', () => {
   const result = run(
     { gaps: ['Advanced SQL experience', 'Kafka streaming', 'Snowflake', 'kafka streaming', ''] },

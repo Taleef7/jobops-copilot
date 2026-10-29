@@ -151,19 +151,23 @@ export function heldTitles(text: string): Map<string, number> {
   return held;
 }
 
-/** Verbs that claim leading or owning work, by family. Kept, but marked for review. */
+/**
+ * Verbs that claim leading or owning work, by family. Kept, but marked for review. Not as the end
+ * of a compound ("evidence-led", "self-managed", "merchant-owned"), which describes the work, not
+ * the person; "co-led" still claims it.
+ */
 export const LEADERSHIP: RegExp[] = [
-  /\b(led|leading)\b/,
-  /\bmanag(e|ed|es|ing)\b/,
-  /\b(owned|owning)\b/,
-  /\bhead(ed|ing)\b/,
-  /\bdirect(ed|ing)\b/,
-  /\bspearhead(ed|ing|s)?\b/,
-  /\bmentor(ed|ing|s)?\b/,
-  /\bsupervis(e|ed|es|ing)\b/,
-  /\bhir(e|ed|es|ing)\b/,
-  /\b(oversaw|oversee|oversees|overseeing|overseen)\b/,
-];
+  'led|leading',
+  'manag(?:e|ed|es|ing)',
+  'owned|owning',
+  'head(?:ed|ing)',
+  'direct(?:ed|ing)',
+  'spearhead(?:ed|ing|s)?',
+  'mentor(?:ed|ing|s)?',
+  'supervis(?:e|ed|es|ing)',
+  'hir(?:e|ed|es|ing)',
+  'oversaw|oversee|oversees|overseeing|overseen',
+].map((verb) => new RegExp(`(?<!(?<!\\bco)-)\\b(?:${verb})\\b`));
 
 /** Acronyms and words that are not names of anything the résumé has to have. */
 const GENERIC = new Set(

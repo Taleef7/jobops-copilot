@@ -148,6 +148,42 @@ test('a leadership verb the résumé never uses is kept and marked for a look', 
   assert.deepEqual(check('At Globex I mentored two interns.').checks, []);
 });
 
+test('a compound ending in a leadership verb describes the work, not the person; "co-led" still claims it', () => {
+  for (const sentence of [
+    'At Globex I built the billing API in Go with an evidence-led, self-directed approach.',
+    'At Globex I built the billing API in Go on self-managed servers.',
+    'At Globex I built the merchant-owned billing API in Go.',
+  ]) {
+    assert.deepEqual(check(sentence).checks, [], sentence);
+  }
+  const coLed = check('At Globex I co-led the billing API in Go.');
+  assert.equal(coLed.checks[0]!.issues[0]!.code, 'LEADERSHIP_CLAIM');
+  assert.equal(coLed.checks[0]!.issues[0]!.term, 'led');
+});
+
+test('the company by its short name, where the posting uses it, is the company', () => {
+  const job = {
+    title: 'Backend Engineer',
+    company: 'Initrode Technologies',
+    descriptionText: 'At Initrode, we build payment APIs in Go. Initrode Technologies is hiring a backend engineer.',
+  };
+  // Not a name from the posting to note: the company the letter is written to.
+  assert.deepEqual(check('I would enjoy building payment APIs in Go at Initrode.', { job }).checks, []);
+  // A tie to the company by its short name is still a tie.
+  const tie = check('I worked at Initrode on payment APIs in Go.', { job });
+  assert.equal(tie.checks[0]!.issues[0]!.code, 'NEW_ENTITY');
+  assert.equal(tie.checks[0]!.issues[0]!.term, 'Initrode');
+});
+
+test('a short name the posting only uses as an ordinary word is not the company', () => {
+  const job = {
+    title: 'Backend Engineer',
+    company: 'General Systems',
+    descriptionText: 'General Systems builds payment APIs in Go. General knowledge of Kafka helps.',
+  };
+  assert.deepEqual(check('I have general experience building payment APIs in Go.', { job }).checks, []);
+});
+
 test('a paragraph whose every sentence is dropped goes, and later marks point at the kept paragraphs', () => {
   const result = groundLetter(['I have run Kafka clusters for years.', 'I would enjoy working on PayLink with your team.'], ctx());
   assert.deepEqual(result.paragraphs, ['I would enjoy working on PayLink with your team.']);
