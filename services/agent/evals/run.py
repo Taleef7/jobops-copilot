@@ -26,7 +26,7 @@ from app.llm.provider import get_model, resolve_provider
 from app.schemas import ScoreFitRequest
 from evals.evidence import Evidence
 from evals.gate import check_regression, check_thresholds, load_baseline, load_thresholds
-from evals.metrics.extraction import exact_match, skill_prf
+from evals.metrics.extraction import exact_match, skill_prf, title_match
 from evals.metrics.ragas_fit import fit_ragas_scores, mean, spearman
 
 logger = logging.getLogger("jobops.evals")
@@ -88,6 +88,7 @@ def _build_embeddings():
 def run_parse_job_eval(rows: list[dict]) -> dict:
     """Deterministic parse-job extraction metrics over the gold set."""
     precisions, recalls, f1s, titles, seniorities = [], [], [], [], []
+    misses: list[dict] = []
     errors = 0
     for row in rows:
         expected = row["expected"]
@@ -103,13 +104,28 @@ def run_parse_job_eval(rows: list[dict]) -> dict:
             f1s.append(0.0)
             titles.append(0.0)
             seniorities.append(0.0)
+            misses.append({"id": row.get("id"), "field": "parse", "expected": None, "got": "error"})
             continue
         precision, recall, f1 = skill_prf(parsed.required_skills, expected["required_skills"])
         precisions.append(precision)
         recalls.append(recall)
         f1s.append(f1)
-        titles.append(exact_match(parsed.title, expected.get("title")))
+        titles.append(title_match(parsed.title, expected.get("title")))
         seniorities.append(exact_match(parsed.seniority, expected.get("seniority")))
+        # Which rows missed, and with what: an average can't say if the model or the label is off.
+        for field, got, score in (
+            ("title", parsed.title, titles[-1]),
+            ("seniority", parsed.seniority, seniorities[-1]),
+        ):
+            if not score:
+                misses.append(
+                    {
+                        "id": row.get("id"),
+                        "field": field,
+                        "expected": expected.get(field),
+                        "got": got,
+                    }
+                )
     return {
         "n": len(rows),
         "errors": errors,
@@ -118,6 +134,7 @@ def run_parse_job_eval(rows: list[dict]) -> dict:
         "skill_f1": mean(f1s),
         "title_accuracy": mean(titles),
         "seniority_accuracy": mean(seniorities),
+        "misses": misses,
     }
 
 
@@ -262,6 +279,13 @@ def render_markdown(report: dict) -> str:
         f"| seniority accuracy | {pj['seniority_accuracy']} |",
         f"| examples (errors) | {pj['n']} ({pj['errors']}) |",
     ]
+    if pj.get("misses"):
+        lines += ["", "| row | field | expected | got |", "| --- | --- | --- | --- |"]
+        cell = lambda value: str(value).replace("|", "\\|")  # noqa: E731
+        lines += [
+            f"| {cell(m['id'])} | {m['field']} | {cell(m['expected'])} | {cell(m['got'])} |"
+            for m in pj["misses"]
+        ]
     fs = report["fit_score"]
     ragas = fs.get("ragas", {})
     lines += [
