@@ -24,25 +24,17 @@ updates:
       npm-minor-patch:
         patterns: ["*"]
         update-types: ["minor", "patch"]
+    ignore:
+      # The runtime is Node 22, so its types stay on 22.
+      - dependency-name: "@types/node"
+        update-types: ["version-update:semver-major"]
 
-  # Python agent service.
+  # Python agent service: security updates only. Its image builds from a full lock
+  # (constraints.txt) that Dependabot can't keep consistent: its group PRs didn't resolve and
+  # dropped the CPU torch build. The lock gets hand-made bumps, each checked to resolve, and
+  # CI's pip-audit on the lock is the gate. A limit of 0 stops version-update PRs only.
   - package-ecosystem: pip
     directory: /services/agent
     schedule:
       interval: monthly
-    open-pull-requests-limit: 5
-    groups:
-      agent-minor-patch:
-        patterns: ["*"]
-        update-types: ["minor", "patch"]
-
-  # Python MCP server.
-  - package-ecosystem: pip
-    directory: /services/mcp
-    schedule:
-      interval: monthly
-    open-pull-requests-limit: 5
-    groups:
-      mcp-minor-patch:
-        patterns: ["*"]
-        update-types: ["minor", "patch"]
+    open-pull-requests-limit: 0
