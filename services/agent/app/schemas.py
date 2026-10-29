@@ -513,6 +513,45 @@ class ParseResumeRequest(BaseModel):
     resume_text: str = Field(description="Raw resume text to parse into a structured model")
 
 
+# --- POST /cover-letter (#416): the body of a cover letter ------------------------------
+
+CoverLetterLength = Literal["concise", "full"]
+
+
+class CoverLetterRequest(BaseModel):
+    job_title: str
+    company: str
+    description_text: str
+    facts: str = Field(
+        description="The base résumé's facts as plain text: roles with company and dates, "
+        "education, projects and certificates"
+    )
+    lines: list[str] = Field(default_factory=list, description="The summary and every bullet")
+    skills: list[str] = Field(default_factory=list, description="Every skill, in order")
+    keywords: list[str] = Field(default_factory=list, description="Keywords from the posting")
+    confirmed_keywords: list[str] = Field(
+        default_factory=list,
+        description="Keywords the candidate picked or typed in the tailor window, confirming "
+        "they have them",
+    )
+    length: CoverLetterLength = "concise"
+
+
+# Every field required, no free-form objects: the Responses API (gpt-6-luna, #410) takes a
+# strict schema.
+class CoverLetterOutput(BaseModel):
+    paragraphs: list[str] = Field(
+        description="The letter's body paragraphs in order, each plain text on one line: no "
+        "greeting, no sign-off"
+    )
+
+
+class CoverLetterResponse(CoverLetterOutput):
+    model_used: str
+    # The posting was refused as a prompt injection (INJECTION_ACTION=refuse): no paragraphs.
+    refused: bool = False
+
+
 
 class ApplicationPackQuestionAnswer(BaseModel):
     question_text: str

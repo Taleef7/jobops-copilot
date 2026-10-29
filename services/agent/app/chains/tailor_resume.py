@@ -13,16 +13,10 @@ from __future__ import annotations
 import json
 import logging
 
+from app.chains.posting import guarded_posting
 from app.llm.provider import get_model_for_agent
 from app.prompts import TAILOR_RESUME_SYSTEM
-from app.safety.injection import (
-    InjectionVerdict,
-    annotate_trace,
-    injection_refused,
-    scan_for_injection,
-    wrap_untrusted,
-)
-from app.safety.pii import maybe_redact
+from app.safety.injection import InjectionVerdict, annotate_trace, injection_refused
 from app.schemas import TailorResumeOutput, TailorResumeRequest, TailorResumeResponse
 
 logger = logging.getLogger("jobops.agent.tailor_resume")
@@ -41,19 +35,10 @@ def _json_text(text: str) -> str:
 
 def _guarded_posting(req: TailorResumeRequest) -> tuple[str, InjectionVerdict]:
     """The posting and everything taken from it (title, company, keywords) as one delimited
-    block: an instruction in a scraped title is data like one in the text.
-
-    All of it, and the confirmed keywords, is scanned for injection. Only the description is
-    PII-redacted: the redactor reads keywords such as "ASP.NET/C#" as URLs.
-    """
-    header = f"Title: {req.job_title}\nCompany: {req.company}\n"
-    if req.keywords:
-        header += "Keywords from the posting: " + ", ".join(req.keywords) + "\n"
-    verdict = scan_for_injection("\n".join([header, req.description_text, *req.confirmed_keywords]))
-    if verdict.flagged:
-        logger.warning("Possible prompt injection in the posting; patterns=%s", verdict.patterns)
-    description = maybe_redact(req.description_text) or ""
-    return wrap_untrusted(header + "\n" + description, "JOB DESCRIPTION"), verdict
+    block, scanned for injection with the confirmed keywords (app/chains/posting.py)."""
+    return guarded_posting(
+        req.job_title, req.company, req.keywords, req.description_text, req.confirmed_keywords
+    )
 
 
 def _human_message(req: TailorResumeRequest, jd_block: str) -> str:

@@ -17,13 +17,13 @@ import { ErrorState } from '@/components/error-state';
 import { draftOutreach } from '@/lib/api';
 import type { OutreachMessageType } from '@/types/job';
 
-const messageTypeOptions: { label: string; value: OutreachMessageType }[] = [
+// Cover letters are written in the tailor window (#416), with their own check and one-page PDF.
+export const messageTypeOptions: { label: string; value: OutreachMessageType }[] = [
   { label: 'Recruiter email', value: 'recruiter_email' },
   { label: 'LinkedIn connection', value: 'linkedin_connection' },
   { label: 'Referral request', value: 'referral_request' },
   { label: 'Follow-up', value: 'follow_up' },
   { label: 'Thank you', value: 'thank_you' },
-  { label: 'Cover letter', value: 'cover_letter' },
 ];
 
 type FormState = {

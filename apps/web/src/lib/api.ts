@@ -1,5 +1,7 @@
 import type {
   ApplicationPackPayload,
+  CoverLetterLength,
+  CoverLetterRecord,
   FeedQueryOptions,
   FeedResult,
   Job,
@@ -682,6 +684,121 @@ export async function downloadResumeVersion(versionId: string, filename?: string
   const a = document.createElement('a');
   a.href = url;
   a.download = filename || `tailored-resume-${versionId}.pdf`;
+  document.body.appendChild(a);
+  a.click();
+  window.URL.revokeObjectURL(url);
+  document.body.removeChild(a);
+  return { unsupported };
+}
+
+/** The job's cover letter, or null before one is written (#416). */
+export async function getCoverLetter(jobId: string): Promise<CoverLetterRecord | null> {
+  const response = await requestJson<{ coverLetter: CoverLetterRecord | null }>(`/api/jobs/${jobId}/cover-letter`, { cache: 'no-store' });
+  return response.coverLetter;
+}
+
+/**
+ * Write the job's cover letter, Concise or Full, replacing the one it had (#416).
+ * `confirmedKeywords` are the keywords the user said they have in the tailor window.
+ */
+export async function writeCoverLetter(
+  jobId: string,
+  options: { length: CoverLetterLength; confirmedKeywords: string[] },
+): Promise<CoverLetterRecord> {
+  const response = await requestJson<{ coverLetter: CoverLetterRecord }>(`/api/jobs/${jobId}/cover-letter`, {
+    timeoutMs: AI_REQUEST_TIMEOUT_MS,
+    method: 'POST',
+    body: JSON.stringify(options),
+  });
+  return response.coverLetter;
+}
+
+/**
+ * The user's own words for one paragraph of the letter, onto the letter as it was read.
+ * `expectedText` is the paragraph as the page shows it: the API refuses (409) if it moved.
+ */
+export async function editCoverLetterParagraph(
+  jobId: string,
+  index: number,
+  text: string,
+  updatedAt: string,
+  expectedText: string,
+): Promise<CoverLetterRecord> {
+  const response = await requestJson<{ coverLetter: CoverLetterRecord }>(`/api/jobs/${jobId}/cover-letter/paragraphs/${index}`, {
+    method: 'PATCH',
+    body: JSON.stringify({ text, expectedText, updatedAt }),
+  });
+  return response.coverLetter;
+}
+
+/**
+ * Keep a flagged sentence, or remove it from its paragraph (#416). `expectedText` is that paragraph
+ * as the page shows it: the API refuses (409) if it changed.
+ */
+export async function resolveCoverLetterFlag(
+  jobId: string,
+  checkId: string,
+  action: 'keep' | 'remove',
+  expectedText: string,
+  updatedAt: string,
+): Promise<CoverLetterRecord> {
+  const response = await requestJson<{ coverLetter: CoverLetterRecord }>(
+    `/api/jobs/${jobId}/cover-letter/checks/${encodeURIComponent(checkId)}`,
+    { method: 'PATCH', body: JSON.stringify({ action, expectedText, updatedAt }) },
+  );
+  return response.coverLetter;
+}
+
+/** Remove one paragraph of the letter (not the last), the one the page shows as `expectedText`. */
+export async function removeCoverLetterParagraph(
+  jobId: string,
+  index: number,
+  updatedAt: string,
+  expectedText: string,
+): Promise<CoverLetterRecord> {
+  const response = await requestJson<{ coverLetter: CoverLetterRecord }>(`/api/jobs/${jobId}/cover-letter/paragraphs/${index}`, {
+    method: 'DELETE',
+    body: JSON.stringify({ expectedText, updatedAt }),
+  });
+  return response.coverLetter;
+}
+
+/** "First Last – Company – Cover letter.pdf", from the API's Content-Disposition. */
+function fileNameOf(disposition: string | null, fallback: string): string {
+  const encoded = /filename\*=UTF-8''([^;]+)/i.exec(disposition ?? '')?.[1];
+  if (encoded) {
+    try {
+      return decodeURIComponent(encoded);
+    } catch {
+      // A malformed name: the fallback.
+    }
+  }
+  return /filename="([^"]+)"/i.exec(disposition ?? '')?.[1] ?? fallback;
+}
+
+/**
+ * Downloads the job's cover letter as a one-page PDF dated `date` (the user's local date,
+ * YYYY-MM-DD). `unsupported`: characters its font can't print, shown as "?".
+ */
+export async function downloadCoverLetter(jobId: string, date: string): Promise<{ unsupported: number }> {
+  const res = await fetch(`/api/proxy/api/jobs/${jobId}/cover-letter/download?date=${encodeURIComponent(date)}`);
+  if (!res.ok) {
+    // Its status and code stay with it: a 409 FLAGS_UNRESOLVED has the page read the letter again.
+    const payload = (await res.json().catch(() => ({}))) as { error?: unknown; code?: unknown };
+    throw new ApiRequestError(
+      typeof payload.error === 'string' && payload.error ? payload.error : `Download failed with status ${res.status}`,
+      res.status,
+      undefined,
+      undefined,
+      typeof payload.code === 'string' ? payload.code : undefined,
+    );
+  }
+  const unsupported = Number(res.headers.get('x-pdf-unsupported-characters') ?? 0) || 0;
+  const blob = await res.blob();
+  const url = window.URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = fileNameOf(res.headers.get('content-disposition'), 'Cover letter.pdf');
   document.body.appendChild(a);
   a.click();
   window.URL.revokeObjectURL(url);

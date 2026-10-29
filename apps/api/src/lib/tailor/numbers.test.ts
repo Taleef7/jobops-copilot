@@ -62,3 +62,8 @@ test('large decimal amounts match however they are written', () => {
   assert.deepEqual(unsupportedNumbers('Managed a $4.03B portfolio', 'Managed a $4,030,000,000 portfolio'), []);
   assert.deepEqual(unsupportedNumbers('a 8.05 billion budget', 'a 8,050,000,000 budget'), []);
 });
+
+test('"doubled down" is an idiom, not a number (#416)', () => {
+  assert.deepEqual(unsupportedNumbers('Doubled down on runbooks', 'Wrote runbooks'), []);
+  assert.deepEqual(unsupportedNumbers('Doubled throughput', 'Improved throughput'), ['Doubled']);
+});

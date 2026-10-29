@@ -193,7 +193,8 @@ backfills from `jobs`, landing with the first issue that migrates those tables
 | `jobs` | One row per posting | `id`, `user_id`, `title`, `company`, `location`, `job_url`, `canonical_url`, `description`, `source` (manual / url / discovery), `status`, `next_action`, `next_action_due`, `notes`, `applied_at`, `dismissed_at` |
 | job analysis | AI output per job: the fit read, with verdict, reasons and `based_on` (on the job row or a table, decided in C6/E1) | `verdict`, `reasons`, `sub_signals` (nullable = unknown), `based_on`, `model`, `created_at` |
 | `agent_outputs` | Prep and apply-pack outputs per job | `user_id`, `job_id`, `kind` (interview_prep / research / application_pack), `payload`, `model`, `created_at` |
-| `outreach` | Message drafts, cover letters and the sent log | `user_id`, `job_id`, `contact_id`, `message_type` (incl. `cover_letter`), `status` (draft / sent / skipped), `sent_at`, `channel` |
+| `outreach` | Message drafts and the sent log | `user_id`, `job_id`, `contact_id`, `message_type`, `status` (draft / sent / skipped), `sent_at`, `channel` |
+| `cover_letters` | One cover letter per job, written in the tailor window (#416) | `user_id`, `job_id` (unique together), `length` (concise / full), `paragraphs`, `checks`, `based_on` |
 | `job_contacts` | People the user added by hand | `user_id`, `job_id`, `name`, `role`, `link`, `note` |
 | `application_answers` | Saved answers to recurring questions (user-level) | `user_id`, `question_hash`, `question`, `answer`, `category` |
 | `saved_searches` | Discovery queries | `user_id`, `query`, `location`, `remote_only`, `last_run_at` |

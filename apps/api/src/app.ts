@@ -27,6 +27,7 @@ import { internalRouter } from '@/routes/internal';
 import { feedRouter } from '@/routes/feed';
 import { baseResumeRouter } from '@/routes/base-resume';
 import { resumeStudioRouter } from '@/routes/resume-studio';
+import { coverLetterRouter } from '@/routes/cover-letter';
 import { answersRouter } from '@/routes/answers';
 import { applicationPackRouter } from '@/routes/application-pack';
 import { extensionPaused } from '@/routes/extension-paused';
@@ -105,6 +106,11 @@ export function createApp(dependencies: AppDependencies = {}) {
   app.use('/api/jobs/:id', rejectMalformedJobId);
   // Tailoring a résumé calls the LLM (#351); the route is in resumeStudioRouter below.
   app.post('/api/jobs/:id/tailor', runLimiter, runBudget);
+  // So does writing a cover letter (#416); the route is in coverLetterRouter below.
+  app.post('/api/jobs/:id/cover-letter', runLimiter, runBudget);
+  // Its download and paragraph edit draw the PDF on the request: the preview's allowance (#415).
+  app.get('/api/jobs/:id/cover-letter/download', pdfLimiter);
+  app.patch('/api/jobs/:id/cover-letter/paragraphs/:index', pdfLimiter);
   app.use('/api/jobs', agentOutputsRouter);
   app.use('/api/jobs', jobsRouter);
   app.use('/api/feed', feedRouter);
@@ -149,6 +155,7 @@ export function createApp(dependencies: AppDependencies = {}) {
   app.post('/api/profile/resume', runLimiter);
   app.use('/api/profile', profileRouter);
   app.use('/api', resumeStudioRouter);
+  app.use('/api', coverLetterRouter);
   app.use('/api/demo', demoRouter);
   app.use('/api/outreach', outreachRouter);
   app.use('/api/reports', reportsRouter);
