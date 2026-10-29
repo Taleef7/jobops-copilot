@@ -190,6 +190,11 @@ test('the company by its short name, where the posting uses it, is not a name to
     'At Initrode, I would bring my experience building payment APIs in Go.',
     "I'd love to build payment APIs in Go that an Initrode customer would enjoy.",
     "I'd love to support the teams who have used Initrode for years.",
+    'I would welcome the chance to be employed by Initrode.',
+    'If I worked at Initrode, I would build payment APIs in Go.',
+    'If I had previously worked at Initrode, I would know its payment APIs.',
+    'Once employed by Initrode, I would build payment APIs in Go.',
+    'I hope to become employed by Initrode.',
   ]) {
     assert.deepEqual(check(sentence, { job }).checks, [], sentence);
   }
@@ -199,6 +204,10 @@ test('the company by its short name, where the posting uses it, is not a name to
     'I built Initrode’s payment APIs in Go.',
     "I worked at Initrode, and I'd love to return.",
     'Having worked for Initrode before, I would enjoy building payment APIs in Go again.',
+    'I would bring what I learned when I worked at Initrode to payment APIs in Go.',
+    'I would note that I worked at Initrode on payment APIs in Go.',
+    'I would bring lessons from my previous role at Initrode to payment APIs in Go.',
+    'Being employed by Initrode taught me what I would want next.',
   ]) {
     const tie = check(sentence, { job });
     assert.equal(tie.checks[0]?.severity, 'flag', sentence);

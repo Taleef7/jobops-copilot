@@ -468,7 +468,21 @@ function claimsTie(sentence: string, company: string, short = false): boolean {
         `\\b(?:shipped|delivered|sold|consulted|contributed)\\b(?:\\s+[\\p{L}-]+){0,4}?\\s+(?:to|for)\\s+${name}`,
         `\\b(?:a|an)\\s+(?:[\\p{L}-]+\\s+){0,2}?${source(company)}\\s+(?:customer|client|user|partner|employee|alum(?:nus|na|ni)?|intern|contractor|veteran)${END}`,
       ];
-  return patterns.some((pattern) => [...sentence.matchAll(new RegExp(pattern, 'giu'))].some((match) => !short || /^\p{Lu}/u.test(match[1]!)));
+  return patterns.some((pattern) =>
+    [...sentence.matchAll(new RegExp(pattern, 'giu'))].some((match) => !short || (/^\p{Lu}/u.test(match[1]!) && !supposed(sentence, match.index))),
+  );
+}
+
+/**
+ * What makes the tie right after it a supposition: "if I (had) worked at", "would have been at",
+ * "to be employed by", "once employed by". Only right before it: "I would note that I worked at" is a tie.
+ */
+const SUPPOSING =
+  /(?:\b(?:if|unless|whether|were|wish|imagine)\s+(?:I|we)\s+(?:had\s+)?|\b(?:would|could|should|might|will|may)\s+(?:not\s+)?(?:have\s+)?|\b(?:be|once|get|getting|become|becoming)\s+)(?:\p{L}+ly\s+)?$/iu;
+
+/** Whether the words just before `at` make the tie there a supposition. */
+function supposed(sentence: string, at: number): boolean {
+  return SUPPOSING.test(sentence.slice(0, at));
 }
 
 /** The role, where the letter applies for it: "the X role", "the position of X", "join Acme as an X". */
