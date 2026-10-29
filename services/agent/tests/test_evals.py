@@ -1,6 +1,6 @@
 """Unit tests for the eval harness metrics (deterministic, no LLM/network)."""
 
-from evals.metrics.extraction import exact_match, skill_prf
+from evals.metrics.extraction import exact_match, skill_prf, title_match
 from evals.metrics.ragas_fit import mean, spearman
 
 
@@ -39,6 +39,14 @@ def test_exact_match_mismatch_and_none():
     assert exact_match("junior", "senior") == 0.0
     assert exact_match(None, "senior") == 0.0
     assert exact_match("  Lead ", "lead") == 1.0
+
+
+def test_title_match_ignores_word_order_and_punctuation():
+    assert title_match("Junior AI Automation Engineer", "AI Automation Engineer, Junior") == 1.0
+    assert title_match("AI/LLM Engineer", "AI / LLM Engineer") == 1.0
+    # A different word is still a miss.
+    assert title_match("AWS Security Engineer", "AWS Cloud Security Engineer") == 0.0
+    assert title_match(None, "Engineer") == 0.0
 
 
 def test_spearman_perfect_positive():
@@ -222,6 +230,38 @@ def test_parse_job_eval_lists_its_misses(monkeypatch):
             "fit_score": {"rank_correlation_spearman": None, "n": 0, "errors": 0},
         }
     )
+
+
+def test_parse_job_eval_lists_failed_rows_and_escapes_pipes(monkeypatch):
+    """A row the model failed on is in the misses too, and a "|" doesn't break the table."""
+    from app.schemas import ParsedJob
+    from evals import run
+
+    def parse(text, config=None):
+        if text == "boom":
+            raise RuntimeError("provider down")
+        return ParsedJob(title="Dev | Ops", seniority="mid")
+
+    monkeypatch.setattr(run, "parse_job", parse)
+    rows = [
+        {"id": "a", "description_text": "boom", "expected": {"required_skills": [], "title": "X"}},
+        {
+            "id": "b",
+            "description_text": "d",
+            "expected": {"required_skills": [], "title": "Y", "seniority": "mid"},
+        },
+    ]
+    out = run.run_parse_job_eval(rows)
+    assert out["misses"][0] == {"id": "a", "field": "parse", "expected": None, "got": "error"}
+    markdown = run.render_markdown(
+        {
+            "generated_at": "t",
+            "status": "ok",
+            "parse_job": out,
+            "fit_score": {"rank_correlation_spearman": None, "n": 0, "errors": 0},
+        }
+    )
+    assert "| b | title | Y | Dev \\| Ops |" in markdown
 
 
 # --- J2: gate logic (pure) ---------------------------------------------------

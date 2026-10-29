@@ -39,11 +39,11 @@ Return valid JSON only.
 - Use `null` when a field is unknown.
 - `location` and `workplace_type` come only from what the posting says; never default to remote.
 - Do not infer aggressively.
-- `seniority` comes from the title first, then the years of experience asked for (for a range, its lower end):
-  - `lead`: lead, principal, staff, head of, or managing people;
-  - `senior`: senior or Sr., or 6 or more years;
-  - `junior`: junior, entry-level, graduate, intern, or under 2 years;
-  - `mid`: 2 to 5 years, or a role that states neither a level nor years;
+- `seniority` comes from the role's own level: in its title, or where the posting states it ("this is an entry-level role"). Level words about other people or tasks ("work with senior engineers", "lead the migration") don't count. Without a level, use the years of experience asked for, however they are written ("3+ years", "a minimum of seven years", "4-6 yrs"; for a range, its lower end):
+  - `lead`: Lead, Principal, Staff (as in Staff Engineer), Manager, Head of or Director;
+  - `senior`: Senior or Sr., or 6 or more years;
+  - `junior`: Junior, Entry-level, Graduate or Intern, or under 2 years;
+  - `mid`: 2 to 5 years, or neither a level nor years;
   - `unknown` only when the text describes no role at all. A posting that describes a role but gives no level or years is `mid`, not `unknown`.
 - Separate cloud tools, automation tools, programming languages, and soft skills where possible.
 - Keep the output grounded in the source text.

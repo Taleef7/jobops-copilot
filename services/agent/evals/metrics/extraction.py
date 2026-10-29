@@ -1,12 +1,14 @@
 """Deterministic metrics for `parse-job` extraction quality (no LLM judge).
 
-`skill_prf` scores extracted skill lists with set-based precision/recall/F1, and
-`exact_match` scores scalar fields (title, seniority). Both are case-insensitive
-and whitespace-insensitive so trivial formatting differences don't count as errors.
+`skill_prf` scores extracted skill lists with set-based precision/recall/F1,
+`exact_match` scores seniority, and `title_match` scores titles by their words. All
+are case-insensitive and whitespace-insensitive so trivial formatting differences
+don't count as errors.
 """
 
 from __future__ import annotations
 
+import re
 from collections.abc import Iterable
 
 
@@ -37,3 +39,13 @@ def skill_prf(predicted: Iterable[str], gold: Iterable[str]) -> tuple[float, flo
 def exact_match(predicted: str | None, gold: str | None) -> float:
     """1.0 when the two scalars match case/space-insensitively, else 0.0."""
     return 1.0 if (predicted or "").strip().lower() == (gold or "").strip().lower() else 0.0
+
+
+def title_match(predicted: str | None, gold: str | None) -> float:
+    """1.0 when two titles have the same words, in any order and with any punctuation.
+
+    "Junior AI Automation Engineer" is "AI Automation Engineer, Junior"; "AWS Security
+    Engineer" is still not "AWS Cloud Security Engineer".
+    """
+    words = lambda text: sorted(re.findall(r"[a-z0-9+#]+", (text or "").lower()))  # noqa: E731
+    return 1.0 if predicted and words(predicted) == words(gold) else 0.0
