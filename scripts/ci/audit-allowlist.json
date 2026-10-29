@@ -1,0 +1,8 @@
+[
+  {
+    "id": "GHSA-xcx6-jx8p-x3h5",
+    "package": "@azure/msal-node",
+    "expires": "2026-11-28",
+    "reason": "Only MSAL's auth-code flow (acquireTokenByCode) is affected, fixed in 7.1.0. It reaches us as applicationinsights -> @azure/identity, and every @azure/identity release (4.14.0, beta 4.15.0-beta.1) still requires msal-node ^6. The API and the web app send telemetry with a connection string and run no MSAL flow. Remove when @azure/identity accepts msal-node >= 7.1.0."
+  }
+]
