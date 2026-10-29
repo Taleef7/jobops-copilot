@@ -178,7 +178,7 @@ describe('CoverLetterReview', () => {
       downloadCoverLetter.mockResolvedValueOnce({ unsupported: 0 });
       renderLetter();
 
-      await user.click(await screen.findByRole('button', { name: 'Download PDF' }));
+      await user.click(await screen.findByRole('button', { name: 'Download letter PDF' }));
       expect(downloadCoverLetter).toHaveBeenCalledWith('job-1', '2026-10-14');
     } finally {
       vi.useRealTimers();
@@ -250,6 +250,24 @@ describe('CoverLetterReview', () => {
     expect(removeCoverLetterParagraph).toHaveBeenCalledWith('job-1', 2, letter.updatedAt, letter.paragraphs[2]!.text);
     await waitFor(() => expect(screen.queryByTestId('letter-paragraph-1')).not.toBeInTheDocument());
     expect(screen.queryByRole('button', { name: /Remove paragraph/ })).not.toBeInTheDocument();
+    // The last paragraph went: focus goes to the one before it, not to the page.
+    await waitFor(() => expect(screen.getByTestId('letter-paragraph-0')).toHaveFocus());
+  });
+
+  it('after a paragraph is removed, focus goes to the paragraph now in its place', async () => {
+    const user = userEvent.setup();
+    getCoverLetter.mockResolvedValueOnce(letter);
+    removeCoverLetterParagraph.mockResolvedValueOnce({
+      ...letter,
+      paragraphs: [letter.paragraphs[0]!, letter.paragraphs[2]!],
+      checks: [letter.checks[0]!, { ...letter.checks[2]!, paragraph: 1 }],
+      updatedAt: '2026-10-14T12:02:00.000Z',
+    });
+    renderLetter();
+
+    await user.click(await screen.findByRole('button', { name: 'Remove paragraph 2' }));
+    await waitFor(() => expect(screen.getByTestId('letter-paragraph-1')).toHaveFocus());
+    expect(screen.getByTestId('letter-paragraph-1')).toHaveTextContent('I have worked with Kafka alongside Go.');
   });
 
   it('the progress is announced once, not every second', async () => {
@@ -373,12 +391,12 @@ describe('CoverLetterReview', () => {
     const paragraph = await screen.findByTestId('letter-paragraph-1');
     expect(within(paragraph).getByText('I would enjoy working on PayLink.').tagName).toBe('MARK');
     expect(within(paragraph).getByText(/mentions "PayLink" from the posting/)).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Download PDF' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Download letter PDF' })).toBeDisabled();
     expect(screen.getByText(/Keep or remove the 1 highlighted sentence before you download/)).toBeInTheDocument();
 
     await user.click(within(paragraph).getByRole('button', { name: 'Keep “I would enjoy working on PayLink.”' }));
     expect(resolveCoverLetterFlag).toHaveBeenCalledWith('job-1', 'c1', 'keep', flagged.paragraphs[1]!.text, flagged.updatedAt);
-    await waitFor(() => expect(screen.getByRole('button', { name: 'Download PDF' })).toBeEnabled());
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Download letter PDF' })).toBeEnabled());
   });
 
   it('Remove takes the flagged sentence out of its paragraph', async () => {
@@ -493,7 +511,7 @@ describe('CoverLetterReview', () => {
   it('the disabled Download says why, for a screen reader too', async () => {
     getCoverLetter.mockResolvedValueOnce(flagged);
     renderLetter();
-    const download = await screen.findByRole('button', { name: 'Download PDF' });
+    const download = await screen.findByRole('button', { name: 'Download letter PDF' });
     expect(download).toBeDisabled();
     expect(download).toHaveAccessibleDescription(/Keep or remove the 1 highlighted sentence before you download/);
   });
@@ -544,7 +562,7 @@ describe('CoverLetterReview', () => {
     await user.click(await screen.findByRole('button', { name: 'Keep “I would enjoy working on PayLink.”' }));
     await waitFor(() => expect(toast.error).toHaveBeenCalledWith(expect.stringMatching(/changed in another tab/)));
     expect(getCoverLetter).toHaveBeenCalledTimes(2);
-    expect(screen.getByRole('button', { name: 'Download PDF' })).toBeEnabled();
+    expect(screen.getByRole('button', { name: 'Download letter PDF' })).toBeEnabled();
   });
 
   it('a stale tab answering a flag (LETTER_CHANGED) reads the letter again', async () => {
@@ -568,9 +586,9 @@ describe('CoverLetterReview', () => {
     getCoverLetter.mockResolvedValueOnce(flagged);
     renderLetter();
 
-    await user.click(await screen.findByRole('button', { name: 'Download PDF' }));
+    await user.click(await screen.findByRole('button', { name: 'Download letter PDF' }));
     await waitFor(() => expect(toast.error).toHaveBeenCalledWith('Keep or remove the highlighted sentence before you download.'));
-    await waitFor(() => expect(screen.getByRole('button', { name: 'Download PDF' })).toBeDisabled());
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Download letter PDF' })).toBeDisabled());
   });
 
   it("a letter from the first version of the check (no ids, no severities) shows its findings as notes and doesn't block", async () => {
@@ -598,7 +616,7 @@ describe('CoverLetterReview', () => {
     renderLetter();
 
     expect(await screen.findByText(/mentions "PayLink" from the posting/)).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Download PDF' })).toBeEnabled();
+    expect(screen.getByRole('button', { name: 'Download letter PDF' })).toBeEnabled();
     expect(screen.queryByRole('button', { name: /^Keep/ })).not.toBeInTheDocument();
     expect(errors.mock.calls.flat().join(' ')).not.toMatch(/key/i);
     errors.mockRestore();
@@ -615,7 +633,7 @@ describe('CoverLetterReview', () => {
     });
     renderLetter();
     expect(await screen.findByText(/mentions "PayLink" from the posting/)).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Download PDF' })).toBeEnabled();
+    expect(screen.getByRole('button', { name: 'Download letter PDF' })).toBeEnabled();
     expect(screen.queryByRole('button', { name: /^Keep/ })).not.toBeInTheDocument();
     expect(within(screen.getByTestId('letter-paragraph-1')).queryByText('I would enjoy working on PayLink.')).not.toBeInTheDocument();
   });

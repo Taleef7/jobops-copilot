@@ -532,7 +532,7 @@ function VersionReview({
             </Button>
             <Button onClick={download} disabled={downloading || saving}>
               {downloading ? <Loader2 className="size-4 animate-spin" aria-hidden /> : null}
-              Download PDF
+              Download résumé PDF
             </Button>
           </div>
         </div>
