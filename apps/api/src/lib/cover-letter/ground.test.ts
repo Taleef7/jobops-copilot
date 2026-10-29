@@ -183,10 +183,27 @@ test('the company by its short name, where the posting uses it, is not a name to
     descriptionText: 'At Initrode, we build payment APIs in Go. Initrode Technologies is hiring a backend engineer.',
   };
   assert.deepEqual(check('I would enjoy building payment APIs in Go at Initrode.', { job }).checks, []);
-  // A tie to the company by its short name is still marked.
-  const tie = check('I worked at Initrode on payment APIs in Go.', { job });
-  assert.equal(tie.checks[0]!.severity, 'flag');
-  assert.ok(tie.checks[0]!.issues.some((found) => found.term === 'Initrode'));
+  for (const sentence of [
+    'I would welcome the chance to bring that to Initrode’s payment APIs.',
+    "I would welcome the chance to bring that to Initrode's payment APIs.",
+    // Hopes that only look like ties.
+    'At Initrode, I would bring my experience building payment APIs in Go.',
+    "I'd love to build payment APIs in Go that an Initrode customer would enjoy.",
+    "I'd love to support the teams who have used Initrode for years.",
+  ]) {
+    assert.deepEqual(check(sentence, { job }).checks, [], sentence);
+  }
+  // A tie to the company by its short name is still marked, in a hope too.
+  for (const sentence of [
+    'I worked at Initrode on payment APIs in Go.',
+    'I built Initrode’s payment APIs in Go.',
+    "I worked at Initrode, and I'd love to return.",
+    'Having worked for Initrode before, I would enjoy building payment APIs in Go again.',
+  ]) {
+    const tie = check(sentence, { job });
+    assert.equal(tie.checks[0]?.severity, 'flag', sentence);
+    assert.ok(tie.checks[0]!.issues.some((found) => /^Initrode/.test(found.term ?? '')), sentence);
+  }
 });
 
 test('the short name changes nothing but that note', () => {
@@ -207,6 +224,9 @@ test('the short name changes nothing but that note', () => {
     descriptionText: 'At Progress, we build payment APIs in Go.',
   };
   assert.equal(classOf('At Globex I tracked progress on the billing API in Go.', { job: progress }), 'kept');
+  // Only the short name written as a name is a tie: "worked with progress" is the word.
+  assert.equal(classOf('At Globex I worked with progress reports on the billing API in Go, and I would enjoy that again.', { job: progress }), 'kept');
+  assert.equal(check('I worked with Progress on payment APIs in Go and would love to again.', { job: progress }).checks[0]?.severity, 'flag');
 });
 
 test('a short name only at the start of a line or after a colon is not one the posting uses', () => {

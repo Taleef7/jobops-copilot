@@ -97,7 +97,9 @@ interface Prepared {
   companies: string[];
   /** The company's name is also a tool's ("Stripe"): only the company, not the tool, is stripped. */
   companyIsTool: boolean;
-  /** The words of the company's short name, where the posting uses one ("palantir"): not names to note. */
+  /** The company's short name, where the posting uses one ("Palantir"), or ''. */
+  short: string;
+  /** Its words ("palantir"): not names to note. */
   shortName: Set<string>;
   /** The résumé as the leadership check reads it. */
   leadership: string;
@@ -399,6 +401,7 @@ function prepare(ctx: LetterContext): Prepared {
   // The candidate's own name and place, "I'm", "I'd", and calendar words: not names the résumé must have.
   const own = wordStems([base.basics.name, location?.city, location?.region, location?.countryCode, "I'm I'd I've I'll", CALENDAR].join(' '));
   const named = companyName(job.company);
+  const short = shortName(named, job.descriptionText);
   const companies = [...new Set([job.company.trim(), named])]
     .filter((name) => name.length >= 2)
     .sort((a, b) => b.length - a.length);
@@ -421,7 +424,8 @@ function prepare(ctx: LetterContext): Prepared {
     posting: wordStems(`${job.descriptionText}\n${job.title}\n${job.company}`),
     companies,
     companyIsTool: companies.some((name) => termsIn(name, vocab).length > 0),
-    shortName: new Set(wordsOf(shortName(named, job.descriptionText))),
+    short,
+    shortName: new Set(wordsOf(short)),
     leadership: leadershipText(evidence.everything),
     titles: titleForms(job.title),
     confirmedKeywords,
@@ -440,23 +444,31 @@ const NOT_A_CLAIM =
 /**
  * A tie to the company the résumé would have to show: "worked at Acme", "partnered with Acme",
  * "my time at Acme", "At Acme, I built", "a longtime Acme customer". "I look forward to working
- * at Acme" and "my next role at Acme" are hopes, not ties.
+ * at Acme" and "my next role at Acme" are hopes, not ties. `short`, for the company's short name:
+ * only a tie plainly in the past ("At Palantir, I would…" is a hope), and only where it is written
+ * with a capital, since a short name can be a word ("worked with progress reports").
  */
-function claimsTie(sentence: string, company: string): boolean {
-  const name = `(?:the\\s+)?${source(company)}${END}`;
-  return [
+function claimsTie(sentence: string, company: string, short = false): boolean {
+  const name = `(?:the\\s+)?(${source(company)})${END}`;
+  const past = [
     `\\b(?:worked|served|interned|consulted|contracted|employed|partnered|collaborated|freelanced)\\s+(?:[\\p{L}-]+\\s+){0,2}?(?:at|for|with|by)\\s+${name}`,
     `\\b(?:was|were|been)\\s+(?:(?:a|an|the)\\s+(?:[\\p{L}-]+\\s+){0,2}?)?(?:at|with)\\s+${name}`,
     `\\bbeen\\s+(?:working|employed|consulting|interning|contracting)\\s+(?:at|for|with)\\s+${name}`,
-    `\\b(?:my|our)\\s+(?:(?:previous|former|past|earlier|prior)\\s+)?(?:time|tenure|years?|months?|days|internship|stint)\\s+(?:at|with)\\s+${name}`,
     `\\b(?:my|our)\\s+(?:previous|former|past|earlier|prior)\\s+(?:role|work|job|position|employer)\\s+(?:(?:at|with)\\s+)?${name}`,
-    `\\bwhile\\s+(?:I\\s+was\\s+)?at\\s+${name}`,
-    `(?:^|[.!?;]\\s+)at\\s+${name}\\s*,?\\s+(?:I|we)\\b`,
-    `\\b(?:used|integrated(?:\\s+with)?|built\\s+(?:on|with))\\s+${name}`,
     `\\b(?:returned|went\\s+back|came\\s+back|moved\\s+back)\\s+to\\s+${name}`,
-    `\\b(?:shipped|delivered|sold|consulted|contributed)\\b(?:\\s+[\\p{L}-]+){0,4}?\\s+(?:to|for)\\s+${name}`,
-    `\\b(?:a|an)\\s+(?:[\\p{L}-]+\\s+){0,2}?${source(company)}\\s+(?:customer|client|user|partner|employee|alum(?:nus|na|ni)?|intern|contractor|veteran)${END}`,
-  ].some((pattern) => new RegExp(pattern, 'iu').test(sentence));
+  ];
+  const patterns = short
+    ? past
+    : [
+        ...past,
+        `\\b(?:my|our)\\s+(?:(?:previous|former|past|earlier|prior)\\s+)?(?:time|tenure|years?|months?|days|internship|stint)\\s+(?:at|with)\\s+${name}`,
+        `\\bwhile\\s+(?:I\\s+was\\s+)?at\\s+${name}`,
+        `(?:^|[.!?;]\\s+)at\\s+${name}\\s*,?\\s+(?:I|we)\\b`,
+        `\\b(?:used|integrated(?:\\s+with)?|built\\s+(?:on|with))\\s+${name}`,
+        `\\b(?:shipped|delivered|sold|consulted|contributed)\\b(?:\\s+[\\p{L}-]+){0,4}?\\s+(?:to|for)\\s+${name}`,
+        `\\b(?:a|an)\\s+(?:[\\p{L}-]+\\s+){0,2}?${source(company)}\\s+(?:customer|client|user|partner|employee|alum(?:nus|na|ni)?|intern|contractor|veteran)${END}`,
+      ];
+  return patterns.some((pattern) => [...sentence.matchAll(new RegExp(pattern, 'giu'))].some((match) => !short || /^\p{Lu}/u.test(match[1]!)));
 }
 
 /** The role, where the letter applies for it: "the X role", "the position of X", "join Acme as an X". */
@@ -538,16 +550,25 @@ function checkSentence(sentence: string, prepared: Prepared): { issues: Groundin
 
   // Ties to the company, flagged: the employment verbs ("worked at Acme"), and in a claim about the
   // candidate, a mention of it within six words of experience ("I know the team at Acme").
+  let tied = false;
   for (const company of prepared.companies) {
     if (has(evidence.everythingLower, norm(company))) continue;
     if (claimsTie(asWritten, company)) {
       issues.push(issue('flag', { code: 'NEW_ENTITY', term: company, message: `says you have worked with ${company}, which your base résumé doesn't` }));
+      tied = true;
       break;
     }
     if (claim && nearExperience(asWritten, company) && !namedOnlyToApply(asWritten, company)) {
       issues.push(issue('flag', { code: 'NEW_ENTITY', term: company, message: `ties you to ${company}, which your base résumé doesn't` }));
+      tied = true;
       break;
     }
+  }
+  // By its short name too, in a hope ("I worked at Palantir and would love to return"). In a claim,
+  // the short name is already flagged as the posting's name.
+  const { short } = prepared;
+  if (!tied && !claim && short && !has(evidence.everythingLower, norm(short)) && claimsTie(asWritten, short, true)) {
+    issues.push(issue('flag', { code: 'NEW_ENTITY', term: short, message: `says you have worked with ${short}, which your base résumé doesn't` }));
   }
 
   // Addresses and links are checked above: their words aren't names ("Priya.Raman@Example.com").
@@ -594,8 +615,8 @@ function checkSentence(sentence: string, prepared: Prepared): { issues: Groundin
     if (reported.has(name.toLowerCase())) return;
     reported.add(name.toLowerCase());
     const fromPosting = prepared.posting.has(stem(name.toLowerCase()));
-    // The company by its short name ("Palantir" for "Palantir Technologies"): only the note goes.
-    if (fromPosting && !claim && prepared.shortName.has(name.toLowerCase())) return;
+    // The company by its short name ("Palantir" for "Palantir Technologies", or "Palantir's"): only the note goes.
+    if (fromPosting && !claim && prepared.shortName.has(name.toLowerCase().replace(/['’]s$/, ''))) return;
     issues.push(
       fromPosting && !claim
         ? issue('note', { code: 'NEW_NAME', term: name, message: `mentions "${name}" from the posting, not your résumé` })
