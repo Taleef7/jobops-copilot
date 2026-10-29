@@ -15,7 +15,12 @@ Rules:
 - Use null for company/title when they are genuinely unknown.
 - location is where the job is based, as the posting states it. workplace_type is remote, hybrid, onsite or flexible only when the posting says so. Use null for either when the posting doesn't say; never guess or default to remote.
 - Separate cloud tools, automation tools, programming languages, and soft skills where possible.
-- seniority must be one of: junior, mid, senior, lead, unknown.
+- seniority is one of junior, mid, senior, lead, unknown. Read it from the title first, then from the years of experience asked for, however they are written ("8 years", "Exp: 10", "6-8 years"; for a range, its lower end):
+  - lead: lead, principal, staff, head of, or managing people;
+  - senior: senior or Sr., or 6 or more years;
+  - junior: junior, entry-level, graduate, intern, or under 2 years;
+  - mid: 2 to 5 years, or a role that states neither a level nor years;
+  - unknown only when there is no role to read.
 - Keep the summary to 1-2 plain sentences describing the role.
 """
 
