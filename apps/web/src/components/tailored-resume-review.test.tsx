@@ -244,13 +244,13 @@ describe('TailoredResumeReview', () => {
     downloadResumeVersion.mockResolvedValue(undefined);
     renderReview([draft]);
 
-    await user.click(screen.getByRole('button', { name: 'Download PDF' }));
+    await user.click(screen.getByRole('button', { name: 'Download résumé PDF' }));
     await waitFor(() => expect(downloadResumeVersion).toHaveBeenCalledWith('ver-1', 'Jordan Lee – Acme Pay.pdf'));
     expect(approveResumeVersion).toHaveBeenCalledWith('ver-1');
     expect(await screen.findByText(/Downloaded\. To change it, tailor again\./)).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Restore original' })).not.toBeInTheDocument();
 
-    await user.click(screen.getByRole('button', { name: 'Download PDF' }));
+    await user.click(screen.getByRole('button', { name: 'Download résumé PDF' }));
     expect(approveResumeVersion).toHaveBeenCalledTimes(1);
     expect(downloadResumeVersion).toHaveBeenCalledTimes(2);
   });
@@ -372,10 +372,10 @@ describe('TailoredResumeReview', () => {
     await user.click(within(screen.getByTestId('change-c0')).getByRole('button', { name: 'Edit' }));
     expect(within(screen.getByTestId('change-c0')).getByLabelText('Your words for this line')).toBeInTheDocument();
     await user.click(within(screen.getByTestId('change-c0')).getByRole('button', { name: 'Save' }));
-    expect(screen.getByRole('button', { name: 'Download PDF' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Download résumé PDF' })).toBeDisabled();
     expect(within(screen.getByTestId('change-c2')).getByRole('button', { name: 'Keep' })).toBeDisabled();
     save(draft);
-    await waitFor(() => expect(screen.getByRole('button', { name: 'Download PDF' })).toBeEnabled());
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Download résumé PDF' })).toBeEnabled());
   });
 
   it('an added skill can be removed, and says so', async () => {
@@ -430,9 +430,9 @@ describe('TailoredResumeReview', () => {
     first.unmount();
 
     renderReview([draft]);
-    expect(screen.getByRole('button', { name: 'Download PDF' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Download résumé PDF' })).toBeDisabled();
     save({ ...draft, updatedAt: '2026-10-14T12:05:00.000Z' });
-    await waitFor(() => expect(screen.getByRole('button', { name: 'Download PDF' })).toBeEnabled());
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Download résumé PDF' })).toBeEnabled());
   });
 
   it('editing a dropped suggestion starts from the original line, not the dropped text', async () => {
@@ -448,14 +448,14 @@ describe('TailoredResumeReview', () => {
     approveResumeVersion.mockReturnValueOnce(new Promise((resolve) => (approve = resolve)));
     downloadResumeVersion.mockResolvedValue(undefined);
     const first = renderReview([draft]);
-    await user.click(screen.getByRole('button', { name: 'Download PDF' }));
+    await user.click(screen.getByRole('button', { name: 'Download résumé PDF' }));
     first.unmount();
 
     renderReview([draft]);
-    expect(screen.getByRole('button', { name: 'Download PDF' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Download résumé PDF' })).toBeDisabled();
     approve({ version: { ...draft, approved: true, updatedAt: '2026-10-14T12:06:00.000Z' }, approved: true });
     expect(await screen.findByText(/Downloaded\. To change it, tailor again\./)).toBeInTheDocument();
-    await waitFor(() => expect(screen.getByRole('button', { name: 'Download PDF' })).toBeEnabled());
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Download résumé PDF' })).toBeEnabled());
     expect(approveResumeVersion).toHaveBeenCalledTimes(1);
   });
 
@@ -498,7 +498,7 @@ describe('TailoredResumeReview', () => {
     approveResumeVersion.mockResolvedValueOnce({ version: { ...draft, approved: true }, approved: true });
     downloadResumeVersion.mockResolvedValueOnce({ unsupported: 3 });
     renderReview([draft]);
-    await user.click(screen.getByRole('button', { name: 'Download PDF' }));
+    await user.click(screen.getByRole('button', { name: 'Download résumé PDF' }));
     await waitFor(() => expect(toast.warning).toHaveBeenCalledWith(expect.stringMatching(/3 characters/)));
   });
 

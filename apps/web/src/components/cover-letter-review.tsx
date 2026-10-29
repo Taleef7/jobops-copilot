@@ -426,12 +426,8 @@ function LetterView({
     if (saved) setEditing(null);
     return saved;
   };
-  const remove = (index: number) =>
-    change(
-      () => removeCoverLetterParagraph(jobId, index, letter.updatedAt, letter.paragraphs[index]!.text),
-      "That paragraph couldn't be removed.",
-    );
-  // After an answer, focus goes to the next flag's Keep, else to the answered sentence's paragraph.
+  // After an answer, focus goes to the next flag's Keep, else to the answered sentence's paragraph;
+  // after a removal, to the paragraph now in its place, else the one before.
   const list = useRef<HTMLDivElement>(null);
   const focusNext = useRef<string | null>(null);
   useEffect(() => {
@@ -440,6 +436,15 @@ function LetterView({
     focusNext.current = null;
     list.current?.querySelector<HTMLElement>(selector)?.focus();
   }, [letter, saving]);
+  const remove = (index: number) =>
+    change(
+      () => removeCoverLetterParagraph(jobId, index, letter.updatedAt, letter.paragraphs[index]!.text),
+      "That paragraph couldn't be removed.",
+      null,
+      (fresh) => {
+        focusNext.current = `[data-paragraph="${Math.min(index, fresh.paragraphs.length - 1)}"]`;
+      },
+    );
   const resolve = (check: CoverLetterCheck, action: 'keep' | 'remove') =>
     change(
       () => resolveCoverLetterFlag(jobId, check.id!, action, letter.paragraphs[check.paragraph!]!.text, letter.updatedAt),
@@ -471,7 +476,7 @@ function LetterView({
           </Button>
           <Button onClick={download} disabled={locked || unresolved.length > 0} aria-describedby={unresolved.length > 0 ? reasonId : undefined}>
             {downloading ? <Loader2 className="size-4 animate-spin" aria-hidden /> : null}
-            Download PDF
+            Download letter PDF
           </Button>
         </div>
       </div>
