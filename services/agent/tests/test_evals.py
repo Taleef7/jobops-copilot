@@ -189,6 +189,41 @@ def test_parse_job_eval_smoke_with_fake_model(monkeypatch):
     assert out["n"] == 1 and out["errors"] == 0 and out["skill_f1"] == 1.0
 
 
+def test_parse_job_eval_lists_its_misses(monkeypatch):
+    """The report says which rows missed title or seniority, and with what."""
+    from app.schemas import ParsedJob
+    from evals import run
+
+    monkeypatch.setattr(
+        run, "parse_job", lambda text, config=None: ParsedJob(title="X", seniority="unknown")
+    )
+    rows = [
+        {
+            "id": "a",
+            "description_text": "d",
+            "expected": {"required_skills": [], "title": "X", "seniority": "mid"},
+        },
+        {
+            "id": "b",
+            "description_text": "d",
+            "expected": {"required_skills": [], "title": "Y", "seniority": "unknown"},
+        },
+    ]
+    out = run.run_parse_job_eval(rows)
+    assert out["misses"] == [
+        {"id": "a", "field": "seniority", "expected": "mid", "got": "unknown"},
+        {"id": "b", "field": "title", "expected": "Y", "got": "X"},
+    ]
+    assert "| a | seniority | mid | unknown |" in run.render_markdown(
+        {
+            "generated_at": "t",
+            "status": "ok",
+            "parse_job": out,
+            "fit_score": {"rank_correlation_spearman": None, "n": 0, "errors": 0},
+        }
+    )
+
+
 # --- J2: gate logic (pure) ---------------------------------------------------
 
 
