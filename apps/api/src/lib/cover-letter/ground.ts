@@ -3,7 +3,9 @@ import {
   companyName,
   degreesIn,
   heldTitles,
+  breakDashes,
   LEADERSHIP,
+  leadershipText,
   newNames,
   prepareEvidence,
   titleClaims,
@@ -95,6 +97,10 @@ interface Prepared {
   companies: string[];
   /** The company's name is also a tool's ("Stripe"): only the company, not the tool, is stripped. */
   companyIsTool: boolean;
+  /** The words of the company's short name, where the posting uses one ("palantir"): not names to note. */
+  shortName: Set<string>;
+  /** The résumé as the leadership check reads it. */
+  leadership: string;
   /** The role's title as the posting gives it, shortened and with "Sr." spelled out, longest first. */
   titles: string[];
   confirmedKeywords: string[];
@@ -364,8 +370,8 @@ const DESCRIPTOR =
 
 /**
  * The company's short name, when the posting calls it that mid-sentence: "At Palantir, we…" for
- * "Palantir Technologies". Not a word the posting only starts a sentence with ("General
- * knowledge…" for "General Systems"), and '' when there is none.
+ * "Palantir Technologies". Not a word the posting only starts a sentence, a line or a list with
+ * ("General knowledge…" for "General Systems"), and '' when there is none.
  */
 function shortName(company: string, posting: string): string {
   let short = company;
@@ -375,7 +381,7 @@ function shortName(company: string, posting: string): string {
   }
   if (short === company) return '';
   const rest = source(company.slice(short.length).trim());
-  const midSentence = new RegExp(`(?<=[\\p{L}\\p{N},;:]\\s+)${source(short)}${END}(?!\\s+${rest})`, 'u');
+  const midSentence = new RegExp(`(?<=[\\p{L}\\p{N},;][ \\t]+)${source(short)}${END}(?!\\s+${rest})`, 'u');
   return midSentence.test(plain(posting)) ? short : '';
 }
 
@@ -393,7 +399,7 @@ function prepare(ctx: LetterContext): Prepared {
   // The candidate's own name and place, "I'm", "I'd", and calendar words: not names the résumé must have.
   const own = wordStems([base.basics.name, location?.city, location?.region, location?.countryCode, "I'm I'd I've I'll", CALENDAR].join(' '));
   const named = companyName(job.company);
-  const companies = [...new Set([job.company.trim(), named, shortName(named, job.descriptionText)])]
+  const companies = [...new Set([job.company.trim(), named])]
     .filter((name) => name.length >= 2)
     .sort((a, b) => b.length - a.length);
   return {
@@ -415,6 +421,8 @@ function prepare(ctx: LetterContext): Prepared {
     posting: wordStems(`${job.descriptionText}\n${job.title}\n${job.company}`),
     companies,
     companyIsTool: companies.some((name) => termsIn(name, vocab).length > 0),
+    shortName: new Set(wordsOf(shortName(named, job.descriptionText))),
+    leadership: leadershipText(evidence.everything),
     titles: titleForms(job.title),
     confirmedKeywords,
   };
@@ -586,6 +594,8 @@ function checkSentence(sentence: string, prepared: Prepared): { issues: Groundin
     if (reported.has(name.toLowerCase())) return;
     reported.add(name.toLowerCase());
     const fromPosting = prepared.posting.has(stem(name.toLowerCase()));
+    // The company by its short name ("Palantir" for "Palantir Technologies"): only the note goes.
+    if (fromPosting && !claim && prepared.shortName.has(name.toLowerCase())) return;
     issues.push(
       fromPosting && !claim
         ? issue('note', { code: 'NEW_NAME', term: name, message: `mentions "${name}" from the posting, not your résumé` })
@@ -683,10 +693,10 @@ function checkSentence(sentence: string, prepared: Prepared): { issues: Groundin
   }
 
   // Leading or owning work the résumé never says you did: kept, and marked.
-  const lower = norm(text);
+  const lower = norm(withoutPosting(links.reduce((out, link) => out.replace(link.text, ' '), breakDashes(sentence)), prepared));
   for (const verb of LEADERSHIP) {
     const found = verb.exec(lower);
-    if (found && !verb.test(evidence.everythingLower)) {
+    if (found && !verb.test(prepared.leadership)) {
       issues.push(issue('flag', { code: 'LEADERSHIP_CLAIM', term: found[0], message: `says "${found[0]}", which your base résumé doesn't` }));
     }
   }

@@ -243,6 +243,13 @@ test('a compound ending in a leadership verb ("evidence-led", "self-managed") is
   }
   const coLed = kept('work[0].highlights[0]', 'Co-led the billing API in Go serving 2,000 merchants');
   assert.ok(codes(coLed).includes('LEADERSHIP_CLAIM'));
+  // A dash between words is a break, not a compound.
+  for (const text of [
+    'Built the billing API in Go—leading the billing team, serving 2,000 merchants',
+    'Built the billing API in Go--managing the billing team, serving 2,000 merchants',
+  ]) {
+    assert.ok(codes(kept('work[0].highlights[0]', text)).includes('LEADERSHIP_CLAIM'), text);
+  }
 });
 
 test('gaps the résumé or the user already covers are left out', () => {

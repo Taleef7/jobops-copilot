@@ -154,7 +154,7 @@ export function heldTitles(text: string): Map<string, number> {
 /**
  * Verbs that claim leading or owning work, by family. Kept, but marked for review. Not as the end
  * of a compound ("evidence-led", "self-managed", "merchant-owned"), which describes the work, not
- * the person; "co-led" still claims it.
+ * the person; "co-led" still claims it. Read them in `leadershipText`, where a dash is a break.
  */
 export const LEADERSHIP: RegExp[] = [
   'led|leading',
@@ -168,6 +168,13 @@ export const LEADERSHIP: RegExp[] = [
   'hir(?:e|ed|es|ing)',
   'oversaw|oversee|oversees|overseeing|overseen',
 ].map((verb) => new RegExp(`(?<!(?<!\\bco)-)\\b(?:${verb})\\b`));
+
+/**
+ * A dash between words ("Go—leading the team", "Go--leading") as a space. `plain` folds every dash
+ * to "-", so this comes first: for the LEADERSHIP check, only a hyphen joins a compound.
+ */
+export const breakDashes = (text: string) => text.replace(/[‒-―−﹘]|-{2,}/g, ' ');
+export const leadershipText = (text: string) => norm(breakDashes(text));
 
 /** Acronyms and words that are not names of anything the résumé has to have. */
 const GENERIC = new Set(
@@ -399,9 +406,10 @@ export function checkLine(line: TailorLine, newText: string, ctx: CheckContext):
     issues.push({ code: 'NEW_SENIORITY', term: claim, message: `claims "${claim}", a title your base résumé doesn't have` });
   }
 
-  const lowerSource = norm(line.text);
+  const leadNew = leadershipText(newText);
+  const lowerSource = leadershipText(line.text);
   for (const verb of LEADERSHIP) {
-    const found = verb.exec(lowerNew);
+    const found = verb.exec(leadNew);
     if (found && !verb.test(lowerSource)) {
       issues.push({ code: 'LEADERSHIP_CLAIM', term: found[0], message: `says "${found[0]}", which the original line doesn't` });
     }
