@@ -242,9 +242,16 @@ jobs:
         run: npm audit --audit-level=critical
 
       # Production dependencies at high and above (#389). Blocking since it ran green on
-      # main after #394.
+      # main after #394. An advisory with no installable fix and no reachable code path can
+      # be allowed, for one package and until a date, in scripts/ci/audit-allowlist.json.
+      - name: Audit gate tests
+        run: node --test scripts/ci/audit-gate.test.mjs
+
       - name: npm audit (production, high)
-        run: npm audit --omit=dev --audit-level=high
+        run: |
+          # npm audit exits non-zero whenever it finds anything; the gate decides.
+          npm audit --omit=dev --json > "$RUNNER_TEMP/npm-audit.json" || true
+          node scripts/ci/audit-gate.mjs "$RUNNER_TEMP/npm-audit.json" high
 
       # The npm gate above left the Python services (agent + mcp) — which pull in the
       # largest, most model-sensitive tree (torch, sentence-transformers, langchain) —
