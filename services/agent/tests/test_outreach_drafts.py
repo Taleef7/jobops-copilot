@@ -287,3 +287,10 @@ def test_an_email_has_no_character_limit(fake_model):
 
     assert len(structured.calls) == 1
     assert len(result.draft_text) == 420
+
+
+def test_a_draft_never_points_out_what_the_candidate_lacks():
+    # Live drafts volunteered "I may not be a fit" that nothing asked for (#416).
+    from app.prompts import OUTREACH_DRAFTER_SYSTEM
+
+    assert "what the candidate lacks" in OUTREACH_DRAFTER_SYSTEM.lower()

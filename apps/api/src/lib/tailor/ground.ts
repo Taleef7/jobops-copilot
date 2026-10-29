@@ -151,19 +151,30 @@ export function heldTitles(text: string): Map<string, number> {
   return held;
 }
 
-/** Verbs that claim leading or owning work, by family. Kept, but marked for review. */
+/**
+ * Verbs that claim leading or owning work, by family. Kept, but marked for review. Not as the end
+ * of a compound ("evidence-led", "self-managed", "merchant-owned"), which describes the work, not
+ * the person; "co-led" still claims it. Read them in `leadershipText`, where a dash is a break.
+ */
 export const LEADERSHIP: RegExp[] = [
-  /\b(led|leading)\b/,
-  /\bmanag(e|ed|es|ing)\b/,
-  /\b(owned|owning)\b/,
-  /\bhead(ed|ing)\b/,
-  /\bdirect(ed|ing)\b/,
-  /\bspearhead(ed|ing|s)?\b/,
-  /\bmentor(ed|ing|s)?\b/,
-  /\bsupervis(e|ed|es|ing)\b/,
-  /\bhir(e|ed|es|ing)\b/,
-  /\b(oversaw|oversee|oversees|overseeing|overseen)\b/,
-];
+  'led|leading',
+  'manag(?:e|ed|es|ing)',
+  'owned|owning',
+  'head(?:ed|ing)',
+  'direct(?:ed|ing)',
+  'spearhead(?:ed|ing|s)?',
+  'mentor(?:ed|ing|s)?',
+  'supervis(?:e|ed|es|ing)',
+  'hir(?:e|ed|es|ing)',
+  'oversaw|oversee|oversees|overseeing|overseen',
+].map((verb) => new RegExp(`(?<!(?<!\\bco)-)\\b(?:${verb})\\b`));
+
+/**
+ * A dash between words ("Go—leading the team", "Go--leading") as a space. `plain` folds every dash
+ * to "-", so this comes first: for the LEADERSHIP check, only a hyphen joins a compound.
+ */
+export const breakDashes = (text: string) => text.replace(/[‒-―−﹘]|-{2,}/g, ' ');
+export const leadershipText = (text: string) => norm(breakDashes(text));
 
 /** Acronyms and words that are not names of anything the résumé has to have. */
 const GENERIC = new Set(
@@ -395,9 +406,10 @@ export function checkLine(line: TailorLine, newText: string, ctx: CheckContext):
     issues.push({ code: 'NEW_SENIORITY', term: claim, message: `claims "${claim}", a title your base résumé doesn't have` });
   }
 
-  const lowerSource = norm(line.text);
+  const leadNew = leadershipText(newText);
+  const lowerSource = leadershipText(line.text);
   for (const verb of LEADERSHIP) {
-    const found = verb.exec(lowerNew);
+    const found = verb.exec(leadNew);
     if (found && !verb.test(lowerSource)) {
       issues.push({ code: 'LEADERSHIP_CLAIM', term: found[0], message: `says "${found[0]}", which the original line doesn't` });
     }

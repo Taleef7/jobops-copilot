@@ -148,6 +148,81 @@ test('a leadership verb the résumé never uses is kept and marked for a look', 
   assert.deepEqual(check('At Globex I mentored two interns.').checks, []);
 });
 
+test('a compound ending in a leadership verb describes the work, not the person; "co-led" still claims it', () => {
+  for (const sentence of [
+    'At Globex I built the billing API in Go with an evidence-led, self-directed approach.',
+    'At Globex I built the billing API in Go on self-managed servers.',
+    'At Globex I built the merchant-owned billing API in Go.',
+  ]) {
+    assert.deepEqual(check(sentence).checks, [], sentence);
+  }
+  const coLed = check('At Globex I co-led the billing API in Go.');
+  assert.equal(coLed.checks[0]!.issues[0]!.code, 'LEADERSHIP_CLAIM');
+  assert.equal(coLed.checks[0]!.issues[0]!.term, 'led');
+});
+
+test('a dash between words is a break, not a compound: the leadership claim after it is marked', () => {
+  for (const [sentence, term] of [
+    ['At Globex I built the billing API in Go—leading the billing team.', 'leading'],
+    ['At Globex I built the billing API in Go–leading the billing team.', 'leading'],
+    ['At Globex I built the billing API in Go--managing the rollout.', 'managing'],
+  ] as const) {
+    const issues = check(sentence).checks.flatMap((found) => found.issues);
+    assert.ok(issues.some((found) => found.code === 'LEADERSHIP_CLAIM' && found.term === term), `${sentence}: ${JSON.stringify(issues)}`);
+  }
+  // And in the résumé, "Go—leading the payments team" is evidence of leading.
+  const base = structuredClone(TAILOR_BASE);
+  base.work[0]!.highlights.push('Built the payouts API in Go—leading the payments team');
+  assert.deepEqual(check('At Globex I led the payments team.', { base }).checks, []);
+});
+
+test('the company by its short name, where the posting uses it, is not a name to note', () => {
+  const job = {
+    title: 'Backend Engineer',
+    company: 'Initrode Technologies',
+    descriptionText: 'At Initrode, we build payment APIs in Go. Initrode Technologies is hiring a backend engineer.',
+  };
+  assert.deepEqual(check('I would enjoy building payment APIs in Go at Initrode.', { job }).checks, []);
+  // A tie to the company by its short name is still marked.
+  const tie = check('I worked at Initrode on payment APIs in Go.', { job });
+  assert.equal(tie.checks[0]!.severity, 'flag');
+  assert.ok(tie.checks[0]!.issues.some((found) => found.term === 'Initrode'));
+});
+
+test('the short name changes nothing but that note', () => {
+  // Named like a tool: an invented tool is still dropped.
+  const tableau = {
+    title: 'Backend Engineer',
+    company: 'Tableau Software',
+    descriptionText: 'At Tableau, we build analytics. Tableau Software is hiring a backend engineer.',
+  };
+  const jobTerms = [...TAILOR_JOB.jobTerms, 'Tableau'];
+  for (const sentence of ['At Globex I published billing dashboards to Tableau.', 'At Globex I moved reports from spreadsheets into Tableau.']) {
+    assert.equal(classOf(sentence, { job: tableau, jobTerms }), 'drop', sentence);
+  }
+  // An ordinary word: an honest sentence using it is not flagged.
+  const progress = {
+    title: 'Backend Engineer',
+    company: 'Progress Software',
+    descriptionText: 'At Progress, we build payment APIs in Go.',
+  };
+  assert.equal(classOf('At Globex I tracked progress on the billing API in Go.', { job: progress }), 'kept');
+});
+
+test('a short name only at the start of a line or after a colon is not one the posting uses', () => {
+  for (const descriptionText of [
+    'General Systems builds payment APIs in Go. General knowledge of Kafka helps.',
+    'General Systems builds payment APIs in Go.\nNice to have: General knowledge of Kafka.',
+    'General Systems builds payment APIs in Go.\nRequirements\nGeneral knowledge of Kafka.',
+  ]) {
+    const job = { title: 'Backend Engineer', company: 'General Systems', descriptionText };
+    assert.deepEqual(check('I have general experience building payment APIs in Go.', { job }).checks, [], descriptionText);
+    assert.equal(classOf('At Globex I worked with general contractors on the billing API in Go.', { job }), 'kept', descriptionText);
+    // "General" stays a name from the posting to note.
+    assert.equal(check('I would enjoy working at General.', { job }).checks[0]?.issues[0]?.code, 'NEW_NAME', descriptionText);
+  }
+});
+
 test('a paragraph whose every sentence is dropped goes, and later marks point at the kept paragraphs', () => {
   const result = groundLetter(['I have run Kafka clusters for years.', 'I would enjoy working on PayLink with your team.'], ctx());
   assert.deepEqual(result.paragraphs, ['I would enjoy working on PayLink with your team.']);

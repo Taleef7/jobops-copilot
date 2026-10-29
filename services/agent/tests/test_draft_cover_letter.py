@@ -217,3 +217,10 @@ def test_the_endpoint_rejects_an_unknown_length(monkeypatch):
     )
 
     assert res.status_code == 422
+
+
+def test_the_letter_never_points_out_what_the_candidate_lacks():
+    # Live letters volunteered gaps ("not embedded imaging") that nothing asked for (#416).
+    prompt = COVER_LETTER_SYSTEM.lower()
+    assert "never mention the résumé itself" in prompt
+    assert "what the candidate lacks" in prompt
