@@ -47,5 +47,5 @@ def title_match(predicted: str | None, gold: str | None) -> float:
     "Junior AI Automation Engineer" is "AI Automation Engineer, Junior"; "AWS Security
     Engineer" is still not "AWS Cloud Security Engineer".
     """
-    words = lambda text: sorted(re.findall(r"[a-z0-9+#]+", (text or "").lower()))  # noqa: E731
-    return 1.0 if predicted and words(predicted) == words(gold) else 0.0
+    words = lambda text: sorted(re.findall(r"[\w+#]+", (text or "").lower()))  # noqa: E731
+    return 1.0 if words(predicted) == words(gold) else 0.0

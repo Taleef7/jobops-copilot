@@ -7,7 +7,8 @@ def test_seniority_rule_names_each_level():
     for cue in (
         "Take it from the role's own level",
         "Level words about other people or tasks",
-        "lead: Lead, Principal, Staff (as in Staff Engineer), Manager, Head of or Director",
+        "a title that manages people (Engineering Manager, Head of, Director)",
+        "a Product, Project or Account Manager isn't one",
         "senior: Senior or Sr., or 6 or more years",
         "junior: Junior, Entry-level, Graduate or Intern, or under 2 years",
         "mid: 2 to 5 years, or neither a level nor years",

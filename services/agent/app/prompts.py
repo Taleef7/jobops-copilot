@@ -16,7 +16,7 @@ Rules:
 - location is where the job is based, as the posting states it. workplace_type is remote, hybrid, onsite or flexible only when the posting says so. Use null for either when the posting doesn't say; never guess or default to remote.
 - Separate cloud tools, automation tools, programming languages, and soft skills where possible.
 - seniority is one of junior, mid, senior, lead, unknown. Take it from the role's own level: in its title, or where the posting states it ("this is an entry-level role"). Level words about other people or tasks ("work with senior engineers", "lead the migration") don't count. Without a level, use the years of experience asked for, however they are written ("3+ years", "a minimum of seven years", "4-6 yrs"; for a range, its lower end):
-  - lead: Lead, Principal, Staff (as in Staff Engineer), Manager, Head of or Director;
+  - lead: Lead, Principal, Staff (as in Staff Engineer), or a title that manages people (Engineering Manager, Head of, Director); a Product, Project or Account Manager isn't one;
   - senior: Senior or Sr., or 6 or more years;
   - junior: Junior, Entry-level, Graduate or Intern, or under 2 years;
   - mid: 2 to 5 years, or neither a level nor years;

@@ -47,6 +47,10 @@ def test_title_match_ignores_word_order_and_punctuation():
     # A different word is still a miss.
     assert title_match("AWS Security Engineer", "AWS Cloud Security Engineer") == 0.0
     assert title_match(None, "Engineer") == 0.0
+    # Words in any script, and no title for no title.
+    assert title_match("Ingénieur logiciel", "Ingénieur données") == 0.0
+    assert title_match("Ingénieur logiciel", "logiciel, Ingénieur") == 1.0
+    assert title_match(None, None) == 1.0
 
 
 def test_spearman_perfect_positive():

@@ -40,7 +40,7 @@ Return valid JSON only.
 - `location` and `workplace_type` come only from what the posting says; never default to remote.
 - Do not infer aggressively.
 - `seniority` comes from the role's own level: in its title, or where the posting states it ("this is an entry-level role"). Level words about other people or tasks ("work with senior engineers", "lead the migration") don't count. Without a level, use the years of experience asked for, however they are written ("3+ years", "a minimum of seven years", "4-6 yrs"; for a range, its lower end):
-  - `lead`: Lead, Principal, Staff (as in Staff Engineer), Manager, Head of or Director;
+  - `lead`: Lead, Principal, Staff (as in Staff Engineer), or a title that manages people (Engineering Manager, Head of, Director); a Product, Project or Account Manager isn't one;
   - `senior`: Senior or Sr., or 6 or more years;
   - `junior`: Junior, Entry-level, Graduate or Intern, or under 2 years;
   - `mid`: 2 to 5 years, or neither a level nor years;
