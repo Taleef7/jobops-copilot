@@ -20,7 +20,7 @@ Rules:
   - senior: senior or Sr., or 6 or more years;
   - junior: junior, entry-level, graduate, intern, or under 2 years;
   - mid: 2 to 5 years, or a role that states neither a level nor years;
-  - unknown only when there is no role to read.
+  - unknown only when the text describes no role at all. A posting that describes a role but gives no level or years is mid, not unknown.
 - Keep the summary to 1-2 plain sentences describing the role.
 """
 
