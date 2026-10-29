@@ -89,6 +89,8 @@ def _configure_app_insights() -> bool:
     try:
         from azure.monitor.opentelemetry import configure_azure_monitor
 
+        # App Insights' role name; without one the agent shows as "unknown_service:python3.12".
+        os.environ.setdefault("OTEL_SERVICE_NAME", "jobops-agent")
         configure_azure_monitor()
         return True
     except Exception:
@@ -99,7 +101,25 @@ def _configure_app_insights() -> bool:
         return False
 
 
-_configure_app_insights()
+def _trace_requests(target: FastAPI, tracer_provider=None) -> bool:
+    """Trace each request to the app, except the liveness probe.
+
+    configure_azure_monitor() traces FastAPI by swapping the FastAPI class, and this module
+    imported the class before that, so its app needs instrumenting directly.
+    """
+    try:
+        from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
+
+        FastAPIInstrumentor.instrument_app(
+            target, tracer_provider=tracer_provider, excluded_urls="/health$"
+        )
+        return True
+    except Exception:
+        logging.getLogger(__name__).warning("Request tracing failed to start.", exc_info=True)
+        return False
+
+
+_telemetry = _configure_app_insights()
 
 
 # --- Graphs + shared durable memory ------------------------------------------
@@ -167,6 +187,8 @@ app = FastAPI(
     summary="Real-LLM analysis and agent orchestration for JobOps Copilot.",
     lifespan=_lifespan,
 )
+if _telemetry:
+    _trace_requests(app)
 
 
 @app.middleware("http")
