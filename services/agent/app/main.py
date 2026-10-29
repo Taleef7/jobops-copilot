@@ -102,16 +102,26 @@ def _configure_app_insights() -> bool:
 
 
 def _trace_requests(target: FastAPI, tracer_provider=None) -> bool:
-    """Trace each request to the app, except the liveness probe.
+    """Trace each request to the app as one span, except the liveness probe.
 
     configure_azure_monitor() traces FastAPI by swapping the FastAPI class, and this module
-    imported the class before that, so its app needs instrumenting directly.
+    imported the class before that, so its app needs instrumenting directly. Without
+    exclude_spans every chunk of a streamed answer would be a span of its own.
     """
+    if getattr(target, "_is_instrumented_by_opentelemetry", False):
+        # instrument_app would skip it silently, leaving /health and every chunk traced.
+        logging.getLogger(__name__).warning(
+            "The app is already traced another way; /health and stream chunks are not excluded."
+        )
+        return False
     try:
         from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
 
         FastAPIInstrumentor.instrument_app(
-            target, tracer_provider=tracer_provider, excluded_urls="/health$"
+            target,
+            tracer_provider=tracer_provider,
+            excluded_urls="/health$",
+            exclude_spans=["receive", "send"],
         )
         return True
     except Exception:
